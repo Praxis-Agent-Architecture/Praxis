@@ -66,4 +66,5 @@ memory/generated/
 # Legacy reboot leftovers kept out of the blank-slate history
 better-agent/
 codex-experiments/
+claudecodesource/
 docs/docs-status-baseline.md
