@@ -216,6 +216,8 @@ class SearchFetchExecutionError extends Error {
     message: string,
     options?: {
       fallbackEligible?: boolean;
+      networkPhase?: SearchFetchNetworkPhase;
+      failureClass?: SearchFetchFailureClass;
       details?: Record<string, unknown>;
       cause?: unknown;
     },

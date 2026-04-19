@@ -465,11 +465,11 @@ function matchesGlobLikePattern(candidate: string, pattern: string): boolean {
 }
 
 function buildReadManyFileSelection(params: {
-  files: Array<{ absolutePath: string; relativePath: string }>;
+  files: Array<{ absolutePath: string; relativePath: string; withinWorkspace?: boolean }>;
   include?: string[];
   exclude?: string[];
   maxEntries: number;
-}): Array<{ absolutePath: string; relativePath: string }> {
+}): Array<{ absolutePath: string; relativePath: string; withinWorkspace: boolean }> {
   const includePatterns = params.include?.map(normalizeGlobLikePattern);
   const excludePatterns = params.exclude?.map(normalizeGlobLikePattern) ?? [];
 
@@ -482,6 +482,10 @@ function buildReadManyFileSelection(params: {
       excludePatterns.length > 0
         ? !matchesAnyPattern(entry.relativePath, excludePatterns)
         : true)
+    .map((entry) => ({
+      ...entry,
+      withinWorkspace: entry.withinWorkspace ?? true,
+    }))
     .slice(0, params.maxEntries);
 }
 

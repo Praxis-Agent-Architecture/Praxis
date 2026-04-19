@@ -260,6 +260,23 @@ function createFakeMpFacade() {
           summary: {} as never,
         };
       },
+      async routeForCore() {
+        return {
+          status: "routed",
+          overlayEntries: [],
+          diagnostics: [],
+        } as never;
+      },
+      getRoutingReadback() {
+        return undefined;
+      },
+      async materializeFromCmpCandidates() {
+        return {
+          status: "materialized",
+          records: [],
+          diagnostics: [],
+        } as never;
+      },
       async materializeBatch() {
         return [];
       },

@@ -1,8 +1,24 @@
 import type { CoreOverlayIndexEntryV1 } from "./types.js";
-import type {
-  ClaudeCodeSkillOverlaySnapshot,
-  ClaudeCodeSkillOverlaySnapshotEntry,
-} from "../integrations/claudecode-skill-overlay-source.js";
+
+export type SkillOverlaySourceKind = "bundled-skill" | "prompt-command";
+
+export interface SkillOverlaySnapshotEntry {
+  id: string;
+  name: string;
+  description: string;
+  whenToUse?: string;
+  aliases: string[];
+  sourceKind: SkillOverlaySourceKind;
+  sourcePath: string;
+  modelInvocable: boolean;
+  userInvocable: boolean;
+}
+
+export interface SkillOverlaySnapshot {
+  schemaVersion: string;
+  sourceRoot: string;
+  entries: SkillOverlaySnapshotEntry[];
+}
 
 const DEFAULT_SKILL_LIMIT = 6;
 
@@ -41,7 +57,7 @@ const STOPWORDS = new Set([
 
 export function createSkillOverlayIndexEntries(input: {
   userMessage: string;
-  snapshot?: ClaudeCodeSkillOverlaySnapshot;
+  snapshot?: SkillOverlaySnapshot;
   limit?: number;
 }): CoreOverlayIndexEntryV1[] {
   const entries = input.snapshot?.entries.filter((entry) => entry.modelInvocable) ?? [];
@@ -64,9 +80,9 @@ export function createSkillOverlayIndexEntries(input: {
 }
 
 function rankSkillSnapshotEntries(
-  entries: ClaudeCodeSkillOverlaySnapshotEntry[],
+  entries: SkillOverlaySnapshotEntry[],
   userMessage: string,
-): ClaudeCodeSkillOverlaySnapshotEntry[] {
+): SkillOverlaySnapshotEntry[] {
   const normalizedMessage = normalizeText(userMessage);
   const queryTokens = extractSearchTokens(userMessage);
 
@@ -93,7 +109,7 @@ function rankSkillSnapshotEntries(
 }
 
 function scoreSkillSnapshotEntry(
-  entry: ClaudeCodeSkillOverlaySnapshotEntry,
+  entry: SkillOverlaySnapshotEntry,
   normalizedMessage: string,
   queryTokens: Set<string>,
 ): number {
@@ -145,11 +161,11 @@ function containsWholeToken(normalizedMessage: string, token: string): boolean {
   return pattern.test(normalizedMessage);
 }
 
-function sourcePriority(entry: ClaudeCodeSkillOverlaySnapshotEntry): number {
+function sourcePriority(entry: SkillOverlaySnapshotEntry): number {
   return entry.sourceKind === "bundled-skill" ? 3 : 2;
 }
 
-function createSkillSummary(entry: ClaudeCodeSkillOverlaySnapshotEntry): string {
+function createSkillSummary(entry: SkillOverlaySnapshotEntry): string {
   const sourceLabel = entry.sourceKind === "bundled-skill"
     ? "Bundled skill"
     : "Prompt command";

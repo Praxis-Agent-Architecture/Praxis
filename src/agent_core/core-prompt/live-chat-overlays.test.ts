@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { ClaudeCodeSkillOverlaySnapshot } from "../integrations/claudecode-skill-overlay-source.js";
 import { createLiveChatOverlayIndex } from "./live-chat-overlays.js";
-import { createSkillOverlayIndexEntries } from "./skill-overlay-index-producer.js";
+import {
+  createSkillOverlayIndexEntries,
+  type SkillOverlaySnapshot,
+} from "./skill-overlay-index-producer.js";
 
-const skillSnapshot: ClaudeCodeSkillOverlaySnapshot = {
+const skillSnapshot: SkillOverlaySnapshot = {
   schemaVersion: "claudecode-skill-overlay-snapshot/v1",
   sourceRoot: "/tmp/claudecode",
   entries: [

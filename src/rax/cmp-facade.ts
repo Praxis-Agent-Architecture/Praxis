@@ -125,6 +125,7 @@ function createAcceptanceReadiness(input: {
   infraStateAvailable: boolean;
   recoverySummary?: RaxCmpReadbackSummary["recoverySummary"];
   projectRecovery?: RaxCmpReadbackSummary["projectRecovery"];
+  deliverySummary?: RaxCmpReadbackSummary["deliverySummary"];
   fallbacks: RaxCmpReadbackSummary["fallbacks"];
   roleCapabilityExecutionBridgeAvailable: boolean;
 }): RaxCmpAcceptanceReadiness {
@@ -141,9 +142,14 @@ function createAcceptanceReadiness(input: {
     && input.infraStateAvailable
     && input.truthLayers.every((layer) => layer.status === "ready");
   const recoveryAligned = !input.projectRecovery || input.projectRecovery.status === "aligned";
+  const recoveryDriftFree = !input.recoverySummary || (
+    input.recoverySummary.degradedProjectIds.length === 0
+    && input.recoverySummary.snapshotOnlyProjectIds.length === 0
+    && input.recoverySummary.infraOnlyProjectIds.length === 0
+  );
   const deliveryHealthy = (input.projectRecovery?.issues?.length ?? 0) === 0
-    && (input.fallbacks.redisDeliveryRecovery === "available" || input.fallbacks.redisDeliveryRecovery === "not_needed")
-    && ((input.recoverySummary?.driftedProjectionCount ?? 0) === 0)
+    && input.fallbacks.redisDeliveryRecovery === "available"
+    && recoveryDriftFree
     && ((input.deliverySummary?.driftCount ?? 0) === 0)
     && ((input.deliverySummary?.expiredCount ?? 0) === 0);
   const quiescentHealthyProject = objectModelIsQuiescent
@@ -947,6 +953,7 @@ function createReadbackSummary(input: {
     infraStateAvailable: Boolean(input.infraState),
     recoverySummary: input.recoverySummary,
     projectRecovery: input.projectRecovery,
+    deliverySummary: input.deliverySummary,
     fallbacks,
     roleCapabilityExecutionBridgeAvailable: input.roleCapabilityExecutionBridgeAvailable !== false,
   });

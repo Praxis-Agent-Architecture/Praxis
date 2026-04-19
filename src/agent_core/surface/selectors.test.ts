@@ -216,7 +216,7 @@ test("surface selectors expose active tasks overlays panels and status messages"
       task: createSurfaceTask({
         taskId: "task-blocked",
         id: "task-blocked",
-        kind: "question",
+        kind: "human_gate",
         status: "blocked",
         title: "Need user input",
         summary: "waiting on questionnaire",

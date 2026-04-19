@@ -1,8 +1,6 @@
 import { createTapFormalFamilyInventory } from "../tap-availability/formal-family-inventory.js";
-import { loadClaudeCodeSkillOverlaySnapshot } from "../integrations/claudecode-skill-overlay-source.js";
 import { loadRepoMemoryOverlaySnapshot } from "../integrations/repo-memory-overlay-source.js";
 import { createMemoryOverlayIndexEntries } from "./memory-overlay-index-producer.js";
-import { createSkillOverlayIndexEntries } from "./skill-overlay-index-producer.js";
 import type {
   CoreOverlayIndexEntryV1,
   CoreOverlayIndexV1,
@@ -40,12 +38,8 @@ function createFallbackSkillEntries(): CoreOverlayIndexEntryV1[] {
   }));
 }
 
-function createSkillEntries(userMessage: string): CoreOverlayIndexEntryV1[] {
-  const snapshotEntries = createSkillOverlayIndexEntries({
-    userMessage,
-    snapshot: loadClaudeCodeSkillOverlaySnapshot(),
-  });
-  return snapshotEntries.length > 0 ? snapshotEntries : createFallbackSkillEntries();
+function createSkillEntries(_userMessage: string): CoreOverlayIndexEntryV1[] {
+  return createFallbackSkillEntries();
 }
 
 function mergeSkillEntries(
