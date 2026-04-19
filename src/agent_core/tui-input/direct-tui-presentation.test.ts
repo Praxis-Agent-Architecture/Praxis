@@ -7,6 +7,7 @@ import {
   deriveDirectTuiCmpStatusDescriptor,
   hasDirectTuiFormalConversation,
   isDirectTuiCmpActivityStage,
+  resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
   resolveDirectTuiConversationPhase,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
@@ -126,6 +127,40 @@ test("turn_result is a noop when the final answer already matches streamed text"
     activeMessageId: "assistant:turn-2:1",
   }), {
     kind: "noop",
+  });
+});
+
+test("assistant delta resumes after a tool break with only the unseen suffix", () => {
+  assert.deepEqual(resolveDirectTuiAssistantDeltaAction({
+    decodedText: "当然可以。简要说，我是一个偏执行型的 AI 助手。",
+    previousDisplayedText: "当然可以。",
+  }), {
+    kind: "append",
+    text: "简要说，我是一个偏执行型的 AI 助手。",
+  });
+});
+
+test("assistant delta appends a normal incremental chunk to the active segment", () => {
+  assert.deepEqual(resolveDirectTuiAssistantDeltaAction({
+    decodedText: "当然可以。简要说，",
+    previousDisplayedText: "当然可以。",
+    activeMessageId: "assistant:turn-2:1",
+  }), {
+    kind: "delta",
+    textDelta: "简要说，",
+    messageId: "assistant:turn-2:1",
+  });
+});
+
+test("assistant delta falls back to update when the accumulated text rewrites earlier content", () => {
+  assert.deepEqual(resolveDirectTuiAssistantDeltaAction({
+    decodedText: "新的完整答案",
+    previousDisplayedText: "旧的前缀",
+    activeMessageId: "assistant:turn-2:1",
+  }), {
+    kind: "update",
+    text: "新的完整答案",
+    messageId: "assistant:turn-2:1",
   });
 });
 

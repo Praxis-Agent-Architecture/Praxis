@@ -13,6 +13,7 @@ import {
   loadRaxcodeConfigFile as loadRaxodeConfigFile,
   loadRaxcodeRuntimeConfigSnapshot as loadRaxodeRuntimeConfigSnapshot,
   loadResolvedEmbeddingConfig,
+  loadResolvedRoleConfig,
   resolveConfiguredWorkspaceRoot,
   type RaxcodeAnimationMode as RaxodeAnimationMode,
   type RaxcodeConfigFile as RaxodeConfigFile,
@@ -88,6 +89,10 @@ import {
   type ActiveFileMentionToken,
 } from "./tui-input/composer-file-mentions.js";
 import {
+  recordSubmittedComposerHistory,
+  resolveComposerHistoryNavigation,
+} from "./tui-input/composer-history.js";
+import {
   COMPOSER_POPUP_PAGE_SIZE,
   formatComposerPopupOrdinal,
   moveComposerPopupSelection,
@@ -111,6 +116,24 @@ import {
   type DirectTuiSessionUsageEntry,
 } from "./tui-input/direct-session-store.js";
 import {
+  consumePendingOutboundTurnEntry,
+  resolveCommittedUserMessageId,
+} from "./tui-input/pending-outbound-turn.js";
+import {
+  resolvePendingComposerDispatchesAfterFlush,
+  shouldStartPendingComposerDispatchFlush,
+} from "./tui-input/pending-composer-flush.js";
+import {
+  buildPendingComposerWaitlistWindow,
+  PENDING_COMPOSER_MAX_VISIBLE,
+  resolvePendingComposerPreviewOrdinal,
+  resolvePendingComposerWaitlistSelectionMove,
+} from "./tui-input/pending-composer-submissions.js";
+import {
+  releaseOutboundSubmissionLock,
+  tryAcquireOutboundSubmissionLock,
+} from "./tui-input/outbound-submission-lock.js";
+import {
   buildDirectTuiSessionExitSummary,
   formatDirectTuiPercent,
   formatDirectTuiTokenCount,
@@ -127,7 +150,9 @@ import {
   buildChatModelAvailabilityScopeKey,
   buildEmbeddingModelAvailabilityScopeKey,
   getCachedModelAvailability,
+  listAvailableAnthropicModels,
   listAvailableChatModels,
+  probeAnthropicModelAvailability,
   probeChatModelAvailability,
   probeEmbeddingModelAvailability,
   type ModelAvailabilityRecord,
@@ -157,6 +182,7 @@ import {
   createDirectTuiCmpActivityKey,
   deriveDirectTuiCmpStatusDescriptor,
   isDirectTuiCmpActivityStage,
+  resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
@@ -165,6 +191,12 @@ import {
   buildTerminalTableBodyLines,
   type TerminalTableRow,
 } from "./tui-input/viewer-table-layout.js";
+import {
+  buildCmpViewerHints,
+  cycleCmpViewerSubtab,
+  resolveCmpViewerSubtab,
+  type CmpViewerSubtab,
+} from "./tui-input/cmp-viewer-subtabs.js";
 import {
   buildMpSummaryTableLines,
   type MpSummaryTableSection,
@@ -1577,6 +1609,10 @@ interface PendingComposerDispatch {
   status: PendingComposerDispatchStatus;
 }
 
+interface PendingComposerEditState {
+  entryId: string;
+}
+
 interface PreparedOutboundSubmission {
   text: string;
   attachments: DirectInputImageAttachment[];
@@ -1774,6 +1810,10 @@ function resolvePanelDraftValue(
 
 function createPendingOutboundSubmissionId(): string {
   return `submission:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createOutboundSubmissionLockToken(source: "manual" | "queue_flush"): string {
+  return `${source}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function parseDirectReadySessionId(line: string): string | null {
@@ -2048,6 +2088,19 @@ function viewerPageDraftKey(panelId: ViewerPanelId): string {
   return `${panelId}:page`;
 }
 
+function cmpViewerSubtabDraftKey(): string {
+  return "cmp:subtab";
+}
+
+function cmpViewerSummaryScrollDraftKey(): string {
+  return "cmp:summary:scrollX";
+}
+
+function resolveCmpViewerSummaryScrollX(draft: Record<string, string>): number {
+  const raw = Number.parseInt(draft[cmpViewerSummaryScrollDraftKey()] ?? "0", 10);
+  return Number.isFinite(raw) && raw > 0 ? raw : 0;
+}
+
 function mpViewerSubtabDraftKey(): string {
   return "mp:subtab";
 }
@@ -2094,6 +2147,19 @@ function buildViewerPageMeta(
 
 function formatViewerPageLine(label: string, meta: { pageIndex: number; pageCount: number }, totalItems: number): string {
   return `    ${label} · page ${meta.pageIndex + 1}/${meta.pageCount} · ${totalItems} total`;
+}
+
+function buildCmpViewerChromeSegments(activeSubtab: CmpViewerSubtab): NonNullable<DirectSlashPanelView["chromeSegments"]> {
+  const summaryActive = activeSubtab === "summary";
+  const recordsActive = activeSubtab === "records";
+  return [
+    { text: "/cmp", tone: "pink" },
+    { text: "  Browse current CMP state", tone: "default" },
+    { text: "  " },
+    { text: summaryActive ? "[Summary]" : "Summary", tone: summaryActive ? "green" : "default" },
+    { text: "  " },
+    { text: recordsActive ? "[Records]" : "Records", tone: recordsActive ? "green" : "default" },
+  ];
 }
 
 function buildMpViewerTabHeader(activeSubtab: MpViewerSubtab): PraxisSlashPanelBodyLine {
@@ -2205,6 +2271,132 @@ function buildMpSummarySections(snapshot: MpViewerSnapshot | null): MpSummaryTab
   ];
 }
 
+function buildCmpSummarySections(snapshot: CmpViewerSnapshot | null): MpSummaryTableSection[] {
+  const issueEntries = buildIssueEntries(snapshot?.issueLines, snapshot?.emptyReason);
+  const requestBlocks = parseViewerNamedSummaryLines(snapshot?.requestLines);
+  const requestBlockByLabel = (label: string) => requestBlocks.find((block) => block.label === label)?.entries ?? [];
+  const overviewEntries = buildOverviewEntries({
+    lines: snapshot?.summaryLines,
+    excludedLines: issueEntries.map((entry) => entry.value),
+  }).map((entry, index) => ({
+    subtitle: index === 0 ? "summary" : `detail ${index}`,
+    content: entry.value,
+    abnormal: entry.abnormal,
+  }));
+  const stateEntries: ViewerStatusEntry[] = [
+    ...(snapshot?.sourceKind
+      ? [{
+          key: "source",
+          value: snapshot.sourceKind,
+          abnormal: snapshot.sourceKind !== "cmp_readback",
+        }]
+      : []),
+    ...(snapshot?.truthStatus
+      ? [{
+          key: "truth",
+          value: snapshot.truthStatus,
+          abnormal: snapshot.truthStatus !== "ready",
+        }]
+      : []),
+    ...(snapshot?.readbackStatus
+      ? [{
+          key: "readback",
+          value: snapshot.readbackStatus,
+          abnormal: snapshot.readbackStatus !== "ready",
+        }]
+      : []),
+    ...parseViewerAssignmentEntries(findSnapshotDetailValue(snapshot?.detailLines, "config") ?? ""),
+  ];
+  const normalizeSectionRows = (entries: ViewerStatusEntry[], fallbackSubtitle: string) =>
+    entries.map((entry, index) => ({
+      subtitle: entry.key ?? `${fallbackSubtitle} ${index + 1}`,
+      content: entry.value,
+      abnormal: entry.abnormal,
+    }));
+  return [
+    {
+      title: "Overview",
+      titleTone: "green",
+      rows: overviewEntries.length > 0
+        ? overviewEntries
+        : [{ subtitle: "summary", content: "CMP summary is not available yet." }],
+    },
+    {
+      title: "State",
+      titleTone: "warning",
+      rows: normalizeSectionRows(stateEntries, "state").length > 0
+        ? normalizeSectionRows(stateEntries, "state")
+        : [{ subtitle: "state", content: "cmp state unavailable" }],
+    },
+    {
+      title: "Truth",
+      titleTone: "info",
+      rows: normalizeSectionRows(
+        parseViewerAssignmentEntries(findSnapshotDetailValue(snapshot?.detailLines, "truth") ?? ""),
+        "truth",
+      ).length > 0
+        ? normalizeSectionRows(
+          parseViewerAssignmentEntries(findSnapshotDetailValue(snapshot?.detailLines, "truth") ?? ""),
+          "truth",
+        )
+        : [{ subtitle: "truth", content: "truth unavailable" }],
+    },
+    {
+      title: "Ready",
+      titleTone: "pink",
+      rows: normalizeSectionRows(
+        parseViewerAssignmentEntries(findSnapshotDetailValue(snapshot?.detailLines, "readiness") ?? ""),
+        "ready",
+      ).length > 0
+        ? normalizeSectionRows(
+          parseViewerAssignmentEntries(findSnapshotDetailValue(snapshot?.detailLines, "readiness") ?? ""),
+          "ready",
+        )
+        : [{ subtitle: "ready", content: "readiness unavailable" }],
+    },
+    {
+      title: "Roles",
+      titleTone: "brown",
+      rows: normalizeSectionRows(parseViewerRoleEntries(snapshot?.roleLines), "role").length > 0
+        ? normalizeSectionRows(parseViewerRoleEntries(snapshot?.roleLines), "role")
+        : [{ subtitle: "role", content: "no role telemetry yet" }],
+    },
+    {
+      title: "Requests",
+      titleTone: "info",
+      rows: normalizeSectionRows(requestBlockByLabel("requests"), "request").length > 0
+        ? normalizeSectionRows(requestBlockByLabel("requests"), "request")
+        : [{ subtitle: "request", content: "request telemetry unavailable" }],
+    },
+    {
+      title: "Worksite",
+      titleTone: "green",
+      rows: normalizeSectionRows(requestBlockByLabel("worksite"), "worksite").length > 0
+        ? normalizeSectionRows(requestBlockByLabel("worksite"), "worksite")
+        : [{ subtitle: "worksite", content: "worksite unavailable" }],
+    },
+    {
+      title: "Orch",
+      titleTone: "warning",
+      rows: normalizeSectionRows(requestBlockByLabel("orchestration"), "orch").length > 0
+        ? normalizeSectionRows(requestBlockByLabel("orchestration"), "orch")
+        : [{ subtitle: "orch", content: "orchestration unavailable" }],
+    },
+    {
+      title: "Bridge",
+      titleTone: "orange",
+      rows: normalizeSectionRows(requestBlockByLabel("bridge"), "bridge").length > 0
+        ? normalizeSectionRows(requestBlockByLabel("bridge"), "bridge")
+        : [{ subtitle: "bridge", content: "bridge unavailable" }],
+    },
+    {
+      title: "Issue",
+      titleTone: "danger",
+      rows: normalizeSectionRows(issueEntries, "issue"),
+    },
+  ];
+}
+
 function findSnapshotDetailValue(lines: string[] | undefined, label: string): string | undefined {
   const prefix = `${label.toLowerCase()}:`;
   const line = lines?.find((entry) => entry.toLowerCase().startsWith(prefix));
@@ -2300,58 +2492,26 @@ function buildCmpViewerBodyLines(
   snapshot: CmpViewerSnapshot | null,
   pageIndex: number,
   lineWidth: number,
-): { lines: PraxisSlashPanelBodyLine[]; meta: { pageIndex: number; pageCount: number } } {
+  activeSubtab: CmpViewerSubtab,
+  summaryScrollX: number,
+): { lines: PraxisSlashPanelBodyLine[]; meta: { pageIndex: number; pageCount: number; summaryScrollX: number; summaryMaxScrollX: number } } {
   const entries = snapshot?.entries ?? [];
   const meta = buildViewerPageMeta(pageIndex, entries.length);
   const visibleEntries = entries.slice(meta.start, meta.end);
-  const issueEntries = buildIssueEntries(snapshot?.issueLines, snapshot?.emptyReason);
-  const requestBlocks = parseViewerNamedSummaryLines(snapshot?.requestLines);
-  const lines: PraxisSlashPanelBodyLine[] = [
+  const summaryTable = buildMpSummaryTableLines({
+    sections: buildCmpSummarySections(snapshot),
+    lineWidth,
+    scrollX: summaryScrollX,
+  });
+  const summaryLines: PraxisSlashPanelBodyLine[] = [
+    {
+      text: `    CMP summary table · scroll ${summaryTable.meta.scrollX}/${summaryTable.meta.maxScrollX}`,
+      tone: "info",
+    },
+    ...summaryTable.lines,
+  ];
+  const recordsLines: PraxisSlashPanelBodyLine[] = [
     { text: formatViewerPageLine("CMP sections", meta, entries.length), tone: "info" },
-    ...buildViewerStatusBlockLines({
-      label: "Overview",
-      labelTone: "green",
-      entries: buildOverviewEntries({
-        lines: snapshot?.summaryLines,
-        excludedLines: issueEntries.map((entry) => entry.value),
-      }),
-      lineWidth,
-      emptyValue: "CMP summary is not available yet.",
-    }),
-    ...buildViewerStatusBlockLines({
-      label: "Truth",
-      labelTone: "warning",
-      entries: parseViewerAssignmentEntries(findSnapshotDetailValue(snapshot?.detailLines, "truth") ?? ""),
-      lineWidth,
-      emptyValue: "truth unavailable",
-    }),
-    ...buildViewerStatusBlockLines({
-      label: "Ready",
-      labelTone: "pink",
-      entries: parseViewerAssignmentEntries(findSnapshotDetailValue(snapshot?.detailLines, "readiness") ?? ""),
-      lineWidth,
-      emptyValue: "readiness unavailable",
-    }),
-    ...buildViewerStatusBlockLines({
-      label: "Roles",
-      labelTone: "brown",
-      entries: parseViewerRoleEntries(snapshot?.roleLines),
-      lineWidth,
-      emptyValue: "no role telemetry yet",
-    }),
-    ...requestBlocks.flatMap((block) =>
-      buildViewerStatusBlockLines({
-        label: block.label[0]?.toUpperCase() + block.label.slice(1),
-        labelTone: block.label === "bridge" ? "green" : "info",
-        entries: block.entries,
-        lineWidth,
-      })),
-    ...buildViewerStatusBlockLines({
-      label: "Issue",
-      labelTone: "orange",
-      entries: issueEntries,
-      lineWidth,
-    }),
     ...buildTerminalTableBodyLines({
       columns: [
         {
@@ -2399,11 +2559,16 @@ function buildCmpViewerBodyLines(
       emptyTone: snapshot?.status === "degraded" ? "warning" : undefined,
     }),
   ];
+  const lines = activeSubtab === "records"
+    ? padViewerBodyLinesForTrailingPage(recordsLines, meta, visibleEntries.length)
+    : summaryLines;
   return {
     lines,
     meta: {
       pageIndex: meta.pageIndex,
       pageCount: meta.pageCount,
+      summaryScrollX: summaryTable.meta.scrollX,
+      summaryMaxScrollX: summaryTable.meta.maxScrollX,
     },
   };
 }
@@ -3243,21 +3408,33 @@ function buildSlashPanelView(
       };
     case "cmp":
       {
+        const cmpSubtab = resolveCmpViewerSubtab(draft[cmpViewerSubtabDraftKey()]);
         const cmpPageIndex = resolveViewerPageIndex("cmp", draft, context.cmpViewerSnapshot?.entries.length ?? 0);
-        const cmpViewer = buildCmpViewerBodyLines(context.cmpViewerSnapshot, cmpPageIndex, lineWidth);
+        const cmpSummaryScrollX = resolveCmpViewerSummaryScrollX(draft);
+        const cmpViewer = buildCmpViewerBodyLines(
+          context.cmpViewerSnapshot,
+          cmpPageIndex,
+          lineWidth,
+          cmpSubtab,
+          cmpSummaryScrollX,
+        );
       return {
         id,
         title: "/cmp",
-        description: "View current context sections summary",
+        description: "Browse current CMP state",
         status: statusText,
-        viewerPage: {
-          pageIndex: cmpViewer.meta.pageIndex,
-          pageCount: cmpViewer.meta.pageCount,
-          totalItems: context.cmpViewerSnapshot?.entries.length ?? 0,
-        },
+        viewerPage: cmpSubtab === "records"
+          ? {
+            pageIndex: cmpViewer.meta.pageIndex,
+            pageCount: cmpViewer.meta.pageCount,
+            totalItems: context.cmpViewerSnapshot?.entries.length ?? 0,
+          }
+          : undefined,
         showStatus: false,
         showFields: false,
         showHints: true,
+        chromeSegments: buildCmpViewerChromeSegments(cmpSubtab),
+        summaryMaxScrollX: cmpSubtab === "summary" ? cmpViewer.meta.summaryMaxScrollX : undefined,
         bodyLines: [
           { text: `    ${context.cmpStatusLabel}` },
           ...cmpViewer.lines,
@@ -3271,11 +3448,7 @@ function buildSlashPanelView(
             primary: true,
           },
         ],
-        hints: [
-          "press ← to previous page • press → to next page",
-          "press ENTER to refresh current CMP summary",
-          "press ESC to return to previous page",
-        ],
+        hints: buildCmpViewerHints(cmpSubtab),
       };
       }
     case "mp":
@@ -7065,6 +7238,19 @@ const ExitSummaryPane = memo(function ExitSummaryPane({
   );
 });
 
+interface PendingComposerDispatchPreviewLineSegment {
+  text: string;
+  color: string;
+}
+
+interface PendingComposerDispatchPreviewLine {
+  key: string;
+  segments: PendingComposerDispatchPreviewLineSegment[];
+  trailingHint?: {
+    text: string;
+    color: string;
+  };
+}
 
 const ComposerPane = memo(function ComposerPane({
   showSlashMenu,
@@ -7101,7 +7287,7 @@ const ComposerPane = memo(function ComposerPane({
   slashPanelNotice: SlashPanelNotice | null;
   commandPaletteItems: Array<{ key: string; label: string; description?: string }>;
   selectedSlashIndex: number;
-  pendingComposerDispatchPreviewLines: Array<Array<{ text: string; color: string }>>;
+  pendingComposerDispatchPreviewLines: PendingComposerDispatchPreviewLine[];
   composerValue: string;
   composerLines: string[];
   composerPlaceholder: string;
@@ -7341,14 +7527,33 @@ const ComposerPane = memo(function ComposerPane({
           </Text>
         </Box>
       ) : null}
-      {pendingComposerDispatchPreviewLines.map((segments, index) => (
-        <Text key={`pending-composer-dispatch-${index}`} wrap="truncate-end">
-          {segments.map((segment, segmentIndex) => (
-            <Text key={`pending-composer-dispatch-${index}-${segmentIndex}`} color={segment.color}>
-              {segment.text}
-            </Text>
-          ))}
-        </Text>
+      {pendingComposerDispatchPreviewLines.map((line) => (
+        line.trailingHint ? (
+          <Box key={line.key}>
+            <Box flexGrow={1} flexShrink={1} marginRight={1}>
+              <Text wrap="truncate-end">
+                {line.segments.map((segment, segmentIndex) => (
+                  <Text key={`${line.key}:${segmentIndex}`} color={segment.color}>
+                    {segment.text}
+                  </Text>
+                ))}
+              </Text>
+            </Box>
+            <Box flexShrink={0}>
+              <Text color={line.trailingHint.color}>
+                {line.trailingHint.text}
+              </Text>
+            </Box>
+          </Box>
+        ) : (
+          <Text key={line.key} wrap="truncate-end">
+            {line.segments.map((segment, segmentIndex) => (
+              <Text key={`${line.key}:${segmentIndex}`} color={segment.color}>
+                {segment.text}
+              </Text>
+            ))}
+          </Text>
+        )
       ))}
       <Text color={TUI_THEME.line}>{"─".repeat(lineWidth)}</Text>
       {composerLines.map((line, index) => (
@@ -7467,6 +7672,9 @@ function PraxisDirectTuiApp(): JSX.Element {
   const [composerAttachments, setComposerAttachments] = useState<TuiImageAttachment[]>([]);
   const [composerPastedContents, setComposerPastedContents] = useState<TuiPastedContentAttachment[]>([]);
   const [composerFileReferences, setComposerFileReferences] = useState<TuiFileReferenceAttachment[]>([]);
+  const [composerHistoryEntries, setComposerHistoryEntries] = useState<PreparedOutboundSubmission[]>([]);
+  const [composerHistoryIndex, setComposerHistoryIndex] = useState<number | null>(null);
+  const [composerDraftBeforeHistory, setComposerDraftBeforeHistory] = useState<PreparedOutboundSubmission | null>(null);
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [selectedComposerPopupIndex, setSelectedComposerPopupIndex] = useState(0);
   const [composerPopupPageIndex, setComposerPopupPageIndex] = useState(0);
@@ -7489,6 +7697,9 @@ function PraxisDirectTuiApp(): JSX.Element {
   const [questionPanelState, setQuestionPanelState] = useState<QuestionPanelState>(() => createEmptyQuestionPanelState());
   const [runIndicator, setRunIndicator] = useState<{ startedAt: string; label: string } | null>(null);
   const [pendingComposerDispatches, setPendingComposerDispatches] = useState<PendingComposerDispatch[]>([]);
+  const [selectedPendingComposerDispatchId, setSelectedPendingComposerDispatchId] = useState<string | null>(null);
+  const [pendingComposerEditState, setPendingComposerEditState] = useState<PendingComposerEditState | null>(null);
+  const [pendingComposerWaitlistNotice, setPendingComposerWaitlistNotice] = useState<string | null>(null);
   const [activeCmpStages, setActiveCmpStages] = useState<Array<{ key: string; stage: string }>>([]);
   const [workspaceIndexSnapshot, setWorkspaceIndexSnapshot] = useState<WorkspaceIndexSnapshot | null>(null);
   const [workspaceIndexStatus, setWorkspaceIndexStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
@@ -7550,6 +7761,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const backendStatusRef = useRef<BackendStatus>("starting");
   const runIndicatorRef = useRef<{ startedAt: string; label: string } | null>(null);
   const pendingComposerDispatchFlushRef = useRef<string | null>(null);
+  const activeOutboundSubmissionTokenRef = useRef<string | null>(null);
   const pendingComposerDispatchChainInterruptRef = useRef(false);
   const initCompletedAutoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitCompletedPanelRef = useRef(false);
@@ -7585,7 +7797,77 @@ function PraxisDirectTuiApp(): JSX.Element {
     return resolved;
   };
 
+  const clonePreparedOutboundSubmission = (
+    submission: PreparedOutboundSubmission,
+  ): PreparedOutboundSubmission => ({
+    text: submission.text,
+    attachments: submission.attachments.map((attachment) => ({ ...attachment })),
+    pastedContents: submission.pastedContents.map((entry) => ({ ...entry })),
+    fileReferences: submission.fileReferences.map((entry) => ({ ...entry })),
+  });
+
+  const snapshotComposerDraft = (): PreparedOutboundSubmission => clonePreparedOutboundSubmission({
+    text: composerState.value,
+    attachments: composerAttachments,
+    pastedContents: composerPastedContents,
+    fileReferences: composerFileReferences,
+  });
+
+  const resetComposerHistoryNavigation = () => {
+    setComposerHistoryIndex(null);
+    setComposerDraftBeforeHistory(null);
+  };
+
+  const applyComposerDraft = (
+    submission: PreparedOutboundSubmission,
+    options?: { preserveHistoryNavigation?: boolean; resetScroll?: boolean },
+  ) => {
+    if (!options?.preserveHistoryNavigation) {
+      resetComposerHistoryNavigation();
+    }
+    setComposerState(createTuiTextInputState(submission.text));
+    setComposerAttachments(submission.attachments.map((attachment) => ({
+      ...attachment,
+      displayName: attachment.displayName ?? attachment.localPath ?? attachment.remoteUrl ?? attachment.id,
+    })));
+    setComposerPastedContents(submission.pastedContents.map((entry) => ({ ...entry })));
+    setComposerFileReferences(submission.fileReferences.map((entry) => ({ ...entry })));
+    if (options?.resetScroll !== false) {
+      setScrollOffset(0);
+    }
+  };
+
+  const recordSentComposerHistoryEntry = (submission: PreparedOutboundSubmission) => {
+    const nextEntry = clonePreparedOutboundSubmission(submission);
+    setComposerHistoryEntries((previous) => recordSubmittedComposerHistory(previous, nextEntry));
+  };
+
+  const navigateComposerHistory = (direction: -1 | 1) => {
+    const navigation = resolveComposerHistoryNavigation({
+      entries: composerHistoryEntries,
+      activeIndex: composerHistoryIndex,
+      draftBeforeNavigation: composerDraftBeforeHistory,
+      currentDraft: snapshotComposerDraft(),
+      direction,
+    });
+    if (!navigation.changed || !navigation.draftToApply) {
+      return false;
+    }
+    setComposerHistoryIndex(navigation.nextActiveIndex);
+    setComposerDraftBeforeHistory(
+      navigation.nextDraftBeforeNavigation
+        ? clonePreparedOutboundSubmission(navigation.nextDraftBeforeNavigation)
+        : null,
+    );
+    applyComposerDraft(navigation.draftToApply, {
+      preserveHistoryNavigation: true,
+      resetScroll: false,
+    });
+    return true;
+  };
+
   const clearComposerDraft = () => {
+    resetComposerHistoryNavigation();
     setComposerState(createTuiTextInputState());
     setComposerAttachments([]);
     setComposerPastedContents([]);
@@ -7606,12 +7888,71 @@ function PraxisDirectTuiApp(): JSX.Element {
         || task.status === "blocked"
       ));
 
-  const removePendingComposerDispatchById = (dispatchId: string) => {
-    replacePendingComposerDispatches((previous) =>
-      previous.filter((entry) => entry.id !== dispatchId));
-  };
-
   const getLeadingPendingComposerDispatch = () => pendingComposerDispatchesRef.current[0] ?? null;
+  const pendingComposerDispatchOverflow = pendingComposerDispatches.length > PENDING_COMPOSER_MAX_VISIBLE;
+  const selectedPendingComposerDispatchIndex = selectedPendingComposerDispatchId
+    ? pendingComposerDispatches.findIndex((entry) => entry.id === selectedPendingComposerDispatchId)
+    : -1;
+  const resolvedSelectedPendingComposerDispatchIndex = selectedPendingComposerDispatchIndex >= 0
+    ? selectedPendingComposerDispatchIndex
+    : 0;
+  const selectedPendingComposerDispatchEntry = pendingComposerDispatches[resolvedSelectedPendingComposerDispatchIndex] ?? null;
+  const pendingComposerEditEntry = pendingComposerEditState
+    ? pendingComposerDispatches.find((entry) => entry.id === pendingComposerEditState.entryId) ?? null
+    : null;
+
+  useEffect(() => {
+    if (pendingComposerDispatches.length === 0) {
+      if (selectedPendingComposerDispatchId !== null) {
+        setSelectedPendingComposerDispatchId(null);
+      }
+      if (pendingComposerEditState !== null) {
+        setPendingComposerEditState(null);
+      }
+      if (pendingComposerWaitlistNotice !== null) {
+        setPendingComposerWaitlistNotice(null);
+      }
+      return;
+    }
+    if (pendingComposerDispatches.length <= PENDING_COMPOSER_MAX_VISIBLE) {
+      if (selectedPendingComposerDispatchId !== null) {
+        setSelectedPendingComposerDispatchId(null);
+      }
+      if (pendingComposerEditState !== null) {
+        setPendingComposerEditState(null);
+      }
+      if (pendingComposerWaitlistNotice !== null) {
+        setPendingComposerWaitlistNotice(null);
+      }
+      return;
+    }
+    if (
+      selectedPendingComposerDispatchId
+      && !pendingComposerDispatches.some((entry) => entry.id === selectedPendingComposerDispatchId)
+    ) {
+      setSelectedPendingComposerDispatchId(null);
+    }
+    if (
+      pendingComposerEditState
+      && !pendingComposerDispatches.some((entry) => entry.id === pendingComposerEditState.entryId)
+    ) {
+      setPendingComposerEditState(null);
+    }
+  }, [
+    pendingComposerDispatches,
+    pendingComposerEditState,
+    pendingComposerWaitlistNotice,
+    selectedPendingComposerDispatchId,
+  ]);
+
+  const pendingComposerWaitlistWindow = useMemo(
+    () => buildPendingComposerWaitlistWindow(
+      pendingComposerDispatches,
+      resolvedSelectedPendingComposerDispatchIndex,
+      PENDING_COMPOSER_MAX_VISIBLE,
+    ),
+    [pendingComposerDispatches, resolvedSelectedPendingComposerDispatchIndex],
+  );
 
   const createPreparedOutboundPayload = async (
     outboundMessage: string,
@@ -7685,98 +8026,85 @@ function PraxisDirectTuiApp(): JSX.Element {
     return outboundMessage;
   };
 
-  const sendPreparedOutboundSubmission = async (submission: PreparedOutboundSubmission): Promise<boolean> => {
-    const child = childRef.current;
-    if (!child || child.killed || backendStatusRef.current === "failed") {
-      const at = new Date().toISOString();
-      dispatchSurfaceEvent({
-        type: "error.reported",
-        at,
-        message: createSurfaceMessage({
-          messageId: `submit-error:${at}`,
-          kind: "error",
-          createdAt: at,
-          text: "backend unavailable, cannot send message",
-        }),
-      });
+  const sendPreparedOutboundSubmission = async (
+    submission: PreparedOutboundSubmission,
+    source: "manual" | "queue_flush" = "manual",
+  ): Promise<boolean> => {
+    const lockToken = createOutboundSubmissionLockToken(source);
+    const lockAcquisition = tryAcquireOutboundSubmissionLock({
+      activeToken: activeOutboundSubmissionTokenRef.current,
+      candidateToken: lockToken,
+    });
+    if (!lockAcquisition.acquired) {
       return false;
     }
-    const optimisticTurnIndex = resolveNextOptimisticTurnIndex({
-      existingTurns: surfaceStateRef.current.turns,
-      transcriptMessages: transcriptMessagesRef.current,
-      usageLedger: sessionUsageLedgerRef.current,
-      pendingOutboundTurns: pendingOutboundTurnsRef.current,
-    });
-    const optimisticTurnId = createTurnId(optimisticTurnIndex);
-    const optimisticMessageId = `user:${optimisticTurnId}`;
-    const queuedAt = new Date().toISOString();
-    const submissionId = createPendingOutboundSubmissionId();
-    const preTurnTranscriptCutMessageId = transcriptMessagesRef.current[transcriptMessagesRef.current.length - 1]?.messageId;
-    const payload = await createPreparedOutboundPayload(
-      submission.text,
-      submission.attachments,
-      submission.pastedContents,
-      submission.fileReferences,
-    );
-    turnUserTextRef.current.set(optimisticTurnId, submission.text.trim());
-    void persistPreTurnCheckpoint({
-      turnId: optimisticTurnId,
-      createdAt: queuedAt,
-      userText: submission.text.trim(),
-      transcriptCutMessageId: preTurnTranscriptCutMessageId,
-    });
-    dispatchSurfaceEvent({
-      type: "turn.started",
-      at: queuedAt,
-      turn: createSurfaceTurn({
-        turnId: optimisticTurnId,
-        sessionId: sessionIdRef.current,
-        turnIndex: optimisticTurnIndex,
-        status: "waiting",
-        startedAt: queuedAt,
-        updatedAt: queuedAt,
-        userText: submission.text.trim(),
-        outputMessageIds: [],
-        taskIds: [],
-      }),
-    });
-    dispatchSurfaceEvent({
-      type: "message.appended",
-      at: queuedAt,
-      message: createSurfaceMessage({
-        messageId: optimisticMessageId,
-        sessionId: sessionIdRef.current,
-        turnId: optimisticTurnId,
-        kind: "user",
-        text: submission.text.trim(),
-        createdAt: queuedAt,
-        metadata: {
-          optimistic: true,
-          submissionId,
-          deliveryState: "queued",
-        },
-      }),
-    });
-    pendingOutboundTurnsRef.current.push({
-      submissionId,
-      turnIndex: optimisticTurnIndex,
-      turnId: optimisticTurnId,
-      messageId: optimisticMessageId,
-      userText: submission.text.trim(),
-      queuedAt,
-    });
-    setConversationActivated(true);
-    setRunIndicator({
-      startedAt: queuedAt,
-      label: backendStatusRef.current === "ready" ? "queued" : "waiting for backend",
-    });
+    activeOutboundSubmissionTokenRef.current = lockAcquisition.nextToken;
+
+    let submissionId: string | null = null;
+    let optimisticTurnId: string | null = null;
+    let optimisticMessageId: string | null = null;
+    let queuedAt: string | null = null;
+
     try {
-      child.stdin.write(`${payload}\u0000`);
-      return true;
-    } catch (error) {
-      pendingOutboundTurnsRef.current = pendingOutboundTurnsRef.current.filter((entry) => entry.submissionId !== submissionId);
+      const child = childRef.current;
+      if (!child || child.killed || backendStatusRef.current === "failed") {
+        if (source === "queue_flush") {
+          return false;
+        }
+        const at = new Date().toISOString();
+        dispatchSurfaceEvent({
+          type: "error.reported",
+          at,
+          message: createSurfaceMessage({
+            messageId: `submit-error:${at}`,
+            kind: "error",
+            createdAt: at,
+            text: "backend unavailable, cannot send message",
+          }),
+        });
+        return false;
+      }
+      const optimisticTurnIndex = resolveNextOptimisticTurnIndex({
+        existingTurns: surfaceStateRef.current.turns,
+        transcriptMessages: transcriptMessagesRef.current,
+        usageLedger: sessionUsageLedgerRef.current,
+        pendingOutboundTurns: pendingOutboundTurnsRef.current,
+      });
+      optimisticTurnId = createTurnId(optimisticTurnIndex);
+      optimisticMessageId = `user:${optimisticTurnId}`;
+      queuedAt = new Date().toISOString();
+      submissionId = createPendingOutboundSubmissionId();
+      const preTurnTranscriptCutMessageId = transcriptMessagesRef.current[transcriptMessagesRef.current.length - 1]?.messageId;
+      const payload = await createPreparedOutboundPayload(
+        submission.text,
+        submission.attachments,
+        submission.pastedContents,
+        submission.fileReferences,
+      );
+      turnUserTextRef.current.set(optimisticTurnId, submission.text.trim());
+      void persistPreTurnCheckpoint({
+        turnId: optimisticTurnId,
+        createdAt: queuedAt,
+        userText: submission.text.trim(),
+        transcriptCutMessageId: preTurnTranscriptCutMessageId,
+      });
       dispatchSurfaceEvent({
-        type: "message.updated",
+        type: "turn.started",
+        at: queuedAt,
+        turn: createSurfaceTurn({
+          turnId: optimisticTurnId,
+          sessionId: sessionIdRef.current,
+          turnIndex: optimisticTurnIndex,
+          status: "waiting",
+          startedAt: queuedAt,
+          updatedAt: queuedAt,
+          userText: submission.text.trim(),
+          outputMessageIds: [],
+          taskIds: [],
+        }),
+      });
+      dispatchSurfaceEvent({
+        type: "message.appended",
         at: queuedAt,
         message: createSurfaceMessage({
           messageId: optimisticMessageId,
@@ -7785,18 +8113,62 @@ function PraxisDirectTuiApp(): JSX.Element {
           kind: "user",
           text: submission.text.trim(),
           createdAt: queuedAt,
-          updatedAt: queuedAt,
           metadata: {
-            optimistic: false,
+            optimistic: true,
             submissionId,
-            deliveryState: "failed",
-            failureReason: error instanceof Error ? error.message : String(error),
+            deliveryState: "queued",
           },
         }),
       });
+      pendingOutboundTurnsRef.current.push({
+        submissionId,
+        turnIndex: optimisticTurnIndex,
+        turnId: optimisticTurnId,
+        messageId: optimisticMessageId,
+        userText: submission.text.trim(),
+        queuedAt,
+      });
+      setConversationActivated(true);
+      setRunIndicator({
+        startedAt: queuedAt,
+        label: backendStatusRef.current === "ready" ? "queued" : "waiting for backend",
+      });
+      child.stdin.write(`${payload}\u0000`);
+      recordSentComposerHistoryEntry(submission);
+      return true;
+    } catch (error) {
+      if (submissionId) {
+        pendingOutboundTurnsRef.current = pendingOutboundTurnsRef.current.filter((entry) => entry.submissionId !== submissionId);
+      }
+      if (queuedAt && optimisticMessageId && optimisticTurnId && submissionId) {
+        dispatchSurfaceEvent({
+          type: "message.updated",
+          at: queuedAt,
+          message: createSurfaceMessage({
+            messageId: optimisticMessageId,
+            sessionId: sessionIdRef.current,
+            turnId: optimisticTurnId,
+            kind: "user",
+            text: submission.text.trim(),
+            createdAt: queuedAt,
+            updatedAt: queuedAt,
+            metadata: {
+              optimistic: false,
+              submissionId,
+              deliveryState: "failed",
+              failureReason: error instanceof Error ? error.message : String(error),
+            },
+          }),
+        });
+      }
       appendInlineError(`Failed to queue the message: ${error instanceof Error ? error.message : String(error)}`);
       setRunIndicator(null);
       return false;
+    } finally {
+      activeOutboundSubmissionTokenRef.current = releaseOutboundSubmissionLock({
+        activeToken: activeOutboundSubmissionTokenRef.current,
+        candidateToken: lockToken,
+      });
     }
   };
 
@@ -7839,6 +8211,64 @@ function PraxisDirectTuiApp(): JSX.Element {
       return next;
     });
     return releasedCount;
+  };
+
+  const setPendingComposerSelectionByIndex = (nextIndex: number) => {
+    const nextEntry = pendingComposerDispatchesRef.current[nextIndex] ?? null;
+    setSelectedPendingComposerDispatchId(nextEntry?.id ?? null);
+    return nextEntry;
+  };
+
+  const movePendingComposerSelection = (direction: -1 | 1) => {
+    const entries = pendingComposerDispatchesRef.current;
+    if (entries.length === 0) {
+      return false;
+    }
+    const currentIndex = (() => {
+      if (!selectedPendingComposerDispatchId) {
+        return null;
+      }
+      const foundIndex = entries.findIndex((entry) => entry.id === selectedPendingComposerDispatchId);
+      return foundIndex >= 0 ? foundIndex : null;
+    })();
+    const nextSelection = resolvePendingComposerWaitlistSelectionMove({
+      currentIndex,
+      direction,
+      totalCount: entries.length,
+    });
+    if (nextSelection.boundary === "top") {
+      setPendingComposerWaitlistNotice("already at the top of the waitlist.");
+      return false;
+    }
+    if (nextSelection.nextIndex === null) {
+      setSelectedPendingComposerDispatchId(null);
+      setPendingComposerWaitlistNotice(null);
+      return true;
+    }
+    setPendingComposerSelectionByIndex(nextSelection.nextIndex);
+    setPendingComposerWaitlistNotice(null);
+    return true;
+  };
+
+  const beginPendingComposerEdit = () => {
+    const selectedEntry = selectedPendingComposerDispatchEntry;
+    if (!selectedEntry) {
+      return false;
+    }
+    setPendingComposerWaitlistNotice(null);
+    setPendingComposerEditState({
+      entryId: selectedEntry.id,
+    });
+    applyComposerDraft({
+      text: selectedEntry.text,
+      attachments: selectedEntry.attachments.map((attachment) => ({
+        ...attachment,
+        displayName: attachment.displayName ?? attachment.localPath ?? attachment.remoteUrl ?? attachment.id,
+      })),
+      pastedContents: selectedEntry.pastedContents,
+      fileReferences: selectedEntry.fileReferences,
+    });
+    return true;
   };
 
   const appendInlineError = (text: string) => {
@@ -7983,14 +8413,19 @@ function PraxisDirectTuiApp(): JSX.Element {
     setModelPicker(null);
   };
 
-  const consumePendingOutboundTurn = (turnId: string): PendingOutboundTurn | null => {
-    const directMatchIndex = pendingOutboundTurnsRef.current.findIndex((entry) => entry.turnId === turnId);
-    const nextIndex = directMatchIndex >= 0 ? directMatchIndex : 0;
-    if (nextIndex < 0 || nextIndex >= pendingOutboundTurnsRef.current.length) {
-      return null;
-    }
-    const [entry] = pendingOutboundTurnsRef.current.splice(nextIndex, 1);
-    return entry ?? null;
+  const consumePendingOutboundTurn = (
+    turnId: string,
+    turnIndex?: number,
+    userText?: string | null,
+  ): PendingOutboundTurn | null => {
+    const result = consumePendingOutboundTurnEntry({
+      entries: pendingOutboundTurnsRef.current,
+      turnId,
+      turnIndex,
+      userText,
+    });
+    pendingOutboundTurnsRef.current = result.remaining;
+    return result.matched;
   };
 
   const failPendingOutboundTurns = (reason: string) => {
@@ -8057,7 +8492,61 @@ function PraxisDirectTuiApp(): JSX.Element {
     setComposerPopupPageIndex(0);
   };
 
+  type ChatModelCatalogRoleConfig = {
+    provider: "openai" | "anthropic";
+    cacheKey: string;
+    availabilityScopeKey: string;
+    loadModels: () => Promise<AvailableModelCatalogEntry[]>;
+    probeModel: (
+      modelId: string,
+      fallbackReasoning: string,
+    ) => Promise<ModelAvailabilityRecord>;
+  };
+
   const resolveModelCatalogCacheKey = (authConfig: OpenAILiveConfig) => `${authConfig.authMode}:${authConfig.baseURL}`;
+
+  const resolveChatModelCatalogRoleConfig = (
+    roleId: RaxcodeRoleId,
+  ): ChatModelCatalogRoleConfig => {
+    const resolved = loadResolvedRoleConfig(roleId);
+    if (resolved.profile.provider === "openai") {
+      const authConfig = loadOpenAILiveConfig(roleId);
+      return {
+        provider: "openai",
+        cacheKey: resolveModelCatalogCacheKey(authConfig),
+        availabilityScopeKey: buildChatModelAvailabilityScopeKey(authConfig),
+        loadModels: () => listAvailableChatModels(authConfig),
+        probeModel: (modelId, fallbackReasoning) =>
+          probeChatModelAvailability(modelId, authConfig, fallbackReasoning),
+      };
+    }
+    if (resolved.profile.provider === "anthropic") {
+      const anthropicConfig = {
+        apiKey: resolved.authProfile.credentials.apiKey ?? "",
+        baseURL: resolved.profile.route.baseURL,
+      };
+      return {
+        provider: "anthropic",
+        cacheKey: `anthropic:${resolved.authProfile.id}:${anthropicConfig.baseURL}`,
+        availabilityScopeKey: `chat:anthropic:${resolved.authProfile.id}:${anthropicConfig.baseURL}`,
+        loadModels: () => listAvailableAnthropicModels(anthropicConfig),
+        probeModel: (modelId, fallbackReasoning) =>
+          probeAnthropicModelAvailability(
+            modelId,
+            anthropicConfig,
+            fallbackReasoning === "low"
+              || fallbackReasoning === "medium"
+              || fallbackReasoning === "high"
+              || fallbackReasoning === "xhigh"
+              ? fallbackReasoning
+              : "none",
+          ),
+      };
+    }
+    throw new Error(
+      `Model catalog currently only supports openai/anthropic chat roles, received ${resolved.profile.provider}.`,
+    );
+  };
 
   const hydrateModelAvailabilityFromCache = (
     scopeKey: string,
@@ -8072,6 +8561,9 @@ function PraxisDirectTuiApp(): JSX.Element {
     models: AvailableModelCatalogEntry[],
     roleId: RaxcodeRoleId,
   ) => {
+    const chatRoleConfig = source === "chat"
+      ? resolveChatModelCatalogRoleConfig(roleId)
+      : null;
     for (const model of models) {
       const probeKey = `${scopeKey}:${model.id}`;
       if (getCachedModelAvailability(scopeKey, model.id, appRoot) || modelAvailabilityProbeInFlightRef.current.has(probeKey)) {
@@ -8080,9 +8572,8 @@ function PraxisDirectTuiApp(): JSX.Element {
       modelAvailabilityProbeInFlightRef.current.add(probeKey);
       const record = source === "embedding"
         ? await probeEmbeddingModelAvailability(model.id as "text-embedding-3-large" | "text-embedding-3-small")
-        : await probeChatModelAvailability(
+        : await chatRoleConfig!.probeModel(
           model.id,
-          loadOpenAILiveConfig(roleId),
           model.defaultReasoningLevel ?? model.reasoningLevels[0] ?? "low",
         );
       modelAvailabilityProbeInFlightRef.current.delete(probeKey);
@@ -8118,13 +8609,13 @@ function PraxisDirectTuiApp(): JSX.Element {
   };
 
   const loadChatModelCatalog = async (roleId: RaxcodeRoleId = "core.main") => {
-    const authConfig = loadOpenAILiveConfig(roleId);
-    const cacheKey = resolveModelCatalogCacheKey(authConfig);
+    const chatRoleConfig = resolveChatModelCatalogRoleConfig(roleId);
+    const cacheKey = chatRoleConfig.cacheKey;
     const cached = modelCatalogCacheRef.current.get(cacheKey);
     if (cached) {
       return cached;
     }
-    const models = await listAvailableChatModels(authConfig);
+    const models = await chatRoleConfig.loadModels();
     modelCatalogCacheRef.current.set(cacheKey, models);
     return models;
   };
@@ -8134,9 +8625,9 @@ function PraxisDirectTuiApp(): JSX.Element {
       return;
     }
     let cancelled = false;
-    let authConfig: OpenAILiveConfig;
+    let chatRoleConfig: ChatModelCatalogRoleConfig;
     try {
-      authConfig = loadOpenAILiveConfig("core.main");
+      chatRoleConfig = resolveChatModelCatalogRoleConfig("core.main");
     } catch (error) {
       setModelCatalogWarmState({
         status: "error",
@@ -8144,13 +8635,13 @@ function PraxisDirectTuiApp(): JSX.Element {
       });
       return;
     }
-    const cacheKey = resolveModelCatalogCacheKey(authConfig);
+    const cacheKey = chatRoleConfig.cacheKey;
     if (modelCatalogCacheRef.current.has(cacheKey)) {
       setModelCatalogWarmState({ status: "ready" });
       return;
     }
     setModelCatalogWarmState({ status: "loading" });
-    void listAvailableChatModels(authConfig)
+    void chatRoleConfig.loadModels()
       .then((models) => {
         if (cancelled) {
           return;
@@ -8233,10 +8724,10 @@ function PraxisDirectTuiApp(): JSX.Element {
     const currentValue = slashPanelDraft[field.key] ?? field.value;
     const parsed = source === "chat" ? parseModelEffortLine(currentValue) : null;
     const roleId = resolveModelFieldRoleId(field.key) ?? "core.main";
-    let authConfig: OpenAILiveConfig | null = null;
+    let chatRoleConfig: ChatModelCatalogRoleConfig | null = null;
     if (source === "chat") {
       try {
-        authConfig = loadOpenAILiveConfig(roleId);
+        chatRoleConfig = resolveChatModelCatalogRoleConfig(roleId);
       } catch (error) {
         setSlashPanelNotice({
           tone: "danger",
@@ -8245,7 +8736,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         return;
       }
     }
-    const cacheKey = authConfig ? resolveModelCatalogCacheKey(authConfig) : "";
+    const cacheKey = chatRoleConfig?.cacheKey ?? "";
     const embeddingConfig = source === "embedding" ? loadResolvedEmbeddingConfig(appRoot) : null;
     const availabilityScopeKey = source === "embedding"
       ? buildEmbeddingModelAvailabilityScopeKey(embeddingConfig ?? {
@@ -8253,7 +8744,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         authProfileId: configFile?.embedding.authProfileId?.trim() ?? "",
         apiKey: "",
       })
-      : buildChatModelAvailabilityScopeKey(authConfig!);
+      : chatRoleConfig!.availabilityScopeKey;
     const cachedModels = source === "chat" ? modelCatalogCacheRef.current.get(cacheKey) ?? [] : [];
     const initialModels = source === "embedding" ? EMBEDDING_MODEL_CATALOG : cachedModels;
     const initialSelectedIndex = source === "embedding"
@@ -8344,9 +8835,12 @@ function PraxisDirectTuiApp(): JSX.Element {
   const returnToSlashMenu = () => {
     clearPermissionsPanelReturnTimer();
     closeSlashPanel();
-    setComposerState(createTuiTextInputState("/"));
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
+    applyComposerDraft({
+      text: "/",
+      attachments: [],
+      pastedContents: [],
+      fileReferences: [],
+    });
     setSelectedSlashIndex(0);
   };
 
@@ -8390,17 +8884,17 @@ function PraxisDirectTuiApp(): JSX.Element {
     setSlashPanelInputState(createTuiTextInputState(initialValue));
     setSlashPanelNotice(null);
     setPanelRenameTarget(null);
-    setComposerState(createTuiTextInputState());
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
+    applyComposerDraft({
+      text: "",
+      attachments: [],
+      pastedContents: [],
+      fileReferences: [],
+    });
   };
 
   const triggerRushMode = () => {
     closeSlashPanel();
-    setComposerState(createTuiTextInputState());
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
-    setComposerFileReferences([]);
+    clearComposerDraft();
     setSelectedSlashIndex(0);
     setRushFooterNotice(null);
     setRushModeEnabled(true);
@@ -8418,19 +8912,13 @@ function PraxisDirectTuiApp(): JSX.Element {
     setRushOverlayState(null);
     setRushModeEnabled(false);
     setRushFooterNotice("closed");
-    setComposerState(createTuiTextInputState());
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
-    setComposerFileReferences([]);
+    clearComposerDraft();
     setSelectedSlashIndex(0);
   };
 
   const openRushConfirmOverlay = () => {
     closeSlashPanel();
-    setComposerState(createTuiTextInputState());
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
-    setComposerFileReferences([]);
+    clearComposerDraft();
     setSelectedSlashIndex(0);
     setRushConfirmOverlayState({
       selectedIndex: 0,
@@ -8681,10 +9169,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         answers,
       }),
     );
-    setComposerState(createTuiTextInputState());
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
-    setComposerFileReferences([]);
+    clearComposerDraft();
     setQuestionPanelState(createEmptyQuestionPanelState());
     setSlashPanelNotice(null);
     setActiveSlashPanelId(null);
@@ -8778,15 +9263,12 @@ function PraxisDirectTuiApp(): JSX.Element {
     setWorkspacePickerInputState(createTuiTextInputState(initialQuery));
     setSelectedComposerPopupIndex(0);
     setComposerPopupPageIndex(0);
-    setComposerState(createTuiTextInputState());
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
-    setComposerFileReferences([]);
+    clearComposerDraft();
   };
 
   const exitWorkspacePickerToNormalComposer = () => {
     closeWorkspacePicker();
-    setComposerState(createTuiTextInputState());
+    clearComposerDraft();
   };
 
   useEffect(() => {
@@ -8831,6 +9313,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     if (!text) {
       return;
     }
+    resetComposerHistoryNavigation();
     if (text.length > PASTED_CONTENT_COMPRESSION_THRESHOLD) {
       const nextIndex = nextComposerPastedContentIndexRef.current;
       nextComposerPastedContentIndexRef.current += 1;
@@ -9203,11 +9686,12 @@ function PraxisDirectTuiApp(): JSX.Element {
       ? (rewoundSurfaceState as { messages: SurfaceMessage[] }).messages
       : [];
     setConversationActivated(rewoundMessages.some((message) => message.kind === "user"));
-    setComposerState(createTuiTextInputState(pending.userText));
-    setComposerAttachments([]);
-    setComposerPastedContents([]);
-    setComposerFileReferences([]);
-    setScrollOffset(0);
+    applyComposerDraft({
+      text: pending.userText,
+      attachments: [],
+      pastedContents: [],
+      fileReferences: [],
+    });
     finishRewindInFlight();
   };
 
@@ -9998,7 +10482,11 @@ function PraxisDirectTuiApp(): JSX.Element {
             completedTurnIdsRef.current.delete(turnId);
             interruptedTurnIdsRef.current.delete(turnId);
             resetAssistantTurnState(turnId);
-            const pendingOutboundTurn = consumePendingOutboundTurn(turnId);
+            const pendingOutboundTurn = consumePendingOutboundTurn(
+              turnId,
+              record.turnIndex,
+              record.userMessage,
+            );
             const normalizedUserMessage = record.userMessage?.trim()
               ?? pendingOutboundTurn?.userText
               ?? "";
@@ -10024,7 +10512,10 @@ function PraxisDirectTuiApp(): JSX.Element {
                 type: "message.appended",
                 at,
                 message: createSurfaceMessage({
-                  messageId: `user:${turnId}`,
+                  messageId: resolveCommittedUserMessageId({
+                    turnId,
+                    pendingOutboundTurn,
+                  }),
                   sessionId: sessionIdRef.current,
                   turnId,
                   kind: "user",
@@ -10605,7 +11096,15 @@ function PraxisDirectTuiApp(): JSX.Element {
             const previousDisplayedText = emittedAssistantTextRef.current.get(turnId) ?? "";
             emittedAssistantTextRef.current.set(turnId, decodedText);
             const activeAssistantMessageId = activeAssistantMessageIdRef.current.get(turnId);
-            if (!activeAssistantMessageId) {
+            const assistantDeltaAction = resolveDirectTuiAssistantDeltaAction({
+              decodedText,
+              previousDisplayedText,
+              activeMessageId: activeAssistantMessageId,
+            });
+            if (assistantDeltaAction.kind === "noop") {
+              continue;
+            }
+            if (assistantDeltaAction.kind === "append") {
               const assistantMessageId = startAssistantSegment(turnId);
               dispatchSurfaceEvent({
                 type: "message.appended",
@@ -10615,37 +11114,33 @@ function PraxisDirectTuiApp(): JSX.Element {
                   sessionId: sessionIdRef.current,
                   turnId,
                   kind: "assistant",
-                  text: decodedText,
+                  text: assistantDeltaAction.text,
                   createdAt: at,
-                  }),
+                }),
               });
               continue;
             }
-            if (!decodedText.startsWith(previousDisplayedText)) {
+            if (assistantDeltaAction.kind === "update") {
               dispatchSurfaceEvent({
                 type: "message.updated",
                 at,
                 message: createSurfaceMessage({
-                  messageId: activeAssistantMessageId,
+                  messageId: assistantDeltaAction.messageId,
                   sessionId: sessionIdRef.current,
                   turnId,
                   kind: "assistant",
-                  text: decodedText,
+                  text: assistantDeltaAction.text,
                   createdAt: at,
                   updatedAt: at,
                 }),
               });
               continue;
             }
-            const nextDelta = decodedText.slice(previousDisplayedText.length);
-            if (!nextDelta) {
-              continue;
-            }
             dispatchSurfaceEvent({
               type: "message.delta",
               at,
-              messageId: activeAssistantMessageId,
-              textDelta: nextDelta,
+              messageId: assistantDeltaAction.messageId,
+              textDelta: assistantDeltaAction.textDelta,
               done: record.done,
             });
             continue;
@@ -10808,15 +11303,32 @@ function PraxisDirectTuiApp(): JSX.Element {
     persistConfigFile((draft) => {
       draft.workspace.defaultPath = process.cwd();
     });
-    setCurrentCwd(process.cwd());
-    updateWorkspaceSurface(process.cwd());
-    appendInlineStatus(`Workspace switched to ${shortenPath(process.cwd())}`);
+
+    const { snapshot } = buildEmptySessionSnapshot({
+      agentId: "agent.core:main",
+      workspace: process.cwd(),
+      route: config?.baseURL ?? "(unconfigured)",
+      model: runtimeConfig?.modelPlan.core.main.model ?? "gpt-5.4",
+    });
+    saveDirectTuiSessionSnapshot(snapshot, process.cwd());
+    setSessionIndexRevision((previous) => previous + 1);
+    resetSwitchRuntimeState();
+    setPendingSessionSwitch({
+      targetSessionId: snapshot.sessionId,
+      targetAgentId: snapshot.agentId,
+      targetWorkspace: process.cwd(),
+      targetSessionName: snapshot.name,
+      targetSurfaceState: buildSurfaceStateFromSessionSnapshot(snapshot),
+      successNotice: `Workspace switched to ${shortenPath(process.cwd())}`,
+      autoClose: true,
+    });
     setSlashPanelNotice({
-      tone: "success",
-      text: `Workspace switched to ${shortenPath(process.cwd())}`,
+      tone: "info",
+      text: `Switching workspace to ${shortenPath(process.cwd())}...`,
     });
     restartBackendInPlace({
       nextWorkspace: process.cwd(),
+      nextSessionId: snapshot.sessionId,
     });
     return true;
   };
@@ -10825,6 +11337,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     const nextState = replaceFileMentionToken(composerState, token, selectedPath);
     const normalizedRelativePath = selectedPath === "." ? "." : selectedPath;
     const tokenText = nextState.value.slice(token.start, nextState.cursorOffset).trimEnd();
+    resetComposerHistoryNavigation();
     setComposerState(nextState);
     setComposerFileReferences((previous) => {
       const nextEntry: TuiFileReferenceAttachment = {
@@ -11662,9 +12175,12 @@ function PraxisDirectTuiApp(): JSX.Element {
         if (!dispatchInitRequest(noteText)) {
           return;
         }
-        setComposerState(createTuiTextInputState());
-        setComposerAttachments([]);
-        setComposerPastedContents([]);
+        applyComposerDraft({
+          text: "",
+          attachments: [],
+          pastedContents: [],
+          fileReferences: [],
+        });
         return;
       }
       case "refreshStatus":
@@ -11781,22 +12297,6 @@ function PraxisDirectTuiApp(): JSX.Element {
       message.includes(entry.tokenText));
     const tokenBackedFileRefs = composerFileReferences.filter((entry) =>
       message.includes(entry.tokenText));
-    if (activeSlashPanelId === "init") {
-      const restoredInitNote = restorePastedContentTokens(message, tokenBackedPastedContents).trim();
-      if (!dispatchInitRequest(restoredInitNote)) {
-        return;
-      }
-      setComposerState(createTuiTextInputState());
-      setComposerAttachments([]);
-      setComposerPastedContents([]);
-      setComposerFileReferences([]);
-      setSlashPanelInputState(createTuiTextInputState());
-      setScrollOffset(0);
-      return;
-    }
-    const outboundMessage = pendingInitNote
-      ? `[Init Note]\n${pendingInitNote}\n\n[User Task]\n${message}`
-      : message;
     const tokenBackedAttachments = composerAttachments.filter((attachment) =>
       attachment.tokenText ? message.includes(attachment.tokenText) : true);
     const autoDetectedAttachments = await detectAutoImageAttachments(message, currentCwd);
@@ -11807,6 +12307,50 @@ function PraxisDirectTuiApp(): JSX.Element {
           (attachment.remoteUrl && existing.remoteUrl === attachment.remoteUrl)
           || (attachment.localPath && existing.localPath === attachment.localPath))),
     ];
+    if (pendingComposerEditState) {
+      if (!message && attachments.length === 0 && tokenBackedPastedContents.length === 0 && tokenBackedFileRefs.length === 0) {
+        appendInlineError("Queued item cannot be empty.");
+        return;
+      }
+      const entryId = pendingComposerEditState.entryId;
+      let applied = false;
+      let updatedOrdinal = 0;
+      replacePendingComposerDispatches((previous) => previous.map((entry, index) => {
+        if (entry.id !== entryId) {
+          return entry;
+        }
+        applied = true;
+        updatedOrdinal = resolvePendingComposerPreviewOrdinal(index);
+        return {
+          ...entry,
+          text: message,
+          attachments: [...attachments],
+          pastedContents: [...tokenBackedPastedContents],
+          fileReferences: [...tokenBackedFileRefs],
+        };
+      }));
+      if (!applied) {
+        setPendingComposerEditState(null);
+        appendInlineError("Queued item no longer exists.");
+        return;
+      }
+      setPendingComposerEditState(null);
+      setSelectedPendingComposerDispatchId(null);
+      clearComposerDraft();
+      return;
+    }
+    if (activeSlashPanelId === "init") {
+      const restoredInitNote = restorePastedContentTokens(message, tokenBackedPastedContents).trim();
+      if (!dispatchInitRequest(restoredInitNote)) {
+        return;
+      }
+      clearComposerDraft();
+      setSlashPanelInputState(createTuiTextInputState());
+      return;
+    }
+    const outboundMessage = pendingInitNote
+      ? `[Init Note]\n${pendingInitNote}\n\n[User Task]\n${message}`
+      : message;
     if (!message && attachments.length === 0 && tokenBackedPastedContents.length === 0 && tokenBackedFileRefs.length === 0) {
       return;
     }
@@ -11824,16 +12368,10 @@ function PraxisDirectTuiApp(): JSX.Element {
       const targetInput = message.replace(/^\/workspace\b/u, "").trim();
       if (!targetInput) {
         appendInlineStatus(`Current workspace: ${shortenPath(currentCwd)}`);
-      setComposerState(createTuiTextInputState());
-      setComposerAttachments([]);
-      setComposerPastedContents([]);
-      setComposerFileReferences([]);
-      return;
-    }
-      setComposerState(createTuiTextInputState());
-      setComposerAttachments([]);
-      setComposerPastedContents([]);
-      setScrollOffset(0);
+        clearComposerDraft();
+        return;
+      }
+      clearComposerDraft();
       await applyWorkspaceSwitch(targetInput);
       return;
     }
@@ -11998,6 +12536,15 @@ function PraxisDirectTuiApp(): JSX.Element {
   };
 
   const readyNextPendingComposerDispatchForImmediateSend = () => {
+    const child = childRef.current;
+    if (
+      !child
+      || child.killed
+      || backendStatusRef.current === "failed"
+      || !(runIndicatorRef.current || interruptibleTasksRef.current.length > 0 || activeTurnIdsRef.current.size > 0)
+    ) {
+      return false;
+    }
     const releasedCount = releasePendingComposerDispatchBatch("force_interrupt");
     if (releasedCount <= 0 && !getLeadingPendingComposerDispatch()) {
       return false;
@@ -12037,18 +12584,17 @@ function PraxisDirectTuiApp(): JSX.Element {
 
   useEffect(() => {
     const pendingEntry = pendingComposerDispatches[0];
-    if (!pendingEntry) {
-      pendingComposerDispatchFlushRef.current = null;
-      return;
-    }
     if (!pendingEntry || pendingEntry.status !== "ready") {
       pendingComposerDispatchFlushRef.current = null;
       return;
     }
-    if (backendStatus !== "ready" || hasRunningForegroundWork()) {
-      return;
-    }
-    if (pendingComposerDispatchFlushRef.current === pendingEntry.id) {
+    const shouldFlush = shouldStartPendingComposerDispatchFlush({
+      pendingEntry,
+      backendReady: backendStatus === "ready",
+      hasRunningForegroundWork: interruptibleTasks.length > 0 || activeTurnIds.size > 0,
+      activeFlushId: pendingComposerDispatchFlushRef.current,
+    });
+    if (!shouldFlush) {
       return;
     }
     pendingComposerDispatchFlushRef.current = pendingEntry.id;
@@ -12058,15 +12604,19 @@ function PraxisDirectTuiApp(): JSX.Element {
         attachments: pendingEntry.attachments,
         pastedContents: pendingEntry.pastedContents,
         fileReferences: pendingEntry.fileReferences,
+      }, "queue_flush");
+      const nextDispatchState = resolvePendingComposerDispatchesAfterFlush({
+        entries: pendingComposerDispatchesRef.current,
+        flushedEntryId: pendingEntry.id,
+        sent,
       });
-      pendingComposerDispatchFlushRef.current = null;
       if (sent) {
-        removePendingComposerDispatchById(pendingEntry.id);
-        pendingComposerDispatchChainInterruptRef.current =
-          (pendingComposerDispatchesRef.current[0]?.status === "ready");
+        replacePendingComposerDispatches(nextDispatchState.nextEntries);
+        pendingComposerDispatchChainInterruptRef.current = nextDispatchState.nextChainInterrupt;
       }
+      pendingComposerDispatchFlushRef.current = null;
     })();
-  }, [backendStatus, pendingComposerDispatches, runIndicator, surfaceState]);
+  }, [backendStatus, pendingComposerDispatches, interruptibleTasks.length, activeTurnIds]);
 
   useInput((inputText, key) => {
     if (rewindInFlight) {
@@ -12172,6 +12722,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         });
         if (attachment) {
           nextComposerImageIndexRef.current += 1;
+          resetComposerHistoryNavigation();
           setComposerAttachments((previous) => [...previous, attachment]);
           setComposerState((previous) => insertIntoTuiTextInput(previous, attachment.tokenText ?? ""));
           return;
@@ -12181,6 +12732,39 @@ function PraxisDirectTuiApp(): JSX.Element {
           enqueuePastedText(clipboardText);
         }
       })();
+      return;
+    }
+
+    const canUsePendingComposerWaitlistShortcuts =
+      pendingComposerDispatchOverflow
+      && !panelInputActive
+      && !activeSlashPanelId
+      && !showSlashMenu
+      && !composerPopup
+      && !modelPicker?.open
+      && !workspacePickerInputState;
+
+    if (pendingComposerEditState && key.meta && inputText === "o") {
+      flushPendingPasteText();
+      void submitInput(null);
+      return;
+    }
+
+    if (canUsePendingComposerWaitlistShortcuts && !pendingComposerEditState && key.meta && key.upArrow) {
+      flushPendingPasteText();
+      movePendingComposerSelection(1);
+      return;
+    }
+
+    if (canUsePendingComposerWaitlistShortcuts && !pendingComposerEditState && key.meta && key.downArrow) {
+      flushPendingPasteText();
+      movePendingComposerSelection(-1);
+      return;
+    }
+
+    if (canUsePendingComposerWaitlistShortcuts && !pendingComposerEditState && key.meta && inputText === "o") {
+      flushPendingPasteText();
+      beginPendingComposerEdit();
       return;
     }
 
@@ -12339,10 +12923,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         }
         if (activeSlashPanelId === "question") {
           closeSlashPanel();
-          setComposerState(createTuiTextInputState());
-          setComposerAttachments([]);
-          setComposerPastedContents([]);
-          setComposerFileReferences([]);
+          clearComposerDraft();
           return;
         }
         returnToSlashMenu();
@@ -12512,7 +13093,7 @@ function PraxisDirectTuiApp(): JSX.Element {
             const switched = await applyWorkspaceSwitch(nextWorkspacePath);
             if (switched) {
               closeWorkspacePicker();
-              setComposerState(createTuiTextInputState());
+              clearComposerDraft();
             }
           })();
         }
@@ -12576,6 +13157,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       }
       const inputResult = applyTuiTextInputKey(composerState, inputText, key);
       if (inputResult.handled) {
+        resetComposerHistoryNavigation();
         setComposerState(inputResult.nextState);
       }
       return;
@@ -12616,6 +13198,49 @@ function PraxisDirectTuiApp(): JSX.Element {
         ),
       }));
       setSlashPanelNotice(null);
+      return;
+    }
+
+    if (activeSlashPanelId === "cmp" && ((key.tab && !key.shift) || inputText === "\t")) {
+      setSlashPanelDraft((previous) => ({
+        ...previous,
+        [cmpViewerSubtabDraftKey()]: cycleCmpViewerSubtab(
+          resolveCmpViewerSubtab(previous[cmpViewerSubtabDraftKey()]),
+        ),
+      }));
+      setSlashPanelNotice(null);
+      return;
+    }
+
+    if (
+      activeSlashPanelId === "cmp"
+      && slashPanelView
+      && !key.escape
+      && !key.return
+      && !key.upArrow
+      && !key.downArrow
+      && !key.leftArrow
+      && !key.rightArrow
+      && inputText.length > 0
+    ) {
+      return;
+    }
+
+    if (
+      activeSlashPanelId === "cmp"
+      && resolveCmpViewerSubtab(slashPanelDraft[cmpViewerSubtabDraftKey()]) === "summary"
+      && (key.leftArrow || key.rightArrow)
+    ) {
+      const delta = key.leftArrow ? -12 : 12;
+      const maxScrollX = typeof slashPanelView?.summaryMaxScrollX === "number" ? slashPanelView.summaryMaxScrollX : 0;
+      setSlashPanelDraft((previous) => {
+        const current = resolveCmpViewerSummaryScrollX(previous);
+        const next = Math.max(0, Math.min(current + delta, maxScrollX));
+        return {
+          ...previous,
+          [cmpViewerSummaryScrollDraftKey()]: String(next),
+        };
+      });
       return;
     }
 
@@ -12858,35 +13483,17 @@ function PraxisDirectTuiApp(): JSX.Element {
 
     if (key.upArrow) {
       flushPendingPasteText();
-      const inputResult = applyTuiTextInputKey(composerState, inputText, key);
-      const movedInsideComposer =
-        composerState.value.includes("\n")
-        && (
-          inputResult.nextState.cursorOffset !== composerState.cursorOffset
-          || inputResult.nextState.value !== composerState.value
-        );
-      if (movedInsideComposer) {
-        setComposerState(inputResult.nextState);
+      if (navigateComposerHistory(-1)) {
         return;
       }
-      setScrollOffset((previous) => applyScrollDelta(previous, 1, maxScrollOffset));
       return;
     }
 
     if (key.downArrow) {
       flushPendingPasteText();
-      const inputResult = applyTuiTextInputKey(composerState, inputText, key);
-      const movedInsideComposer =
-        composerState.value.includes("\n")
-        && (
-          inputResult.nextState.cursorOffset !== composerState.cursorOffset
-          || inputResult.nextState.value !== composerState.value
-        );
-      if (movedInsideComposer) {
-        setComposerState(inputResult.nextState);
+      if (navigateComposerHistory(1)) {
         return;
       }
-      setScrollOffset((previous) => applyScrollDelta(previous, -1, maxScrollOffset));
       return;
     }
 
@@ -12936,6 +13543,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         const selectedSuggestion = slashState.suggestions[selectedSlashIndex];
         if (selectedSuggestion) {
           const applied = applySlashSuggestion(composerState.value, selectedSuggestion);
+          resetComposerHistoryNavigation();
           setComposerState((previous) =>
             setTuiTextInputValue(previous, applied.nextInput, applied.nextCursorOffset));
           return;
@@ -12950,6 +13558,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       && !activeSlashPanelId
       && !workspacePickerInputState
       && !activeFileMention
+      && !pendingComposerEditState
     ) {
       flushPendingPasteText();
       if (hasRunningForegroundWork()) {
@@ -12961,10 +13570,14 @@ function PraxisDirectTuiApp(): JSX.Element {
     flushPendingPasteText();
     const inputResult = applyTuiTextInputKey(composerState, inputText, key);
     if (inputResult.submit) {
+      if (pendingComposerEditState) {
+        return;
+      }
       void submitInput(hasRunningForegroundWork() ? "steer" : null);
       return;
     }
     if (inputResult.handled) {
+      resetComposerHistoryNavigation();
       setComposerState(inputResult.nextState);
       if (!inputResult.nextState.value.trimStart().startsWith("/")) {
         setSelectedSlashIndex(0);
@@ -12980,36 +13593,100 @@ function PraxisDirectTuiApp(): JSX.Element {
   const pendingComposerDispatchPreviewLines = useMemo(
     () => {
       if (pendingComposerDispatches.length === 0) {
-        return [] as Array<Array<{ text: string; color: string }>>;
+        return [] as PendingComposerDispatchPreviewLine[];
       }
-      const totalCount = pendingComposerDispatches.length;
       const activeEntryId = pendingComposerDispatches[0]?.id ?? null;
-      return pendingComposerDispatches
-        .map((entry, index) => ({ entry, index }))
-        .reverse()
-        .map(({ entry, index }) => {
-          const leader = resolvePendingComposerDispatchPreviewLeader(totalCount - index);
-          const suffix = entry.id === activeEntryId
-            ? ` ${resolvePendingComposerDispatchStatusCopy(entry.mode)}`
-            : "";
-          const previewSourceText = entry.text.length > 0 ? entry.text : "[Attachment]";
-          const availableBodyWidth = Math.max(
-            1,
-            Math.min(
-              40,
-              transcriptLineWidth - stringWidth(leader) - stringWidth(">> ") - stringWidth(suffix),
-            ),
-          );
-          const truncatedBody = truncatePendingComposerPreviewText(previewSourceText, availableBodyWidth);
-          return [
-            { text: leader, color: TUI_THEME.text },
-            { text: ">> ", color: entry.mode === "steer" ? TUI_THEME.red : RUSH_MODE_BADGE_COLOR },
-            ...renderComposerLineFragments(truncatedBody, TUI_THEME.text),
-            ...(suffix.length > 0 ? [{ text: suffix, color: TUI_THEME.textMuted }] : []),
-          ];
+      if (!pendingComposerDispatchOverflow) {
+        return pendingComposerDispatches
+          .map((entry, index) => ({ entry, index }))
+          .reverse()
+          .map(({ entry, index }) => {
+            const leader = resolvePendingComposerDispatchPreviewLeader(resolvePendingComposerPreviewOrdinal(index));
+            const suffix = entry.id === activeEntryId
+              ? ` ${resolvePendingComposerDispatchStatusCopy(entry.mode)}`
+              : "";
+            const previewSourceText = entry.text.length > 0 ? entry.text : "[Attachment]";
+            const availableBodyWidth = Math.max(
+              1,
+              Math.min(
+                40,
+                transcriptLineWidth - stringWidth(leader) - stringWidth(">> ") - stringWidth(suffix),
+              ),
+            );
+            const truncatedBody = truncatePendingComposerPreviewText(previewSourceText, availableBodyWidth);
+            return {
+              key: `pending-composer-dispatch:${entry.id}`,
+              segments: [
+                { text: leader, color: TUI_THEME.text },
+                { text: ">> ", color: entry.mode === "steer" ? TUI_THEME.red : RUSH_MODE_BADGE_COLOR },
+                ...renderComposerLineFragments(truncatedBody, TUI_THEME.text),
+                ...(suffix.length > 0 ? [{ text: suffix, color: TUI_THEME.textMuted }] : []),
+              ],
+            };
+          });
+      }
+      const hintText = "alt+↑/↓ to select · alt+o to edit";
+      const infoText = pendingComposerWaitlistNotice
+        ?? (pendingComposerWaitlistWindow.hiddenAboveCount > 0
+          ? `... ${pendingComposerWaitlistWindow.hiddenAboveCount} remains`
+          : null);
+      const previewLines: PendingComposerDispatchPreviewLine[] = [];
+      if (infoText) {
+        previewLines.push({
+          key: "pending-composer-dispatch:info",
+          segments: [{ text: infoText, color: TUI_THEME.textMuted }],
         });
+      }
+      previewLines.push(...pendingComposerWaitlistWindow.visibleItems.map((item, index, visibleItems) => {
+        const entry = item.item;
+        const isSelected = selectedPendingComposerDispatchId !== null
+          && entry.id === selectedPendingComposerDispatchId;
+        const isLastVisibleRow = index === visibleItems.length - 1;
+        const rowColor = isSelected ? TUI_THEME.violet : TUI_THEME.text;
+        const leader = resolvePendingComposerDispatchPreviewLeader(item.ordinal);
+        const suffix = entry.id === activeEntryId
+          ? ` ${resolvePendingComposerDispatchStatusCopy(entry.mode)}`
+          : "";
+        const previewSourceText = entry.text.length > 0 ? entry.text : "[Attachment]";
+        const availableBodyWidth = Math.max(
+          1,
+          Math.min(
+            40,
+            transcriptLineWidth
+              - stringWidth(leader)
+              - stringWidth(">> ")
+              - stringWidth(suffix)
+              - (isLastVisibleRow ? stringWidth(hintText) + 1 : 0),
+          ),
+        );
+        const truncatedBody = truncatePendingComposerPreviewText(previewSourceText, availableBodyWidth);
+        return {
+          key: `pending-composer-dispatch:${entry.id}`,
+          segments: [
+            { text: leader, color: rowColor },
+            { text: ">> ", color: isSelected ? TUI_THEME.violet : (entry.mode === "steer" ? TUI_THEME.red : RUSH_MODE_BADGE_COLOR) },
+            ...renderComposerLineFragments(truncatedBody, rowColor),
+            ...(suffix.length > 0 ? [{ text: suffix, color: rowColor }] : []),
+          ],
+          ...(isLastVisibleRow
+            ? {
+              trailingHint: {
+                text: hintText,
+                color: TUI_THEME.textMuted,
+              },
+            }
+            : {}),
+        };
+      }));
+      return previewLines;
     },
-    [pendingComposerDispatches, transcriptLineWidth],
+    [
+      pendingComposerDispatchOverflow,
+      pendingComposerDispatches,
+      pendingComposerWaitlistNotice,
+      pendingComposerWaitlistWindow,
+      transcriptLineWidth,
+    ],
   );
   const composerDisplayState = rewindInFlight
     ? createTuiTextInputState()
@@ -13021,10 +13698,21 @@ function PraxisDirectTuiApp(): JSX.Element {
       )
       : composerState;
   const composerLines = splitComposerLines(composerDisplayState.value);
+  const pendingComposerEditOrdinal = pendingComposerEditEntry
+    ? resolvePendingComposerPreviewOrdinal(
+      pendingComposerDispatches.findIndex((entry) => entry.id === pendingComposerEditEntry.id),
+    )
+    : 0;
   const composerPrefix = rewindInFlight
     ? buildRewindComposerPrefix(rewindAnimationFrame)
-    : ">> ";
-  const composerPrefixColor = rewindInFlight ? TUI_THEME.cyan : TUI_THEME.mint;
+    : pendingComposerEditEntry
+      ? `${formatPendingComposerDispatchOrdinal(pendingComposerEditOrdinal)} editing, alt+o to apply >> `
+      : ">> ";
+  const composerPrefixColor = rewindInFlight
+    ? TUI_THEME.cyan
+    : pendingComposerEditEntry
+      ? TUI_THEME.violet
+      : TUI_THEME.mint;
   const startupModelLabel = runtimeConfig
     ? formatModelEffortDisplayLine(
       runtimeConfig.modelPlan.core.main.model,
@@ -13291,6 +13979,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     const nextDraft = currentQuestion?.kind === "freeform" && !noteMode
       ? (questionPanelState.answersByQuestionId[currentQuestion.id]?.answerText ?? "")
       : (questionPanelState.answersByQuestionId[currentQuestion?.id ?? ""]?.annotation ?? "");
+    resetComposerHistoryNavigation();
     setComposerState((previous) =>
       previous.value === nextDraft
         ? previous
@@ -13535,7 +14224,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       return findNextInteractiveFieldIndex(slashPanelView.fields, 0, 1);
     });
   }, [configFile?.permissions.requestedMode, runtimeConfig?.permissions.requestedMode, slashPanelView]);
-  const showSlashMenu = !activeSlashPanelId && slashState.active && slashState.suggestions.length > 0;
+  const showSlashMenu = !pendingComposerEditState && !activeSlashPanelId && slashState.active && slashState.suggestions.length > 0;
   const exitSummaryLines = useMemo(
     () => exitSummaryDisplay
       ? buildExitSummaryPanelLines(
@@ -13626,7 +14315,8 @@ function PraxisDirectTuiApp(): JSX.Element {
     1,
     terminalRows - 2 - ((composerLines.length - 1) - composerCursor.line),
   );
-  const composerCursorColumn = Math.max(1, 5 + composerCursor.column);
+  const composerCursorPrefixWidth = composerCursor.line === 0 ? stringWidth(composerPrefix) : 3;
+  const composerCursorColumn = Math.max(1, composerCursorPrefixWidth + 2 + composerCursor.column);
   composerCursorParking.row = composerCursorRow;
   composerCursorParking.column = composerCursorColumn;
   composerCursorParking.active = exitSummaryDisplay === null && !rewindInFlight;

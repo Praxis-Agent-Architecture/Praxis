@@ -933,6 +933,36 @@ test("AgentCoreRuntime inspectTapCapabilityRoute explains when a human_gate over
   assert.equal(diagnostic.safetyOutcome, "escalate_to_human");
 });
 
+test("AgentCoreRuntime inspectTapCapabilityRoute denies dangerous shell.restricted payloads by command and args", () => {
+  const runtime = createAgentCoreRuntime({
+    taProfile: createAgentCapabilityProfile({
+      profileId: "profile.runtime.tap-dangerous-shell-diagnostics",
+      agentClass: "main-agent",
+      baselineCapabilities: ["shell.restricted"],
+    }),
+  });
+
+  const diagnostic = runtime.inspectTapCapabilityRoute({
+    sessionId: "session-dangerous-shell-diagnostics",
+    runId: "run-dangerous-shell-diagnostics",
+    agentId: "agent-dangerous-shell-diagnostics",
+    capabilityKey: "shell.restricted",
+    reason: "Preview how TAP handles a destructive shell command request.",
+    requestedTier: "B1",
+    mode: "permissive",
+    requestInput: {
+      command: "rm",
+      args: ["-rf", "memory/generated/tap-danger-probe"],
+      cwd: ".",
+    },
+  });
+
+  assert.equal(diagnostic.derivedRiskLevel, "dangerous");
+  assert.equal(diagnostic.routeDecision, "deny");
+  assert.equal(diagnostic.safetyOutcome, "block");
+  assert.match(diagnostic.routeReason ?? "", /Dangerous shell\.restricted/u);
+});
+
 test("AgentCoreRuntime dispatches MCP read family capability packages through the default TAP path", async () => {
   const listToolsPackage = createMcpReadCapabilityPackage({
     capabilityKey: "mcp.listTools",
@@ -1284,6 +1314,61 @@ test("AgentCoreRuntime can dispatch mp.search through TAP after package-backed a
     .readRunEvents(created.run.runId)
     .find((entry) => entry.event.type === "capability.result_received");
   assert.ok(resultEvent);
+});
+
+test("AgentCoreRuntime blocks dangerous shell.restricted requests before execution", async () => {
+  const runtime = createAgentCoreRuntime({
+    taProfile: createAgentCapabilityProfile({
+      profileId: "profile.runtime.tap-dangerous-shell-block",
+      agentClass: "main-agent",
+      baselineCapabilities: ["shell.restricted"],
+    }),
+  });
+  const session = runtime.createSession();
+  const goal = runtime.createCompiledGoal(
+    createGoalSource({
+      goalId: "goal-runtime-dangerous-shell-block",
+      sessionId: session.sessionId,
+      userInput: "Block dangerous shell commands in TAP.",
+    }),
+  );
+  const created = await runtime.createRun({
+    sessionId: session.sessionId,
+    goal,
+  });
+
+  const intent: CapabilityCallIntent = {
+    intentId: "intent-dangerous-shell-block",
+    sessionId: session.sessionId,
+    runId: created.run.runId,
+    kind: "capability_call",
+    createdAt: "2026-04-18T00:00:00.000Z",
+    priority: "normal",
+    request: {
+      requestId: "request-dangerous-shell-block",
+      intentId: "intent-dangerous-shell-block",
+      sessionId: session.sessionId,
+      runId: created.run.runId,
+      capabilityKey: "shell.restricted",
+      input: {
+        command: "rm",
+        args: ["-rf", "memory/generated/tap-danger-probe"],
+        cwd: ".",
+      },
+      priority: "normal",
+    },
+  };
+
+  const dispatched = await runtime.dispatchCapabilityIntentViaTaPool(intent, {
+    agentId: "agent-dangerous-shell-block",
+    requestedTier: "B1",
+    mode: "permissive",
+    reason: "Dangerous shell request should be denied before execution.",
+  });
+
+  assert.equal(dispatched.status, "blocked");
+  assert.equal(dispatched.safety?.outcome, "block");
+  assert.equal(runtime.listTaHumanGates().length, 0);
 });
 
 test("AgentCoreRuntime surfaces review-required T/A access when capability is not baseline", async () => {

@@ -299,7 +299,10 @@ test("CmpDispatcherRuntime dispatchWithLlm writes route rationale and supports f
       throw new Error("gateway failed");
     },
   });
-  assert.equal(fallback.loop.bundle.governance.routeRationale, undefined);
+  assert.equal(
+    fallback.loop.bundle.governance.routeRationale,
+    "child seed should continue through the child ICMA-only delivery path",
+  );
   assert.equal(fallback.loop.bundle.governance.scopePolicy, "child_seed_only_enters_child_icma");
   assert.equal(fallback.loop.bundle.body.bodyStrategy, "child_seed_full");
   assert.equal(fallback.loop.liveTrace?.status, "fallback_rules");
@@ -414,7 +417,10 @@ test("CmpDispatcherRuntime deliverPassiveReturnWithLlm keeps passive return topo
   });
 
   assert.equal(fallback.packageMode, "historical_reply_return");
-  assert.equal(fallback.bundle.governance.routeRationale, undefined);
+  assert.equal(
+    fallback.bundle.governance.routeRationale,
+    "historical reply should return through the core_agent_return path",
+  );
   assert.equal(fallback.bundle.governance.scopePolicy, "historical_reply_returns_via_core_path");
   assert.equal(fallback.liveTrace?.status, "fallback_rules");
   assert.equal((fallback.metadata?.liveLlm as { status?: string; fallbackApplied?: boolean } | undefined)?.status, "fallback");

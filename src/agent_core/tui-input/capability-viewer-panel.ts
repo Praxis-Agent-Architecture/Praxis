@@ -210,46 +210,6 @@ export function buildCapabilityViewerBodyLines(params: {
     }
   }
 
-  const visibleMode = params.currentMode ?? snapshot?.lastAttempt?.effectiveMode;
-  const writeDiagnostics = (snapshot?.writeDiagnostics ?? [])
-    .filter((entry) => !visibleMode || entry.requestedMode === visibleMode)
-    .slice(0, 6);
-  if (writeDiagnostics.length > 0) {
-  lines.push(
-    {
-      text: `    Write route preview${visibleMode ? ` · ${visibleMode}` : ""}`,
-      tone: "info",
-    },
-      ...writeDiagnostics.map((entry) => ({
-        text: `      ${entry.capabilityKey.padEnd(18, " ")} ${String(entry.routeDecision ?? "unknown").padEnd(10, " ")} risk=${entry.derivedRiskLevel ?? "unknown"}${entry.matchedToolPolicy ? ` policy=${entry.matchedToolPolicy}` : ""}`,
-        tone: entry.routeDecision === "human_gate" || entry.routeDecision === "interrupt"
-          ? "warning" as const
-          : entry.routeDecision === "deny"
-            ? "danger" as const
-            : undefined,
-      })),
-      {
-        text: "      route preview shows TAP governance path only; adapter payload guards can still reject invalid writes.",
-        tone: "warning",
-      },
-    );
-  }
-  if (snapshot?.toolReviewerSummary) {
-    lines.push({
-      text: `    toolReviewer · total=${snapshot.toolReviewerSummary.total ?? 0} · open=${snapshot.toolReviewerSummary.open ?? 0} · blocked=${snapshot.toolReviewerSummary.blocked ?? 0} · waitingHuman=${snapshot.toolReviewerSummary.waitingHuman ?? 0}`,
-      tone: (snapshot.toolReviewerSummary.blocked ?? 0) > 0 || (snapshot.toolReviewerSummary.waitingHuman ?? 0) > 0
-        ? "warning"
-        : "info",
-    });
-  }
-  if (snapshot?.tmaSummary) {
-    lines.push({
-      text: `    TMA · total=${snapshot.tmaSummary.total ?? 0} · inProgress=${snapshot.tmaSummary.inProgress ?? 0} · resumable=${snapshot.tmaSummary.resumable ?? 0} · completed=${snapshot.tmaSummary.completed ?? 0}`,
-      tone: (snapshot.tmaSummary.inProgress ?? 0) > 0 || (snapshot.tmaSummary.resumable ?? 0) > 0
-        ? "warning"
-        : "info",
-    });
-  }
   if ((snapshot?.thickCapabilities?.length ?? 0) > 0) {
     lines.push(
       { text: "    Thick path snapshot", tone: "info" },
@@ -260,39 +220,6 @@ export function buildCapabilityViewerBodyLines(params: {
           : undefined,
       })),
     );
-  }
-  const walkthroughGroups = new Map<string, NonNullable<CapabilityViewerSnapshotRecord["modeWalkthroughs"]>[number][]>();
-  for (const entry of snapshot?.modeWalkthroughs ?? []) {
-    const key = `${entry.probeLabel ?? entry.capabilityKey}:${entry.capabilityKey}`;
-    const bucket = walkthroughGroups.get(key) ?? [];
-    bucket.push(entry);
-    walkthroughGroups.set(key, bucket);
-  }
-  if (walkthroughGroups.size > 0) {
-    lines.push({ text: "    TAP route anatomy", tone: "info" });
-    for (const [key, entries] of walkthroughGroups.entries()) {
-      const separator = key.indexOf(":");
-      const probeLabel = separator >= 0 ? key.slice(0, separator) : key;
-      const capabilityKey = separator >= 0 ? key.slice(separator + 1) : key;
-      lines.push({
-        text: `      ${probeLabel} · ${capabilityKey}`,
-        tone: "warning",
-      });
-      for (const mode of ["bapr", "yolo", "permissive", "standard", "restricted"] as const) {
-        const entry = entries.find((candidate) => candidate.requestedMode === mode);
-        if (!entry) {
-          continue;
-        }
-        lines.push({
-          text: `        ${mode.padEnd(10, " ")} risk=${entry.derivedRiskLevel ?? "unknown"} -> access=${entry.accessStatus ?? "unknown"} -> safety=${entry.safetyOutcome ?? "unknown"} -> route=${entry.routeDecision ?? "unknown"}`,
-          tone: entry.routeDecision === "human_gate" || entry.routeDecision === "interrupt"
-            ? "warning"
-            : entry.routeDecision === "deny"
-              ? "danger"
-              : undefined,
-        });
-      }
-    }
   }
 
   if (!currentGroup || currentGroup.entries.length === 0) {

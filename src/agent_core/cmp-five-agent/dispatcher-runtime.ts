@@ -288,6 +288,19 @@ function createBundleEnvelope(input: {
     }
   })();
 
+  const routeRationale = (() => {
+    switch (input.packageMode) {
+      case "child_seed_via_icma":
+        return "child seed should continue through the child ICMA-only delivery path";
+      case "peer_exchange_slim":
+        return "peer exchange should stay slim until explicit parent approval is resolved";
+      case "historical_reply_return":
+        return "historical reply should return through the core_agent_return path";
+      default:
+        return "checked lineage package should stay on the core lineage delivery path";
+    }
+  })();
+
   return {
     target: {
       targetAgentId: input.dispatch.targetAgentId,
@@ -311,6 +324,7 @@ function createBundleEnvelope(input: {
       approvalStatus: input.peerApproval?.status,
       confidenceLabel: input.targetKind === "peer" ? "medium" : "high",
       signalLabel: input.contextPackage.fidelityLabel,
+      routeRationale,
       scopePolicy: input.packageMode === "child_seed_via_icma"
         ? "child_seed_only_enters_child_icma"
         : input.packageMode === "peer_exchange_slim"

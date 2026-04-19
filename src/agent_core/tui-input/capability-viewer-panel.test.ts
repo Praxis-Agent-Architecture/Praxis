@@ -1,206 +1,69 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  buildCapabilityViewerBodyLines,
-  buildCapabilityViewerPageMeta,
-  type CapabilityViewerSnapshotRecord,
-} from "./capability-viewer-panel.js";
+import { buildCapabilityViewerBodyLines } from "./capability-viewer-panel.js";
 
-const snapshot: CapabilityViewerSnapshotRecord = {
-  status: "ready",
-  registeredCount: 5,
-  familyCount: 3,
-  blockedCount: 0,
-  pendingHumanGateCount: 0,
-  groups: [
-    {
-      groupKey: "mcp",
-      title: "mcp",
-      count: 1,
-      entries: [{
-        capabilityKey: "mcp.readResource",
-        description: "Read MCP resources.",
-        bindingState: "active",
-      }],
-    },
-    {
-      groupKey: "model",
-      title: "model",
-      count: 1,
-      entries: [{
-        capabilityKey: "model.infer",
-        description: "Infer with the model.",
-        bindingState: "active",
-      }],
-    },
-    {
-      groupKey: "mp",
-      title: "mp",
-      count: 3,
-      entries: [
-        {
-          capabilityKey: "mp.align",
-          description: "Align one memory record.",
-          bindingState: "active",
-        },
-        {
-          capabilityKey: "mp.archive",
-          description: "Archive one memory record.",
-          bindingState: "active",
-        },
-        {
-          capabilityKey: "mp.compact",
-          description: "Compact one semantic group.",
-          bindingState: "active",
-        },
-      ],
-    },
-  ],
-};
-
-test("buildCapabilityViewerPageMeta paginates by family group", () => {
-  const meta = buildCapabilityViewerPageMeta(snapshot, 2);
-  assert.equal(meta.pageCount, 3);
-  assert.equal(meta.pageIndex, 2);
-  assert.equal(meta.totalCapabilities, 5);
-  assert.equal(meta.currentGroup?.title, "mp");
-});
-
-test("buildCapabilityViewerBodyLines renders one family per page with colored header lines", () => {
-  const rendered = buildCapabilityViewerBodyLines({
-    snapshot,
-    pageIndex: 2,
-    lineWidth: 100,
-  });
-
-  assert.equal(rendered.meta.pageCount, 3);
-  assert.match(rendered.lines[0]?.text ?? "", /Registered capabilities · page 3\/3 · 5 total/u);
-  assert.equal(rendered.lines[0]?.tone, "green");
-  assert.equal(rendered.lines[1]?.segments?.[1]?.tone, "info");
-  assert.equal(rendered.lines[2]?.segments?.[1]?.tone, "pink");
-  assert.match(rendered.lines[3]?.text ?? "", /Family\s+mp/u);
-  const joined = rendered.lines.map((line) => line.text).join("\n");
-  assert.match(joined, /mp\.align/u);
-  assert.match(joined, /mp\.archive/u);
-  assert.match(joined, /mp\.compact/u);
-  assert.doesNotMatch(joined, /mcp\.readResource/u);
-  assert.doesNotMatch(joined, /model\.infer/u);
-});
-
-test("status line marks non-zero blockers in red", () => {
-  const rendered = buildCapabilityViewerBodyLines({
+test("capabilities panel omits TAP governance preview blocks", () => {
+  const { lines } = buildCapabilityViewerBodyLines({
     snapshot: {
-      ...snapshot,
-      blockedCount: 2,
-      pendingHumanGateCount: 1,
-    },
-    pageIndex: 0,
-    lineWidth: 100,
-  });
-
-  assert.equal(rendered.lines[2]?.segments?.[3]?.tone, "danger");
-  assert.equal(rendered.lines[2]?.segments?.[5]?.tone, "danger");
-});
-
-test("buildCapabilityViewerBodyLines includes last attempt and write route preview details", () => {
-  const rendered = buildCapabilityViewerBodyLines({
-    snapshot: {
-      ...snapshot,
-      lastAttempt: {
-        capabilityKey: "code.edit",
-        effectiveMode: "restricted",
-        derivedRiskLevel: "risky",
-        routeDecision: "human_gate",
-        routeReason: "Capability code.edit requires human approval in restricted mode.",
-        matchedToolPolicy: "human_gate",
-        matchedToolPolicySelector: "code.edit",
-        finalStatus: "blocked",
-        errorCode: "tap_vendor_user_input_required",
-      },
-      writeDiagnostics: [
-        {
-          capabilityKey: "repo.write",
-          requestedMode: "standard",
-          derivedRiskLevel: "normal",
-          routeDecision: "review",
-        },
-        {
-          capabilityKey: "code.edit",
-          requestedMode: "standard",
-          derivedRiskLevel: "normal",
-          routeDecision: "review",
-          matchedToolPolicy: "human_gate",
-          matchedToolPolicySelector: "code.edit",
-        },
-      ],
-      modeWalkthroughs: [
-        {
-          probeLabel: "Normal probe",
-          capabilityKey: "repo.write",
-          requestedMode: "bapr",
-          derivedRiskLevel: "normal",
-          accessStatus: "baseline_granted",
-          safetyOutcome: "allow",
-          routeDecision: "allow",
-        },
-        {
-          probeLabel: "Normal probe",
-          capabilityKey: "repo.write",
-          requestedMode: "restricted",
-          derivedRiskLevel: "normal",
-          accessStatus: "review_required",
-          safetyOutcome: "escalate_to_human",
-          routeDecision: "human_gate",
-        },
-        {
-          probeLabel: "Dangerous probe",
-          capabilityKey: "shell.rm.force",
-          requestedMode: "standard",
-          derivedRiskLevel: "dangerous",
-          accessStatus: "review_required",
-          safetyOutcome: "block",
-          routeDecision: "deny",
-        },
-      ],
+      registeredCount: 1,
+      familyCount: 1,
+      blockedCount: 0,
+      pendingHumanGateCount: 0,
       toolReviewerSummary: {
-        total: 2,
-        open: 1,
-        blocked: 1,
-        waitingHuman: 0,
-      },
-      tmaSummary: {
         total: 1,
-        inProgress: 1,
-        resumable: 0,
+        open: 1,
+        waitingHuman: 0,
+        blocked: 0,
         completed: 0,
       },
-      thickCapabilities: [
-        {
-          capabilityKey: "computer.use",
-          stage: "tma_pending",
-          toolReviewerSessions: 1,
-          tmaSessions: 1,
-          pendingReplays: 1,
-        },
-      ],
+      tmaSummary: {
+        total: 2,
+        inProgress: 1,
+        resumable: 0,
+        completed: 1,
+      },
+      lastAttempt: {
+        capabilityKey: "repo.write",
+        effectiveMode: "permissive",
+        routeDecision: "allow",
+        derivedRiskLevel: "normal",
+      },
+      writeDiagnostics: [{
+        capabilityKey: "repo.write",
+        requestedMode: "permissive",
+        routeDecision: "allow",
+        derivedRiskLevel: "normal",
+      }],
+      modeWalkthroughs: [{
+        capabilityKey: "repo.write",
+        probeLabel: "Normal probe",
+        requestedMode: "permissive",
+        routeDecision: "allow",
+        derivedRiskLevel: "normal",
+        accessStatus: "baseline_granted",
+        safetyOutcome: "allow",
+      }],
+      groups: [{
+        groupKey: "browser",
+        title: "browser",
+        count: 1,
+        entries: [{
+          capabilityKey: "browser.playwright",
+          description: "Browser automation",
+          bindingState: "active",
+        }],
+      }],
     },
     pageIndex: 0,
-    lineWidth: 100,
-    currentMode: "standard",
+    lineWidth: 120,
+    currentMode: "permissive",
   });
 
-  const joined = rendered.lines.map((line) => line.text).join("\n");
-  assert.match(joined, /Last attempt/u);
-  assert.match(joined, /code\.edit · route=human_gate · final=blocked · risk=risky/u);
-  assert.match(joined, /Write route preview · standard/u);
-  assert.match(joined, /repo\.write/u);
-  assert.match(joined, /policy=human_gate/u);
-  assert.match(joined, /toolReviewer · total=2/u);
-  assert.match(joined, /TMA · total=1/u);
-  assert.match(joined, /computer\.use/u);
-  assert.match(joined, /TAP route anatomy/u);
-  assert.match(joined, /Normal probe · repo\.write/u);
-  assert.match(joined, /bapr\s+risk=normal -> access=baseline_granted -> safety=allow -> route=allow/u);
-  assert.match(joined, /shell\.rm\.force/u);
+  const rendered = lines.map((line) => line.text).join("\n");
+  assert.equal(rendered.includes("Write route preview"), false);
+  assert.equal(rendered.includes("toolReviewer"), false);
+  assert.equal(rendered.includes("TMA"), false);
+  assert.equal(rendered.includes("TAP route anatomy"), false);
+  assert.equal(rendered.includes("browser.playwright"), true);
 });

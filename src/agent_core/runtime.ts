@@ -20,6 +20,10 @@ import {
 } from "./capability-result/index.js";
 import { executeModelInference, type ModelInferenceExecutionResult } from "./integrations/model-inference.js";
 import {
+  DEFAULT_RESTRICTED_ARG_DENY_PATTERNS,
+  DEFAULT_RESTRICTED_COMMAND_DENY_PATTERNS,
+} from "./integrations/tap-tooling/command-runtime.js";
+import {
   createModelInferenceCapabilityAdapter,
   createModelInferenceCapabilityManifest,
   MODEL_INFERENCE_CAPABILITY_KEY,
@@ -978,6 +982,65 @@ function readStringField(record: Record<string, unknown>, key: string): string |
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function readStringArrayField(record: Record<string, unknown>, key: string): string[] | undefined {
+  const value = record[key];
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const items = value
+    .filter((entry): entry is string => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  return items.length > 0 ? items : undefined;
+}
+
+function inspectDangerousShellRestrictedRequest(input: {
+  capabilityKey: string;
+  requestInput?: Record<string, unknown>;
+}): { dangerous: boolean; reason?: string; matchedPattern?: string } {
+  if (input.capabilityKey !== "shell.restricted" || !input.requestInput) {
+    return { dangerous: false };
+  }
+
+  const commandValue = input.requestInput.command;
+  const commandArray = Array.isArray(commandValue)
+    ? commandValue.filter((entry): entry is string => typeof entry === "string" && entry.trim().length > 0)
+    : undefined;
+  const command = commandArray?.[0]
+    ?? (typeof commandValue === "string" && commandValue.trim().length > 0 ? commandValue.trim() : undefined);
+  const args = commandArray
+    ? [...commandArray.slice(1), ...(readStringArrayField(input.requestInput, "args") ?? [])]
+    : readStringArrayField(input.requestInput, "args") ?? [];
+
+  if (!command) {
+    return { dangerous: false };
+  }
+
+  const matchedCommandPattern = DEFAULT_RESTRICTED_COMMAND_DENY_PATTERNS.find((pattern) => pattern.test(command));
+  if (matchedCommandPattern) {
+    return {
+      dangerous: true,
+      matchedPattern: matchedCommandPattern.source,
+      reason: `Dangerous shell.restricted command ${command} was denied by TAP.`,
+    };
+  }
+
+  const matchedArgPattern = args.flatMap((arg) =>
+    DEFAULT_RESTRICTED_ARG_DENY_PATTERNS
+      .filter((pattern) => pattern.test(arg))
+      .map((pattern) => ({ arg, pattern })),
+  )[0];
+  if (matchedArgPattern) {
+    return {
+      dangerous: true,
+      matchedPattern: matchedArgPattern.pattern.source,
+      reason: `Dangerous shell.restricted arguments were denied by TAP: ${matchedArgPattern.arg}.`,
+    };
+  }
+
+  return { dangerous: false };
+}
+
 function normalizeAbsolutePrefix(candidatePath: string): string {
   return path.resolve(candidatePath);
 }
@@ -1396,10 +1459,21 @@ export class AgentCoreRuntime {
       input.requestedTier ?? "B1",
       governanceDirective.matchedToolPolicy === "human_gate" ? "B3" : "B1",
     );
-    const classifiedRisk = classifyCapabilityRisk({
+    const dangerousShellRequest = inspectDangerousShellRestrictedRequest({
       capabilityKey: input.capabilityKey,
-      requestedTier,
+      requestInput: input.requestInput,
     });
+    const classifiedRisk = dangerousShellRequest.dangerous
+      ? {
+        capabilityKey: input.capabilityKey,
+        riskLevel: "dangerous" as const,
+        reason: "dangerous_pattern" as const,
+        matchedPattern: dangerousShellRequest.matchedPattern,
+      }
+      : classifyCapabilityRisk({
+        capabilityKey: input.capabilityKey,
+        requestedTier,
+      });
     const requestedMode = input.mode ?? this.taControlPlaneGateway.profile.defaultMode;
     const effectiveMode = derivedScope?.modeOverride
       ?? governanceDirective.effectiveMode
@@ -1420,14 +1494,21 @@ export class AgentCoreRuntime {
     const accessMetadata = resolved.status === "review_required"
       ? readCapabilityAccessMetadata(resolved.request)
       : {};
-    const safety = evaluateSafetyInterception({
-      mode: effectiveMode,
-      requestedTier,
-      capabilityKey: input.capabilityKey,
-      riskLevel: derivedScope?.riskLevel ?? input.riskLevel,
-      reason: input.reason,
-      config: this.#taSafetyConfig,
-    });
+    const safety = dangerousShellRequest.dangerous
+      ? {
+        outcome: "block" as const,
+        riskLevel: "dangerous" as const,
+        reason: dangerousShellRequest.reason ?? `Dangerous shell.restricted request was denied by TAP.`,
+        matchedPattern: dangerousShellRequest.matchedPattern,
+      }
+      : evaluateSafetyInterception({
+        mode: effectiveMode,
+        requestedTier,
+        capabilityKey: input.capabilityKey,
+        riskLevel: derivedScope?.riskLevel ?? input.riskLevel,
+        reason: input.reason,
+        config: this.#taSafetyConfig,
+      });
     const routeDecision = safety.outcome === "block"
       ? "deny"
       : safety.outcome === "interrupt"
@@ -1455,7 +1536,9 @@ export class AgentCoreRuntime {
       effectiveMode,
       automationDepth: governanceDirective.automationDepth,
       explanationStyle: governanceDirective.explanationStyle,
-      derivedRiskLevel: derivedScope?.riskLevel ?? input.riskLevel ?? classifiedRisk.riskLevel,
+      derivedRiskLevel: dangerousShellRequest.dangerous
+        ? "dangerous"
+        : derivedScope?.riskLevel ?? input.riskLevel ?? classifiedRisk.riskLevel,
       matchedToolPolicy: governanceDirective.matchedToolPolicy,
       matchedToolPolicySelector: governanceDirective.matchedToolPolicySelector,
       forceHumanByRisk: governanceDirective.forceHumanByRisk,
@@ -5465,13 +5548,30 @@ export class AgentCoreRuntime {
         : {}),
       tapGovernanceDirective: governanceDirective,
     };
+    const dangerousShellRequest = inspectDangerousShellRestrictedRequest({
+      capabilityKey: intent.request.capabilityKey,
+      requestInput: isRecordLike(intent.request.input) ? intent.request.input : undefined,
+    });
     const safety = evaluateSafetyInterception({
       mode,
       requestedTier,
       capabilityKey: intent.request.capabilityKey,
+      riskLevel: dangerousShellRequest.dangerous ? "dangerous" : undefined,
       reason,
       config: this.#taSafetyConfig,
     });
+
+    if (dangerousShellRequest.dangerous) {
+      return {
+        status: "blocked",
+        safety: {
+          outcome: "block",
+          riskLevel: "dangerous",
+          reason: dangerousShellRequest.reason ?? `Dangerous shell.restricted request was denied by TAP.`,
+          matchedPattern: dangerousShellRequest.matchedPattern,
+        },
+      };
+    }
 
     if (safety.outcome === "block") {
       return {

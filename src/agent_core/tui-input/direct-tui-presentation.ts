@@ -139,6 +139,54 @@ export type DirectTuiAssistantTurnResultAction =
   | { kind: "append"; text: string }
   | { kind: "update"; text: string; messageId: string };
 
+export type DirectTuiAssistantDeltaAction =
+  | { kind: "noop" }
+  | { kind: "append"; text: string }
+  | { kind: "delta"; textDelta: string; messageId: string }
+  | { kind: "update"; text: string; messageId: string };
+
+export function resolveDirectTuiAssistantDeltaAction(input: {
+  decodedText: string;
+  previousDisplayedText: string;
+  activeMessageId?: string;
+}): DirectTuiAssistantDeltaAction {
+  if (!input.activeMessageId) {
+    if (input.previousDisplayedText.length > 0 && input.decodedText.startsWith(input.previousDisplayedText)) {
+      const textDelta = input.decodedText.slice(input.previousDisplayedText.length);
+      if (!textDelta) {
+        return { kind: "noop" };
+      }
+      return {
+        kind: "append",
+        text: textDelta,
+      };
+    }
+    if (!input.decodedText) {
+      return { kind: "noop" };
+    }
+    return {
+      kind: "append",
+      text: input.decodedText,
+    };
+  }
+  if (!input.decodedText.startsWith(input.previousDisplayedText)) {
+    return {
+      kind: "update",
+      text: input.decodedText,
+      messageId: input.activeMessageId,
+    };
+  }
+  const textDelta = input.decodedText.slice(input.previousDisplayedText.length);
+  if (!textDelta) {
+    return { kind: "noop" };
+  }
+  return {
+    kind: "delta",
+    textDelta,
+    messageId: input.activeMessageId,
+  };
+}
+
 export function resolveDirectTuiAssistantTurnResultAction(input: {
   finalAnswer: string | null;
   streamedText: string;

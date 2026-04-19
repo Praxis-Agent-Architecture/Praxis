@@ -187,7 +187,7 @@ export function createCmpRoleLiveLlmModelExecutor(
   const roleId = input.roleId;
   const resolvedRole = roleId ? loadResolvedRoleConfig(roleId) : null;
   const provider = input.provider ?? resolvedRole?.profile.provider ?? "openai";
-  const model = input.model ?? "gpt-5.4";
+  const model = input.model ?? resolvedRole?.profile.model ?? "gpt-5.4";
   const layer = input.layer ?? "api";
   const variant = input.variant
     ?? (resolvedRole

@@ -21,7 +21,27 @@ export interface PendingComposerVisibleWindow<T> {
   maxOffset: number;
 }
 
-export const PENDING_COMPOSER_MAX_VISIBLE = 5;
+export interface PendingComposerWaitlistWindowItem<T> {
+  item: T;
+  sourceIndex: number;
+  ordinal: number;
+}
+
+export interface PendingComposerWaitlistWindow<T> {
+  visibleItems: PendingComposerWaitlistWindowItem<T>[];
+  selectedIndex: number;
+  selectedOrdinal: number;
+  hiddenAboveCount: number;
+  startIndex: number;
+  endIndex: number;
+}
+
+export interface PendingComposerWaitlistSelectionResult {
+  nextIndex: number | null;
+  boundary: "top" | null;
+}
+
+export const PENDING_COMPOSER_MAX_VISIBLE = 6;
 export const PENDING_COMPOSER_MAX_WIDE = 20;
 export const PENDING_COMPOSER_MAX_NARROW = 34;
 
@@ -110,6 +130,104 @@ export function formatPendingComposerOrdinal(
   totalCount: number,
 ): string {
   return String(sequence).padStart(totalCount >= 100 ? 3 : 2, "0");
+}
+
+export function resolvePendingComposerPreviewOrdinal(sourceIndex: number): number {
+  return Math.max(1, sourceIndex + 1);
+}
+
+export function clampPendingComposerSelectionIndex(
+  requestedIndex: number,
+  totalCount: number,
+): number {
+  if (totalCount <= 0) {
+    return 0;
+  }
+  return Math.max(0, Math.min(requestedIndex, totalCount - 1));
+}
+
+export function buildPendingComposerWaitlistWindow<T>(
+  entries: readonly T[],
+  requestedSelectionIndex: number,
+  maxVisible = PENDING_COMPOSER_MAX_VISIBLE,
+): PendingComposerWaitlistWindow<T> {
+  if (entries.length === 0) {
+    return {
+      visibleItems: [],
+      selectedIndex: 0,
+      selectedOrdinal: 0,
+      hiddenAboveCount: 0,
+      startIndex: 0,
+      endIndex: 0,
+    };
+  }
+  const selectedIndex = clampPendingComposerSelectionIndex(requestedSelectionIndex, entries.length);
+  const clampedMaxVisible = Math.max(1, maxVisible);
+  const maxStartIndex = Math.max(0, entries.length - clampedMaxVisible);
+  const startIndex = Math.max(0, Math.min(selectedIndex - clampedMaxVisible + 1, maxStartIndex));
+  const endIndex = Math.min(entries.length, startIndex + clampedMaxVisible);
+  const visibleItems = entries
+    .slice(startIndex, endIndex)
+    .map((item, offset) => {
+      const sourceIndex = startIndex + offset;
+      return {
+        item,
+        sourceIndex,
+        ordinal: resolvePendingComposerPreviewOrdinal(sourceIndex),
+      };
+    })
+    .reverse();
+  return {
+    visibleItems,
+    selectedIndex,
+    selectedOrdinal: resolvePendingComposerPreviewOrdinal(selectedIndex),
+    hiddenAboveCount: Math.max(0, entries.length - endIndex),
+    startIndex,
+    endIndex,
+  };
+}
+
+export function resolvePendingComposerWaitlistSelectionMove(input: {
+  currentIndex: number | null;
+  direction: -1 | 1;
+  totalCount: number;
+}): PendingComposerWaitlistSelectionResult {
+  const { currentIndex, direction, totalCount } = input;
+  if (totalCount <= 0) {
+    return {
+      nextIndex: null,
+      boundary: null,
+    };
+  }
+  if (currentIndex === null) {
+    return {
+      nextIndex: direction > 0 ? 0 : null,
+      boundary: null,
+    };
+  }
+  if (direction < 0) {
+    if (currentIndex <= 0) {
+      return {
+        nextIndex: null,
+        boundary: null,
+      };
+    }
+    return {
+      nextIndex: currentIndex - 1,
+      boundary: null,
+    };
+  }
+  const nextIndex = currentIndex + 1;
+  if (nextIndex >= totalCount) {
+    return {
+      nextIndex: currentIndex,
+      boundary: "top",
+    };
+  }
+  return {
+    nextIndex,
+    boundary: null,
+  };
 }
 
 export function buildPendingComposerVisibleWindow<T>(
