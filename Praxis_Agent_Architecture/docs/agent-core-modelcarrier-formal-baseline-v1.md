@@ -96,9 +96,9 @@
 
 这三类是顶层主类，用来说明“模型进入系统的大方向”，不是要把所有下游 carrier 都压成同一种厚度。
 
-### 5.2 中层：carrier 家族或运行层
+### 5.2 中层：更细 carrier 姿态
 
-在顶层主类之下，需要允许更细的 carrier 家族存在。
+在顶层主类之下，需要允许更细的 carrier 家族或中层姿态存在。
 
 这类中层视角至少可能区分：
 
@@ -109,6 +109,8 @@
 - 未来更专门的宿主壳或桥接壳
 
 这里冻结的是“允许存在这一层”，不是冻结完整枚举表。
+
+这里的“中层姿态”只是分类位阶，不预设宿主最终一定存在名为 `layer`、`carrierKind` 或其他现存字段名的规范槽位。
 
 ### 5.3 下层：具体 surface
 
@@ -130,12 +132,12 @@
 ```text
 provider 归属
   -> carrier 主类
-  -> carrier 家族 / layer / runtime posture
+  -> 更细 carrier 姿态（家族 / 运行取向等）
   -> 具体 surface
   -> 该 surface 所能承接的能力面
 ```
 
-这是一种分类原则，不是最终字段结构。
+这是一种分类原则，不是最终字段结构，也不要求后续 schema 必须出现名为 `layer` 的规范字段。
 
 ## 6. 三大主类
 
@@ -266,6 +268,8 @@ PromptPack 文档已经冻结：`PromptPack` 先统一 `governance / task / cont
 
 这说明运行时已经不得不表达“这条通道到底属于什么 carrier 姿态、能承接哪些能力面”。
 
+这些名字只是旧 runtime 的现实记录项，用来证明系统已经在表达这类信息；它们不是新宿主必须继承的规范键名。
+
 ### 10.3 provider 下已经出现多个 carrier 与多个 surface
 
 当前 `src/integrations/*` 中已经能看到若干现实例子：
@@ -316,7 +320,7 @@ PromptPack 文档已经冻结：`PromptPack` 先统一 `governance / task / cont
 
 - 模型进入系统有多种承载通道，`ModelCarrier` 是这些通道的总称
 - `provider` 负责上游归属，`carrier` 负责具体承载与调用路径
-- carrier 至少要从“主类 -> 家族 / layer -> surface -> 能力面”来理解
+- carrier 至少要从“主类 -> 更细 carrier 姿态 -> surface -> 能力面”来理解
 - 第一版正式承认 `API / SDK / CLI` 三大主类，但不把下游全部压成同一种厚度
 - carrier 必须能承接的不只是 generation，还包括 auth、tool use、MCP、session/state、streaming、resources/prompts、memory handoff 等能力面
 - 能力系统负责按能力名找路，`ModelCarrier` 负责定义这条路在概念上由哪些层组成
