@@ -67,7 +67,7 @@
 
 ### 2.4 三者的最小关系
 
-可以先把三者理解成下面这种最小关系：
+可以先把三者理解成下面这种常见关系：
 
 ```text
 checkpoint / snapshot / journal / 持久化残留
@@ -81,7 +81,7 @@ checkpoint / snapshot / journal / 持久化残留
   -> 继续推进运行过程
 ```
 
-这张图不是完整算法，只是第一版要冻结的对象分工：
+这张图不是完整算法，也不是唯一固定顺序，只是第一版要冻结的对象分工：
 
 - `recover` 偏找回
 - `hydrate` 偏灌回
@@ -267,8 +267,8 @@ CMP 这边已经把 hydrate 和 reconciliation 分成了明确对象：
 - 恢复之后可能存在 `aligned / degraded / snapshot_only / infra_only` 等状态差异
 - 恢复链路里可能需要给出 `hydrate_from_snapshot / hydrate_from_infra / reconcile_snapshot_and_infra` 这类建议动作
 
-这些现实锚点足够证明“recover 之后还需要 reconciliation”不是拍脑袋概念。  
-但本文仍然不把这些 status、reason、action 的字段名直接冻结成未来标准。
+这些现实锚点足够证明：恢复之后往往还会遇到“是否对齐、怎么对齐”的问题域，这不是拍脑袋概念。  
+但本文仍然只把 `reconciliation` 视为恢复后的对齐问题域，不把它写成 `resume / recover / hydrate` 三者本体，也不把这些 status、reason、action 的字段名直接冻结成未来标准。
 
 ### 7.5 `src/agent_core/ta-pool-runtime/runtime-recovery.ts`
 
@@ -311,6 +311,7 @@ TAP 这边也已经给出另一种形状：
 - hydrate 的对象图细节
 - resume 的调度策略
 - `resume / recover / hydrate` 的完整编排顺序
+- reconciliation 是否必须出现，以及它与恢复链路的最终编排关系
 - 恢复后是否必须重新经过某些 checker 门禁
 - 恢复后 runtime object 的最终字段结构
 
