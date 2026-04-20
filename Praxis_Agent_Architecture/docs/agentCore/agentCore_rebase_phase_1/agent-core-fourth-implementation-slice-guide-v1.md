@@ -56,15 +56,79 @@ journal replay result
 
 都会因为 recognition 仍然只是挂点、不是正式边界，而失去稳定落脚点。
 
-## 3. 当前建议的第四刀是什么
+## 3. 第四刀依赖哪些上位文档 / 边界文档
 
-### 3.1 切片名称
+第四刀不是凭空起一层，它依赖的上位文档 / 边界文档至少有下面五份。
+
+### 3.1 `agent-core-third-implementation-slice-guide-v1.md`
+
+这份文档负责给第四刀提供**第三刀的收口位置**。
+
+它支撑第四刀的方式是：
+
+- 明确第三刀只做到 `cursor advancement result` 最小结果层 + `recognition` 最小挂点
+- 明确第四刀最自然应继续收敛到 `recognition` 最小正式边界与后续更窄结果邻域
+- 防止第四刀回头重写第三刀，或把第三刀还没拆开的层重新混回去
+
+白话讲，没有这份指南，第四刀就容易失去“从哪里接上来”的施工起点。
+
+### 3.2 `agent-core-third-implementation-slice-done-checklist-v1.md`
+
+这份文档负责给第四刀提供**进入条件与完成前提**。
+
+它支撑第四刀的方式是：
+
+- 明确第三刀必须先让 `recognition` 挂点真实接在线路里，而不只是纸面概念
+- 明确上位协调面已经开始消费第三刀结果邻域，第四刀才有条件继续把 recognition 从挂点收紧成正式边界
+- 防止第四刀一上来就补 formal boundary，但第三刀其实还没真正 done
+
+白话讲，它决定第四刀不是“另起炉灶”，而是建立在第三刀已经站住的最小桥接链之上。
+
+### 3.3 `agent-core-cursor-advancement-recognition-formal-baseline-v1.md`
+
+这份文档负责给第四刀提供**recognition 正式边界来源**。
+
+它支撑第四刀的方式是：
+
+- 明确 `cursor advancement recognition` 是围绕推进结果承认边界的独立问题域
+- 明确它不等于 `cursor advancement`、`cursor advancement result`、`cursor`、`journal replay` 或更大的 recover / resume 对象
+- 允许第四刀只冻结“最小正式边界”，而不提前写死最终 rule table、最终条件集合与最终 schema
+
+白话讲，第四刀里“recognition 到底是什么边界”，来源主要就靠这份 formal baseline 托住。
+
+### 3.4 `agent-core-cursor-advancement-recognition-result-formal-baseline-v1.md`
+
+这份文档负责给第四刀提供**recognition result 边界来源**。
+
+它支撑第四刀的方式是：
+
+- 明确 `cursor advancement recognition result` 是 recognition 边界成立之后留下的更窄结果/产物
+- 明确它不等于 `recognition` 整体，也不等于 `cursor advancement result` 整体
+- 允许第四刀只补“最小结果邻域”，而不提前把最终 recognition result schema 或 acceptance 之后的结果层一起做出来
+
+白话讲，第四刀里“recognition 之后最小留下什么结果壳”，来源主要就靠这份 formal baseline 定边。
+
+### 3.5 `agent-core-acceptance-ack-result-formal-baseline-v1.md`
+
+这份文档在第四刀里**不是实施来源**，而是**排除边界与第五刀接口来源**。
+
+它支撑第四刀的方式是：
+
+- 明确 `acceptance / ack result` 站在 recognition 与 recognition result 之后，是更往下游的一层
+- 帮第四刀把“本刀不做 acceptance / ack result 全层”这个排除边界挂清楚
+- 同时给第五刀留出自然接口，让第四刀知道自己做完后最自然是往 `acceptance / ack result` 最小正式邻域接，而不是越界把它提前实现
+
+白话讲，这份 baseline 在第四刀里的价值，主要是告诉我们“这里先不要跨过去”，而不是把它直接做进第四刀。
+
+## 4. 当前建议的第四刀是什么
+
+### 4.1 切片名称
 
 建议把第四刀收敛成：
 
 **`cursor advancement recognition` 最小正式边界 + `cursor advancement recognition result` 最小结果邻域**
 
-### 3.2 这第四刀的最小组合
+### 4.2 这第四刀的最小组合
 
 这一刀建议只包含下面三件事：
 
@@ -89,11 +153,11 @@ cursor advancement result
 
 这三者真实拆开。
 
-## 4. 这第四刀包含什么
+## 5. 这第四刀包含什么
 
 第四刀建议只包含下面这些内容。
 
-### 4.1 `cursor advancement recognition` 最小正式边界
+### 5.1 `cursor advancement recognition` 最小正式边界
 
 它只负责一件事：
 
@@ -113,7 +177,7 @@ cursor advancement result
 - 最终 replay window / batch / cursor policy
 - 最终 recognition schema、serialization、DSL、JSON 字段名或枚举名
 
-### 4.2 `cursor advancement recognition result` 最小结果邻域
+### 5.2 `cursor advancement recognition result` 最小结果邻域
 
 它只负责一件事：
 
@@ -132,7 +196,7 @@ cursor advancement result
 - 最终 `acceptance / ack result`
 - 最终冲突合并、去重、幂等细则
 
-### 4.3 上位协调面的最小消费改口径
+### 5.3 上位协调面的最小消费改口径
 
 它只负责一件事：
 
@@ -150,7 +214,7 @@ cursor advancement result
 - 真正 `hydrate`
 - 真正 `resume`
 
-## 5. 这第四刀明确不包含什么
+## 6. 这第四刀明确不包含什么
 
 为了保证第四刀足够小，这一轮应明确排除下面这些内容：
 
@@ -172,11 +236,11 @@ cursor advancement result
 
 不做“宿主最终如何接受/确认并继续交付”的下一层。
 
-## 6. 为什么这个切片适合作为第四刀
+## 7. 为什么这个切片适合作为第四刀
 
 这个切片适合作为第四刀，主要有六个原因。
 
-### 6.1 它正好补上第三刀之后最明显的缺口
+### 7.1 它正好补上第三刀之后最明显的缺口
 
 第三刀已经证明：
 
@@ -186,7 +250,7 @@ cursor advancement result
 但“recognition 作为正式边界是什么”“边界成立后留下什么更窄结果”还没站住。  
 第四刀正好补这个缺口，不需要回头改写第三刀。
 
-### 6.2 它先把“挂点”与“正式边界”分开
+### 7.2 它先把“挂点”与“正式边界”分开
 
 如果第四刀不先补这一步，后面很容易继续出现：
 
@@ -196,7 +260,7 @@ cursor advancement result
 
 第四刀先把正式边界站住，能最快止住这类混写。
 
-### 6.3 它先把 recognition 与 recognition result 分开
+### 7.3 它先把 recognition 与 recognition result 分开
 
 如果 recognition 一成立就直接把“边界本身”和“边界后的结果壳”混成一层，后面很容易出现：
 
@@ -206,7 +270,7 @@ cursor advancement result
 
 第四刀先把这两层分开，后续 acceptance / ack 才有自然接点。
 
-### 6.4 它比直接进入 `acceptance / ack result` 更稳
+### 7.4 它比直接进入 `acceptance / ack result` 更稳
 
 `acceptance / ack result` 已经是 recognition 之后的更窄结果层。  
 如果第四刀直接跳过去，很容易把：
@@ -217,7 +281,7 @@ cursor advancement result
 
 一起带进来。先把 recognition 正式边界与 recognition result 邻域站住，更符合“小切片继续推进”的节奏。
 
-### 6.5 它仍然停在 recovery bridge 邻域，没有跳成终局协议
+### 7.5 它仍然停在 recovery bridge 邻域，没有跳成终局协议
 
 这一步仍然围绕：
 
@@ -235,7 +299,7 @@ cursor advancement result
 
 所以边界仍然可控。
 
-### 6.6 它会让第五刀拥有非常自然的落点
+### 7.6 它会让第五刀拥有非常自然的落点
 
 一旦第四刀完成，后面就不必再争论：
 
@@ -248,7 +312,7 @@ cursor advancement result
 
 而不是回头重新拆 recognition。
 
-## 7. 做完第四刀后，第五刀最自然接到哪里
+## 8. 做完第四刀后，第五刀最自然接到哪里
 
 如果第四刀完成，下一刀最自然的方向不是回头重写第三刀，也不是直接把 hydrate / resume 打通，而是继续顺着这条链往下接：
 
@@ -267,7 +331,7 @@ cursor advancement result
 
 也就是说，第四刀做完之后，第五刀最自然是接到 **`acceptance / ack result` 最小正式邻域**，而不是把后半条恢复链一口气写完。
 
-## 8. 一个很小的第四刀边界图
+## 9. 一个很小的第四刀边界图
 
 ```text
 第三刀终点
@@ -285,7 +349,7 @@ cursor advancement result
   最终 schema / 最终 rule table
 ```
 
-## 9. 最终收敛口径
+## 10. 最终收敛口径
 
 第四刀可以收敛成下面这句施工口径：
 
