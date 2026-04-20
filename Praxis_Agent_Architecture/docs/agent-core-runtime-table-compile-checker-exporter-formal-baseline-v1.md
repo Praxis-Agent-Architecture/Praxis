@@ -69,18 +69,19 @@
 
 它不是 `compile`、`checker`、`exporter` 三者中的任何一个，也不是它们的副产物总称。更准确地说，三者都是围绕它工作的子系统。
 
-可以把这条链路理解成下面的顺序：
+可以把这条关系理解成下面这种围绕 `runtime-table` 的展开：
 
 ```text
 Spec / Class / PromptPack / 能力系统 / ModelCarrier / InterfacePack
   -> compile
   -> runtime-table
-  -> checker
-  -> exporter
-  -> boot
+
+runtime-table -> checker
+runtime-table -> exporter
+runtime-table -> boot
 ```
 
-这里的 `boot` 只作为下游消费方出现，本文不定义 boot 自身。
+这里的 `checker`、`exporter`、`boot` 都是围绕 `runtime-table` 工作的下游面，不表示它们必须构成固定串行流水线。尤其 `exporter` 不应被误读成 `boot` 的前置必经步骤。
 
 ### 3.1 上游先形成输入
 
@@ -116,7 +117,7 @@ Spec / Class / PromptPack / 能力系统 / ModelCarrier / InterfacePack
 
 `boot` 作为下游消费方，读取的是已经成立的 `runtime-table`。
 
-本文只冻结这一点：boot 消费正式结果，不重新把上游声明当作唯一真相。至于 boot 的内部算法、状态机和启动顺序，本文不定义。
+本文只冻结这一点：boot 消费正式结果，不重新把上游声明当作唯一真相。至于 boot 是否受 checker 结果约束、是否旁路 exporter、以及其内部算法、状态机和启动顺序，本文不定义。
 
 ## 4. 与前面七份文档的分工
 
