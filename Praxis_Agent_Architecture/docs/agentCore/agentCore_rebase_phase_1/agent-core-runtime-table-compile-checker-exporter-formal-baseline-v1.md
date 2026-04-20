@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-runtime-table-formal-baseline-v1.md` 的继续下钻文，专门冻结 `runtime-table` 周边 `compile / checker / exporter` 三个子系统的职责边界与相互关系。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-runtime-table-formal-baseline-v1.md` 的继续下钻文，专门冻结 `runtime-table` 周边 `compile / checker / exporter` 三个子系统的职责边界与相互关系。
 
 本文不重复宿主总纲，也不重复 `Spec / Class / PromptPack / 能力系统 / ModelCarrier / InterfacePack / runtime-table` 各自已经冻结的上层定义。本文只处理一件事：`runtime-table` 这份正式装配结果，应该如何被编译出来、被检查、被导出，并继续交给下游消费。
 

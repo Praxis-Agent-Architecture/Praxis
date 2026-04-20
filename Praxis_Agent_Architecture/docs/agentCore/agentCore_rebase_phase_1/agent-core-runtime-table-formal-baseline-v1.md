@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-host-design-baseline-v1.md` 中 `runtime-table` 一节的正式下钻文，也是 `Spec / Class / PromptPack / 能力系统 / ModelCarrier / InterfacePack` 继续向运行态收束时必须经过的对象边界文。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-host-design-baseline-v1.md` 中 `runtime-table` 一节的正式下钻文，也是 `Spec / Class / PromptPack / 能力系统 / ModelCarrier / InterfacePack` 继续向运行态收束时必须经过的对象边界文。
 
 本文只冻结 `runtime-table` 第一版的对象定位、装配边界、检查用途和导出用途，不重复宿主总纲，也不展开源码实现。
 

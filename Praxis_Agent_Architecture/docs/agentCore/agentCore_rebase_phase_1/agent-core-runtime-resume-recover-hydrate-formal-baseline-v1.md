@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-boot-formal-baseline-v1.md` 的继续下钻文，专门冻结 `resume / recover / hydrate` 这条恢复链路的对象定位、彼此边界，以及它们和 `boot / runtime-table / checkpoint / snapshot` 的关系。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-boot-formal-baseline-v1.md` 的继续下钻文，专门冻结 `resume / recover / hydrate` 这条恢复链路的对象定位、彼此边界，以及它们和 `boot / runtime-table / checkpoint / snapshot` 的关系。
 
 本文只处理一件事：
 

@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-host-design-baseline-v1.md` 中 `InterfacePack` 一节的正式下钻文，用来冻结 `agentCore` 第一版里 `InterfacePack` 的对象定位、前门边界、官方接口方向与外部治理接入关系。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-host-design-baseline-v1.md` 中 `InterfacePack` 一节的正式下钻文，用来冻结 `agentCore` 第一版里 `InterfacePack` 的对象定位、前门边界、官方接口方向与外部治理接入关系。
 
 本文要回答的是：
 

@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-host-design-baseline-v1.md` 中 `PromptPack` 一节的下钻文，也是 `Praxis_Agent_Architecture/docs/agent-core-spec-class-declaration-model-v1.md` 在 PromptPack 板块上的补充基线。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-host-design-baseline-v1.md` 中 `PromptPack` 一节的下钻文，也是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-spec-class-declaration-model-v1.md` 在 PromptPack 板块上的补充基线。
 
 本文只定义 `PromptPack` 第一版应该冻结的语义层、边界层与 provider/carrier 映射原则，不重复宿主总纲，也不展开完整 `DSL`、完整 schema 或具体源码实现。
 

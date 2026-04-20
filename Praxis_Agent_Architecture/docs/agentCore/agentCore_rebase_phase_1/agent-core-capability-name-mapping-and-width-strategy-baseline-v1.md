@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-host-design-baseline-v1.md` 中“能力系统”一节的下钻基线文，也是 `Praxis_Agent_Architecture/docs/agent-core-spec-class-declaration-model-v1.md` 与 `Praxis_Agent_Architecture/docs/agent-core-promptpack-semantics-and-provider-carrier-mapping-baseline-v1.md` 在能力板块上的补充文档。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-host-design-baseline-v1.md` 中“能力系统”一节的下钻基线文，也是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-spec-class-declaration-model-v1.md` 与 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-promptpack-semantics-and-provider-carrier-mapping-baseline-v1.md` 在能力板块上的补充文档。
 
 本文只冻结 `agentCore` 第一版能力系统的中心模型：
 

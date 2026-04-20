@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-checkpoint-snapshot-material-layer-formal-baseline-v1.md` 的继续下钻文，专门冻结 `journal / receipt / cursor / reconciliation` 这组对象在 Praxis 宿主中的正式问题域定位。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-checkpoint-snapshot-material-layer-formal-baseline-v1.md` 的继续下钻文，专门冻结 `journal / receipt / cursor / reconciliation` 这组对象在 Praxis 宿主中的正式问题域定位。
 
 本文只处理一件事：
 

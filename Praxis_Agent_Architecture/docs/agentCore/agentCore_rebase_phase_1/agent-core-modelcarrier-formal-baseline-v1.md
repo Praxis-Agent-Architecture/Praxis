@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-host-design-baseline-v1.md` 中 `ModelCarrier` 一节的正式下钻文，用来冻结 `agentCore` 第一版里 `ModelCarrier` 的对象边界、分类原则与分层视角。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-host-design-baseline-v1.md` 中 `ModelCarrier` 一节的正式下钻文，用来冻结 `agentCore` 第一版里 `ModelCarrier` 的对象边界、分类原则与分层视角。
 
 本文要回答的是：
 

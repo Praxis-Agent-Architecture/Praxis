@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-host-design-baseline-v1.md` 的下钻文，只定义 `agentCore` 的声明对象模型，不重复宿主基线的上层原则，也不展开源码重构方案。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-host-design-baseline-v1.md` 的下钻文，只定义 `agentCore` 的声明对象模型，不重复宿主基线的上层原则，也不展开源码重构方案。
 
 本文要回答的是：用户如何声明一个 `agentCore`，这些声明如何被分层、复用、编译，最后变成运行时可拉起的 `runtime-table`。
 

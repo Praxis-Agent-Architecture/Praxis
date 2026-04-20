@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-本文是 `Praxis_Agent_Architecture/docs/agent-core-runtime-table-formal-baseline-v1.md` 与 `Praxis_Agent_Architecture/docs/agent-core-runtime-table-compile-checker-exporter-formal-baseline-v1.md` 的继续下钻文，专门冻结 `boot` 这一正式运行态启动子系统的对象定位、输入输出边界与下游关系。
+本文是 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-runtime-table-formal-baseline-v1.md` 与 `Praxis_Agent_Architecture/docs/agentCore/agentCore_rebase_phase_1/agent-core-runtime-table-compile-checker-exporter-formal-baseline-v1.md` 的继续下钻文，专门冻结 `boot` 这一正式运行态启动子系统的对象定位、输入输出边界与下游关系。
 
 本文要回答的是：
 
