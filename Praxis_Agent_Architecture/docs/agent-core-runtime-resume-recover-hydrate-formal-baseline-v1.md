@@ -110,7 +110,7 @@ checkpoint / snapshot / journal / 持久化残留
 
 `recover` 解决的是“怎么从残留状态里找回可用状态”。
 
-恢复之后，系统可能还需要重新进入运行态，但这个“进入运行态”的动作仍然属于 boot 或 boot 邻接动作，而不是 recover 本身的定义。
+恢复之后，系统可能还需要经历 `hydrate` 或其他 boot 邻接动作，才能重新进入运行态；这里要冻结的是：`recover` 的定义停在“找回可用状态基础”，不把“灌回运行对象”或“继续推进已有过程”吞进自己体内。
 
 ### 3.4 `hydrate` 不等于 `boot`
 
@@ -258,7 +258,7 @@ CMP 这边已经把 hydrate 和 reconciliation 分成了明确对象：
 - `hydrateCmpRuntimeSnapshot(...)` 负责把 snapshot 规整并灌入一批运行态 map / record 容器
 - `hydrateCmpRuntimeSnapshotWithReconciliation(...)` 在 hydrate 结果之上，再补 reconciliation record 与 summary
 
-这说明恢复链路不只是“读回”，还包含“对齐”和“找回后能否成立”的进一步判断。
+这说明现实系统里，恢复动作完成之后，常常还会紧接着遇到“对齐”和“找回后能否成立”的进一步判断。
 
 ### 7.4 `src/agent_core/cmp-runtime/recovery-reconciliation.ts`
 
