@@ -121,6 +121,18 @@ cursor advancement recognition result
 
 白话讲，它帮助第十刀记住：这一步仍然是恢复链后段的 intake-facing 层，不是终局动作层。
 
+### 3.6 `agent-core-runtime-resume-recover-hydrate-formal-baseline-v1.md`
+
+这份文档负责给第十刀提供**`recover / resume / hydrate` 的正式边界上限**。
+
+它支撑第十刀的方式是：
+
+- 明确 `recover` 偏找回，`resume` 偏续接，`hydrate` 偏灌回，三者不是同义词
+- 明确第十刀现在仍然只站在 lane 之后的更窄 intake face 上，不应把完整恢复动作层偷进来
+- 防止第十刀虽然口头说“不做完整恢复”，但依然没有一个明确的正式基线来托住这条边界
+
+白话讲，这份正式基线的作用，是让第十刀知道自己不是在补完恢复引擎，而是在恢复引擎的边上继续往 intake consumer 方向收窄一小片。
+
 ## 4. 当前建议的第十刀是什么
 
 ### 4.1 切片名称
