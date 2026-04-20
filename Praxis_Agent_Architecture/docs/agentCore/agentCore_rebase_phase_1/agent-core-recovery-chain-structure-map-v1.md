@@ -62,26 +62,23 @@ phase 入口
   journal / receipt / cursor / reconciliation
     |
     +--> replay 链
-    |      journal replay
-    |        -> journal replay result
-    |
-    +--> cursor 链
-    |      cursor advancement
-    |        -> cursor advancement result
-    |
-    +--> recognition 链
-    |      cursor advancement recognition
-    |        -> cursor advancement recognition result
-    |
-    +--> acceptance / ack 结果层
-           acceptance / ack result
+           journal replay
+             -> journal replay result
+             -> cursor 链
+                cursor advancement
+                  -> cursor advancement result
+                  -> recognition 链
+                     cursor advancement recognition
+                       -> cursor advancement recognition result
+                       -> acceptance / ack 结果层
+                          acceptance / ack result
 ```
 
 这张图表达的不是唯一算法顺序，而是**文档结构上的继续下钻顺序**：
 
 - 先把恢复动作层和材料层分开
 - 再把材料层内部的对象继续拆细
-- 然后把 replay、位置推进、推进承认、接受/确认结果依次切出
+- 然后沿 `journal replay -> cursor advancement -> recognition -> acceptance / ack result` 继续下钻
 
 ## 4. 按“对象类型”再看一遍
 
