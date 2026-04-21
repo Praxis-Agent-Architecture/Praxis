@@ -519,4 +519,3 @@ cursor advancement recognition result
 - 最终 schema、rule table、protocol 或 TypeScript 结构定稿
 
 白话讲，第十五刀完成后，链路最多来到“第一个候选壳已经被承认”；第十六刀才适合继续问“壳后面最小候选内容 seam 怎么进来”，但仍然要继续保持小切片、强边界、非最终定稿。
-
