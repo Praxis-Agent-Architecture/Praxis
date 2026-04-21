@@ -58,7 +58,7 @@ cursor advancement recognition result
   -> pre-action slot 之后、动作候选边之前的最小 pre-action consumer boundary
   -> pre-action consumer boundary 之后、完整 action candidate 之前的最小 action-candidate-pre-edge
   -> action-candidate-pre-edge 之后、第一个完整 action candidate 之前的最小 candidate shell / pre-ack / first candidate shell entry
-  -> candidate shell 之后、完整 candidate body 之前的最小 candidate body seam / candidate detail intake / candidate-body-facing edge
+  -> candidate shell 之后、完整 action candidate body 之前的最小 candidate body seam / candidate detail intake / candidate-body-facing edge
   -> candidate body seam 之后、完整 runner 之前的最小 pre-runner readiness seam / runner-facing pre-edge / candidate execution readiness precheck
 ```
 
