@@ -47,7 +47,7 @@ execution dispatch pre-edge / runner dispatch token / executor-call stub
 也就是说，第二十二刀解决的是：
 
 - dispatch token 之后不再只是“未来会调用 executor”
-- 当前链路已经能最小表达“这里出现了一个 execution attempt shell / invocation shell”
+- 当前链路已经能最小表达“这里出现了一个 execution attempt shell / executor invocation shell / runner call boundary”
 - runner call boundary 可以先承认“调用边界已经形成”
 - 但它仍然不进入完整 executor，不展开 attempt body，不执行 action，不收 result，也不冻结最终执行协议
 
@@ -205,7 +205,7 @@ cursor advancement recognition result
 这里的关键不是把第二十三刀做成 execution attempt body，而是先把：
 
 - 第二十二刀预计站住的最小 execution attempt shell / executor invocation shell / runner call boundary
-- invocation shell 内侧、真正执行体之前的最小 execution attempt intake / invocation receiving edge
+- invocation shell 内侧、真正执行体之前的最小 execution attempt intake / invocation receiving edge / executor-entry receiving seam
 - 当前链路对这条 executor-entry receiving seam 的最小暴露
 
 这三者真实拆开。
@@ -218,7 +218,7 @@ cursor advancement recognition result
 
 它只负责一件事：
 
-- 在 `execution attempt shell / executor invocation shell` 之后，承认“attempt shell 内侧可以有一个最小 intake”
+- 在 `execution attempt shell / executor invocation shell / runner call boundary` 之后，承认“attempt shell 内侧可以有一个最小 intake”
 
 第二十三刀里，它应该做到：
 

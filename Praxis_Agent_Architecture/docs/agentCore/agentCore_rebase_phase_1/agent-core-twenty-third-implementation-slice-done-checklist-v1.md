@@ -6,7 +6,7 @@
 
 它只回答一个问题：
 
-- 第二十三刀“`execution attempt shell / executor invocation shell` 之后、真正执行体之前的最小 `execution attempt intake / invocation receiving edge / executor-entry receiving seam`”，做到什么程度，才算这一刀已经完成，可以进入第二十四刀
+- 第二十三刀“`execution attempt shell / executor invocation shell / runner call boundary` 之后、真正执行体之前的最小 `execution attempt intake / invocation receiving edge / executor-entry receiving seam`”，做到什么程度，才算这一刀已经完成，可以进入第二十四刀
 
 本文**不是**：
 
@@ -27,7 +27,7 @@
 
 白话讲，它只帮团队判断：
 
-- 第二十二刀自然固定的最小 `execution attempt shell / executor invocation shell` 之后，是否已经真实长出一个执行尝试接收边
+- 第二十二刀自然固定的最小 `execution attempt shell / executor invocation shell / runner call boundary` 之后，是否已经真实长出一个执行尝试接收边
 - 这个 `execution attempt intake / invocation receiving edge / executor-entry receiving seam` 是否已经能独立站住，并且和 attempt shell / invocation shell 分开
 - 当前链路是否已经能暴露“execution attempt intake 已存在”，而不是只停留在“attempt shell / invocation shell 已存在”
 - 它是否仍然保持“小切片、强边界、非最终定稿”，没有偷跑成完整 executor、execution scheduler、action lifecycle、execution attempt body、result、recover、resume、hydrate 或最终协议定稿
@@ -36,12 +36,12 @@
 
 本文对应的第二十三实施切片是：
 
-- `execution attempt shell / executor invocation shell` 之后，更靠近真正执行体、但仍位于完整 executor 运行体和完整 execution attempt body 之前的最小 `execution attempt intake`
+- `execution attempt shell / executor invocation shell / runner call boundary` 之后，更靠近真正执行体、但仍位于完整 executor 运行体和完整 execution attempt body 之前的最小 `execution attempt intake`
 - 或等价的最小 `invocation receiving edge / executor-entry receiving seam`
 
 白话讲，这一刀只验收一件事：
 
-- 第二十二刀已经站住的 attempt shell / invocation shell 之后，是否已经继续向内长出一个真实独立的 receiving edge；当前链路是否已经能暴露“execution attempt intake 已存在”，而不是只停留在“有 execution attempt shell / executor invocation shell”的更外一层说法
+- 第二十二刀已经站住的 execution attempt shell / executor invocation shell / runner call boundary 之后，是否已经继续向内长出一个真实独立的 receiving edge；当前链路是否已经能暴露“execution attempt intake 已存在”，而不是只停留在“有 execution attempt shell / executor invocation shell / runner call boundary”的更外一层说法
 
 也就是至少能形成下面这条最小桥接链：
 
@@ -66,7 +66,7 @@ cursor advancement recognition result
   -> handoff token / intake stub 之后、完整 runner 执行之前的最小 runner intake lane / runner intake receiving strip / execution-intake-facing seam
   -> runner intake lane 之后、真正执行分发之前的最小 pre-execution latch / execution readiness latch / runner pre-execution gate
   -> pre-execution latch 之后、真正 executor 调用之前的最小 execution dispatch pre-edge / runner dispatch token / executor-call stub
-  -> dispatch pre-edge 之后、真正执行体之前的最小 execution attempt shell / executor invocation shell
+  -> dispatch pre-edge 之后、真正执行体之前的最小 execution attempt shell / executor invocation shell / runner call boundary
   -> attempt shell 之后、真正执行体之前的最小 execution attempt intake / invocation receiving edge / executor-entry receiving seam
 ```
 
@@ -76,22 +76,22 @@ cursor advancement recognition result
 
 这一刀是否完成，优先看下面四件事：
 
-1. `execution attempt shell / executor invocation shell` 之后是否已经真实站住一个独立的 `execution attempt intake / invocation receiving edge / executor-entry receiving seam`，而不是继续停留在“已经有 attempt shell / invocation shell”的描述层
-2. `execution dispatch pre-edge / executor-call stub`、`execution attempt shell / executor invocation shell`、`execution attempt intake / invocation receiving edge` 这三者是否已经明确分层，而不是把“准备调用”“调用壳”“接收边”混成一层
-3. 当前链路是否已经明确暴露“execution attempt intake 已存在”的事实，而不是只暴露“execution attempt shell / executor invocation shell 已存在”
+1. `execution attempt shell / executor invocation shell / runner call boundary` 之后是否已经真实站住一个独立的 `execution attempt intake / invocation receiving edge / executor-entry receiving seam`，而不是继续停留在“已经有 execution attempt shell / executor invocation shell / runner call boundary”的描述层
+2. `execution dispatch pre-edge / executor-call stub`、`execution attempt shell / executor invocation shell / runner call boundary`、`execution attempt intake / invocation receiving edge / executor-entry receiving seam` 这三者是否已经明确分层，而不是把“准备调用”“调用壳”“接收边”混成一层
+3. 当前链路是否已经明确暴露“execution attempt intake 已存在”的事实，而不是只暴露“execution attempt shell / executor invocation shell / runner call boundary 已存在”
 4. 是否克制住了越界实现，没有把完整 executor、execution scheduler、action lifecycle、execution attempt body、result、recover、resume、hydrate、最终 rule table、最终 schema 或最终 protocol 一起写死
 
 只要这四件事里有一件明显没站住，就不应判定为 done。
 
-第二十三刀的核心不是“执行体已经运行”，而是“attempt shell / invocation shell 之后、真正执行体之前的最小 intake receiving edge 已经真实独立成立”。
+第二十三刀的核心不是“执行体已经运行”，而是“execution attempt shell / executor invocation shell / runner call boundary 之后、真正执行体之前的最小 intake receiving edge 已经真实独立成立”。
 
 ## 4. 完成判定项
 
 以下各项全部满足，才算第二十三刀完成：
 
 - `execution attempt intake / invocation receiving edge / executor-entry receiving seam` 已经作为独立窄层存在，不再只是 attempt shell 或 invocation shell 的一句附带说明
-- `execution attempt intake` 明确位于 `execution attempt shell / executor invocation shell` 与真正 execution attempt body / executor run body 之间
-- 当前链路已经能最小暴露“execution attempt intake 已存在”，而不是只暴露“execution attempt shell / executor invocation shell 已存在”
+- `execution attempt intake` 明确位于 `execution attempt shell / executor invocation shell / runner call boundary` 与真正 execution attempt body / executor run body 之间
+- 当前链路已经能最小暴露“execution attempt intake 已存在”，而不是只暴露“execution attempt shell / executor invocation shell / runner call boundary 已存在”
 - 当前实现至少能从命名和责任上看出：谁负责 attempt shell / invocation shell，谁负责 execution attempt intake，谁还没有开始承担完整 executor、execution scheduler、action lifecycle、execution attempt body 或 result 收口
 - 当前 invocation receiving edge 只表达“调用壳之后已经出现一个面向执行体接收的最小边”，不能承担完整执行调度、重试、生命周期推进、结果生成或错误恢复职责
 - 当前 executor-entry receiving seam 只能是进入执行体之前的极窄 seam，不能扩写成完整 executor adapter、完整 run body、完整 execution attempt、完整 result protocol 或完整 action lifecycle manager
@@ -102,7 +102,7 @@ cursor advancement recognition result
 
 以下各项全部满足，才算结构上过线：
 
-- `execution dispatch pre-edge / runner dispatch token / executor-call stub`、`execution attempt shell / executor invocation shell`、`execution attempt intake / invocation receiving edge / executor-entry receiving seam` 已经明确分层
+- `execution dispatch pre-edge / runner dispatch token / executor-call stub`、`execution attempt shell / executor invocation shell / runner call boundary`、`execution attempt intake / invocation receiving edge / executor-entry receiving seam` 已经明确分层
 - `execution attempt intake` 不能反向退化成 attempt shell 或 invocation shell 的别名，也不能正向冒充完整 execution attempt body、完整 executor run body 或完整 action lifecycle 的别名
 - `invocation receiving edge` 只负责让“调用壳之后已经出现一个可接收但尚未运行执行体的窄边”成立，不负责让 executor、execution scheduler、action lifecycle、result protocol 或恢复协议定型
 - `executor-entry receiving seam` 不能吞掉更外侧的 dispatch pre-edge、executor-call stub、attempt shell 职责，也不能吞掉更内侧的 execution attempt body pre-edge、executor run-body preface 或 attempt operation seam 职责
@@ -114,8 +114,8 @@ cursor advancement recognition result
 
 以下各项全部满足，才算接口边界上过线：
 
-- 对外暴露的是“attempt shell / invocation shell 之后、真正执行体之前最小先落到哪条 intake receiving edge”的窄边界，而不是完整 executor 入口或完整 execution attempt body
-- `execution attempt shell -> execution attempt intake / invocation receiving edge` 的最小过渡，只表达“这份调用壳现在先形成一个执行尝试接收边”，不表达完整执行协议
+- 对外暴露的是“execution attempt shell / executor invocation shell / runner call boundary 之后、真正执行体之前最小先落到哪条 intake receiving edge”的窄边界，而不是完整 executor 入口或完整 execution attempt body
+- `execution attempt shell / executor invocation shell / runner call boundary -> execution attempt intake / invocation receiving edge / executor-entry receiving seam` 的最小过渡，只表达“这份调用壳现在先形成一个执行尝试接收边”，不表达完整执行协议
 - 当前链路暴露的是“execution attempt shell 已成立且其后已经开始出现最小 execution attempt intake”的事实，而不是越层直抓 future executor、execution scheduler、action lifecycle、execution attempt body、result、recover、resume、hydrate 的内部细节
 - 当前接口允许很窄的 happy-path、stub 或 placeholder，但没有提前钉死最终 executor schema、最终 execution attempt schema、最终 action lifecycle protocol、最终 result protocol、最终字段全集或最终枚举全集
 - 当前接口已经给第二十四刀留出自然入口：最小 `execution attempt body pre-edge / executor run-body preface / attempt operation seam`
@@ -125,8 +125,8 @@ cursor advancement recognition result
 
 以下各项全部满足，才算最小桥接链上过线：
 
-- 存在一个明确的 `execution dispatch pre-edge / runner dispatch token / executor-call stub`，会交给真正执行体之前的最小 `execution attempt shell / executor invocation shell`
-- 最小 `execution attempt shell / executor invocation shell` 已经真实承担“executor-call stub 之后、attempt intake 之前最小先形成调用壳”的职责，而不是纯纸面占位
+- 存在一个明确的 `execution dispatch pre-edge / runner dispatch token / executor-call stub`，会交给真正执行体之前的最小 `execution attempt shell / executor invocation shell / runner call boundary`
+- 最小 `execution attempt shell / executor invocation shell / runner call boundary` 已经真实承担“executor-call stub 之后、attempt intake 之前最小先形成调用壳”的职责，而不是纯纸面占位
 - attempt shell 一旦成立，已经会继续交给第一个极窄 `execution attempt intake / invocation receiving edge / executor-entry receiving seam`
 - execution attempt intake 一旦成立，当前链路已经能够暴露 execution attempt intake，而不是只停在“execution dispatch pre-edge 已存在”或“execution attempt shell 已存在”这种更早一级的接线事实
 - 整条链路至少在一个最小场景下可运行，可以是 mock、stub 或极窄 happy-path，但不能只是文档上说未来可以接
@@ -157,7 +157,7 @@ cursor advancement recognition result
 
 出现下面任一情况，都应判定为 **not-done**：
 
-- `execution attempt shell / executor invocation shell` 之后仍然没有独立的最小 execution attempt intake，或只是 attempt shell / invocation shell 的换名说法
+- `execution attempt shell / executor invocation shell / runner call boundary` 之后仍然没有独立的最小 execution attempt intake，或只是 attempt shell / invocation shell 的换名说法
 - 名义上有 invocation receiving edge，但实际只是说“未来这里会运行 executor”，没有更明确的 intake receiving edge 和最小挂接关系
 - 当前链路仍然只暴露 execution attempt shell，没有暴露其后的更明确最小 `execution attempt intake / invocation receiving edge / executor-entry receiving seam`
 - execution attempt intake 与 execution dispatch pre-edge、executor-call stub、attempt shell、invocation shell、execution attempt body pre-edge 之间的职责边界仍然混在一起
@@ -178,7 +178,7 @@ cursor advancement recognition result
 
 下面这些情况，即使实现还很粗糙，仍然可以判定为 **done-enough**：
 
-- `execution attempt shell / executor invocation shell` 之后的最小 execution attempt intake 已真实存在，哪怕目前只支持极窄 happy-path、单一路径接手或 placeholder 式接收边成立
+- `execution attempt shell / executor invocation shell / runner call boundary` 之后的最小 execution attempt intake 已真实存在，哪怕目前只支持极窄 happy-path、单一路径接手或 placeholder 式接收边成立
 - attempt shell 之后的最小 `invocation receiving edge / executor-entry receiving seam` 已真实存在，哪怕目前字段很少，只够表达“这份 invocation shell 结果先形成一个执行体接收边”
 - 当前链路目前只负责把 execution attempt intake 暴露出来和返回最小状态，还没有承担正式 executor run body、执行调度、生命周期推进、结果收口或恢复动作收口
 - 当前验证方式仍然很轻，例如 smoke 级调用验证、stub 驱动验证或最小 execution attempt intake 挂接闭环验证
@@ -194,7 +194,7 @@ cursor advancement recognition result
 
 - 第二十三刀的 done 判定项已经全部满足
 - 当前最小桥接链可以稳定重复触发，而不是一次性拼出来的临时演示
-- 团队对 `execution dispatch pre-edge / executor-call stub`、`execution attempt shell / executor invocation shell`、`execution attempt intake / invocation receiving edge` 三者的职责边界没有明显歧义
+- 团队对 `execution dispatch pre-edge / executor-call stub`、`execution attempt shell / executor invocation shell / runner call boundary`、`execution attempt intake / invocation receiving edge / executor-entry receiving seam` 三者的职责边界没有明显歧义
 - 当前实现没有暴露出必须先回炉修正的结构性混写问题
 - 下一刀要补的对象已经明确收敛到最小 `execution attempt body pre-edge / executor run-body preface / attempt operation seam`，而不是回头重写第二十一刀、第二十二刀或第二十三刀，或直接跳去完整 executor / execution scheduler / action lifecycle / result / 完整 recover / resume / hydrate
 
@@ -213,7 +213,7 @@ cursor advancement recognition result
 
 ```text
 done
-  execution dispatch pre-edge 之后已站住 execution attempt shell / executor invocation shell
+  execution dispatch pre-edge 之后已站住 execution attempt shell / executor invocation shell / runner call boundary
   attempt shell 之后已站住 execution attempt intake / invocation receiving edge / executor-entry receiving seam
   当前链路已明确暴露“execution attempt intake 已存在”的事实
   execution attempt intake 与 attempt shell / invocation shell 已拆开，不互相冒充
@@ -236,6 +236,6 @@ not-done
 
 第二十三刀是否完成，可以收敛成下面这句验收口径：
 
-- 当 `execution dispatch pre-edge / runner dispatch token / executor-call stub` 之后的最小 `execution attempt shell / executor invocation shell` 已经成立，且 attempt shell 之后、真正执行体之前的最小 `execution attempt intake / invocation receiving edge / executor-entry receiving seam` 也已经成立，当前链路能够明确暴露“execution attempt intake 已存在”的事实，同时实现没有越界吞掉完整 executor、完整 execution scheduler、完整 action lifecycle、完整 execution attempt body、完整 result、完整 recover、resume、hydrate 与最终协议定稿问题域时，这一刀就算完成
+- 当 `execution dispatch pre-edge / runner dispatch token / executor-call stub` 之后的最小 `execution attempt shell / executor invocation shell / runner call boundary` 已经成立，且 attempt shell 之后、真正执行体之前的最小 `execution attempt intake / invocation receiving edge / executor-entry receiving seam` 也已经成立，当前链路能够明确暴露“execution attempt intake 已存在”的事实，同时实现没有越界吞掉完整 executor、完整 execution scheduler、完整 action lifecycle、完整 execution attempt body、完整 result、完整 recover、resume、hydrate 与最终协议定稿问题域时，这一刀就算完成
 
 如果还停留在“只有 execution attempt shell，没有 execution attempt intake”“execution attempt intake 只是 attempt shell / invocation shell 的换名说法”“一做 executor-entry receiving seam 就直接偷跑完整 executor、execution scheduler、action lifecycle、execution attempt body、result 或完整 recover / resume / hydrate”，都不应算完成。
