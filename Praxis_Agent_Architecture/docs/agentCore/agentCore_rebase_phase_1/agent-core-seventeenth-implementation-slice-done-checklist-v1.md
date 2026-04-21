@@ -134,7 +134,7 @@ cursor advancement recognition result
 - 没有把完整 executor 或执行调度器一起做进来
 - 没有把完整 action lifecycle 一起做进来
 - 没有把完整 action candidate 一并做成最终版本
-- 没有把完整 candidate body、candidate detail 或 candidate schema 一并做成最终版本
+- 没有把完整 action candidate body、candidate detail 或 candidate schema 一并做成最终版本
 - 没有把完整 runner handoff、runner intake 或 execution handoff 一并做成最终版本
 - 没有把完整 candidate 选择 / 排序 / 执行策略一并做进来
 - 没有把完整 preflight / readiness / policy 校验矩阵一并做进来
