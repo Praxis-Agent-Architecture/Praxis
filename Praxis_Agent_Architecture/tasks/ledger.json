@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T14:53:19.190Z",
+  "updatedAt": "2026-04-22T14:56:23.237Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -34,7 +34,7 @@
     {
       "id": "AC-SPEC-B",
       "title": "runtime 治理与官方模块入口",
-      "status": "in_progress",
+      "status": "done",
       "smallSpecIds": [
         "AC-SPEC-B:basic_interfaceLayer",
         "AC-SPEC-B:custom_interfaceLayer",
@@ -45,7 +45,7 @@
     {
       "id": "AC-SPEC-C",
       "title": "PromptPack 与执行核心",
-      "status": "pending",
+      "status": "in_progress",
       "smallSpecIds": [
         "AC-SPEC-C:IOTransceiver",
         "AC-SPEC-C:coreLogic",
@@ -103,7 +103,7 @@
       "id": "AC-SPEC-C:IOTransceiver",
       "parentId": "AC-SPEC-C",
       "title": "IOTransceiver",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0001",
         "AC-G-0002"
@@ -401,7 +401,7 @@
       "id": "AC-SPEC-C:coreLogic",
       "parentId": "AC-SPEC-C",
       "title": "coreLogic",
-      "status": "pending",
+      "status": "in_progress",
       "groupTaskIds": [
         "AC-G-0057",
         "AC-G-0058",
@@ -936,7 +936,7 @@
       "id": "AC-SPEC-B:runtime.officialModuleSurface",
       "parentId": "AC-SPEC-B",
       "title": "runtime.officialModuleSurface",
-      "status": "in_progress",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0122",
         "AC-G-0123",
@@ -3065,7 +3065,7 @@
       "id": "AC-F-0223",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/UIEvent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/UIEvent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/UIEvent.test.ts"
@@ -3074,7 +3074,7 @@
       "id": "AC-F-0224",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.test.ts"
@@ -3083,7 +3083,7 @@
       "id": "AC-F-0225",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computeruseInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computeruseInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computeruseInvocation.test.ts"
@@ -3092,7 +3092,7 @@
       "id": "AC-F-0226",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.test.ts"
@@ -3101,7 +3101,7 @@
       "id": "AC-F-0227",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.test.ts"
@@ -3110,7 +3110,7 @@
       "id": "AC-F-0228",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.test.ts"
@@ -3119,7 +3119,7 @@
       "id": "AC-F-0229",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.test.ts"
@@ -3128,7 +3128,7 @@
       "id": "AC-F-0230",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.test.ts"
@@ -3137,7 +3137,7 @@
       "id": "AC-F-0231",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/shellInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/shellInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/shellInvocation.test.ts"
@@ -3146,7 +3146,7 @@
       "id": "AC-F-0232",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.test.ts"
@@ -3155,7 +3155,7 @@
       "id": "AC-F-0233",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/interruptEvent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/interruptEvent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/interruptEvent.test.ts"
@@ -3164,7 +3164,7 @@
       "id": "AC-F-0234",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/interruptSubAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/interruptSubAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/interruptSubAgent.test.ts"
@@ -3173,7 +3173,7 @@
       "id": "AC-F-0235",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.test.ts"
@@ -3182,7 +3182,7 @@
       "id": "AC-F-0236",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/launchSubAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/launchSubAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/launchSubAgent.test.ts"
@@ -3191,7 +3191,7 @@
       "id": "AC-F-0237",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.test.ts"
@@ -3200,7 +3200,7 @@
       "id": "AC-F-0238",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.test.ts"
@@ -7705,7 +7705,7 @@
       "id": "AC-G-0057",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0223",
         "AC-F-0224",
@@ -7737,14 +7737,50 @@
       "branch": "codex/agentcore/ac-g-0057",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0057",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-22T14:42:26.099Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T14:42:26.471Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T14:47:36.277Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T14:47:36.286Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T14:48:25.584Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T14:53:53.475Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T14:56:23.235Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0058",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "fileTaskIds": [
         "AC-F-0227",
         "AC-F-0228",
@@ -7775,15 +7811,44 @@
       ],
       "branch": "codex/agentcore/ac-g-0058",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0058",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0058",
+        "at": "2026-04-22T14:42:26.099Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T14:42:26.099Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T14:42:26.776Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T14:47:19.746Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T14:47:19.756Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T14:49:54.607Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        }
+      ]
     },
     {
       "id": "AC-G-0059",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "fileTaskIds": [
         "AC-F-0231",
         "AC-F-0232",
@@ -7814,15 +7879,44 @@
       ],
       "branch": "codex/agentcore/ac-g-0059",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0059",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0059",
+        "at": "2026-04-22T14:42:26.099Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T14:42:26.099Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T14:42:26.674Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T14:47:38.321Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T14:47:38.331Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T14:48:33.648Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        }
+      ]
     },
     {
       "id": "AC-G-0060",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "reviewed",
       "fileTaskIds": [
         "AC-F-0235",
         "AC-F-0236",
@@ -7853,9 +7947,38 @@
       ],
       "branch": "codex/agentcore/ac-g-0060",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0060",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0060",
+        "at": "2026-04-22T14:42:26.099Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T14:42:26.099Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T14:42:26.881Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T14:47:50.176Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T14:47:50.186Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T14:50:04.271Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        }
+      ]
     },
     {
       "id": "AC-G-0061",
@@ -11537,6 +11660,41 @@
       "note": "worker started"
     },
     {
+      "at": "2026-04-22T14:42:26.471Z",
+      "event": "status",
+      "groupId": "AC-G-0057",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T14:42:26.572Z",
+      "event": "status",
+      "groupId": "AC-G-0001",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T14:42:26.674Z",
+      "event": "status",
+      "groupId": "AC-G-0059",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T14:42:26.776Z",
+      "event": "status",
+      "groupId": "AC-G-0058",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T14:42:26.881Z",
+      "event": "status",
+      "groupId": "AC-G-0060",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
       "at": "2026-04-22T14:47:05.443Z",
       "event": "status",
       "groupId": "AC-G-0002",
@@ -11551,32 +11709,46 @@
       "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T14:48:11.708Z",
+      "at": "2026-04-22T14:47:19.746Z",
       "event": "status",
-      "groupId": "AC-G-0002",
-      "status": "reviewed",
-      "note": "reviewer done"
+      "groupId": "AC-G-0058",
+      "status": "implemented",
+      "note": "worker done"
     },
     {
-      "at": "2026-04-22T14:48:29.238Z",
+      "at": "2026-04-22T14:47:19.756Z",
       "event": "status",
-      "groupId": "AC-G-0002",
-      "status": "merging",
-      "note": "merge started"
+      "groupId": "AC-G-0058",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T14:49:57.315Z",
+      "at": "2026-04-22T14:47:36.277Z",
       "event": "status",
-      "groupId": "AC-G-0002",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
+      "groupId": "AC-G-0057",
+      "status": "implemented",
+      "note": "worker done"
     },
     {
-      "at": "2026-04-22T14:42:26.572Z",
+      "at": "2026-04-22T14:47:36.286Z",
       "event": "status",
-      "groupId": "AC-G-0001",
-      "status": "implementing",
-      "note": "worker started"
+      "groupId": "AC-G-0057",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T14:47:38.321Z",
+      "event": "status",
+      "groupId": "AC-G-0059",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T14:47:38.331Z",
+      "event": "status",
+      "groupId": "AC-G-0059",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
       "at": "2026-04-22T14:47:45.760Z",
@@ -11593,9 +11765,72 @@
       "note": "reviewer started"
     },
     {
+      "at": "2026-04-22T14:47:50.176Z",
+      "event": "status",
+      "groupId": "AC-G-0060",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T14:47:50.186Z",
+      "event": "status",
+      "groupId": "AC-G-0060",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T14:48:11.708Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T14:48:25.584Z",
+      "event": "status",
+      "groupId": "AC-G-0057",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T14:48:29.238Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T14:48:33.648Z",
+      "event": "status",
+      "groupId": "AC-G-0059",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
       "at": "2026-04-22T14:49:04.532Z",
       "event": "status",
       "groupId": "AC-G-0001",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T14:49:54.607Z",
+      "event": "status",
+      "groupId": "AC-G-0058",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T14:49:57.315Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T14:50:04.271Z",
+      "event": "status",
+      "groupId": "AC-G-0060",
       "status": "reviewed",
       "note": "reviewer done"
     },
@@ -11610,6 +11845,20 @@
       "at": "2026-04-22T14:53:19.190Z",
       "event": "status",
       "groupId": "AC-G-0001",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T14:53:53.475Z",
+      "event": "status",
+      "groupId": "AC-G-0057",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T14:56:23.235Z",
+      "event": "status",
+      "groupId": "AC-G-0057",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
