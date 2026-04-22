@@ -695,6 +695,7 @@ function commandPipeline(id) {
         process.exitCode = 1;
         return;
       }
+      setGroupStatus(undefined, group, successStatus, `${role} done`);
     } else if (execute) {
       setGroupStatus(undefined, group, successStatus, `${role} done`);
     }
@@ -818,6 +819,7 @@ function runMergeRole(group, { execute, worktree }) {
     }
   }
 
+  if (execute) setGroupStatus(undefined, freshGroup, "done", "merge done");
   return true;
 }
 
