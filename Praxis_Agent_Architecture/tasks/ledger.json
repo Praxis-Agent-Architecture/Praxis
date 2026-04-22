@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T19:28:09.980Z",
+  "updatedAt": "2026-04-22T19:31:27.038Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -3893,7 +3893,7 @@
       "id": "AC-F-0315",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_evals.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_evals.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_evals.test.ts"
@@ -3902,7 +3902,7 @@
       "id": "AC-F-0316",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_files.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_files.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_files.test.ts"
@@ -3911,7 +3911,7 @@
       "id": "AC-F-0317",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.test.ts"
@@ -3920,7 +3920,7 @@
       "id": "AC-F-0318",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_jobs.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_jobs.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_jobs.test.ts"
@@ -9428,7 +9428,7 @@
       "id": "AC-G-0081",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0315",
         "AC-F-0316",
@@ -9459,9 +9459,48 @@
       ],
       "branch": "codex/agentcore/ac-g-0081",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0081",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0081",
+        "at": "2026-04-22T19:17:17.667Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T19:17:17.667Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T19:17:17.897Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:23:13.475Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:23:13.487Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:27:16.588Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:29:39.260Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T19:31:27.038Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0082",
@@ -13234,6 +13273,48 @@
       "groupId": "AC-G-0079",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:17:17.897Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:23:13.475Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:23:13.487Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:27:16.588Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:29:39.260Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:31:27.038Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ],
   "events": [
@@ -13255,6 +13336,13 @@
       "at": "2026-04-22T19:28:09.980Z",
       "event": "status",
       "groupId": "AC-G-0079",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:31:27.038Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
