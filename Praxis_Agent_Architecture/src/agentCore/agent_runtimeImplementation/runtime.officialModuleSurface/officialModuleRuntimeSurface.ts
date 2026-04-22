@@ -7,3 +7,169 @@
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+export type OfficialModuleKind = "cmp" | "mp" | "tap" | "multiagent" | (string & {});
+
+export type OfficialModuleRuntimeBoundary = "input" | "contract" | "governance" | "runtime-state" | "scope";
+
+export type OfficialModuleRuntimeGate = {
+  accepted: boolean;
+  reason?: string;
+};
+
+export type OfficialModuleIdentity = {
+  moduleId: string;
+  moduleKind: OfficialModuleKind;
+};
+
+export type OfficialModuleRuntimeError = {
+  code: string;
+  message: string;
+  boundary: OfficialModuleRuntimeBoundary;
+  publicSafe: true;
+  internalDetailExposed: false;
+};
+
+export type OfficialModuleRuntimeSurfaceRequest = {
+  runtimeId?: string;
+  moduleId?: string;
+  moduleKind?: OfficialModuleKind;
+  requestedCapabilities?: readonly string[];
+  requestedEvents?: readonly string[];
+  requestedScopes?: readonly string[];
+  runtimeReady?: boolean;
+  contract?: OfficialModuleRuntimeGate;
+  governance?: OfficialModuleRuntimeGate;
+};
+
+export type OfficialModuleRuntimeSurface = {
+  runtimeId: string;
+  module: OfficialModuleIdentity;
+  requestedCapabilities: readonly string[];
+  requestedEvents: readonly string[];
+  requestedScopes: readonly string[];
+  entrySurface: "runtime.officialModuleSurface";
+  dispatch: "dry-run";
+  unsafeSideEffects: false;
+  canRequestCapability: (capability: string) => boolean;
+  canSubscribeEvent: (eventType: string) => boolean;
+};
+
+export type OfficialModuleRuntimeSurfaceResult =
+  | {
+      ok: true;
+      surface: OfficialModuleRuntimeSurface;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: OfficialModuleRuntimeError;
+      events: readonly string[];
+    };
+
+function isBlank(value: string | undefined): boolean {
+  return typeof value !== "string" || value.trim().length === 0;
+}
+
+function cleanList(values: readonly string[] | undefined): readonly string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+export function createOfficialModuleRuntimeError(
+  code: string,
+  message: string,
+  boundary: OfficialModuleRuntimeBoundary,
+): OfficialModuleRuntimeError {
+  return {
+    code,
+    message,
+    boundary,
+    publicSafe: true,
+    internalDetailExposed: false,
+  };
+}
+
+function failure(
+  code: string,
+  message: string,
+  boundary: OfficialModuleRuntimeBoundary,
+): OfficialModuleRuntimeSurfaceResult {
+  return {
+    ok: false,
+    error: createOfficialModuleRuntimeError(code, message, boundary),
+    events: ["runtime.officialModuleSurface.rejected"],
+  };
+}
+
+export function createOfficialModuleRuntimeSurface(
+  request?: OfficialModuleRuntimeSurfaceRequest,
+): OfficialModuleRuntimeSurfaceResult {
+  if (request === undefined || isBlank(request.runtimeId)) {
+    return failure("MISSING_RUNTIME_ID", "official module runtime surface requires a runtimeId", "input");
+  }
+
+  if (isBlank(request.moduleId)) {
+    return failure("MISSING_MODULE_ID", "official module runtime surface requires a moduleId", "input");
+  }
+
+  if (isBlank(request.moduleKind)) {
+    return failure("MISSING_MODULE_KIND", "official module runtime surface requires a module kind", "input");
+  }
+
+  if (request.runtimeReady === false) {
+    return failure(
+      "RUNTIME_NOT_READY",
+      "official modules can only enter through a ready runtime surface",
+      "runtime-state",
+    );
+  }
+
+  if (request.contract?.accepted === false) {
+    return failure(
+      "CONTRACT_REJECTED",
+      request.contract.reason ?? "official module runtime surface was rejected by contract surface",
+      "contract",
+    );
+  }
+
+  if (request.governance?.accepted === false) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      request.governance.reason ?? "official module runtime surface was rejected by governance",
+      "governance",
+    );
+  }
+
+  const runtimeId = (request.runtimeId ?? "").trim();
+  const moduleId = (request.moduleId ?? "").trim();
+  const moduleKind = (request.moduleKind ?? "").trim() as OfficialModuleKind;
+  const requestedCapabilities = cleanList(request.requestedCapabilities);
+  const requestedEvents = cleanList(request.requestedEvents);
+  const requestedScopes = cleanList(request.requestedScopes);
+
+  return {
+    ok: true,
+    surface: {
+      runtimeId,
+      module: {
+        moduleId,
+        moduleKind,
+      },
+      requestedCapabilities,
+      requestedEvents,
+      requestedScopes,
+      entrySurface: "runtime.officialModuleSurface",
+      dispatch: "dry-run",
+      unsafeSideEffects: false,
+      canRequestCapability(capability: string): boolean {
+        const normalized = capability.trim();
+        return normalized.length > 0 && (requestedCapabilities.length === 0 || requestedCapabilities.includes(normalized));
+      },
+      canSubscribeEvent(eventType: string): boolean {
+        const normalized = eventType.trim();
+        return normalized.length > 0 && (requestedEvents.length === 0 || requestedEvents.includes(normalized));
+      },
+    },
+    events: ["runtime.officialModuleSurface.created"],
+  };
+}
