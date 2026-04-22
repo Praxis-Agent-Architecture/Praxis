@@ -7,3 +7,92 @@
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createInvocationEnvelope,
+  type InvocationEnvelope,
+  type InvocationEnvelopeError,
+  type InvocationEnvelopeGate,
+  type InvocationEnvelopeSource,
+  type InvocationEnvelopeTrace,
+} from "./invocationEnvelope.js";
+
+export type ToolInvocationEntrypointRequest = {
+  runtimeId: string;
+  toolId: string;
+  source: InvocationEnvelopeSource;
+  operation?: string;
+  input?: unknown;
+  runtimeReady?: boolean;
+  requestedScopes?: readonly string[];
+  allowedScopes?: readonly string[];
+  contract?: InvocationEnvelopeGate;
+  governance?: InvocationEnvelopeGate;
+  trace?: InvocationEnvelopeTrace;
+};
+
+export type ToolInvocationPlan = {
+  invocationType: "tool";
+  runtimeId: string;
+  toolId: string;
+  operation?: string;
+  envelope: InvocationEnvelope;
+  dispatch: "dry-run";
+  touchesToolLayer: false;
+  toolExecutionPlanned: false;
+  unsafeSideEffects: false;
+};
+
+export type ToolInvocationEntrypointResult =
+  | {
+      ok: true;
+      plan: ToolInvocationPlan;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: InvocationEnvelopeError;
+      events: readonly string[];
+    };
+
+export function createToolInvocationEntrypoint(
+  request: ToolInvocationEntrypointRequest,
+): ToolInvocationEntrypointResult {
+  const operation = request.operation?.trim() || undefined;
+  const envelopeResult = createInvocationEnvelope({
+    runtimeId: request.runtimeId,
+    targetId: request.toolId,
+    invocationKind: "tool",
+    source: request.source,
+    payload: {
+      operation,
+      input: request.input,
+    },
+    runtimeReady: request.runtimeReady,
+    requestedScopes: request.requestedScopes,
+    allowedScopes: request.allowedScopes,
+    contract: request.contract,
+    governance: request.governance,
+    trace: request.trace,
+  });
+
+  if (!envelopeResult.ok) {
+    return envelopeResult;
+  }
+
+  return {
+    ok: true,
+    plan: {
+      invocationType: "tool",
+      runtimeId: envelopeResult.envelope.runtimeId,
+      toolId: envelopeResult.envelope.targetId,
+      operation,
+      envelope: envelopeResult.envelope,
+      dispatch: "dry-run",
+      touchesToolLayer: false,
+      toolExecutionPlanned: false,
+      unsafeSideEffects: false,
+    },
+    events: ["runtime.invocation.tool.planned", ...envelopeResult.events],
+  };
+}
