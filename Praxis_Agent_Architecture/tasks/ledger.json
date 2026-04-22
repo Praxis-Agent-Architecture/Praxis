@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T20:54:46.494Z",
+  "updatedAt": "2026-04-22T20:58:16.667Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -1283,7 +1283,7 @@
       "id": "AC-F-0025",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.test.ts"
@@ -1292,7 +1292,7 @@
       "id": "AC-F-0026",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.test.ts"
@@ -1301,7 +1301,7 @@
       "id": "AC-F-0027",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_completeCode.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_completeCode.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_completeCode.test.ts"
@@ -1310,7 +1310,7 @@
       "id": "AC-F-0028",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.test.ts"
@@ -5917,7 +5917,7 @@
       "id": "AC-G-0007",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0025",
         "AC-F-0026",
@@ -5953,6 +5953,10 @@
         {
           "at": "2026-04-22T20:19:12.502Z",
           "event": "continue-start"
+        },
+        {
+          "at": "2026-04-22T20:44:57.166Z",
+          "event": "continue-start"
         }
       ],
       "notes": [
@@ -5960,6 +5964,36 @@
           "at": "2026-04-22T20:25:33.740Z",
           "status": "pending",
           "note": "released stale lease after missing pipeline start"
+        },
+        {
+          "at": "2026-04-22T20:44:57.216Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T20:50:17.658Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T20:50:17.728Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T20:52:53.573Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T20:56:07.898Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T20:58:16.667Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
         }
       ]
     },
@@ -14920,6 +14954,48 @@
       "groupId": "AC-G-0011",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T20:44:57.216Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T20:50:17.658Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T20:50:17.728Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T20:52:53.573Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T20:56:07.898Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T20:58:16.667Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ],
   "events": [
@@ -14983,6 +15059,13 @@
       "at": "2026-04-22T20:54:46.494Z",
       "event": "status",
       "groupId": "AC-G-0011",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T20:58:16.667Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
