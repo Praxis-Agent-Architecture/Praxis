@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T14:56:23.237Z",
+  "updatedAt": "2026-04-22T14:58:09.694Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -3101,7 +3101,7 @@
       "id": "AC-F-0227",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.test.ts"
@@ -3110,7 +3110,7 @@
       "id": "AC-F-0228",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.test.ts"
@@ -3119,7 +3119,7 @@
       "id": "AC-F-0229",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.test.ts"
@@ -3128,7 +3128,7 @@
       "id": "AC-F-0230",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.test.ts"
@@ -7780,7 +7780,7 @@
       "id": "AC-G-0058",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0227",
         "AC-F-0228",
@@ -7841,6 +7841,16 @@
           "at": "2026-04-22T14:49:54.607Z",
           "status": "reviewed",
           "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T14:57:06.408Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T14:58:09.694Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
         }
       ]
     },
@@ -11859,6 +11869,20 @@
       "at": "2026-04-22T14:56:23.235Z",
       "event": "status",
       "groupId": "AC-G-0057",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T14:57:06.408Z",
+      "event": "status",
+      "groupId": "AC-G-0058",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T14:58:09.694Z",
+      "event": "status",
+      "groupId": "AC-G-0058",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
