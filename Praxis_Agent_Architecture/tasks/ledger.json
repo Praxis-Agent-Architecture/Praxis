@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T19:31:27.038Z",
+  "updatedAt": "2026-04-22T19:35:45.801Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -3929,7 +3929,7 @@
       "id": "AC-F-0319",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_edits.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_edits.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_edits.test.ts"
@@ -3938,7 +3938,7 @@
       "id": "AC-F-0320",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.test.ts"
@@ -3947,7 +3947,7 @@
       "id": "AC-F-0321",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_variations.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_variations.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_variations.test.ts"
@@ -3956,7 +3956,7 @@
       "id": "AC-F-0322",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_models.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_models.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_models.test.ts"
@@ -9506,7 +9506,7 @@
       "id": "AC-G-0082",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0319",
         "AC-F-0320",
@@ -9539,7 +9539,13 @@
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0082",
       "lease": null,
       "attempts": [],
-      "notes": []
+      "notes": [
+        {
+          "at": "2026-04-22T19:35:45.801Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0083",
@@ -13315,6 +13321,13 @@
       "groupId": "AC-G-0081",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:35:45.801Z",
+      "event": "status",
+      "groupId": "AC-G-0082",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ],
   "events": [
@@ -13343,6 +13356,13 @@
       "at": "2026-04-22T19:31:27.038Z",
       "event": "status",
       "groupId": "AC-G-0081",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:35:45.801Z",
+      "event": "status",
+      "groupId": "AC-G-0082",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
