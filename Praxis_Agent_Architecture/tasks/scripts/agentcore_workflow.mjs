@@ -86,7 +86,7 @@ function usage() {
   node tasks/scripts/agentcore_workflow.mjs next [--limit N] [--spec AC-SPEC-A]
   node tasks/scripts/agentcore_workflow.mjs prompt <group-id> --role worker|reviewer|merge
   node tasks/scripts/agentcore_workflow.mjs pipeline <group-id> [--execute] [--worktree] [--roles worker,reviewer,merge]
-  node tasks/scripts/agentcore_workflow.mjs batch [--limit N] [--spec AC-SPEC-A] [--execute] [--worktree] [--max-active N]
+  node tasks/scripts/agentcore_workflow.mjs batch [--limit N] [--spec AC-SPEC-A] [--execute] [--worktree] [--max-active N] [--roles worker,reviewer]
   node tasks/scripts/agentcore_workflow.mjs continue --spec AC-SPEC-A [--execute] [--worktree] [--max-active N] [--sleep-ms N]
   node tasks/scripts/agentcore_workflow.mjs complete <group-id> --status implemented|reviewed|done|needs_rework|failed [--note "..."]
   node tasks/scripts/agentcore_workflow.mjs release <group-id> [--note "..."]
@@ -401,6 +401,9 @@ function commandNext() {
 
 function setGroupStatus(ledger, group, status, note = "") {
   group.status = status;
+  if (["done", "failed", "needs_rework", "pending"].includes(status)) {
+    group.lease = null;
+  }
   group.notes.push({ at: now(), status, note });
   ledger.history.push({ at: now(), event: "status", groupId: group.id, status, note });
   refreshParentStatus(ledger);
@@ -623,12 +626,13 @@ function commandBatch() {
   const groups = pendingGroups(ledger).slice(0, limit);
   const execute = has("--execute");
   const worktree = has("--worktree");
+  const roles = arg("--roles", "worker,reviewer");
   const planned = [];
   const active = [...alive];
 
   for (const group of groups) {
     const runId = `${group.id}-${Date.now()}`;
-    const args = [scriptPath, "pipeline", group.id, "--roles", "worker,reviewer,merge"];
+    const args = [scriptPath, "pipeline", group.id, "--roles", roles];
     if (execute) args.push("--execute");
     if (worktree) args.push("--worktree");
     planned.push({ runId, groupId: group.id, args: [process.execPath, ...args] });
@@ -664,9 +668,59 @@ function blockedGroups(ledger, spec) {
   );
 }
 
-function startGroupPipeline(group, { execute, worktree, active }) {
+function reviewedGroups(ledger, spec) {
+  return ledger.groupTasks.filter((task) => task.status === "reviewed" && (!spec || task.bigSpecId === spec));
+}
+
+function mainDirtyStatus() {
+  return shell("git", ["status", "--short"], { cwd: repoRoot }).stdout.trim();
+}
+
+function runMergeRole(group, { execute, worktree }) {
+  if (execute) {
+    const dirtyBefore = mainDirtyStatus();
+    if (dirtyBefore.length > 0) {
+      console.error(`merge skipped for ${group.id}: main worktree is dirty before merge`);
+      console.error(dirtyBefore);
+      process.exitCode = 1;
+      return false;
+    }
+  }
+
+  const ledger = loadLedger();
+  const freshGroup = itemById(ledger, group.id);
+  if (execute) setGroupStatus(ledger, freshGroup, "merging", "merge started");
+  const code = runRoleSync(freshGroup, "merge", { execute, worktree });
+  if (code !== 0) {
+    if (execute) {
+      const failedLedger = loadLedger();
+      setGroupStatus(failedLedger, itemById(failedLedger, group.id), "failed", "merge failed");
+    }
+    process.exitCode = code;
+    return false;
+  }
+
+  if (execute) {
+    const dirtyAfter = mainDirtyStatus();
+    if (dirtyAfter.length > 0) {
+      const failedLedger = loadLedger();
+      setGroupStatus(
+        failedLedger,
+        itemById(failedLedger, group.id),
+        "failed",
+        `merge returned success but main worktree is still dirty; merge must commit or report failure: ${dirtyAfter.split("\n").slice(0, 6).join(" | ")}`,
+      );
+      process.exitCode = 1;
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function startGroupPipeline(group, { execute, worktree, active, roles = "worker,reviewer,merge" }) {
   const runId = `${group.id}-${Date.now()}`;
-  const args = [scriptPath, "pipeline", group.id, "--roles", "worker,reviewer,merge"];
+  const args = [scriptPath, "pipeline", group.id, "--roles", roles];
   if (execute) args.push("--execute");
   if (worktree) args.push("--worktree");
 
@@ -702,7 +756,9 @@ async function commandContinue() {
     const ledger = loadLedger();
     const { alive, reaped } = reapActiveRuns({ silent: true });
     const blocked = blockedGroups(ledger, spec);
+    const mergeable = reviewedGroups(ledger, spec);
     const pending = runnablePendingGroups(ledger, spec);
+    const dirty = mainDirtyStatus();
 
     const snapshot = {
       at: now(),
@@ -713,6 +769,8 @@ async function commandContinue() {
       alive: alive.length,
       reaped: reaped.length,
       pending: pending.length,
+      mergeable: mergeable.length,
+      mainDirty: dirty.length > 0,
       blocked: blocked.map((task) => ({ id: task.id, status: task.status })),
     };
     console.log(JSON.stringify(snapshot));
@@ -721,6 +779,20 @@ async function commandContinue() {
       console.error(`continue stopped: ${blocked.length} blocked groups`);
       process.exitCode = 1;
       return;
+    }
+
+    if (mergeable.length > 0) {
+      if (dirty.length > 0) {
+        console.error("continue stopped: main worktree is dirty before serialized merge");
+        console.error(dirty);
+        process.exitCode = 1;
+        return;
+      }
+      const group = mergeable[0];
+      console.log(JSON.stringify({ at: now(), event: "continue.merge", groupId: group.id }));
+      if (!runMergeRole(group, { execute, worktree })) return;
+      loop += 1;
+      continue;
     }
 
     if (pending.length === 0 && alive.length === 0) {
@@ -740,7 +812,7 @@ async function commandContinue() {
           group.lease = { agent: `continue:${group.id}`, at: now() };
           group.attempts.push({ at: now(), event: "continue-start" });
         }
-        planned.push(startGroupPipeline(group, { execute, worktree, active }));
+        planned.push(startGroupPipeline(group, { execute, worktree, active, roles: "worker,reviewer" }));
       }
       if (execute) {
         refreshParentStatus(ledger);

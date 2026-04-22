@@ -7,3 +7,153 @@
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import type { InvocationMethodKind } from "./invocationMethodRegistry.js";
+
+export type InvocationResultSurfaceStatus = "accepted" | "completed" | "failed";
+
+export type InvocationResultSurfaceBoundary = "input" | "contract" | "governance" | "runtime" | "downstream";
+
+export type InvocationResultSurfaceErrorCode =
+  | "MISSING_INVOCATION_ID"
+  | "MISSING_METHOD"
+  | "CONTRACT_REJECTED"
+  | "GOVERNANCE_REJECTED"
+  | "DOWNSTREAM_FAILED";
+
+export type InvocationResultSurfaceError = {
+  code: InvocationResultSurfaceErrorCode | string;
+  message: string;
+  boundary: InvocationResultSurfaceBoundary;
+};
+
+export type InvocationResultSurfaceGate = {
+  accepted: boolean;
+  reason?: string;
+};
+
+export type InvocationResultSurfaceRequest = {
+  invocationId?: string;
+  method?: InvocationMethodKind | string;
+  routeId?: string;
+  status?: InvocationResultSurfaceStatus;
+  output?: unknown;
+  error?: {
+    code: string;
+    message: string;
+    boundary?: InvocationResultSurfaceBoundary;
+  };
+  events?: readonly string[];
+  contract?: InvocationResultSurfaceGate;
+  governance?: InvocationResultSurfaceGate;
+};
+
+export type InvocationResultSurfaceView = {
+  invocationId: string;
+  method: InvocationMethodKind | string;
+  routeId?: string;
+  status: InvocationResultSurfaceStatus;
+  output?: unknown;
+  error?: InvocationResultSurfaceError;
+  events: readonly string[];
+  providerRawShapeExposed: false;
+};
+
+export type InvocationResultSurfaceResult =
+  | {
+      ok: true;
+      surface: InvocationResultSurfaceView;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: InvocationResultSurfaceError;
+      events: readonly string[];
+    };
+
+function hasText(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function failure(
+  code: InvocationResultSurfaceErrorCode,
+  message: string,
+  boundary: InvocationResultSurfaceBoundary,
+): InvocationResultSurfaceResult {
+  return {
+    ok: false,
+    error: { code, message, boundary },
+    events: ["invocation.result.surface.rejected"],
+  };
+}
+
+function eventSet(values: readonly string[] | undefined, fallback: string): readonly string[] {
+  return [...new Set([...(values ?? []), fallback])];
+}
+
+export function createInvocationResultSurface(
+  request: InvocationResultSurfaceRequest,
+): InvocationResultSurfaceResult {
+  const invocationId = request.invocationId?.trim();
+  const method = request.method?.trim();
+
+  if (!hasText(invocationId)) {
+    return failure("MISSING_INVOCATION_ID", "invocationId is required before exposing invocation results", "input");
+  }
+
+  if (!hasText(method)) {
+    return failure("MISSING_METHOD", "method is required before exposing invocation results", "input");
+  }
+
+  if (request.contract?.accepted === false) {
+    return failure(
+      "CONTRACT_REJECTED",
+      request.contract.reason ?? "invocation result was rejected by contract surface",
+      "contract",
+    );
+  }
+
+  if (request.governance?.accepted === false) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      request.governance.reason ?? "invocation result was rejected by governance",
+      "governance",
+    );
+  }
+
+  if (request.error !== undefined) {
+    const error: InvocationResultSurfaceError = {
+      code: request.error.code || "DOWNSTREAM_FAILED",
+      message: request.error.message || "downstream invocation failed",
+      boundary: request.error.boundary ?? "downstream",
+    };
+
+    return {
+      ok: true,
+      surface: {
+        invocationId,
+        method,
+        routeId: request.routeId?.trim() || undefined,
+        status: "failed",
+        error,
+        events: eventSet(request.events, "invocation.result.failed"),
+        providerRawShapeExposed: false,
+      },
+      events: ["invocation.result.surface.ready"],
+    };
+  }
+
+  return {
+    ok: true,
+    surface: {
+      invocationId,
+      method,
+      routeId: request.routeId?.trim() || undefined,
+      status: request.status ?? "completed",
+      output: request.output,
+      events: eventSet(request.events, "invocation.result.presented"),
+      providerRawShapeExposed: false,
+    },
+    events: ["invocation.result.surface.ready"],
+  };
+}
