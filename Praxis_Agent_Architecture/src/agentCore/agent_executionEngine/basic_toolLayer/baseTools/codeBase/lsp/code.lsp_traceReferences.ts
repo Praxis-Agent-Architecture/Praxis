@@ -8,3 +8,163 @@
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createLspDryRunLocation,
+  createLspToolFailure,
+  ensureLspToolScope,
+  normalizeLspTextDocumentPosition,
+  type LspLocation,
+  type LspTextDocumentPosition,
+  type LspToolAuditEvent,
+  type LspToolContext,
+  type LspToolResult,
+} from "./code.lsp_locateDefinition.js";
+
+export type LspTraceReferencesOutput = {
+  kind: "agentCore.basicTool.lsp.traceReferences";
+  target: LspTextDocumentPosition;
+  references: readonly LspLocation[];
+  includeDeclaration: boolean;
+  dryRun: boolean;
+  providerCalled: boolean;
+  permissionsRequired: readonly ["workspace:read", "lsp:read"];
+  unsafeSideEffects: false;
+};
+
+export type LspTraceReferencesProvider = (
+  target: LspTextDocumentPosition,
+  context: LspToolContext,
+  includeDeclaration: boolean,
+) => readonly LspLocation[] | Promise<readonly LspLocation[]>;
+
+export type LspTraceReferencesRequest = {
+  target?: Partial<LspTextDocumentPosition>;
+  includeDeclaration?: boolean;
+  context?: LspToolContext;
+  provider?: LspTraceReferencesProvider;
+};
+
+export const lspTraceReferencesDescriptor = {
+  toolId: "code.lsp_traceReferences",
+  capability: "trace-references",
+  route: "agent_executionEngine.basic_toolLayer.baseTools.codeBase.lsp",
+  permissionsRequired: ["workspace:read", "lsp:read"],
+  defaultDryRun: true,
+  unsafeSideEffects: false,
+  tapOwnsApproval: true,
+} as const;
+
+function dryRunEnabled(context: LspToolContext | undefined): boolean {
+  return context?.dryRun !== false;
+}
+
+function invocationId(context: LspToolContext | undefined): string {
+  return context?.invocationId?.trim() || `${lspTraceReferencesDescriptor.toolId}:dry-run`;
+}
+
+function auditEvent(
+  type: string,
+  context: LspToolContext | undefined,
+  targetFilePath?: string,
+  metadata?: Readonly<Record<string, unknown>>,
+): LspToolAuditEvent {
+  return {
+    type,
+    toolId: lspTraceReferencesDescriptor.toolId,
+    invocationId: invocationId(context),
+    dryRun: dryRunEnabled(context),
+    targetFilePath,
+    metadata: {
+      ...(context?.auditMetadata ?? {}),
+      ...(metadata ?? {}),
+    },
+  };
+}
+
+export async function traceLspReferences(
+  request: LspTraceReferencesRequest = {},
+): Promise<LspToolResult<LspTraceReferencesOutput>> {
+  const toolId = lspTraceReferencesDescriptor.toolId;
+  const target = normalizeLspTextDocumentPosition(request.target);
+
+  if ("code" in target) {
+    return createLspToolFailure(toolId, target.code, target.message, target.boundary, request.context, request.target?.filePath);
+  }
+
+  const scopeFailure = ensureLspToolScope(toolId, target, request.context);
+  if (scopeFailure !== undefined) {
+    return scopeFailure;
+  }
+
+  const includeDeclaration = request.includeDeclaration ?? false;
+  const dryRun = dryRunEnabled(request.context);
+  if (dryRun) {
+    return {
+      ok: true,
+      toolId,
+      output: {
+        kind: "agentCore.basicTool.lsp.traceReferences",
+        target,
+        references: [createLspDryRunLocation(target)],
+        includeDeclaration,
+        dryRun: true,
+        providerCalled: false,
+        permissionsRequired: lspTraceReferencesDescriptor.permissionsRequired,
+        unsafeSideEffects: false,
+      },
+      audit: [
+        auditEvent("agentCore.basicTool.lsp.traceReferences.dryRun", request.context, target.filePath, {
+          includeDeclaration,
+        }),
+      ],
+      events: ["basicTool.lsp.traceReferences.dryRun"],
+    };
+  }
+
+  if (request.provider === undefined) {
+    return createLspToolFailure(
+      toolId,
+      "PROVIDER_UNAVAILABLE",
+      "trace references requires an injected LSP provider when dryRun is disabled",
+      "provider",
+      request.context,
+      target.filePath,
+    );
+  }
+
+  try {
+    const references = await request.provider(target, request.context ?? {}, includeDeclaration);
+
+    return {
+      ok: true,
+      toolId,
+      output: {
+        kind: "agentCore.basicTool.lsp.traceReferences",
+        target,
+        references: Object.freeze([...references]),
+        includeDeclaration,
+        dryRun: false,
+        providerCalled: true,
+        permissionsRequired: lspTraceReferencesDescriptor.permissionsRequired,
+        unsafeSideEffects: false,
+      },
+      audit: [
+        auditEvent("agentCore.basicTool.lsp.traceReferences.provider", request.context, target.filePath, {
+          includeDeclaration,
+          referenceCount: references.length,
+        }),
+      ],
+      events: ["basicTool.lsp.traceReferences.providerCalled"],
+    };
+  } catch (error) {
+    return createLspToolFailure(
+      toolId,
+      "PROVIDER_REJECTED",
+      error instanceof Error ? error.message : "trace references provider rejected the invocation",
+      "provider",
+      request.context,
+      target.filePath,
+    );
+  }
+}
