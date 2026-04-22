@@ -8,3 +8,195 @@
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createLspToolFailure,
+  ensureLspToolScope,
+  type LspRange,
+  type LspTextDocumentPosition,
+  type LspToolAuditEvent,
+  type LspToolContext,
+  type LspToolResult,
+} from "./code.lsp_locateDefinition.js";
+
+export type LspDocumentTarget = {
+  filePath: string;
+  languageId?: string;
+};
+
+export type LspDocumentSymbol = {
+  name: string;
+  kind: string;
+  range: LspRange;
+  selectionRange?: LspRange;
+  detail?: string;
+  children?: readonly LspDocumentSymbol[];
+};
+
+export type LspScanDocumentSymbolsOutput = {
+  kind: "agentCore.basicTool.lsp.scanDocumentSymbols";
+  target: LspDocumentTarget;
+  symbols: readonly LspDocumentSymbol[];
+  dryRun: boolean;
+  providerCalled: boolean;
+  permissionsRequired: readonly ["workspace:read", "lsp:read"];
+  unsafeSideEffects: false;
+};
+
+export type LspScanDocumentSymbolsProvider = (
+  target: LspDocumentTarget,
+  context: LspToolContext,
+) => readonly LspDocumentSymbol[] | Promise<readonly LspDocumentSymbol[]>;
+
+export type LspScanDocumentSymbolsRequest = {
+  target?: Partial<LspDocumentTarget>;
+  context?: LspToolContext;
+  provider?: LspScanDocumentSymbolsProvider;
+};
+
+export const lspScanDocumentSymbolsDescriptor = {
+  toolId: "code.lsp_scanDocumentSymbols",
+  capability: "scan-document-symbols",
+  route: "agent_executionEngine.basic_toolLayer.baseTools.codeBase.lsp",
+  permissionsRequired: ["workspace:read", "lsp:read"],
+  defaultDryRun: true,
+  unsafeSideEffects: false,
+  tapOwnsApproval: true,
+} as const;
+
+function isBlank(value: string | undefined): value is undefined {
+  return typeof value !== "string" || value.trim().length === 0;
+}
+
+function dryRunEnabled(context: LspToolContext | undefined): boolean {
+  return context?.dryRun !== false;
+}
+
+function invocationId(context: LspToolContext | undefined): string {
+  return context?.invocationId?.trim() || `${lspScanDocumentSymbolsDescriptor.toolId}:dry-run`;
+}
+
+function auditEvent(
+  type: string,
+  context: LspToolContext | undefined,
+  targetFilePath?: string,
+  metadata?: Readonly<Record<string, unknown>>,
+): LspToolAuditEvent {
+  return {
+    type,
+    toolId: lspScanDocumentSymbolsDescriptor.toolId,
+    invocationId: invocationId(context),
+    dryRun: dryRunEnabled(context),
+    targetFilePath,
+    metadata: {
+      ...(context?.auditMetadata ?? {}),
+      ...(metadata ?? {}),
+    },
+  };
+}
+
+function normalizeDocumentTarget(target: Partial<LspDocumentTarget> | undefined): LspDocumentTarget | undefined {
+  if (target === undefined || isBlank(target.filePath)) {
+    return undefined;
+  }
+
+  return {
+    filePath: target.filePath.trim(),
+    languageId: target.languageId?.trim() || undefined,
+  };
+}
+
+function scopeProbe(target: LspDocumentTarget): LspTextDocumentPosition {
+  return {
+    filePath: target.filePath,
+    line: 0,
+    character: 0,
+    languageId: target.languageId,
+  };
+}
+
+export async function scanLspDocumentSymbols(
+  request: LspScanDocumentSymbolsRequest = {},
+): Promise<LspToolResult<LspScanDocumentSymbolsOutput>> {
+  const toolId = lspScanDocumentSymbolsDescriptor.toolId;
+  const target = normalizeDocumentTarget(request.target);
+
+  if (target === undefined) {
+    return createLspToolFailure(
+      toolId,
+      "MISSING_FILE_PATH",
+      "scan document symbols requires target.filePath",
+      "input",
+      request.context,
+      request.target?.filePath,
+    );
+  }
+
+  const scopeFailure = ensureLspToolScope(toolId, scopeProbe(target), request.context);
+  if (scopeFailure !== undefined) {
+    return scopeFailure;
+  }
+
+  const dryRun = dryRunEnabled(request.context);
+  if (dryRun) {
+    return {
+      ok: true,
+      toolId,
+      output: {
+        kind: "agentCore.basicTool.lsp.scanDocumentSymbols",
+        target,
+        symbols: Object.freeze([]),
+        dryRun: true,
+        providerCalled: false,
+        permissionsRequired: lspScanDocumentSymbolsDescriptor.permissionsRequired,
+        unsafeSideEffects: false,
+      },
+      audit: [auditEvent("agentCore.basicTool.lsp.scanDocumentSymbols.dryRun", request.context, target.filePath)],
+      events: ["basicTool.lsp.scanDocumentSymbols.dryRun"],
+    };
+  }
+
+  if (request.provider === undefined) {
+    return createLspToolFailure(
+      toolId,
+      "PROVIDER_UNAVAILABLE",
+      "scan document symbols requires an injected LSP provider when dryRun is disabled",
+      "provider",
+      request.context,
+      target.filePath,
+    );
+  }
+
+  try {
+    const symbols = await request.provider(target, request.context ?? {});
+
+    return {
+      ok: true,
+      toolId,
+      output: {
+        kind: "agentCore.basicTool.lsp.scanDocumentSymbols",
+        target,
+        symbols: Object.freeze([...symbols]),
+        dryRun: false,
+        providerCalled: true,
+        permissionsRequired: lspScanDocumentSymbolsDescriptor.permissionsRequired,
+        unsafeSideEffects: false,
+      },
+      audit: [
+        auditEvent("agentCore.basicTool.lsp.scanDocumentSymbols.provider", request.context, target.filePath, {
+          symbolCount: symbols.length,
+        }),
+      ],
+      events: ["basicTool.lsp.scanDocumentSymbols.providerCalled"],
+    };
+  } catch (error) {
+    return createLspToolFailure(
+      toolId,
+      "PROVIDER_REJECTED",
+      error instanceof Error ? error.message : "scan document symbols provider rejected the invocation",
+      "provider",
+      request.context,
+      target.filePath,
+    );
+  }
+}
