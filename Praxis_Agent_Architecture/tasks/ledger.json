@@ -9127,7 +9127,7 @@
       "id": "AC-G-0049",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0193",
         "AC-F-0194",
@@ -9158,9 +9158,48 @@
       ],
       "branch": "codex/agentcore/ac-g-0049",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0049",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0049",
+        "at": "2026-04-22T23:27:02.861Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T23:27:02.861Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T23:27:03.353Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T23:31:47.380Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T23:31:47.393Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T23:35:52.949Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T23:48:43.698Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T23:49:21.787Z",
+          "status": "done",
+          "note": "merge verified and committed"
+        }
+      ]
     },
     {
       "id": "AC-G-0050",
