@@ -7,3 +7,88 @@
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createInvocationEnvelope,
+  type InvocationEnvelope,
+  type InvocationEnvelopeError,
+  type InvocationEnvelopeGate,
+  type InvocationEnvelopeSource,
+  type InvocationEnvelopeTrace,
+} from "./invocationEnvelope.js";
+
+export type InterfaceInvocationEntrypointRequest = {
+  runtimeId: string;
+  interfaceId: string;
+  source: InvocationEnvelopeSource;
+  operation?: string;
+  input?: unknown;
+  runtimeReady?: boolean;
+  requestedScopes?: readonly string[];
+  allowedScopes?: readonly string[];
+  contract?: InvocationEnvelopeGate;
+  governance?: InvocationEnvelopeGate;
+  trace?: InvocationEnvelopeTrace;
+};
+
+export type InterfaceInvocationPlan = {
+  invocationType: "interface";
+  runtimeId: string;
+  interfaceId: string;
+  operation?: string;
+  envelope: InvocationEnvelope;
+  dispatch: "dry-run";
+  touchesInterfaceAdapter: false;
+};
+
+export type InterfaceInvocationEntrypointResult =
+  | {
+      ok: true;
+      plan: InterfaceInvocationPlan;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: InvocationEnvelopeError;
+      events: readonly string[];
+    };
+
+export function createInterfaceInvocationEntrypoint(
+  request: InterfaceInvocationEntrypointRequest,
+): InterfaceInvocationEntrypointResult {
+  const operation = request.operation?.trim() || undefined;
+  const envelopeResult = createInvocationEnvelope({
+    runtimeId: request.runtimeId,
+    targetId: request.interfaceId,
+    invocationKind: "interface",
+    source: request.source,
+    payload: {
+      operation,
+      input: request.input,
+    },
+    runtimeReady: request.runtimeReady,
+    requestedScopes: request.requestedScopes,
+    allowedScopes: request.allowedScopes,
+    contract: request.contract,
+    governance: request.governance,
+    trace: request.trace,
+  });
+
+  if (!envelopeResult.ok) {
+    return envelopeResult;
+  }
+
+  return {
+    ok: true,
+    plan: {
+      invocationType: "interface",
+      runtimeId: envelopeResult.envelope.runtimeId,
+      interfaceId: envelopeResult.envelope.targetId,
+      operation,
+      envelope: envelopeResult.envelope,
+      dispatch: "dry-run",
+      touchesInterfaceAdapter: false,
+    },
+    events: ["runtime.invocation.interface.planned", ...envelopeResult.events],
+  };
+}

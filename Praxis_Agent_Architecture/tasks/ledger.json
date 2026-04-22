@@ -4946,7 +4946,7 @@
       "id": "AC-F-0432",
       "parentId": "AC-SPEC-A:runtime.invocationMethod",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.test.ts"
@@ -4955,7 +4955,7 @@
       "id": "AC-F-0433",
       "parentId": "AC-SPEC-A:runtime.invocationMethod",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.test.ts"
@@ -4964,7 +4964,7 @@
       "id": "AC-F-0434",
       "parentId": "AC-SPEC-A:runtime.invocationMethod",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.test.ts"
@@ -4973,7 +4973,7 @@
       "id": "AC-F-0435",
       "parentId": "AC-SPEC-A:runtime.invocationMethod",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.test.ts"
@@ -9820,7 +9820,7 @@
       "id": "AC-G-0113",
       "parentId": "AC-SPEC-A:runtime.invocationMethod",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0432",
         "AC-F-0433",
@@ -9852,8 +9852,44 @@
       "branch": "codex/agentcore/ac-g-0113",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0113",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-22T13:16:39.617Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T13:16:39.890Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T13:21:26.512Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T13:21:26.519Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T13:22:23.917Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T13:22:23.922Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T13:24:12.429Z",
+          "status": "done",
+          "note": "merge done"
+        }
+      ]
     },
     {
       "id": "AC-G-0114",
