@@ -87,6 +87,7 @@ function usage() {
   node tasks/scripts/agentcore_workflow.mjs prompt <group-id> --role worker|reviewer|merge
   node tasks/scripts/agentcore_workflow.mjs pipeline <group-id> [--execute] [--worktree] [--roles worker,reviewer,merge]
   node tasks/scripts/agentcore_workflow.mjs batch [--limit N] [--spec AC-SPEC-A] [--execute] [--worktree] [--max-active N]
+  node tasks/scripts/agentcore_workflow.mjs continue --spec AC-SPEC-A [--execute] [--worktree] [--max-active N] [--sleep-ms N]
   node tasks/scripts/agentcore_workflow.mjs complete <group-id> --status implemented|reviewed|done|needs_rework|failed [--note "..."]
   node tasks/scripts/agentcore_workflow.mjs release <group-id> [--note "..."]
   node tasks/scripts/agentcore_workflow.mjs active
@@ -653,6 +654,117 @@ function commandBatch() {
   console.log(JSON.stringify({ execute, maxActive, currentlyActive: active.length, planned }, null, 2));
 }
 
+function runnablePendingGroups(ledger, spec) {
+  return ledger.groupTasks.filter((task) => task.status === "pending" && (!spec || task.bigSpecId === spec));
+}
+
+function blockedGroups(ledger, spec) {
+  return ledger.groupTasks.filter(
+    (task) => ["failed", "needs_rework"].includes(task.status) && (!spec || task.bigSpecId === spec),
+  );
+}
+
+function startGroupPipeline(group, { execute, worktree, active }) {
+  const runId = `${group.id}-${Date.now()}`;
+  const args = [scriptPath, "pipeline", group.id, "--roles", "worker,reviewer,merge"];
+  if (execute) args.push("--execute");
+  if (worktree) args.push("--worktree");
+
+  if (!execute) {
+    return { runId, groupId: group.id, args: [process.execPath, ...args], dryRun: true };
+  }
+
+  const child = spawn(process.execPath, args, {
+    cwd: repoRoot,
+    detached: true,
+    stdio: ["ignore", "ignore", "ignore"],
+  });
+  child.unref();
+  active.push({ runId, groupId: group.id, pid: child.pid, startedAt: now() });
+  return { runId, groupId: group.id, pid: child.pid, args: [process.execPath, ...args], dryRun: false };
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function commandContinue() {
+  const spec = arg("--spec");
+  if (!spec) throw new Error("continue requires --spec AC-SPEC-* to avoid accidentally running all groups");
+  const execute = has("--execute");
+  const worktree = has("--worktree");
+  const maxActive = Number(arg("--max-active", String(DEFAULT_MAX_ACTIVE)));
+  const sleepMs = Number(arg("--sleep-ms", "60000"));
+  const maxLoops = Number(arg("--max-loops", "0"));
+  let loop = 0;
+
+  while (true) {
+    const ledger = loadLedger();
+    const { alive, reaped } = reapActiveRuns({ silent: true });
+    const blocked = blockedGroups(ledger, spec);
+    const pending = runnablePendingGroups(ledger, spec);
+
+    const snapshot = {
+      at: now(),
+      spec,
+      loop,
+      execute,
+      maxActive,
+      alive: alive.length,
+      reaped: reaped.length,
+      pending: pending.length,
+      blocked: blocked.map((task) => ({ id: task.id, status: task.status })),
+    };
+    console.log(JSON.stringify(snapshot));
+
+    if (blocked.length > 0) {
+      console.error(`continue stopped: ${blocked.length} blocked groups`);
+      process.exitCode = 1;
+      return;
+    }
+
+    if (pending.length === 0 && alive.length === 0) {
+      console.log(JSON.stringify({ at: now(), event: "continue.done", spec }));
+      return;
+    }
+
+    const active = [...alive];
+    const capacity = Math.max(0, maxActive - active.length);
+    const toStart = pending.slice(0, capacity);
+    const planned = [];
+
+    if (toStart.length > 0) {
+      for (const group of toStart) {
+        if (execute) {
+          group.status = "leased";
+          group.lease = { agent: `continue:${group.id}`, at: now() };
+          group.attempts.push({ at: now(), event: "continue-start" });
+        }
+        planned.push(startGroupPipeline(group, { execute, worktree, active }));
+      }
+      if (execute) {
+        refreshParentStatus(ledger);
+        saveLedger(ledger);
+        writeJson(path.join(runsRoot, "active-runs.json"), active);
+      }
+      console.log(JSON.stringify({ at: now(), event: "continue.started", planned }, null, 2));
+    }
+
+    if (!execute) {
+      console.log("dry-run continue stops after one planning loop. Add --execute to run.");
+      return;
+    }
+
+    loop += 1;
+    if (maxLoops > 0 && loop >= maxLoops) {
+      console.log(JSON.stringify({ at: now(), event: "continue.max_loops", spec, loop }));
+      return;
+    }
+
+    await sleep(sleepMs);
+  }
+}
+
 function commandActive() {
   reapActiveRuns({ silent: true });
   console.log(JSON.stringify(loadJson(path.join(runsRoot, "active-runs.json"), []), null, 2));
@@ -687,6 +799,7 @@ try {
   else if (command === "prompt") commandPrompt(id);
   else if (command === "pipeline") commandPipeline(id);
   else if (command === "batch") commandBatch();
+  else if (command === "continue") await commandContinue();
   else if (command === "complete") commandComplete(id);
   else if (command === "release") commandRelease(id);
   else if (command === "active") commandActive();
