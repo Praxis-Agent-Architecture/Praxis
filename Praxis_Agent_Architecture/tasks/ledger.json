@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T15:29:15.668Z",
+  "updatedAt": "2026-04-22T18:23:32.368Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -45,7 +45,7 @@
     {
       "id": "AC-SPEC-C",
       "title": "PromptPack 与执行核心",
-      "status": "in_progress",
+      "status": "done",
       "smallSpecIds": [
         "AC-SPEC-C:IOTransceiver",
         "AC-SPEC-C:coreLogic",
@@ -401,7 +401,7 @@
       "id": "AC-SPEC-C:coreLogic",
       "parentId": "AC-SPEC-C",
       "title": "coreLogic",
-      "status": "in_progress",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0057",
         "AC-G-0058",
@@ -759,7 +759,7 @@
       "id": "AC-SPEC-C:runtime.execEngine",
       "parentId": "AC-SPEC-C",
       "title": "runtime.execEngine",
-      "status": "in_progress",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0103",
         "AC-G-0104"
@@ -12166,9 +12166,44 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
+      "at": "2026-04-22T15:03:45.263Z",
+      "event": "status",
+      "groupId": "AC-G-0061",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T15:03:45.365Z",
+      "event": "status",
+      "groupId": "AC-G-0062",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
       "at": "2026-04-22T15:03:45.466Z",
       "event": "status",
       "groupId": "AC-G-0064",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T15:03:45.568Z",
+      "event": "status",
+      "groupId": "AC-G-0103",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T15:03:45.673Z",
+      "event": "status",
+      "groupId": "AC-G-0104",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T15:03:45.773Z",
+      "event": "status",
+      "groupId": "AC-G-0063",
       "status": "implementing",
       "note": "worker started"
     },
@@ -12194,118 +12229,6 @@
       "note": "reviewer done"
     },
     {
-      "at": "2026-04-22T15:08:45.226Z",
-      "event": "status",
-      "groupId": "AC-G-0064",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T15:10:30.528Z",
-      "event": "status",
-      "groupId": "AC-G-0064",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T15:13:41.745Z",
-      "event": "status",
-      "groupId": "AC-G-0061",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T15:03:45.365Z",
-      "event": "status",
-      "groupId": "AC-G-0062",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T15:10:03.167Z",
-      "event": "status",
-      "groupId": "AC-G-0062",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T15:10:03.190Z",
-      "event": "status",
-      "groupId": "AC-G-0062",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T15:13:28.392Z",
-      "event": "status",
-      "groupId": "AC-G-0062",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T15:16:01.031Z",
-      "event": "status",
-      "groupId": "AC-G-0062",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T15:17:43.194Z",
-      "event": "status",
-      "groupId": "AC-G-0062",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T15:03:45.773Z",
-      "event": "status",
-      "groupId": "AC-G-0063",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T15:09:49.272Z",
-      "event": "status",
-      "groupId": "AC-G-0063",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T15:09:49.315Z",
-      "event": "status",
-      "groupId": "AC-G-0063",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T15:10:40.092Z",
-      "event": "status",
-      "groupId": "AC-G-0063",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T15:18:58.092Z",
-      "event": "status",
-      "groupId": "AC-G-0063",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T15:22:42.101Z",
-      "event": "status",
-      "groupId": "AC-G-0063",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T15:03:45.568Z",
-      "event": "status",
-      "groupId": "AC-G-0103",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
       "at": "2026-04-22T15:08:24.402Z",
       "event": "status",
       "groupId": "AC-G-0103",
@@ -12320,32 +12243,11 @@
       "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T15:10:57.544Z",
+      "at": "2026-04-22T15:08:45.226Z",
       "event": "status",
-      "groupId": "AC-G-0103",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T15:24:21.286Z",
-      "event": "status",
-      "groupId": "AC-G-0103",
+      "groupId": "AC-G-0064",
       "status": "merging",
       "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T15:25:57.190Z",
-      "event": "status",
-      "groupId": "AC-G-0103",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T15:03:45.673Z",
-      "event": "status",
-      "groupId": "AC-G-0104",
-      "status": "implementing",
-      "note": "worker started"
     },
     {
       "at": "2026-04-22T15:08:48.660Z",
@@ -12362,11 +12264,144 @@
       "note": "reviewer started"
     },
     {
+      "at": "2026-04-22T15:08:51.955Z",
+      "event": "status",
+      "groupId": "AC-G-0061",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T15:08:51.966Z",
+      "event": "status",
+      "groupId": "AC-G-0061",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T15:09:49.272Z",
+      "event": "status",
+      "groupId": "AC-G-0063",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T15:09:49.315Z",
+      "event": "status",
+      "groupId": "AC-G-0063",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
       "at": "2026-04-22T15:10:00.108Z",
       "event": "status",
       "groupId": "AC-G-0104",
       "status": "reviewed",
       "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T15:10:03.167Z",
+      "event": "status",
+      "groupId": "AC-G-0062",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T15:10:03.190Z",
+      "event": "status",
+      "groupId": "AC-G-0062",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T15:10:28.033Z",
+      "event": "status",
+      "groupId": "AC-G-0061",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T15:10:30.528Z",
+      "event": "status",
+      "groupId": "AC-G-0064",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T15:10:40.092Z",
+      "event": "status",
+      "groupId": "AC-G-0063",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T15:10:57.544Z",
+      "event": "status",
+      "groupId": "AC-G-0103",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T15:12:46.302Z",
+      "event": "status",
+      "groupId": "AC-G-0061",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T15:13:28.392Z",
+      "event": "status",
+      "groupId": "AC-G-0062",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T15:13:41.745Z",
+      "event": "status",
+      "groupId": "AC-G-0061",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T15:16:01.031Z",
+      "event": "status",
+      "groupId": "AC-G-0062",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T15:17:43.194Z",
+      "event": "status",
+      "groupId": "AC-G-0062",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T15:18:58.092Z",
+      "event": "status",
+      "groupId": "AC-G-0063",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T15:22:42.101Z",
+      "event": "status",
+      "groupId": "AC-G-0063",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T15:24:21.286Z",
+      "event": "status",
+      "groupId": "AC-G-0103",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T15:25:57.190Z",
+      "event": "status",
+      "groupId": "AC-G-0103",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
       "at": "2026-04-22T15:27:47.682Z",
