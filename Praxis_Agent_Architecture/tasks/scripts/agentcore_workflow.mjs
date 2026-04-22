@@ -672,13 +672,19 @@ function reviewedGroups(ledger, spec) {
   return ledger.groupTasks.filter((task) => task.status === "reviewed" && (!spec || task.bigSpecId === spec));
 }
 
-function mainDirtyStatus() {
-  return shell("git", ["status", "--short"], { cwd: repoRoot }).stdout.trim();
+function mainDirtyStatus({ ignoreLedger = false } = {}) {
+  const dirty = shell("git", ["status", "--short"], { cwd: repoRoot }).stdout.trim();
+  if (!ignoreLedger || dirty.length === 0) return dirty;
+  return dirty
+    .split("\n")
+    .filter((line) => !line.endsWith("Praxis_Agent_Architecture/tasks/ledger.json"))
+    .join("\n")
+    .trim();
 }
 
 function runMergeRole(group, { execute, worktree }) {
   if (execute) {
-    const dirtyBefore = mainDirtyStatus();
+    const dirtyBefore = mainDirtyStatus({ ignoreLedger: true });
     if (dirtyBefore.length > 0) {
       console.error(`merge skipped for ${group.id}: main worktree is dirty before merge`);
       console.error(dirtyBefore);
@@ -701,7 +707,7 @@ function runMergeRole(group, { execute, worktree }) {
   }
 
   if (execute) {
-    const dirtyAfter = mainDirtyStatus();
+    const dirtyAfter = mainDirtyStatus({ ignoreLedger: true });
     if (dirtyAfter.length > 0) {
       const failedLedger = loadLedger();
       setGroupStatus(
@@ -759,6 +765,7 @@ async function commandContinue() {
     const mergeable = reviewedGroups(ledger, spec);
     const pending = runnablePendingGroups(ledger, spec);
     const dirty = mainDirtyStatus();
+    const mergeBlockingDirty = mainDirtyStatus({ ignoreLedger: true });
 
     const snapshot = {
       at: now(),
@@ -771,6 +778,7 @@ async function commandContinue() {
       pending: pending.length,
       mergeable: mergeable.length,
       mainDirty: dirty.length > 0,
+      mergeBlockingDirty: mergeBlockingDirty.length > 0,
       blocked: blocked.map((task) => ({ id: task.id, status: task.status })),
     };
     console.log(JSON.stringify(snapshot));
@@ -782,9 +790,9 @@ async function commandContinue() {
     }
 
     if (mergeable.length > 0) {
-      if (dirty.length > 0) {
+      if (mergeBlockingDirty.length > 0) {
         console.error("continue stopped: main worktree is dirty before serialized merge");
-        console.error(dirty);
+        console.error(mergeBlockingDirty);
         process.exitCode = 1;
         return;
       }
