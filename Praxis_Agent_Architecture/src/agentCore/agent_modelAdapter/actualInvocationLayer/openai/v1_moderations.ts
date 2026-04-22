@@ -8,3 +8,348 @@
  * 对接：需要被 runtime.modelAdapter 拉起，并和 provider/carrier、PromptPack lowering、能力抽象链路接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+export const OPENAI_V1_MODERATIONS_ENDPOINT = "/v1/moderations" as const;
+export const DEFAULT_OPENAI_V1_MODERATIONS_BASE_URL = "https://api.openai.com" as const;
+
+export type OpenAIV1ModerationsBoundary =
+  | "input"
+  | "contract"
+  | "governance"
+  | "auth"
+  | "scope"
+  | "provider"
+  | "response";
+
+export type OpenAIV1ModerationsErrorCode =
+  | "MISSING_BODY"
+  | "MISSING_RUNTIME_ID"
+  | "CONTRACT_REJECTED"
+  | "GOVERNANCE_REJECTED"
+  | "SCOPE_DENIED"
+  | "AUTH_REJECTED"
+  | "CALLER_REQUIRED"
+  | "PROVIDER_AUTH_FAILED"
+  | "PROVIDER_RATE_LIMITED"
+  | "PROVIDER_TIMEOUT"
+  | "PROVIDER_UNAVAILABLE"
+  | "RESPONSE_FORMAT_DRIFT"
+  | "CALLER_FAILED";
+
+export type OpenAIV1ModerationsGate = {
+  accepted: boolean;
+  reason?: string;
+};
+
+export type OpenAIV1ModerationsRuntimeContext = {
+  runtimeId?: string;
+  invocationId?: string;
+  traceId?: string;
+  callerId?: string;
+};
+
+export type OpenAIV1ModerationsAuthEnvelope = {
+  kind: "bearer" | "api-key" | "none";
+  present: boolean;
+  redactedToken?: string;
+};
+
+export type OpenAIV1ModerationsRequestEnvelope = {
+  provider: "openai";
+  apiVersion: "v1";
+  endpoint: typeof OPENAI_V1_MODERATIONS_ENDPOINT;
+  operation: "create-moderation";
+  method: "POST";
+  url: string;
+  headers: Readonly<Record<string, string>>;
+  body: unknown;
+  runtime: Required<OpenAIV1ModerationsRuntimeContext>;
+  requestedScopes: readonly string[];
+  grantedScopes: readonly string[];
+  dryRun: boolean;
+  providerCallPlanned: boolean;
+  unsafeSideEffects: false;
+  providerFieldsOpaque: true;
+};
+
+export type OpenAIV1ModerationsProviderCaller = (
+  envelope: OpenAIV1ModerationsRequestEnvelope,
+) => unknown | Promise<unknown>;
+
+export type OpenAIV1ModerationsInvocationRequest = {
+  body?: unknown;
+  baseUrl?: string;
+  headers?: Readonly<Record<string, string | undefined>>;
+  auth?: OpenAIV1ModerationsAuthEnvelope;
+  runtime?: OpenAIV1ModerationsRuntimeContext;
+  requiredScopes?: readonly string[];
+  allowedScopes?: readonly string[];
+  contract?: OpenAIV1ModerationsGate;
+  governance?: OpenAIV1ModerationsGate;
+  dryRun?: boolean;
+  mockResponse?: unknown;
+  expectResponseObject?: boolean;
+  caller?: OpenAIV1ModerationsProviderCaller;
+};
+
+export type OpenAIV1ModerationsResponseEnvelope = {
+  provider: "openai";
+  endpoint: typeof OPENAI_V1_MODERATIONS_ENDPOINT;
+  mode: "dry-run" | "mock" | "caller";
+  raw: unknown;
+  providerFieldsOpaque: true;
+};
+
+export type OpenAIV1ModerationsCapabilitySignal = {
+  provider: "openai";
+  endpoint: typeof OPENAI_V1_MODERATIONS_ENDPOINT;
+  operation: "create-moderation";
+  rawShape: "moderation-result" | "mock" | "dry-run";
+};
+
+export type OpenAIV1ModerationsError = {
+  code: OpenAIV1ModerationsErrorCode;
+  message: string;
+  boundary: OpenAIV1ModerationsBoundary;
+  retryable: boolean;
+};
+
+export type OpenAIV1ModerationsResult =
+  | {
+      ok: true;
+      request: OpenAIV1ModerationsRequestEnvelope;
+      response: OpenAIV1ModerationsResponseEnvelope;
+      capability: OpenAIV1ModerationsCapabilitySignal;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: OpenAIV1ModerationsError;
+      request?: OpenAIV1ModerationsRequestEnvelope;
+      events: readonly string[];
+    };
+
+function hasText(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cleanScopes(scopes: readonly string[] | undefined): readonly string[] {
+  return [...new Set((scopes ?? []).map((scope) => scope.trim()).filter(Boolean))];
+}
+
+function cleanHeaders(headers: OpenAIV1ModerationsInvocationRequest["headers"]): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(headers ?? {})
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+      .map(([key, value]) => [key.trim().toLowerCase(), value.trim()]),
+  );
+}
+
+function normalizeBaseUrl(baseUrl: string | undefined): string {
+  return hasText(baseUrl) ? baseUrl.trim().replace(/\/+$/, "") : DEFAULT_OPENAI_V1_MODERATIONS_BASE_URL;
+}
+
+function failure(
+  code: OpenAIV1ModerationsErrorCode,
+  message: string,
+  boundary: OpenAIV1ModerationsBoundary,
+  retryable = false,
+  request?: OpenAIV1ModerationsRequestEnvelope,
+): OpenAIV1ModerationsResult {
+  return {
+    ok: false,
+    error: { code, message, boundary, retryable },
+    request,
+    events: ["agentCore.modelAdapter.openai.v1.moderations.rejected"],
+  };
+}
+
+function providerStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const status = error.status ?? error.statusCode;
+  return typeof status === "number" ? status : undefined;
+}
+
+function providerCode(error: unknown): string {
+  if (!isRecord(error)) {
+    return "";
+  }
+
+  const code = error.code ?? error.name;
+  return typeof code === "string" ? code.toLowerCase() : "";
+}
+
+export function classifyOpenAIV1ModerationsProviderError(error: unknown): OpenAIV1ModerationsErrorCode {
+  const status = providerStatus(error);
+  const code = providerCode(error);
+
+  if (status === 401 || status === 403) {
+    return "PROVIDER_AUTH_FAILED";
+  }
+
+  if (status === 429) {
+    return "PROVIDER_RATE_LIMITED";
+  }
+
+  if (status === 408 || code.includes("timeout") || code.includes("abort")) {
+    return "PROVIDER_TIMEOUT";
+  }
+
+  if (status !== undefined && status >= 500) {
+    return "PROVIDER_UNAVAILABLE";
+  }
+
+  if (code.includes("format") || code.includes("schema") || code.includes("parse")) {
+    return "RESPONSE_FORMAT_DRIFT";
+  }
+
+  return "CALLER_FAILED";
+}
+
+export async function invokeOpenAIV1Moderations(
+  input: OpenAIV1ModerationsInvocationRequest = {},
+): Promise<OpenAIV1ModerationsResult> {
+  if (input.body === undefined) {
+    return failure("MISSING_BODY", "OpenAI v1 moderations invocation requires an opaque provider body", "input");
+  }
+
+  const runtime = input.runtime;
+  if (runtime === undefined || !hasText(runtime.runtimeId)) {
+    return failure("MISSING_RUNTIME_ID", "OpenAI v1 moderations invocation requires runtime.runtimeId", "input");
+  }
+
+  if (input.contract?.accepted === false) {
+    return failure(
+      "CONTRACT_REJECTED",
+      input.contract.reason ?? "OpenAI v1 moderations contract rejected the request",
+      "contract",
+    );
+  }
+
+  if (input.governance?.accepted === false) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      input.governance.reason ?? "OpenAI v1 moderations governance rejected the request",
+      "governance",
+    );
+  }
+
+  if (input.auth?.present === false) {
+    return failure("AUTH_REJECTED", "OpenAI v1 moderations auth envelope is unavailable", "auth");
+  }
+
+  const requestedScopes = cleanScopes(input.requiredScopes);
+  const allowedScopes = cleanScopes(input.allowedScopes);
+  const deniedScopes =
+    allowedScopes.length === 0 ? [] : requestedScopes.filter((scope) => !allowedScopes.includes(scope));
+
+  if (deniedScopes.length > 0) {
+    return failure(
+      "SCOPE_DENIED",
+      `OpenAI v1 moderations requested scopes outside the allowed boundary: ${deniedScopes.join(", ")}`,
+      "scope",
+    );
+  }
+
+  const request: OpenAIV1ModerationsRequestEnvelope = {
+    provider: "openai",
+    apiVersion: "v1",
+    endpoint: OPENAI_V1_MODERATIONS_ENDPOINT,
+    operation: "create-moderation",
+    method: "POST",
+    url: `${normalizeBaseUrl(input.baseUrl)}${OPENAI_V1_MODERATIONS_ENDPOINT}`,
+    headers: cleanHeaders(input.headers),
+    body: input.body,
+    runtime: {
+      runtimeId: runtime.runtimeId.trim(),
+      invocationId: runtime.invocationId?.trim() || "",
+      traceId: runtime.traceId?.trim() || "",
+      callerId: runtime.callerId?.trim() || "",
+    },
+    requestedScopes,
+    grantedScopes: requestedScopes,
+    dryRun: input.dryRun !== false,
+    providerCallPlanned: input.dryRun === false,
+    unsafeSideEffects: false,
+    providerFieldsOpaque: true,
+  };
+
+  if (request.dryRun) {
+    return {
+      ok: true,
+      request,
+      response: {
+        provider: "openai",
+        endpoint: OPENAI_V1_MODERATIONS_ENDPOINT,
+        mode: input.mockResponse === undefined ? "dry-run" : "mock",
+        raw: input.mockResponse ?? null,
+        providerFieldsOpaque: true,
+      },
+      capability: {
+        provider: "openai",
+        endpoint: OPENAI_V1_MODERATIONS_ENDPOINT,
+        operation: "create-moderation",
+        rawShape: input.mockResponse === undefined ? "dry-run" : "mock",
+      },
+      events: ["agentCore.modelAdapter.openai.v1.moderations.dryRun"],
+    };
+  }
+
+  if (input.caller === undefined) {
+    return failure(
+      "CALLER_REQUIRED",
+      "OpenAI v1 moderations live invocation requires an injected provider caller",
+      "provider",
+      false,
+      request,
+    );
+  }
+
+  try {
+    const raw = await input.caller(request);
+    if (input.expectResponseObject === true && !isRecord(raw)) {
+      return failure(
+        "RESPONSE_FORMAT_DRIFT",
+        "OpenAI v1 moderations response did not match the expected object envelope",
+        "response",
+        false,
+        request,
+      );
+    }
+
+    return {
+      ok: true,
+      request,
+      response: {
+        provider: "openai",
+        endpoint: OPENAI_V1_MODERATIONS_ENDPOINT,
+        mode: "caller",
+        raw,
+        providerFieldsOpaque: true,
+      },
+      capability: {
+        provider: "openai",
+        endpoint: OPENAI_V1_MODERATIONS_ENDPOINT,
+        operation: "create-moderation",
+        rawShape: "moderation-result",
+      },
+      events: ["agentCore.modelAdapter.openai.v1.moderations.called"],
+    };
+  } catch (error) {
+    const code = classifyOpenAIV1ModerationsProviderError(error);
+    return failure(
+      code,
+      `OpenAI v1 moderations provider caller failed with ${code}`,
+      code === "RESPONSE_FORMAT_DRIFT" ? "response" : "provider",
+      code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_TIMEOUT" || code === "PROVIDER_UNAVAILABLE",
+      request,
+    );
+  }
+}
