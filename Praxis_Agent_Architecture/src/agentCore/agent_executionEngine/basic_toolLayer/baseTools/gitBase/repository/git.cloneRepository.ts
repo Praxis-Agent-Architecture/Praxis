@@ -8,3 +8,175 @@
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  blockRealGitExecution,
+  createGitAuditEvent,
+  createGitToolFailure,
+  ensureGitToolPermissions,
+  ensureGitToolScope,
+  isBlankGitValue,
+  type GitToolContext,
+  type GitToolPermission,
+  type GitToolResult,
+} from "../branch/git.manageBranch.js";
+
+export type GitCloneRepositoryTarget = {
+  remoteUrl: string;
+  destinationPath: string;
+  branch?: string;
+  depth?: number;
+  singleBranch?: boolean;
+  bare?: boolean;
+  mirror?: boolean;
+};
+
+export type GitCloneRepositoryRequest = {
+  target?: Partial<GitCloneRepositoryTarget>;
+  context?: GitToolContext;
+};
+
+export type GitCloneRepositoryOutput = {
+  kind: "agentCore.basicTool.git.cloneRepository";
+  target: GitCloneRepositoryTarget;
+  commandPreview: readonly string[];
+  dryRun: true;
+  executionBlocked: true;
+  permissionsRequired: readonly GitToolPermission[];
+  unsafeSideEffects: true;
+  mayUseNetwork: true;
+};
+
+export const gitCloneRepositoryDescriptor = {
+  toolId: "git.cloneRepository",
+  capability: "clone-repository",
+  route: "agent_executionEngine.basic_toolLayer.baseTools.gitBase.repository",
+  permissionsRequired: ["git:read", "filesystem:write"],
+  defaultDryRun: true,
+  unsafeSideEffects: true,
+  tapOwnsApproval: true,
+} as const;
+
+function normalizeCloneTarget(
+  target: Partial<GitCloneRepositoryTarget> | undefined,
+  context: GitToolContext | undefined,
+): GitCloneRepositoryTarget | GitToolResult<GitCloneRepositoryOutput> {
+  const toolId = gitCloneRepositoryDescriptor.toolId;
+  const remoteUrl = target?.remoteUrl?.trim() ?? "";
+  if (isBlankGitValue(remoteUrl)) {
+    return createGitToolFailure(
+      toolId,
+      "MISSING_REQUIRED_FIELD",
+      "git.cloneRepository requires target.remoteUrl",
+      "input",
+      context,
+    );
+  }
+
+  const destinationPath = target?.destinationPath?.trim() ?? "";
+  if (isBlankGitValue(destinationPath)) {
+    return createGitToolFailure(
+      toolId,
+      "MISSING_TARGET_PATH",
+      "git.cloneRepository requires target.destinationPath",
+      "input",
+      context,
+      target?.destinationPath,
+    );
+  }
+
+  const depth = target?.depth;
+  if (depth !== undefined && (!Number.isInteger(depth) || depth < 1)) {
+    return createGitToolFailure(
+      toolId,
+      "MISSING_REQUIRED_FIELD",
+      "git.cloneRepository target.depth must be a positive integer when provided",
+      "input",
+      context,
+      destinationPath,
+    );
+  }
+
+  return {
+    remoteUrl,
+    destinationPath,
+    branch: target?.branch?.trim() || undefined,
+    depth,
+    singleBranch: target?.singleBranch === true,
+    bare: target?.bare === true,
+    mirror: target?.mirror === true,
+  };
+}
+
+function cloneCommandPreview(target: GitCloneRepositoryTarget): readonly string[] {
+  return [
+    "git",
+    "clone",
+    ...(target.branch === undefined ? [] : ["--branch", target.branch]),
+    ...(target.depth === undefined ? [] : ["--depth", String(target.depth)]),
+    ...(target.singleBranch ? ["--single-branch"] : []),
+    ...(target.bare ? ["--bare"] : []),
+    ...(target.mirror ? ["--mirror"] : []),
+    target.remoteUrl,
+    target.destinationPath,
+  ];
+}
+
+export function planGitRepositoryClone(
+  request: GitCloneRepositoryRequest = {},
+): GitToolResult<GitCloneRepositoryOutput> {
+  const toolId = gitCloneRepositoryDescriptor.toolId;
+  const target = normalizeCloneTarget(request.target, request.context);
+  if ("ok" in target) {
+    return target;
+  }
+
+  const scopeFailure = ensureGitToolScope<GitCloneRepositoryOutput>(
+    toolId,
+    target.destinationPath,
+    request.context,
+  );
+  if (scopeFailure !== undefined) {
+    return scopeFailure;
+  }
+
+  const permissionFailure = ensureGitToolPermissions<GitCloneRepositoryOutput>(
+    toolId,
+    gitCloneRepositoryDescriptor.permissionsRequired,
+    request.context,
+    target.destinationPath,
+  );
+  if (permissionFailure !== undefined) {
+    return permissionFailure;
+  }
+
+  const realExecutionFailure = blockRealGitExecution<GitCloneRepositoryOutput>(
+    toolId,
+    request.context,
+    target.destinationPath,
+  );
+  if (realExecutionFailure !== undefined) {
+    return realExecutionFailure;
+  }
+
+  return {
+    ok: true,
+    toolId,
+    output: {
+      kind: "agentCore.basicTool.git.cloneRepository",
+      target,
+      commandPreview: cloneCommandPreview(target),
+      dryRun: true,
+      executionBlocked: true,
+      permissionsRequired: gitCloneRepositoryDescriptor.permissionsRequired,
+      unsafeSideEffects: true,
+      mayUseNetwork: true,
+    },
+    audit: [
+      createGitAuditEvent(toolId, "agentCore.basicTool.git.cloneRepository.dryRun", request.context, target.destinationPath, {
+        remoteUrl: target.remoteUrl,
+      }),
+    ],
+    events: ["basicTool.git.cloneRepository.dryRun"],
+  };
+}

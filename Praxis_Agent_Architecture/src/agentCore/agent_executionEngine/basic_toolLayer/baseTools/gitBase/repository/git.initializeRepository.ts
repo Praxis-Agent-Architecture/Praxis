@@ -8,3 +8,147 @@
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  blockRealGitExecution,
+  createGitAuditEvent,
+  createGitToolFailure,
+  ensureGitToolPermissions,
+  ensureGitToolScope,
+  normalizeGitRepositoryPath,
+  type GitToolContext,
+  type GitToolPermission,
+  type GitToolResult,
+} from "../branch/git.manageBranch.js";
+
+export type GitInitializeRepositoryTarget = {
+  repositoryPath: string;
+  initialBranch?: string;
+  bare?: boolean;
+  separateGitDir?: string;
+};
+
+export type GitInitializeRepositoryRequest = {
+  target?: Partial<GitInitializeRepositoryTarget>;
+  context?: GitToolContext;
+};
+
+export type GitInitializeRepositoryOutput = {
+  kind: "agentCore.basicTool.git.initializeRepository";
+  target: GitInitializeRepositoryTarget;
+  commandPreview: readonly string[];
+  dryRun: true;
+  executionBlocked: true;
+  permissionsRequired: readonly GitToolPermission[];
+  unsafeSideEffects: true;
+};
+
+export const gitInitializeRepositoryDescriptor = {
+  toolId: "git.initializeRepository",
+  capability: "initialize-repository",
+  route: "agent_executionEngine.basic_toolLayer.baseTools.gitBase.repository",
+  permissionsRequired: ["git:write", "filesystem:write"],
+  defaultDryRun: true,
+  unsafeSideEffects: true,
+  tapOwnsApproval: true,
+} as const;
+
+function normalizeInitializeTarget(
+  target: Partial<GitInitializeRepositoryTarget> | undefined,
+  context: GitToolContext | undefined,
+): GitInitializeRepositoryTarget | GitToolResult<GitInitializeRepositoryOutput> {
+  const toolId = gitInitializeRepositoryDescriptor.toolId;
+  const repositoryPath = normalizeGitRepositoryPath(toolId, target?.repositoryPath, context);
+  if (typeof repositoryPath !== "string") {
+    return repositoryPath;
+  }
+
+  const initialBranch = target?.initialBranch?.trim() || undefined;
+  const separateGitDir = target?.separateGitDir?.trim() || undefined;
+  if (target?.initialBranch !== undefined && initialBranch === undefined) {
+    return createGitToolFailure(
+      toolId,
+      "MISSING_BRANCH_NAME",
+      "git.initializeRepository target.initialBranch cannot be blank when provided",
+      "input",
+      context,
+      repositoryPath,
+    );
+  }
+
+  return {
+    repositoryPath,
+    initialBranch,
+    bare: target?.bare === true,
+    separateGitDir,
+  };
+}
+
+function initializeCommandPreview(target: GitInitializeRepositoryTarget): readonly string[] {
+  return [
+    "git",
+    "init",
+    ...(target.initialBranch === undefined ? [] : ["--initial-branch", target.initialBranch]),
+    ...(target.bare ? ["--bare"] : []),
+    ...(target.separateGitDir === undefined ? [] : ["--separate-git-dir", target.separateGitDir]),
+    target.repositoryPath,
+  ];
+}
+
+export function planGitRepositoryInitialization(
+  request: GitInitializeRepositoryRequest = {},
+): GitToolResult<GitInitializeRepositoryOutput> {
+  const toolId = gitInitializeRepositoryDescriptor.toolId;
+  const target = normalizeInitializeTarget(request.target, request.context);
+  if ("ok" in target) {
+    return target;
+  }
+
+  const scopeFailure = ensureGitToolScope<GitInitializeRepositoryOutput>(toolId, target.repositoryPath, request.context);
+  if (scopeFailure !== undefined) {
+    return scopeFailure;
+  }
+
+  const permissionFailure = ensureGitToolPermissions<GitInitializeRepositoryOutput>(
+    toolId,
+    gitInitializeRepositoryDescriptor.permissionsRequired,
+    request.context,
+    target.repositoryPath,
+  );
+  if (permissionFailure !== undefined) {
+    return permissionFailure;
+  }
+
+  const realExecutionFailure = blockRealGitExecution<GitInitializeRepositoryOutput>(
+    toolId,
+    request.context,
+    target.repositoryPath,
+  );
+  if (realExecutionFailure !== undefined) {
+    return realExecutionFailure;
+  }
+
+  return {
+    ok: true,
+    toolId,
+    output: {
+      kind: "agentCore.basicTool.git.initializeRepository",
+      target,
+      commandPreview: initializeCommandPreview(target),
+      dryRun: true,
+      executionBlocked: true,
+      permissionsRequired: gitInitializeRepositoryDescriptor.permissionsRequired,
+      unsafeSideEffects: true,
+    },
+    audit: [
+      createGitAuditEvent(
+        toolId,
+        "agentCore.basicTool.git.initializeRepository.dryRun",
+        request.context,
+        target.repositoryPath,
+        { initialBranch: target.initialBranch },
+      ),
+    ],
+    events: ["basicTool.git.initializeRepository.dryRun"],
+  };
+}
