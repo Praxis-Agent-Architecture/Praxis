@@ -566,7 +566,9 @@ function ensureWorktree(group, execute) {
 }
 
 function ensureWorktreeDependencies(group, execute) {
-  const sourceNodeModules = path.join(archRoot, "node_modules");
+  const architectureNodeModules = path.join(archRoot, "node_modules");
+  const repoNodeModules = path.join(repoRoot, "node_modules");
+  const sourceNodeModules = existsSync(architectureNodeModules) ? architectureNodeModules : repoNodeModules;
   const worktreeNodeModules = path.join(group.worktreePath, "Praxis_Agent_Architecture", "node_modules");
 
   if (!existsSync(sourceNodeModules) || existsSync(worktreeNodeModules)) return;
