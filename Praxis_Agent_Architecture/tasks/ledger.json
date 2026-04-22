@@ -5153,7 +5153,7 @@
       "id": "AC-F-0455",
       "parentId": "AC-SPEC-D:runtime.modelAdapter",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.test.ts"
@@ -5162,7 +5162,7 @@
       "id": "AC-F-0456",
       "parentId": "AC-SPEC-D:runtime.modelAdapter",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.test.ts"
@@ -5171,7 +5171,7 @@
       "id": "AC-F-0457",
       "parentId": "AC-SPEC-D:runtime.modelAdapter",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.test.ts"
@@ -5180,7 +5180,7 @@
       "id": "AC-F-0458",
       "parentId": "AC-SPEC-D:runtime.modelAdapter",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelAdapterRuntime.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelAdapterRuntime.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelAdapterRuntime.test.ts"
@@ -11324,7 +11324,7 @@
       "id": "AC-G-0120",
       "parentId": "AC-SPEC-D:runtime.modelAdapter",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0455",
         "AC-F-0456",
@@ -11357,7 +11357,13 @@
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0120",
       "lease": null,
       "attempts": [],
-      "notes": []
+      "notes": [
+        {
+          "at": "2026-04-22T19:51:28.730Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0121",
@@ -13451,6 +13457,13 @@
       "at": "2026-04-22T19:37:43.517Z",
       "event": "status",
       "groupId": "AC-G-0083",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:51:28.730Z",
+      "event": "status",
+      "groupId": "AC-G-0120",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
