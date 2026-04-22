@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T15:00:50.424Z",
+  "updatedAt": "2026-04-22T15:03:12.185Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -3173,7 +3173,7 @@
       "id": "AC-F-0235",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.test.ts"
@@ -3182,7 +3182,7 @@
       "id": "AC-F-0236",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/launchSubAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/launchSubAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/launchSubAgent.test.ts"
@@ -3191,7 +3191,7 @@
       "id": "AC-F-0237",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.test.ts"
@@ -3200,7 +3200,7 @@
       "id": "AC-F-0238",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.test.ts"
@@ -7936,7 +7936,7 @@
       "id": "AC-G-0060",
       "parentId": "AC-SPEC-C:coreLogic",
       "bigSpecId": "AC-SPEC-C",
-      "status": "reviewed",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0235",
         "AC-F-0236",
@@ -7997,6 +7997,16 @@
           "at": "2026-04-22T14:50:04.271Z",
           "status": "reviewed",
           "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T15:01:17.287Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T15:03:12.185Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
         }
       ]
     },
@@ -11907,6 +11917,20 @@
       "at": "2026-04-22T15:00:50.424Z",
       "event": "status",
       "groupId": "AC-G-0059",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T15:01:17.287Z",
+      "event": "status",
+      "groupId": "AC-G-0060",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T15:03:12.185Z",
+      "event": "status",
+      "groupId": "AC-G-0060",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
