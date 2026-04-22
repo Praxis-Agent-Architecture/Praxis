@@ -446,6 +446,7 @@ function renderPrompt(group, role) {
   return template(role)
     .replaceAll("{{TASK_JSON}}", JSON.stringify(group, null, 2))
     .replaceAll("{{GROUP_FILE_TABLE}}", groupTable(group))
+    .replaceAll("{{TASK_ID}}", group.id)
     .replaceAll("{{SOURCE_PATH}}", group.files[0]?.sourcePath ?? "")
     .replaceAll("{{DOC_PATH}}", group.files[0]?.docPath ?? "")
     .replaceAll("{{TEST_PATH}}", group.files[0]?.testPath ?? "");
@@ -490,12 +491,11 @@ function roleWorkspace(group, role, useWorktree) {
 
 function codexCommand(role, workspace, outputPath) {
   const config = roleModel[role] ?? roleModel.worker;
-  return [
+  const base = [
     "codex",
     "exec",
     "-C",
     workspace,
-    "--full-auto",
     "-m",
     config.model,
     "-c",
@@ -503,6 +503,26 @@ function codexCommand(role, workspace, outputPath) {
     "-o",
     outputPath,
     "-",
+  ];
+
+  if (role === "merge") {
+    return [
+      base[0],
+      base[1],
+      base[2],
+      base[3],
+      "--dangerously-bypass-approvals-and-sandbox",
+      ...base.slice(4),
+    ];
+  }
+
+  return [
+    base[0],
+    base[1],
+    base[2],
+    base[3],
+    "--full-auto",
+    ...base.slice(4),
   ];
 }
 
@@ -559,7 +579,7 @@ function commandPipeline(id) {
       process.exitCode = code;
       return;
     }
-    if (execute) setGroupStatus(ledger, group, successStatus, `${role} completed`);
+    if (execute) setGroupStatus(ledger, group, successStatus, `${role} done`);
   }
 }
 

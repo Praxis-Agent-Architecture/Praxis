@@ -7,7 +7,7 @@ Thumbs.db
 .vscode/
 
 # Agent-local
-.codex/
+.codex
 .github/skills/
 
 # Node / Web
