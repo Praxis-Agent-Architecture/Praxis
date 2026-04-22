@@ -2039,7 +2039,7 @@
       "id": "AC-F-0109",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.test.ts"
@@ -2048,7 +2048,7 @@
       "id": "AC-F-0110",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authenticate.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authenticate.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authenticate.test.ts"
@@ -2057,7 +2057,7 @@
       "id": "AC-F-0111",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.test.ts"
@@ -2066,7 +2066,7 @@
       "id": "AC-F-0112",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.test.ts"

@@ -8,3 +8,171 @@
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  blockRealMcpExecution,
+  cleanMcpList,
+  createMcpAuditEvent,
+  createMcpToolFailure,
+  ensureMcpServerScope,
+  ensureMcpToolPermissions,
+  normalizeMcpServerId,
+  type McpToolContext,
+  type McpToolPermission,
+  type McpToolResult,
+} from "./mcp.authenticate.js";
+
+export type McpAuthorizeAction = "call-tool" | "read-resource" | "subscribe" | "cache-access";
+
+export type McpAuthorizeTarget = {
+  serverId: string;
+  subjectId: string;
+  action: McpAuthorizeAction;
+  toolName?: string;
+  resourceUri?: string;
+  requestedScopes?: readonly string[];
+};
+
+export type McpAuthorizeRequest = {
+  target?: Partial<McpAuthorizeTarget>;
+  context?: McpToolContext;
+};
+
+export type McpAuthorizeOutput = {
+  kind: "agentCore.basicTool.mcp.authorize";
+  target: McpAuthorizeTarget;
+  dryRun: true;
+  executionBlocked: true;
+  permissionsRequired: readonly McpToolPermission[];
+  authorizationGranted: false;
+  decision: "dry-run-policy-envelope";
+  policyInput: {
+    serverId: string;
+    subjectId: string;
+    action: McpAuthorizeAction;
+    toolName?: string;
+    resourceUri?: string;
+    requestedScopes: readonly string[];
+  };
+};
+
+export const mcpAuthorizeDescriptor = {
+  toolId: "mcp.authorize",
+  capability: "authorize-mcp-operation",
+  route: "agent_executionEngine.basic_toolLayer.baseTools.mcpBase.auth",
+  permissionsRequired: ["mcp:auth", "mcp:read"],
+  defaultDryRun: true,
+  tapOwnsApproval: true,
+} as const;
+
+function normalizeAuthorizeAction(action: string | undefined): McpAuthorizeAction | undefined {
+  if (action === "call-tool" || action === "read-resource" || action === "subscribe" || action === "cache-access") {
+    return action;
+  }
+
+  return undefined;
+}
+
+function normalizeAuthorizeTarget(
+  target: Partial<McpAuthorizeTarget> | undefined,
+  context: McpToolContext | undefined,
+): McpAuthorizeTarget | McpToolResult<McpAuthorizeOutput> {
+  const toolId = mcpAuthorizeDescriptor.toolId;
+  const serverId = normalizeMcpServerId(toolId, target?.serverId, context);
+  if (typeof serverId !== "string") {
+    return serverId;
+  }
+
+  const subjectId = target?.subjectId?.trim() ?? "";
+  if (subjectId.length === 0) {
+    return createMcpToolFailure(
+      toolId,
+      "MISSING_SUBJECT_ID",
+      `${toolId} requires target.subjectId`,
+      "input",
+      context,
+      serverId,
+    );
+  }
+
+  const action = normalizeAuthorizeAction(target?.action);
+  if (action === undefined) {
+    return createMcpToolFailure(
+      toolId,
+      "MISSING_AUTH_ACTION",
+      `${toolId} requires target.action to be call-tool, read-resource, subscribe, or cache-access`,
+      "input",
+      context,
+      serverId,
+    );
+  }
+
+  return {
+    serverId,
+    subjectId,
+    action,
+    toolName: target?.toolName?.trim() || undefined,
+    resourceUri: target?.resourceUri?.trim() || undefined,
+    requestedScopes: cleanMcpList(target?.requestedScopes),
+  };
+}
+
+export function planMcpAuthorize(request: McpAuthorizeRequest = {}): McpToolResult<McpAuthorizeOutput> {
+  const toolId = mcpAuthorizeDescriptor.toolId;
+  const target = normalizeAuthorizeTarget(request.target, request.context);
+  if ("ok" in target) {
+    return target;
+  }
+
+  const scopeFailure = ensureMcpServerScope<McpAuthorizeOutput>(toolId, target.serverId, request.context);
+  if (scopeFailure !== undefined) {
+    return scopeFailure;
+  }
+
+  const permissionFailure = ensureMcpToolPermissions<McpAuthorizeOutput>(
+    toolId,
+    mcpAuthorizeDescriptor.permissionsRequired,
+    request.context,
+    target.serverId,
+  );
+  if (permissionFailure !== undefined) {
+    return permissionFailure;
+  }
+
+  const realExecutionFailure = blockRealMcpExecution<McpAuthorizeOutput>(toolId, request.context, target.serverId);
+  if (realExecutionFailure !== undefined) {
+    return realExecutionFailure;
+  }
+
+  const requestedScopes = target.requestedScopes ?? [];
+
+  return {
+    ok: true,
+    toolId,
+    output: {
+      kind: "agentCore.basicTool.mcp.authorize",
+      target,
+      dryRun: true,
+      executionBlocked: true,
+      permissionsRequired: mcpAuthorizeDescriptor.permissionsRequired,
+      authorizationGranted: false,
+      decision: "dry-run-policy-envelope",
+      policyInput: {
+        serverId: target.serverId,
+        subjectId: target.subjectId,
+        action: target.action,
+        toolName: target.toolName,
+        resourceUri: target.resourceUri,
+        requestedScopes,
+      },
+    },
+    audit: [
+      createMcpAuditEvent(toolId, "agentCore.basicTool.mcp.authorize.dryRun", request.context, target.serverId, {
+        subjectId: target.subjectId,
+        action: target.action,
+        requestedScopeCount: requestedScopes.length,
+      }),
+    ],
+    events: ["basicTool.mcp.authorize.dryRun"],
+  };
+}
