@@ -7,3 +7,58 @@
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createRuntimeExecEngineBinding,
+  type RuntimeExecEngineBindingRequest,
+  type RuntimeExecEngineBindingResult,
+} from "./bindCoreLogic.js";
+
+export type BindIOTransceiverRequest = Omit<RuntimeExecEngineBindingRequest, "bindingKind"> & {
+  ioChannels?: readonly string[];
+};
+
+export type BindIOTransceiverResult = RuntimeExecEngineBindingResult;
+
+export const DEFAULT_IO_TRANSCEIVER_BINDING_CAPABILITIES = [
+  "inputReceiver",
+  "outputExposer",
+] as const;
+
+export const DEFAULT_IO_TRANSCEIVER_CHANNELS = [
+  "text",
+  "image",
+  "audio",
+  "video",
+] as const;
+
+function cleanList(values: readonly string[] | undefined): readonly string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+export function bindIOTransceiver(request?: BindIOTransceiverRequest): BindIOTransceiverResult {
+  const ioChannels = cleanList(request?.ioChannels);
+  const capabilities = cleanList(request?.capabilities);
+
+  return createRuntimeExecEngineBinding(
+    {
+      ...request,
+      bindingKind: "ioTransceiver",
+      capabilities:
+        capabilities.length > 0
+          ? capabilities
+          : [
+              ...DEFAULT_IO_TRANSCEIVER_BINDING_CAPABILITIES,
+              ...(ioChannels.length > 0 ? ioChannels : DEFAULT_IO_TRANSCEIVER_CHANNELS).map(
+                (channel) => `io.${channel}`,
+              ),
+            ],
+    },
+    {
+      bindingKind: "ioTransceiver",
+      bindingId: "runtime.execEngine.ioTransceiver",
+      capabilities: DEFAULT_IO_TRANSCEIVER_BINDING_CAPABILITIES,
+      eventNamePrefix: "runtime.execEngine.ioTransceiver.binding",
+    },
+  );
+}

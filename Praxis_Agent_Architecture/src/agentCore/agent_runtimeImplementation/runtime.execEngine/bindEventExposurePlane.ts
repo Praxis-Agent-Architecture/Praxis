@@ -7,3 +7,53 @@
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createRuntimeExecEngineBinding,
+  type RuntimeExecEngineBindingRequest,
+  type RuntimeExecEngineBindingResult,
+} from "./bindCoreLogic.js";
+
+export type BindEventExposurePlaneRequest = Omit<RuntimeExecEngineBindingRequest, "bindingKind"> & {
+  eventChannels?: readonly string[];
+};
+
+export type BindEventExposurePlaneResult = RuntimeExecEngineBindingResult;
+
+export const DEFAULT_EVENT_EXPOSURE_PLANE_CHANNELS = [
+  "input.received",
+  "output.exposed",
+  "interrupt",
+  "ui",
+  "basicTool.invocation",
+  "officialModule.invocation",
+  "multiAgent.invocation",
+] as const;
+
+function cleanList(values: readonly string[] | undefined): readonly string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+export function bindEventExposurePlane(request?: BindEventExposurePlaneRequest): BindEventExposurePlaneResult {
+  const eventChannels = cleanList(request?.eventChannels);
+  const capabilities = cleanList(request?.capabilities);
+
+  return createRuntimeExecEngineBinding(
+    {
+      ...request,
+      bindingKind: "eventExposurePlane",
+      capabilities:
+        capabilities.length > 0
+          ? capabilities
+          : (eventChannels.length > 0 ? eventChannels : DEFAULT_EVENT_EXPOSURE_PLANE_CHANNELS).map(
+              (channel) => `event.${channel}`,
+            ),
+    },
+    {
+      bindingKind: "eventExposurePlane",
+      bindingId: "runtime.execEngine.eventExposurePlane",
+      capabilities: DEFAULT_EVENT_EXPOSURE_PLANE_CHANNELS.map((channel) => `event.${channel}`),
+      eventNamePrefix: "runtime.execEngine.eventExposurePlane.binding",
+    },
+  );
+}

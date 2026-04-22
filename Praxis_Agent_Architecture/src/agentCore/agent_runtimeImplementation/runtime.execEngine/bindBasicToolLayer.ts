@@ -7,3 +7,64 @@
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createRuntimeExecEngineBinding,
+  type RuntimeExecEngineBindingRequest,
+  type RuntimeExecEngineBindingResult,
+} from "./bindCoreLogic.js";
+
+export type BindBasicToolLayerRequest = Omit<RuntimeExecEngineBindingRequest, "bindingKind"> & {
+  toolKinds?: readonly string[];
+};
+
+export type BindBasicToolLayerResult = RuntimeExecEngineBindingResult;
+
+export const DEFAULT_BASIC_TOOL_LAYER_BINDING_CAPABILITIES = [
+  "baseToolEnvelope",
+  "dryRunGuard",
+  "auditTrail",
+] as const;
+
+export const DEFAULT_BASIC_TOOL_LAYER_KINDS = [
+  "code",
+  "shell",
+  "git",
+  "mcp",
+  "computeruse",
+  "office",
+  "omni",
+  "search",
+  "skill",
+] as const;
+
+function cleanList(values: readonly string[] | undefined): readonly string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+export function bindBasicToolLayer(request?: BindBasicToolLayerRequest): BindBasicToolLayerResult {
+  const toolKinds = cleanList(request?.toolKinds);
+  const capabilities = cleanList(request?.capabilities);
+
+  return createRuntimeExecEngineBinding(
+    {
+      ...request,
+      bindingKind: "basicToolLayer",
+      capabilities:
+        capabilities.length > 0
+          ? capabilities
+          : [
+              ...DEFAULT_BASIC_TOOL_LAYER_BINDING_CAPABILITIES,
+              ...(toolKinds.length > 0 ? toolKinds : DEFAULT_BASIC_TOOL_LAYER_KINDS).map(
+                (toolKind) => `tool.${toolKind}`,
+              ),
+            ],
+    },
+    {
+      bindingKind: "basicToolLayer",
+      bindingId: "runtime.execEngine.basicToolLayer",
+      capabilities: DEFAULT_BASIC_TOOL_LAYER_BINDING_CAPABILITIES,
+      eventNamePrefix: "runtime.execEngine.basicToolLayer.binding",
+    },
+  );
+}
