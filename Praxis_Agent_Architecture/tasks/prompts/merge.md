@@ -16,9 +16,11 @@
 
 ## 职责
 
-1. 检查当前 worktree / branch 中的 diff 范围。
-2. 确认只改了本组允许的 `source` 和 `test`，以及必要的最小邻近类型文件；如果超范围，必须指出。
-3. 运行：
+1. 检查当前主线 worktree 和任务独立 worktree 的 diff 范围。
+2. 如果任务独立 worktree 里有本组 `source` / `test` 改动，必须先把这些改动落回主线 `dev/rebase` 工作区；可以使用 `git diff ... | git apply`、`git checkout <worktree-branch> -- <paths>`、或等价安全方式。
+3. 落回主线后，必须再次运行 `git status --short` 和 `git diff --name-status`，确认主线实际包含本组代码/测试改动。
+4. 确认只改了本组允许的 `source` 和 `test`，以及必要的最小邻近类型文件；如果超范围，必须指出。
+5. 运行：
 
 ```bash
 cd Praxis_Agent_Architecture
@@ -26,10 +28,9 @@ npm run typecheck
 npm run test:agentCore
 ```
 
-4. 如果是在独立 worktree 中，必要时把已验证的改动通过 git 操作合并或 cherry-pick 到主线。
-5. 更新任务账本时，只能把当前 group 标记为 `done`；不要误改其他 group。
-6. 如果验证通过，必须只 stage 允许范围内的文件并创建本地 commit。
-7. 如果失败，标记为 `needs_rework`，并记录失败原因。
+6. 更新任务账本时，只能把当前 group 标记为 `done`；不要误改其他 group。
+7. 如果验证通过，必须只 stage 允许范围内的文件并创建本地 commit。
+8. 如果失败，标记为 `needs_rework`，并记录失败原因。
 
 ## 注意
 
@@ -37,6 +38,7 @@ npm run test:agentCore
 - 不要扩大范围。
 - 不要删除用户未明确要求删除的文件。
 - 不要在没有通过测试时合并到主线。
+- 不要只更新 `ledger.json` 就说完成；主线必须真实包含本组 source/test diff。
 - 账本状态词只能使用 `done` / `needs_rework` / `failed` 等脚本允许的值；不要使用 `completed`。
 - 不要提交 `.codex`、运行日志、未列入允许范围的 worktree 垃圾文件。
 - commit message 必须是中文，并且末尾必须且只出现一次：

@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T12:16:45.670Z",
+  "updatedAt": "2026-04-22T12:41:56.467Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -4325,7 +4325,7 @@
       "id": "AC-F-0363",
       "parentId": "AC-SPEC-A:runtime.applicationSurface",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.test.ts"
@@ -4334,7 +4334,7 @@
       "id": "AC-F-0364",
       "parentId": "AC-SPEC-A:runtime.applicationSurface",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeHandle.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeHandle.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeHandle.test.ts"
@@ -4343,7 +4343,7 @@
       "id": "AC-F-0365",
       "parentId": "AC-SPEC-A:runtime.applicationSurface",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeSessionFactory.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeSessionFactory.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeSessionFactory.test.ts"
@@ -4352,7 +4352,7 @@
       "id": "AC-F-0366",
       "parentId": "AC-SPEC-A:runtime.applicationSurface",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.test.ts"
@@ -9074,7 +9074,7 @@
       "id": "AC-G-0095",
       "parentId": "AC-SPEC-A:runtime.applicationSurface",
       "bigSpecId": "AC-SPEC-A",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0363",
         "AC-F-0364",
@@ -9107,7 +9107,38 @@
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0095",
       "lease": null,
       "attempts": [],
-      "notes": []
+      "notes": [
+        {
+          "at": "2026-04-22T12:35:55.056Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T12:40:53.156Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T12:40:53.162Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T12:41:37.706Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T12:41:37.711Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T12:41:56.466Z",
+          "status": "done",
+          "note": "merge done"
+        }
+      ]
     },
     {
       "id": "AC-G-0096",
@@ -10472,6 +10503,48 @@
       "at": "2026-04-22T12:16:45.669Z",
       "event": "status",
       "groupId": "AC-G-0094",
+      "status": "done",
+      "note": "merge done"
+    },
+    {
+      "at": "2026-04-22T12:35:55.056Z",
+      "event": "status",
+      "groupId": "AC-G-0095",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T12:40:53.156Z",
+      "event": "status",
+      "groupId": "AC-G-0095",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T12:40:53.162Z",
+      "event": "status",
+      "groupId": "AC-G-0095",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T12:41:37.706Z",
+      "event": "status",
+      "groupId": "AC-G-0095",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T12:41:37.711Z",
+      "event": "status",
+      "groupId": "AC-G-0095",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T12:41:56.466Z",
+      "event": "status",
+      "groupId": "AC-G-0095",
       "status": "done",
       "note": "merge done"
     }

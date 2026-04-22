@@ -579,7 +579,21 @@ function commandPipeline(id) {
       process.exitCode = code;
       return;
     }
-    if (execute) setGroupStatus(ledger, group, successStatus, `${role} done`);
+    if (execute && role === "merge") {
+      const dirty = shell("git", ["status", "--short"], { cwd: repoRoot }).stdout.trim();
+      if (dirty.length > 0) {
+        setGroupStatus(
+          ledger,
+          group,
+          "failed",
+          `merge returned success but main worktree is still dirty; merge must commit or report failure: ${dirty.split("\n").slice(0, 6).join(" | ")}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+    } else if (execute) {
+      setGroupStatus(ledger, group, successStatus, `${role} done`);
+    }
   }
 }
 
