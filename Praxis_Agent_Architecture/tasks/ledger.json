@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T21:23:18.003Z",
+  "updatedAt": "2026-04-22T21:26:12.982Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -1571,7 +1571,7 @@
       "id": "AC-F-0057",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneSelect.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneSelect.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneSelect.test.ts"
@@ -1580,7 +1580,7 @@
       "id": "AC-F-0058",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStartRecording.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStartRecording.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStartRecording.test.ts"
@@ -1589,7 +1589,7 @@
       "id": "AC-F-0059",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording.test.ts"
@@ -1598,7 +1598,7 @@
       "id": "AC-F-0060",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.checkboxConfirm.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.checkboxConfirm.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.checkboxConfirm.test.ts"
@@ -6535,7 +6535,7 @@
       "id": "AC-G-0015",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0057",
         "AC-F-0058",
@@ -6566,9 +6566,48 @@
       ],
       "branch": "codex/agentcore/ac-g-0015",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0015",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0015",
+        "at": "2026-04-22T21:11:19.187Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T21:11:19.187Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T21:11:19.669Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T21:16:39.943Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T21:16:39.956Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T21:21:21.971Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T21:24:15.322Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T21:26:12.982Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0016",
@@ -15386,6 +15425,48 @@
       "groupId": "AC-G-0017",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:11:19.669Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:16:39.943Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T21:16:39.956Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T21:21:21.971Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:24:15.322Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:26:12.982Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ],
   "events": [
@@ -15470,6 +15551,13 @@
       "at": "2026-04-22T21:07:16.341Z",
       "event": "status",
       "groupId": "AC-G-0013",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:26:12.982Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
