@@ -7,9 +7,9 @@
 ```text
 大 spec
   -> 小 spec
-  -> 单文件任务
+  -> micro-spec 文件组
   -> worker 实现
-  -> reviewer 测试和 code review
+  -> reviewer 逐文件测试和 code review
   -> merge 验证与合并
   -> 自动打勾
 ```
@@ -33,8 +33,7 @@ node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs init --force
 node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs preflight
 node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs status
 node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs next --limit 5
-node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs lease AC-F-0001 --agent local-demo
-node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs prompt AC-F-0001 --role worker
+node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs prompt AC-G-0094 --role worker
 ```
 
 默认不会自动调用 Codex，也不会自动改代码。要真正调用 Codex，需要后续显式走 `run` 命令并确认 `--execute`。
@@ -44,7 +43,7 @@ node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs prompt AC-F-
 先看某个任务会如何执行，不真正开 agent：
 
 ```bash
-node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs pipeline AC-F-0359 --worktree
+node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs pipeline AC-G-0094 --worktree
 ```
 
 它会打印：
@@ -57,7 +56,7 @@ node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs pipeline AC-
 真正执行单个任务：
 
 ```bash
-node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs pipeline AC-F-0359 --worktree --execute
+node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs pipeline AC-G-0094 --worktree --execute
 ```
 
 批量 dry-run：
@@ -87,29 +86,36 @@ node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs reap
 杀掉某个任务或全部任务：
 
 ```bash
-node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs kill AC-F-0359
-node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs kill AC-F-0359 --execute
+node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs kill AC-G-0094
+node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs kill AC-G-0094 --execute
 node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs kill all --execute
 ```
 
-## 模型配置
+## 任务粒度
 
-脚本默认使用：
+当前不是单文件三段流水线，而是 micro-spec 文件组流水线。
 
-```text
-model = gpt-5.4
-model_reasoning_effort = high
-```
-
-也就是当前约定的 `gpt-5.4-high`。如果要临时覆盖：
+默认每组 4 个文件：
 
 ```bash
-AGENTCORE_CODEX_MODEL=gpt-5.4 \
-AGENTCORE_CODEX_REASONING=high \
-node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs pipeline AC-F-0359 --worktree
+node Praxis_Agent_Architecture/tasks/scripts/agentcore_workflow.mjs init --force --group-size 4
 ```
 
-如果以后 Codex CLI 暴露更明确的 `fast` 档位，可以只在脚本的模型命令处替换，不需要改 488 个任务。
+这样比整个 small spec 更小，能控制 Codex 上下文；又比单文件更大，避免每个文件都开三次 Codex。
+
+reviewer 仍然逐文件 review，但由一个 reviewer Codex 完成本组所有文件的 review。
+
+## 模型配置
+
+脚本按角色使用：
+
+```text
+worker   = gpt-5.4 high
+reviewer = gpt-5.4 high
+merge    = gpt-5.4 medium
+```
+
+merge 仍然由 Codex 做，但它的职责是检查 diff 范围、跑 typecheck/test、更新账本、必要时准备 cherry-pick 或合并，不负责重新写主体功能。
 
 ## 重要前置条件
 
@@ -133,8 +139,8 @@ foundation committed for worktree: false
 
 ## 安全边界
 
-- 一个 file task 默认只允许改自己的 `.ts` 和 `.test.ts`。
-- reviewer 可以改对应测试，但不能扩大范围。
+- 一个 group task 默认只允许改本组列出的 `.ts` 和 `.test.ts`。
+- reviewer 逐文件 review，可以改本组对应测试，但不能扩大范围。
 - merge 负责验证、合并和更新账本，不负责重新设计模块。
 - 并发建议从 4 个 agent 起步，稳定后最多 6 个。
 - 推荐每个 slice 使用独立 `git worktree`，不要在同一个 worktree 并发写代码。

@@ -5,7 +5,6 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  rmSync,
   writeFileSync,
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
@@ -24,10 +23,15 @@ const worktreesRoot = process.env.AGENTCORE_WORKTREES_ROOT
   ? path.resolve(process.env.AGENTCORE_WORKTREES_ROOT)
   : path.resolve(repoRoot, "..", "Praxis_org_agentcore_worktrees");
 
-const CODEX_MODEL = process.env.AGENTCORE_CODEX_MODEL ?? "gpt-5.4";
-const CODEX_REASONING = process.env.AGENTCORE_CODEX_REASONING ?? "high";
-const DEFAULT_MAX_ACTIVE = Number(process.env.AGENTCORE_MAX_ACTIVE ?? "4");
 const DEFAULT_BASE_BRANCH = process.env.AGENTCORE_BASE_BRANCH ?? "dev/rebase";
+const DEFAULT_GROUP_SIZE = Number(process.env.AGENTCORE_GROUP_SIZE ?? "4");
+const DEFAULT_MAX_ACTIVE = Number(process.env.AGENTCORE_MAX_ACTIVE ?? "4");
+
+const roleModel = {
+  worker: { model: "gpt-5.4", reasoning: "high" },
+  reviewer: { model: "gpt-5.4", reasoning: "high" },
+  merge: { model: "gpt-5.4", reasoning: "medium" },
+};
 
 const bigSpecs = [
   {
@@ -76,25 +80,23 @@ const bigSpecs = [
 
 function usage() {
   console.log(`Usage:
-  node tasks/scripts/agentcore_workflow.mjs init [--force]
+  node tasks/scripts/agentcore_workflow.mjs init [--force] [--group-size N]
   node tasks/scripts/agentcore_workflow.mjs preflight
   node tasks/scripts/agentcore_workflow.mjs status
   node tasks/scripts/agentcore_workflow.mjs next [--limit N] [--spec AC-SPEC-A]
-  node tasks/scripts/agentcore_workflow.mjs lease <task-id> --agent <name>
-  node tasks/scripts/agentcore_workflow.mjs release <task-id> [--note "..."]
-  node tasks/scripts/agentcore_workflow.mjs prompt <task-id> --role worker|reviewer|merge
-  node tasks/scripts/agentcore_workflow.mjs run <task-id> --role worker|reviewer|merge [--execute] [--worktree]
-  node tasks/scripts/agentcore_workflow.mjs pipeline <task-id> [--execute] [--worktree] [--roles worker,reviewer,merge]
-  node tasks/scripts/agentcore_workflow.mjs batch [--limit N] [--spec AC-SPEC-A] [--execute] [--worktree]
-  node tasks/scripts/agentcore_workflow.mjs worktree <task-id> --create|--remove [--execute]
+  node tasks/scripts/agentcore_workflow.mjs prompt <group-id> --role worker|reviewer|merge
+  node tasks/scripts/agentcore_workflow.mjs pipeline <group-id> [--execute] [--worktree] [--roles worker,reviewer,merge]
+  node tasks/scripts/agentcore_workflow.mjs batch [--limit N] [--spec AC-SPEC-A] [--execute] [--worktree] [--max-active N]
+  node tasks/scripts/agentcore_workflow.mjs complete <group-id> --status implemented|reviewed|done|needs_rework|failed [--note "..."]
+  node tasks/scripts/agentcore_workflow.mjs release <group-id> [--note "..."]
   node tasks/scripts/agentcore_workflow.mjs active
   node tasks/scripts/agentcore_workflow.mjs reap
-  node tasks/scripts/agentcore_workflow.mjs kill <run-id|task-id|all> [--execute]
-  node tasks/scripts/agentcore_workflow.mjs complete <task-id> --status implemented|reviewed|done|needs_rework|failed [--note "..."]
+  node tasks/scripts/agentcore_workflow.mjs kill <run-id|group-id|all> [--execute]
 
-Model defaults:
-  model=${CODEX_MODEL}
-  model_reasoning_effort=${CODEX_REASONING}
+Role model policy:
+  worker   -> gpt-5.4 / high
+  reviewer -> gpt-5.4 / high
+  merge    -> gpt-5.4 / medium
 `);
 }
 
@@ -121,10 +123,6 @@ function walk(dir, suffix) {
   return out.sort();
 }
 
-function toRepoPath(absPath) {
-  return path.relative(repoRoot, absPath).split(path.sep).join("/");
-}
-
 function shell(command, args, options = {}) {
   return spawnSync(command, args, {
     cwd: options.cwd ?? repoRoot,
@@ -137,11 +135,25 @@ function shell(command, args, options = {}) {
 function mustShell(command, args, options = {}) {
   const result = shell(command, args, options);
   if (result.status !== 0) {
-    const stderr = result.stderr ? `\n${result.stderr}` : "";
-    const stdout = result.stdout ? `\n${result.stdout}` : "";
-    throw new Error(`${command} ${args.join(" ")} failed${stdout}${stderr}`);
+    throw new Error(
+      `${command} ${args.join(" ")} failed\n${result.stdout ?? ""}\n${result.stderr ?? ""}`,
+    );
   }
   return result;
+}
+
+function loadJson(file, fallback) {
+  if (!existsSync(file)) return fallback;
+  return JSON.parse(readFileSync(file, "utf8"));
+}
+
+function writeJson(file, value) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function toRepoPath(absPath) {
+  return path.relative(repoRoot, absPath).split(path.sep).join("/");
 }
 
 function classify(rel) {
@@ -157,63 +169,16 @@ function smallSpecId(bigId, rel) {
   return `${bigId}:root`;
 }
 
-function loadJson(file, fallback) {
-  if (!existsSync(file)) return fallback;
-  return JSON.parse(readFileSync(file, "utf8"));
-}
-
-function writeJson(file, value) {
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
-}
-
-function loadLedger() {
-  if (!existsSync(ledgerPath)) throw new Error(`ledger not found: ${toRepoPath(ledgerPath)}. Run init first.`);
-  return normalizeLedger(loadJson(ledgerPath));
-}
-
-function saveLedger(ledger) {
-  ledger.updatedAt = now();
-  writeJson(ledgerPath, ledger);
-}
-
-function normalizeLedger(ledger) {
-  ledger.version = ledger.version ?? 2;
-  ledger.repoRoot = ledger.repoRoot ?? repoRoot;
-  ledger.baseBranch = ledger.baseBranch ?? DEFAULT_BASE_BRANCH;
-  ledger.model = ledger.model ?? CODEX_MODEL;
-  ledger.reasoning = ledger.reasoning ?? CODEX_REASONING;
-  ledger.maxActiveDefault = ledger.maxActiveDefault ?? DEFAULT_MAX_ACTIVE;
-  ledger.worktreesRoot = ledger.worktreesRoot ?? worktreesRoot;
-  ledger.history = ledger.history ?? [];
-  for (const task of ledger.fileTasks ?? []) {
-    task.branch = task.branch ?? `codex/agentcore/${task.id.toLowerCase()}`;
-    task.worktreePath = task.worktreePath ?? path.join(worktreesRoot, task.id);
-    task.lease = task.lease ?? null;
-    task.attempts = task.attempts ?? [];
-    task.notes = task.notes ?? [];
+function chunk(items, size) {
+  const chunks = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
   }
-  return ledger;
-}
-
-function loadActiveRuns() {
-  return loadJson(activeRunsPath, []);
-}
-
-function saveActiveRuns(runs) {
-  writeJson(activeRunsPath, runs);
-}
-
-function isPidAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
+  return chunks;
 }
 
 function buildLedger() {
+  const groupSize = Number(arg("--group-size", String(DEFAULT_GROUP_SIZE)));
   const sources = walk(srcRoot, ".ts");
   const smallSpecs = new Map();
   const fileTasks = [];
@@ -228,15 +193,15 @@ function buildLedger() {
         parentId: big.id,
         title: smallId.split(":")[1],
         status: "pending",
+        groupTaskIds: [],
         fileTaskIds: [],
       });
     }
 
-    const index = fileTasks.length + 1;
-    const id = `AC-F-${String(index).padStart(4, "0")}`;
+    const id = `AC-F-${String(fileTasks.length + 1).padStart(4, "0")}`;
     const docRel = rel.replace(/\.ts$/, ".md");
     const testRel = rel.replace(/\.ts$/, ".test.ts");
-    const task = {
+    const fileTask = {
       id,
       parentId: smallId,
       bigSpecId: big.id,
@@ -244,26 +209,52 @@ function buildLedger() {
       sourcePath: `Praxis_Agent_Architecture/src/agentCore/${rel}`,
       docPath: `Praxis_Agent_Architecture/docs/agentCore/${docRel}`,
       testPath: `Praxis_Agent_Architecture/test/agentCore/${testRel}`,
-      branch: `codex/agentcore/${id.toLowerCase()}`,
-      worktreePath: path.join(worktreesRoot, id),
-      lease: null,
-      attempts: [],
-      notes: [],
     };
     smallSpecs.get(smallId).fileTaskIds.push(id);
-    fileTasks.push(task);
+    fileTasks.push(fileTask);
+  }
+
+  const groupTasks = [];
+  for (const small of smallSpecs.values()) {
+    const files = small.fileTaskIds.map((id) => fileTasks.find((fileTask) => fileTask.id === id));
+    for (const filesInGroup of chunk(files, groupSize)) {
+      const id = `AC-G-${String(groupTasks.length + 1).padStart(4, "0")}`;
+      const group = {
+        id,
+        parentId: small.id,
+        bigSpecId: small.parentId,
+        status: "pending",
+        fileTaskIds: filesInGroup.map((fileTask) => fileTask.id),
+        files: filesInGroup.map((fileTask) => ({
+          sourcePath: fileTask.sourcePath,
+          docPath: fileTask.docPath,
+          testPath: fileTask.testPath,
+        })),
+        branch: `codex/agentcore/${id.toLowerCase()}`,
+        worktreePath: path.join(
+          process.env.AGENTCORE_WORKTREES_ROOT
+            ? path.resolve(process.env.AGENTCORE_WORKTREES_ROOT)
+            : path.resolve(repoRoot, "..", "Praxis_org_agentcore_worktrees"),
+          id,
+        ),
+        lease: null,
+        attempts: [],
+        notes: [],
+      };
+      small.groupTaskIds.push(id);
+      groupTasks.push(group);
+    }
   }
 
   const smallSpecList = [...smallSpecs.values()];
   return {
-    version: 2,
+    version: 3,
     generatedAt: now(),
     updatedAt: now(),
     repoRoot,
     baseBranch: DEFAULT_BASE_BRANCH,
-    model: CODEX_MODEL,
-    reasoning: CODEX_REASONING,
-    maxActiveDefault: DEFAULT_MAX_ACTIVE,
+    groupSize,
+    roleModel,
     worktreesRoot,
     bigSpecs: bigSpecs.map((spec) => ({
       id: spec.id,
@@ -273,69 +264,104 @@ function buildLedger() {
     })),
     smallSpecs: smallSpecList,
     fileTasks,
-    history: [{ at: now(), event: "init", message: `generated ${fileTasks.length} file tasks` }],
+    groupTasks,
+    history: [{ at: now(), event: "init", message: `generated ${groupTasks.length} group tasks from ${fileTasks.length} file tasks` }],
   };
+}
+
+function normalizeLedger(ledger) {
+  if (!ledger.groupTasks) {
+    // Old ledgers are deliberately regenerated instead of silently converted,
+    // because micro-spec grouping is semantically important.
+    throw new Error("ledger has no groupTasks. Run init --force to regenerate micro-spec groups.");
+  }
+  ledger.roleModel = ledger.roleModel ?? roleModel;
+  ledger.worktreesRoot = ledger.worktreesRoot ?? worktreesRoot;
+  ledger.history = ledger.history ?? [];
+  for (const group of ledger.groupTasks) {
+    group.branch = group.branch ?? `codex/agentcore/${group.id.toLowerCase()}`;
+    group.worktreePath = group.worktreePath ?? path.join(worktreesRoot, group.id);
+    group.lease = group.lease ?? null;
+    group.attempts = group.attempts ?? [];
+    group.notes = group.notes ?? [];
+  }
+  return ledger;
+}
+
+function loadLedger() {
+  if (!existsSync(ledgerPath)) throw new Error("ledger not found. Run init first.");
+  return normalizeLedger(loadJson(ledgerPath));
+}
+
+function saveLedger(ledger) {
+  ledger.updatedAt = now();
+  writeJson(ledgerPath, ledger);
+}
+
+function loadActiveRuns() {
+  return loadJson(path.join(runsRoot, "active-runs.json"), []);
+}
+
+function saveActiveRuns(runs) {
+  writeJson(path.join(runsRoot, "active-runs.json"), runs);
+}
+
+function isPidAlive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function itemById(ledger, id) {
+  const group = ledger.groupTasks.find((task) => task.id === id);
+  if (!group) throw new Error(`group task not found: ${id}`);
+  return group;
+}
+
+function fileTasksForGroup(ledger, group) {
+  return group.fileTaskIds.map((id) => ledger.fileTasks.find((task) => task.id === id)).filter(Boolean);
 }
 
 function statusOfChildren(children) {
   if (children.length === 0) return "pending";
-  if (children.every((task) => task.status === "done")) return "done";
-  if (children.some((task) => task.status === "failed")) return "failed";
-  if (children.some((task) => task.status !== "pending")) return "in_progress";
+  if (children.every((item) => item.status === "done")) return "done";
+  if (children.some((item) => item.status === "failed")) return "failed";
+  if (children.some((item) => item.status !== "pending")) return "in_progress";
   return "pending";
 }
 
 function refreshParentStatus(ledger) {
+  for (const group of ledger.groupTasks) {
+    for (const fileTask of fileTasksForGroup(ledger, group)) {
+      fileTask.status = group.status;
+    }
+  }
   for (const small of ledger.smallSpecs) {
-    const children = small.fileTaskIds.map((id) => ledger.fileTasks.find((task) => task.id === id)).filter(Boolean);
+    const children = small.groupTaskIds.map((id) => ledger.groupTasks.find((task) => task.id === id)).filter(Boolean);
     small.status = statusOfChildren(children);
   }
   for (const big of ledger.bigSpecs) {
-    const children = big.smallSpecIds.map((id) => ledger.smallSpecs.find((small) => small.id === id)).filter(Boolean);
+    const children = big.smallSpecIds.map((id) => ledger.smallSpecs.find((task) => task.id === id)).filter(Boolean);
     big.status = statusOfChildren(children);
   }
 }
 
-function findTask(ledger, id) {
-  const task = ledger.fileTasks.find((item) => item.id === id);
-  if (!task) throw new Error(`task not found: ${id}`);
-  return task;
-}
-
-function pendingTasks(ledger) {
+function pendingGroups(ledger) {
   const spec = arg("--spec");
-  return ledger.fileTasks.filter((task) => task.status === "pending" && (!spec || task.bigSpecId === spec));
-}
-
-function template(role) {
-  const file = path.join(tasksRoot, "prompts", `${role}.md`);
-  if (!existsSync(file)) throw new Error(`missing prompt template: ${toRepoPath(file)}`);
-  return readFileSync(file, "utf8");
-}
-
-function renderPrompt(task, role) {
-  const taskJson = JSON.stringify(task, null, 2);
-  return template(role)
-    .replaceAll("{{TASK_JSON}}", taskJson)
-    .replaceAll("{{SOURCE_PATH}}", task.sourcePath)
-    .replaceAll("{{DOC_PATH}}", task.docPath)
-    .replaceAll("{{TEST_PATH}}", task.testPath);
-}
-
-function runDir(task, role = undefined) {
-  const dir = role ? path.join(runsRoot, task.id, role) : path.join(runsRoot, task.id);
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  return ledger.groupTasks.filter((task) => task.status === "pending" && (!spec || task.bigSpecId === spec));
 }
 
 function commandInit() {
-  if (existsSync(ledgerPath) && !has("--force")) throw new Error("ledger already exists. Use --force to regenerate.");
+  if (existsSync(ledgerPath) && !has("--force")) throw new Error("ledger already exists. Use --force.");
   mkdirSync(tasksRoot, { recursive: true });
   mkdirSync(runsRoot, { recursive: true });
   mkdirSync(worktreesRoot, { recursive: true });
   const ledger = buildLedger();
   saveLedger(ledger);
-  console.log(`generated ${ledger.fileTasks.length} file tasks`);
+  console.log(`generated ${ledger.groupTasks.length} group tasks from ${ledger.fileTasks.length} file tasks`);
   console.log(toRepoPath(ledgerPath));
 }
 
@@ -345,15 +371,14 @@ function commandPreflight() {
   checks.push({ name: "codex", ok: codex.status === 0, detail: (codex.stdout || codex.stderr || "").trim() });
   const branch = shell("git", ["branch", "--show-current"]);
   checks.push({ name: "branch", ok: branch.stdout.trim() === DEFAULT_BASE_BRANCH, detail: branch.stdout.trim() });
-  const ledgerOk = existsSync(ledgerPath);
-  checks.push({ name: "ledger", ok: ledgerOk, detail: ledgerOk ? toRepoPath(ledgerPath) : "missing" });
+  checks.push({ name: "ledger", ok: existsSync(ledgerPath), detail: existsSync(ledgerPath) ? "exists" : "missing" });
   const typecheck = shell("npm", ["run", "typecheck"], { cwd: archRoot });
   checks.push({ name: "typecheck", ok: typecheck.status === 0, detail: typecheck.status === 0 ? "pass" : typecheck.stderr });
   const dirty = shell("git", ["status", "--short", "--", "Praxis_Agent_Architecture"]);
   checks.push({
     name: "foundation committed for worktree",
     ok: dirty.stdout.trim().length === 0,
-    detail: dirty.stdout.trim() ? "dirty/untracked Praxis_Agent_Architecture files exist; worktree agents may not see them until committed" : "clean",
+    detail: dirty.stdout.trim() ? "dirty/untracked Praxis_Agent_Architecture files exist" : "clean",
   });
   console.log(JSON.stringify(checks, null, 2));
 }
@@ -361,59 +386,32 @@ function commandPreflight() {
 function commandStatus() {
   const ledger = loadLedger();
   refreshParentStatus(ledger);
-  const counts = {};
-  for (const task of ledger.fileTasks) counts[task.status] = (counts[task.status] ?? 0) + 1;
-  console.log(JSON.stringify({ total: ledger.fileTasks.length, counts, activeRuns: loadActiveRuns(), bigSpecs: ledger.bigSpecs }, null, 2));
+  const groupCounts = {};
+  const fileCounts = {};
+  for (const task of ledger.groupTasks) groupCounts[task.status] = (groupCounts[task.status] ?? 0) + 1;
+  for (const task of ledger.fileTasks) fileCounts[task.status] = (fileCounts[task.status] ?? 0) + 1;
+  console.log(JSON.stringify({ groups: ledger.groupTasks.length, files: ledger.fileTasks.length, groupCounts, fileCounts, activeRuns: loadActiveRuns(), bigSpecs: ledger.bigSpecs }, null, 2));
 }
 
 function commandNext() {
   const ledger = loadLedger();
-  const limit = Number(arg("--limit", "10"));
-  console.log(JSON.stringify(pendingTasks(ledger).slice(0, limit), null, 2));
+  console.log(JSON.stringify(pendingGroups(ledger).slice(0, Number(arg("--limit", "10"))), null, 2));
 }
 
-function commandLease(id) {
-  const agent = arg("--agent");
-  if (!agent) throw new Error("missing --agent <name>");
-  const ledger = loadLedger();
-  const task = findTask(ledger, id);
-  if (!["pending", "needs_rework"].includes(task.status)) throw new Error(`task ${id} is not leasable: ${task.status}`);
-  task.status = "leased";
-  task.lease = { agent, at: now() };
-  task.attempts.push({ agent, at: now(), event: "lease" });
-  ledger.history.push({ at: now(), event: "lease", taskId: id, agent });
+function setGroupStatus(ledger, group, status, note = "") {
+  group.status = status;
+  group.notes.push({ at: now(), status, note });
+  ledger.history.push({ at: now(), event: "status", groupId: group.id, status, note });
   refreshParentStatus(ledger);
   saveLedger(ledger);
-  console.log(JSON.stringify(task, null, 2));
 }
 
 function commandRelease(id) {
   const ledger = loadLedger();
-  const task = findTask(ledger, id);
-  const note = arg("--note", "");
-  if (!["leased", "implementing", "implemented", "reviewing", "reviewed", "merging"].includes(task.status)) {
-    throw new Error(`task ${id} is not currently leased or active: ${task.status}`);
-  }
-  task.status = "pending";
-  task.lease = null;
-  task.notes.push({ at: now(), status: "released", note });
-  ledger.history.push({ at: now(), event: "release", taskId: id, note });
-  refreshParentStatus(ledger);
-  saveLedger(ledger);
-  console.log(JSON.stringify(task, null, 2));
-}
-
-function commandPrompt(id) {
-  const role = arg("--role", "worker");
-  const ledger = loadLedger();
-  const task = findTask(ledger, id);
-  const prompt = renderPrompt(task, role);
-  const dir = runDir(task, role);
-  const promptPath = path.join(dir, "prompt.md");
-  writeFileSync(promptPath, prompt, "utf8");
-  console.log(toRepoPath(promptPath));
-  console.log("\n--- prompt preview ---\n");
-  console.log(prompt.slice(0, 2200));
+  const group = itemById(ledger, id);
+  group.lease = null;
+  setGroupStatus(ledger, group, "pending", arg("--note", "released"));
+  console.log(JSON.stringify(group, null, 2));
 }
 
 function commandComplete(id) {
@@ -422,17 +420,76 @@ function commandComplete(id) {
   const allowed = new Set(["implemented", "reviewed", "done", "needs_rework", "failed"]);
   if (!allowed.has(status)) throw new Error(`invalid status: ${status}`);
   const ledger = loadLedger();
-  const task = findTask(ledger, id);
-  const note = arg("--note", "");
-  task.status = status;
-  task.notes.push({ at: now(), status, note });
-  ledger.history.push({ at: now(), event: "complete", taskId: id, status, note });
-  refreshParentStatus(ledger);
-  saveLedger(ledger);
-  console.log(JSON.stringify(task, null, 2));
+  const group = itemById(ledger, id);
+  setGroupStatus(ledger, group, status, arg("--note", ""));
+  console.log(JSON.stringify(group, null, 2));
 }
 
-function codexCommand(workspace, outputPath) {
+function groupTable(group) {
+  return group.files
+    .map((file, index) => [
+      `### File ${index + 1}`,
+      `- source: \`${file.sourcePath}\``,
+      `- doc: \`${file.docPath}\``,
+      `- test: \`${file.testPath}\``,
+    ].join("\n"))
+    .join("\n\n");
+}
+
+function template(role) {
+  const file = path.join(tasksRoot, "prompts", `${role}.md`);
+  if (!existsSync(file)) throw new Error(`missing template: ${file}`);
+  return readFileSync(file, "utf8");
+}
+
+function renderPrompt(group, role) {
+  return template(role)
+    .replaceAll("{{TASK_JSON}}", JSON.stringify(group, null, 2))
+    .replaceAll("{{GROUP_FILE_TABLE}}", groupTable(group))
+    .replaceAll("{{SOURCE_PATH}}", group.files[0]?.sourcePath ?? "")
+    .replaceAll("{{DOC_PATH}}", group.files[0]?.docPath ?? "")
+    .replaceAll("{{TEST_PATH}}", group.files[0]?.testPath ?? "");
+}
+
+function runDir(group, role = undefined) {
+  const dir = role ? path.join(runsRoot, group.id, role) : path.join(runsRoot, group.id);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+function commandPrompt(id) {
+  const role = arg("--role", "worker");
+  const ledger = loadLedger();
+  const group = itemById(ledger, id);
+  const prompt = renderPrompt(group, role);
+  const promptPath = path.join(runDir(group, role), "prompt.md");
+  writeFileSync(promptPath, prompt, "utf8");
+  console.log(toRepoPath(promptPath));
+  console.log("\n--- prompt preview ---\n");
+  console.log(prompt.slice(0, 2600));
+}
+
+function ensureWorktree(group, execute) {
+  mkdirSync(worktreesRoot, { recursive: true });
+  if (existsSync(group.worktreePath)) return;
+  const branchExists = shell("git", ["show-ref", "--verify", "--quiet", `refs/heads/${group.branch}`]).status === 0;
+  const args = branchExists
+    ? ["worktree", "add", group.worktreePath, group.branch]
+    : ["worktree", "add", "-b", group.branch, group.worktreePath, DEFAULT_BASE_BRANCH];
+  if (!execute) {
+    console.log(`dry-run: git ${args.join(" ")}`);
+    return;
+  }
+  mustShell("git", args, { cwd: repoRoot, stdio: "inherit" });
+}
+
+function roleWorkspace(group, role, useWorktree) {
+  if (role === "merge") return repoRoot;
+  return useWorktree ? group.worktreePath : repoRoot;
+}
+
+function codexCommand(role, workspace, outputPath) {
+  const config = roleModel[role] ?? roleModel.worker;
   return [
     "codex",
     "exec",
@@ -440,80 +497,34 @@ function codexCommand(workspace, outputPath) {
     workspace,
     "--full-auto",
     "-m",
-    CODEX_MODEL,
+    config.model,
     "-c",
-    `model_reasoning_effort="${CODEX_REASONING}"`,
+    `model_reasoning_effort="${config.reasoning}"`,
     "-o",
     outputPath,
     "-",
   ];
 }
 
-function taskWorkspace(task, useWorktree) {
-  return useWorktree ? task.worktreePath : repoRoot;
-}
-
-function ensureWorktree(task, execute) {
-  mkdirSync(worktreesRoot, { recursive: true });
-  if (existsSync(task.worktreePath)) return;
-  const args = ["worktree", "add", "-b", task.branch, task.worktreePath, DEFAULT_BASE_BRANCH];
-  if (!execute) {
-    console.log(`dry-run: git ${args.join(" ")}`);
-    return;
-  }
-  mustShell("git", args, { cwd: repoRoot, stdio: "inherit" });
-}
-
-function removeWorktree(task, execute) {
-  const args = ["worktree", "remove", task.worktreePath];
-  if (!existsSync(task.worktreePath)) return;
-  if (!execute) {
-    console.log(`dry-run: git ${args.join(" ")}`);
-    return;
-  }
-  mustShell("git", args, { cwd: repoRoot, stdio: "inherit" });
-}
-
-function commandWorktree(id) {
-  const ledger = loadLedger();
-  const task = findTask(ledger, id);
-  const execute = has("--execute");
-  if (has("--create")) ensureWorktree(task, execute);
-  else if (has("--remove")) removeWorktree(task, execute);
-  else throw new Error("worktree requires --create or --remove");
-  console.log(JSON.stringify({ taskId: id, branch: task.branch, worktreePath: task.worktreePath, executed: execute }, null, 2));
-}
-
-function writePrompt(task, role) {
-  const dir = runDir(task, role);
+function writePrompt(group, role) {
+  const dir = runDir(group, role);
   const promptPath = path.join(dir, "prompt.md");
   const outputPath = path.join(dir, "last-message.md");
   const logPath = path.join(dir, "codex.log");
-  writeFileSync(promptPath, renderPrompt(task, role), "utf8");
-  return { dir, promptPath, outputPath, logPath };
+  writeFileSync(promptPath, renderPrompt(group, role), "utf8");
+  return { promptPath, outputPath, logPath };
 }
 
-function updateTaskStatus(ledger, task, status, note = "") {
-  task.status = status;
-  task.notes.push({ at: now(), status, note });
-  ledger.history.push({ at: now(), event: "status", taskId: task.id, status, note });
-  refreshParentStatus(ledger);
-  saveLedger(ledger);
-}
-
-function runRoleSync(task, role, options) {
-  const execute = options.execute;
-  const workspace = taskWorkspace(task, options.worktree);
-  const files = writePrompt(task, role);
-  const command = codexCommand(workspace, files.outputPath);
+function runRoleSync(group, role, { execute, worktree }) {
+  const files = writePrompt(group, role);
+  const workspace = roleWorkspace(group, role, worktree);
+  const command = codexCommand(role, workspace, files.outputPath);
   const display = `${command.map((part) => (part.includes(" ") ? JSON.stringify(part) : part)).join(" ")} < ${toRepoPath(files.promptPath)}`;
-
   if (!execute) {
     console.log(`dry-run ${role}:`);
     console.log(display);
     return 0;
   }
-
   appendFileSync(files.logPath, `[${now()}] start ${role}\n${display}\n`);
   const result = shell(command[0], command.slice(1), {
     cwd: workspace,
@@ -523,115 +534,100 @@ function runRoleSync(task, role, options) {
   appendFileSync(files.logPath, result.stdout ?? "");
   appendFileSync(files.logPath, result.stderr ?? "");
   appendFileSync(files.logPath, `\n[${now()}] exit ${result.status}\n`);
-  if (result.status !== 0) {
-    console.error(readFileSync(files.logPath, "utf8").slice(-4000));
-  }
+  if (result.status !== 0) console.error(readFileSync(files.logPath, "utf8").slice(-4000));
   return result.status ?? 1;
-}
-
-function commandRun(id) {
-  const role = arg("--role", "worker");
-  const ledger = loadLedger();
-  const task = findTask(ledger, id);
-  const useWorktree = has("--worktree");
-  if (useWorktree) ensureWorktree(task, has("--execute"));
-  const code = runRoleSync(task, role, { execute: has("--execute"), worktree: useWorktree });
-  process.exitCode = code;
 }
 
 function commandPipeline(id) {
   const ledger = loadLedger();
-  const task = findTask(ledger, id);
+  const group = itemById(ledger, id);
   const execute = has("--execute");
-  const useWorktree = has("--worktree");
+  const worktree = has("--worktree");
   const roles = (arg("--roles", "worker,reviewer,merge") ?? "worker,reviewer,merge").split(",").map((item) => item.trim()).filter(Boolean);
   const transitions = {
     worker: ["implementing", "implemented"],
     reviewer: ["reviewing", "reviewed"],
     merge: ["merging", "done"],
   };
-
-  if (useWorktree) ensureWorktree(task, execute);
-  if (!task.lease && execute) {
-    task.lease = { agent: `pipeline:${process.pid}`, at: now() };
-  }
-
+  if (worktree) ensureWorktree(group, execute);
   for (const role of roles) {
     const [startStatus, successStatus] = transitions[role] ?? [role, role];
-    if (execute) updateTaskStatus(ledger, task, startStatus, `pipeline ${role} started`);
-    const code = runRoleSync(task, role, { execute, worktree: useWorktree });
+    if (execute) setGroupStatus(ledger, group, startStatus, `${role} started`);
+    const code = runRoleSync(group, role, { execute, worktree });
     if (code !== 0) {
-      if (execute) updateTaskStatus(ledger, task, role === "reviewer" ? "needs_rework" : "failed", `${role} failed`);
+      if (execute) setGroupStatus(ledger, group, role === "reviewer" ? "needs_rework" : "failed", `${role} failed`);
       process.exitCode = code;
       return;
     }
-    if (execute) updateTaskStatus(ledger, task, successStatus, `pipeline ${role} completed`);
+    if (execute) setGroupStatus(ledger, group, successStatus, `${role} completed`);
   }
+}
+
+function reapActiveRuns({ silent = false } = {}) {
+  const active = loadJson(path.join(runsRoot, "active-runs.json"), []);
+  const alive = active.filter((run) => {
+    try {
+      process.kill(run.pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  const reaped = active.filter((run) => !alive.includes(run));
+  writeJson(path.join(runsRoot, "active-runs.json"), alive);
+  if (!silent) console.log(JSON.stringify({ alive, reaped }, null, 2));
+  return { alive, reaped };
 }
 
 function commandBatch() {
   const ledger = loadLedger();
-  reapActiveRuns({ silent: true });
-  const active = loadActiveRuns().filter((run) => isPidAlive(run.pid));
+  const { alive } = reapActiveRuns({ silent: true });
   const maxActive = Number(arg("--max-active", String(DEFAULT_MAX_ACTIVE)));
-  const available = Math.max(0, maxActive - active.length);
+  const available = Math.max(0, maxActive - alive.length);
   const limit = Math.min(Number(arg("--limit", String(available || 1))), available || 1);
-  const tasks = pendingTasks(ledger).slice(0, limit);
+  const groups = pendingGroups(ledger).slice(0, limit);
   const execute = has("--execute");
-  const useWorktree = has("--worktree");
+  const worktree = has("--worktree");
   const planned = [];
-  mkdirSync(runsRoot, { recursive: true });
+  const active = [...alive];
 
-  for (const task of tasks) {
-    const runId = `${task.id}-${Date.now()}`;
-    const logPath = path.join(runDir(task), "pipeline.log");
-    const args = [scriptPath, "pipeline", task.id, "--roles", "worker,reviewer,merge"];
+  for (const group of groups) {
+    const runId = `${group.id}-${Date.now()}`;
+    const args = [scriptPath, "pipeline", group.id, "--roles", "worker,reviewer,merge"];
     if (execute) args.push("--execute");
-    if (useWorktree) args.push("--worktree");
-    planned.push({ runId, taskId: task.id, logPath, args: [process.execPath, ...args] });
-
+    if (worktree) args.push("--worktree");
+    planned.push({ runId, groupId: group.id, args: [process.execPath, ...args] });
     if (execute) {
-      task.status = "leased";
-      task.lease = { agent: `batch:${runId}`, at: now() };
-      task.attempts.push({ agent: `batch:${runId}`, at: now(), event: "batch-start" });
-      ledger.history.push({ at: now(), event: "batch-start", taskId: task.id, runId });
+      group.status = "leased";
+      group.lease = { agent: `batch:${runId}`, at: now() };
+      group.attempts.push({ at: now(), event: "batch-start", runId });
       const child = spawn(process.execPath, args, {
         cwd: repoRoot,
         detached: true,
         stdio: ["ignore", "ignore", "ignore"],
       });
       child.unref();
-      active.push({ runId, taskId: task.id, pid: child.pid, startedAt: now(), logPath });
+      active.push({ runId, groupId: group.id, pid: child.pid, startedAt: now() });
     }
   }
 
   if (execute) {
     refreshParentStatus(ledger);
     saveLedger(ledger);
-    saveActiveRuns(active);
+    writeJson(path.join(runsRoot, "active-runs.json"), active);
   }
   console.log(JSON.stringify({ execute, maxActive, currentlyActive: active.length, planned }, null, 2));
 }
 
-function reapActiveRuns({ silent = false } = {}) {
-  const active = loadActiveRuns();
-  const alive = active.filter((run) => isPidAlive(run.pid));
-  const reaped = active.filter((run) => !isPidAlive(run.pid));
-  saveActiveRuns(alive);
-  if (!silent) console.log(JSON.stringify({ alive, reaped }, null, 2));
-  return { alive, reaped };
-}
-
 function commandActive() {
   reapActiveRuns({ silent: true });
-  console.log(JSON.stringify(loadActiveRuns(), null, 2));
+  console.log(JSON.stringify(loadJson(path.join(runsRoot, "active-runs.json"), []), null, 2));
 }
 
 function commandKill(target) {
-  const active = loadActiveRuns();
-  const execute = has("--execute");
-  const selected = target === "all" ? active : active.filter((run) => run.runId === target || run.taskId === target);
-  if (!execute) {
+  const active = loadJson(path.join(runsRoot, "active-runs.json"), []);
+  const selected = target === "all" ? active : active.filter((run) => run.runId === target || run.groupId === target);
+  if (!has("--execute")) {
     console.log(JSON.stringify({ dryRun: true, selected }, null, 2));
     return;
   }
@@ -642,7 +638,7 @@ function commandKill(target) {
       // Already gone.
     }
   }
-  saveActiveRuns(active.filter((run) => !selected.includes(run)));
+  writeJson(path.join(runsRoot, "active-runs.json"), active.filter((run) => !selected.includes(run)));
   console.log(JSON.stringify({ killed: selected }, null, 2));
 }
 
@@ -654,14 +650,11 @@ try {
   else if (command === "preflight") commandPreflight();
   else if (command === "status") commandStatus();
   else if (command === "next") commandNext();
-  else if (command === "lease") commandLease(id);
-  else if (command === "release") commandRelease(id);
   else if (command === "prompt") commandPrompt(id);
-  else if (command === "complete") commandComplete(id);
-  else if (command === "worktree") commandWorktree(id);
-  else if (command === "run") commandRun(id);
   else if (command === "pipeline") commandPipeline(id);
   else if (command === "batch") commandBatch();
+  else if (command === "complete") commandComplete(id);
+  else if (command === "release") commandRelease(id);
   else if (command === "active") commandActive();
   else if (command === "reap") reapActiveRuns();
   else if (command === "kill") commandKill(id);

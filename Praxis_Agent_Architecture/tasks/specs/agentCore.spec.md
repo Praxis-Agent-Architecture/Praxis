@@ -106,12 +106,18 @@
 - 建立运行检查、调试、自修复、自适应、管理、能力暴露、行为暴露、模式暴露和外部调控的最小壳。
 - 第一版只要求类型清楚、结果稳定、错误可分类、事件可观察。
 
-## file task 完成标准
+## micro-spec group task 完成标准
 
-每个单文件任务完成时：
+每个 micro-spec 文件组完成时：
 
-- 对应 `.ts` 不再只是注释。
-- 至少导出一个与文档职责一致的类型、函数、常量或类。
+- 组内每个 `.ts` 不再只是注释。
+- 组内每个文件至少导出一个与文档职责一致的类型、函数、常量或类。
 - 不越界改相邻模块。
-- 对应 `.test.ts` 至少保留契约测试，并可增加最小行为测试。
+- 组内每个 `.test.ts` 至少保留契约测试，并可增加最小行为测试。
 - `cd Praxis_Agent_Architecture && npm run typecheck && npm run test:agentCore` 通过。
+
+默认每组 4 个文件。这个粒度比完整 small spec 更小，适合控制 Codex 上下文窗口；同时比单文件更大，避免每个文件都启动 worker/reviewer/merge 三个 agent。
+
+reviewer 必须逐文件 review，但由同一个 reviewer Codex 完成整个组的 review。
+
+merge 仍由 Codex 完成，但使用 `gpt-5.4 medium`。merge 的工作重点是 diff 范围、测试、账本、必要合并或 cherry-pick，不是重新实现功能。
