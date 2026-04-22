@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T13:42:27.474Z",
+  "updatedAt": "2026-04-22T13:56:16.507Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -34,7 +34,7 @@
     {
       "id": "AC-SPEC-B",
       "title": "runtime 治理与官方模块入口",
-      "status": "pending",
+      "status": "in_progress",
       "smallSpecIds": [
         "AC-SPEC-B:basic_interfaceLayer",
         "AC-SPEC-B:custom_interfaceLayer",
@@ -794,7 +794,7 @@
       "id": "AC-SPEC-B:runtime.governancePlane",
       "parentId": "AC-SPEC-B",
       "title": "runtime.governancePlane",
-      "status": "pending",
+      "status": "in_progress",
       "groupTaskIds": [
         "AC-G-0106",
         "AC-G-0107",
@@ -4757,7 +4757,7 @@
       "id": "AC-F-0411",
       "parentId": "AC-SPEC-B:runtime.governancePlane",
       "bigSpecId": "AC-SPEC-B",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceRuleEvaluator.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceRuleEvaluator.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceRuleEvaluator.test.ts"
@@ -4766,7 +4766,7 @@
       "id": "AC-F-0412",
       "parentId": "AC-SPEC-B:runtime.governancePlane",
       "bigSpecId": "AC-SPEC-B",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.test.ts"
@@ -4775,7 +4775,7 @@
       "id": "AC-F-0413",
       "parentId": "AC-SPEC-B:runtime.governancePlane",
       "bigSpecId": "AC-SPEC-B",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.governancePlane/moduleGovernanceBridge.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/moduleGovernanceBridge.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.governancePlane/moduleGovernanceBridge.test.ts"
@@ -4784,7 +4784,7 @@
       "id": "AC-F-0414",
       "parentId": "AC-SPEC-B:runtime.governancePlane",
       "bigSpecId": "AC-SPEC-B",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.test.ts"
@@ -9666,7 +9666,7 @@
       "id": "AC-G-0107",
       "parentId": "AC-SPEC-B:runtime.governancePlane",
       "bigSpecId": "AC-SPEC-B",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0411",
         "AC-F-0412",
@@ -9698,8 +9698,19 @@
       "branch": "codex/agentcore/ac-g-0107",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0107",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-22T13:46:56.380Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T13:56:16.507Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0108",
@@ -10888,6 +10899,13 @@
       "at": "2026-04-22T13:42:27.472Z",
       "event": "status",
       "groupId": "AC-G-0115",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T13:56:16.507Z",
+      "event": "status",
+      "groupId": "AC-G-0107",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
