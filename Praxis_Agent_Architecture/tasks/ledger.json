@@ -3749,7 +3749,7 @@
       "id": "AC-F-0299",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.test.ts"
@@ -3758,7 +3758,7 @@
       "id": "AC-F-0300",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.test.ts"
@@ -3767,7 +3767,7 @@
       "id": "AC-F-0301",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_assistants.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_assistants.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_assistants.test.ts"
@@ -3776,7 +3776,7 @@
       "id": "AC-F-0302",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_speech.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_speech.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_speech.test.ts"
@@ -9158,7 +9158,7 @@
       "id": "AC-G-0077",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0299",
         "AC-F-0300",
