@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T18:50:49.150Z",
+  "updatedAt": "2026-04-22T18:53:24.471Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -3569,7 +3569,7 @@
       "id": "AC-F-0279",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityDefiner.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityDefiner.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityDefiner.test.ts"
@@ -3578,7 +3578,7 @@
       "id": "AC-F-0280",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityExposer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityExposer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityExposer.test.ts"
@@ -3587,7 +3587,7 @@
       "id": "AC-F-0281",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.test.ts"
@@ -3596,7 +3596,7 @@
       "id": "AC-F-0282",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.test.ts"
@@ -8846,7 +8846,7 @@
       "id": "AC-G-0072",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "reviewed",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0279",
         "AC-F-0280",
@@ -8907,6 +8907,16 @@
           "at": "2026-04-22T18:32:36.453Z",
           "status": "reviewed",
           "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T18:52:03.133Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T18:53:24.471Z",
+          "status": "done",
+          "note": "merge done"
         }
       ]
     },
@@ -12890,6 +12900,20 @@
       "at": "2026-04-22T18:50:49.150Z",
       "event": "status",
       "groupId": "AC-G-0071",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T18:52:03.133Z",
+      "event": "status",
+      "groupId": "AC-G-0072",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T18:53:24.471Z",
+      "event": "status",
+      "groupId": "AC-G-0072",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
