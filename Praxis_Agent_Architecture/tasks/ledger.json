@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T20:03:56.351Z",
+  "updatedAt": "2026-04-22T20:06:16.834Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -4172,7 +4172,7 @@
       "id": "AC-F-0346",
       "parentId": "AC-SPEC-D:bridgingLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/bridgingLayer/applicationAdapter.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/bridgingLayer/applicationAdapter.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/bridgingLayer/applicationAdapter.test.ts"
@@ -4181,7 +4181,7 @@
       "id": "AC-F-0347",
       "parentId": "AC-SPEC-D:bridgingLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/bridgingLayer/applicationCompatibilityCheck.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/bridgingLayer/applicationCompatibilityCheck.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/bridgingLayer/applicationCompatibilityCheck.test.ts"
@@ -4190,7 +4190,7 @@
       "id": "AC-F-0348",
       "parentId": "AC-SPEC-D:bridgingLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/bridgingLayer/applicationInterfaceTest.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/bridgingLayer/applicationInterfaceTest.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/bridgingLayer/applicationInterfaceTest.test.ts"
@@ -9935,7 +9935,7 @@
       "id": "AC-G-0089",
       "parentId": "AC-SPEC-D:bridgingLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0346",
         "AC-F-0347",
@@ -9960,9 +9960,48 @@
       ],
       "branch": "codex/agentcore/ac-g-0089",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0089",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0089",
+        "at": "2026-04-22T19:42:16.791Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T19:42:16.791Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T19:42:17.247Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:47:59.731Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:47:59.761Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:51:32.831Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T20:04:58.107Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T20:06:16.834Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0090",
@@ -13658,6 +13697,13 @@
       "groupId": "AC-G-0088",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T20:06:16.834Z",
+      "event": "status",
+      "groupId": "AC-G-0089",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ],
   "events": [
@@ -13707,6 +13753,13 @@
       "at": "2026-04-22T19:51:28.730Z",
       "event": "status",
       "groupId": "AC-G-0120",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T20:06:16.834Z",
+      "event": "status",
+      "groupId": "AC-G-0089",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
