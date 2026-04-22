@@ -794,7 +794,7 @@
       "id": "AC-SPEC-B:runtime.governancePlane",
       "parentId": "AC-SPEC-B",
       "title": "runtime.governancePlane",
-      "status": "in_progress",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0106",
         "AC-G-0107",
@@ -11255,9 +11255,30 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
+      "at": "2026-04-22T14:11:54.130Z",
+      "event": "status",
+      "groupId": "AC-G-0122",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T14:11:54.234Z",
+      "event": "status",
+      "groupId": "AC-G-0123",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
       "at": "2026-04-22T14:11:54.335Z",
       "event": "status",
       "groupId": "AC-G-0106",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T14:11:54.440Z",
+      "event": "status",
+      "groupId": "AC-G-0108",
       "status": "implementing",
       "note": "worker started"
     },
@@ -11290,18 +11311,25 @@
       "note": "merge started"
     },
     {
-      "at": "2026-04-22T14:18:11.406Z",
+      "at": "2026-04-22T14:16:02.373Z",
       "event": "status",
-      "groupId": "AC-G-0106",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
+      "groupId": "AC-G-0123",
+      "status": "implemented",
+      "note": "worker done"
     },
     {
-      "at": "2026-04-22T14:11:54.440Z",
+      "at": "2026-04-22T14:16:02.383Z",
       "event": "status",
-      "groupId": "AC-G-0108",
-      "status": "implementing",
-      "note": "worker started"
+      "groupId": "AC-G-0123",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T14:17:39.622Z",
+      "event": "status",
+      "groupId": "AC-G-0123",
+      "status": "reviewed",
+      "note": "reviewer done"
     },
     {
       "at": "2026-04-22T14:17:43.649Z",
@@ -11316,6 +11344,41 @@
       "groupId": "AC-G-0108",
       "status": "reviewing",
       "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T14:18:11.389Z",
+      "event": "status",
+      "groupId": "AC-G-0122",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T14:18:11.404Z",
+      "event": "status",
+      "groupId": "AC-G-0122",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T14:18:11.406Z",
+      "event": "status",
+      "groupId": "AC-G-0106",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T14:18:51.994Z",
+      "event": "status",
+      "groupId": "AC-G-0123",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T14:19:34.139Z",
+      "event": "status",
+      "groupId": "AC-G-0122",
+      "status": "reviewed",
+      "note": "reviewer done"
     },
     {
       "at": "2026-04-22T14:21:28.918Z",
@@ -11337,34 +11400,6 @@
       "groupId": "AC-G-0108",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T14:11:54.130Z",
-      "event": "status",
-      "groupId": "AC-G-0122",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T14:18:11.389Z",
-      "event": "status",
-      "groupId": "AC-G-0122",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T14:18:11.404Z",
-      "event": "status",
-      "groupId": "AC-G-0122",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T14:19:34.139Z",
-      "event": "status",
-      "groupId": "AC-G-0122",
-      "status": "reviewed",
-      "note": "reviewer done"
     },
     {
       "at": "2026-04-22T14:24:43.908Z",
