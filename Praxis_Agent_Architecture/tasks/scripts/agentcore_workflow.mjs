@@ -5,6 +5,9 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  rmSync,
+  statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
@@ -16,6 +19,8 @@ const tasksRoot = path.resolve(path.dirname(scriptPath), "..");
 const archRoot = path.resolve(tasksRoot, "..");
 const repoRoot = path.resolve(archRoot, "..");
 const ledgerPath = path.join(tasksRoot, "ledger.json");
+const ledgerLockPath = `${ledgerPath}.lock`;
+const ledgerLockOwnerPath = path.join(ledgerLockPath, "owner.json");
 const runsRoot = path.join(tasksRoot, "runs");
 const activeRunsPath = path.join(runsRoot, "active-runs.json");
 const srcRoot = path.join(archRoot, "src", "agentCore");
@@ -151,6 +156,39 @@ function loadJson(file, fallback) {
 function writeJson(file, value) {
   mkdirSync(path.dirname(file), { recursive: true });
   writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function withLedgerLock(callback) {
+  while (true) {
+    try {
+      mkdirSync(ledgerLockPath);
+      writeJson(ledgerLockOwnerPath, { pid: process.pid, at: now() });
+      break;
+    } catch (error) {
+      if (error?.code !== "EEXIST") throw error;
+      try {
+        const owner = loadJson(ledgerLockOwnerPath, null);
+        const lockAgeMs = Date.now() - statSync(ledgerLockPath).mtimeMs;
+        if ((owner?.pid && !isPidAlive(owner.pid)) || lockAgeMs > 10 * 60 * 1000) {
+          rmSync(ledgerLockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        // If the owner file is temporarily incomplete, keep waiting.
+      }
+      sleepSync(100);
+    }
+  }
+
+  try {
+    return callback();
+  } finally {
+    rmSync(ledgerLockPath, { recursive: true, force: true });
+  }
 }
 
 function toRepoPath(absPath) {
@@ -294,9 +332,23 @@ function loadLedger() {
   return normalizeLedger(loadJson(ledgerPath));
 }
 
-function saveLedger(ledger) {
+function saveLedgerUnlocked(ledger) {
   ledger.updatedAt = now();
   writeJson(ledgerPath, ledger);
+}
+
+function saveLedger(ledger) {
+  return withLedgerLock(() => saveLedgerUnlocked(ledger));
+}
+
+function updateLedger(callback) {
+  return withLedgerLock(() => {
+    const ledger = loadLedger();
+    const result = callback(ledger);
+    refreshParentStatus(ledger);
+    saveLedgerUnlocked(ledger);
+    return result;
+  });
 }
 
 function loadActiveRuns() {
@@ -399,15 +451,36 @@ function commandNext() {
   console.log(JSON.stringify(pendingGroups(ledger).slice(0, Number(arg("--limit", "10"))), null, 2));
 }
 
-function setGroupStatus(ledger, group, status, note = "") {
-  group.status = status;
-  if (["done", "failed", "needs_rework", "pending"].includes(status)) {
-    group.lease = null;
-  }
-  group.notes.push({ at: now(), status, note });
-  ledger.history.push({ at: now(), event: "status", groupId: group.id, status, note });
-  refreshParentStatus(ledger);
-  saveLedger(ledger);
+function setGroupStatus(_ledger, group, status, note = "") {
+  const updatedGroup = updateLedger((ledger) => {
+    const freshGroup = itemById(ledger, group.id);
+    freshGroup.status = status;
+    if (["done", "failed", "needs_rework", "pending"].includes(status)) {
+      freshGroup.lease = null;
+    }
+    freshGroup.notes.push({ at: now(), status, note });
+    ledger.history.push({ at: now(), event: "status", groupId: freshGroup.id, status, note });
+    return { ...freshGroup };
+  });
+  Object.assign(group, updatedGroup);
+  return group;
+}
+
+function leaseGroups(groupIds, { agentPrefix, eventName, runIds = new Map() }) {
+  return updateLedger((ledger) => {
+    const leased = [];
+    for (const groupId of groupIds) {
+      const group = itemById(ledger, groupId);
+      if (group.status !== "pending") continue;
+      const runId = runIds.get(groupId);
+      const agent = runId ? `${agentPrefix}:${runId}` : `${agentPrefix}:${group.id}`;
+      group.status = "leased";
+      group.lease = { agent, at: now() };
+      group.attempts.push({ at: now(), event: eventName, ...(runId ? { runId } : {}) });
+      leased.push({ ...group });
+    }
+    return leased;
+  });
 }
 
 function commandRelease(id) {
@@ -476,7 +549,10 @@ function commandPrompt(id) {
 
 function ensureWorktree(group, execute) {
   mkdirSync(worktreesRoot, { recursive: true });
-  if (existsSync(group.worktreePath)) return;
+  if (existsSync(group.worktreePath)) {
+    ensureWorktreeDependencies(group, execute);
+    return;
+  }
   const branchExists = shell("git", ["show-ref", "--verify", "--quiet", `refs/heads/${group.branch}`]).status === 0;
   const args = branchExists
     ? ["worktree", "add", group.worktreePath, group.branch]
@@ -486,6 +562,25 @@ function ensureWorktree(group, execute) {
     return;
   }
   mustShell("git", args, { cwd: repoRoot, stdio: "inherit" });
+  ensureWorktreeDependencies(group, execute);
+}
+
+function ensureWorktreeDependencies(group, execute) {
+  const sourceNodeModules = path.join(archRoot, "node_modules");
+  const worktreeNodeModules = path.join(group.worktreePath, "Praxis_Agent_Architecture", "node_modules");
+
+  if (!existsSync(sourceNodeModules) || existsSync(worktreeNodeModules)) return;
+
+  if (!execute) {
+    console.log(`dry-run: ln -s ${sourceNodeModules} ${worktreeNodeModules}`);
+    return;
+  }
+
+  try {
+    symlinkSync(sourceNodeModules, worktreeNodeModules, "dir");
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  }
 }
 
 function roleWorkspace(group, role, useWorktree) {
@@ -563,8 +658,6 @@ function runRoleSync(group, role, { execute, worktree }) {
 }
 
 function commandPipeline(id) {
-  const ledger = loadLedger();
-  const group = itemById(ledger, id);
   const execute = has("--execute");
   const worktree = has("--worktree");
   const roles = (arg("--roles", "worker,reviewer,merge") ?? "worker,reviewer,merge").split(",").map((item) => item.trim()).filter(Boolean);
@@ -573,13 +666,15 @@ function commandPipeline(id) {
     reviewer: ["reviewing", "reviewed"],
     merge: ["merging", "done"],
   };
+  let group = itemById(loadLedger(), id);
   if (worktree) ensureWorktree(group, execute);
   for (const role of roles) {
+    group = itemById(loadLedger(), id);
     const [startStatus, successStatus] = transitions[role] ?? [role, role];
-    if (execute) setGroupStatus(ledger, group, startStatus, `${role} started`);
+    if (execute) setGroupStatus(undefined, group, startStatus, `${role} started`);
     const code = runRoleSync(group, role, { execute, worktree });
     if (code !== 0) {
-      if (execute) setGroupStatus(ledger, group, role === "reviewer" ? "needs_rework" : "failed", `${role} failed`);
+      if (execute) setGroupStatus(undefined, group, role === "reviewer" ? "needs_rework" : "failed", `${role} failed`);
       process.exitCode = code;
       return;
     }
@@ -587,7 +682,7 @@ function commandPipeline(id) {
       const dirty = shell("git", ["status", "--short"], { cwd: repoRoot }).stdout.trim();
       if (dirty.length > 0) {
         setGroupStatus(
-          ledger,
+          undefined,
           group,
           "failed",
           `merge returned success but main worktree is still dirty; merge must commit or report failure: ${dirty.split("\n").slice(0, 6).join(" | ")}`,
@@ -596,7 +691,7 @@ function commandPipeline(id) {
         return;
       }
     } else if (execute) {
-      setGroupStatus(ledger, group, successStatus, `${role} done`);
+      setGroupStatus(undefined, group, successStatus, `${role} done`);
     }
   }
 }
@@ -630,16 +725,22 @@ function commandBatch() {
   const planned = [];
   const active = [...alive];
 
+  const runIds = new Map();
   for (const group of groups) {
     const runId = `${group.id}-${Date.now()}`;
+    runIds.set(group.id, runId);
+  }
+  const leasedGroups = execute
+    ? leaseGroups(groups.map((group) => group.id), { agentPrefix: "batch", eventName: "batch-start", runIds })
+    : groups;
+
+  for (const group of leasedGroups) {
+    const runId = runIds.get(group.id) ?? `${group.id}-${Date.now()}`;
     const args = [scriptPath, "pipeline", group.id, "--roles", roles];
     if (execute) args.push("--execute");
     if (worktree) args.push("--worktree");
     planned.push({ runId, groupId: group.id, args: [process.execPath, ...args] });
     if (execute) {
-      group.status = "leased";
-      group.lease = { agent: `batch:${runId}`, at: now() };
-      group.attempts.push({ at: now(), event: "batch-start", runId });
       const child = spawn(process.execPath, args, {
         cwd: repoRoot,
         detached: true,
@@ -651,8 +752,6 @@ function commandBatch() {
   }
 
   if (execute) {
-    refreshParentStatus(ledger);
-    saveLedger(ledger);
     writeJson(path.join(runsRoot, "active-runs.json"), active);
   }
   console.log(JSON.stringify({ execute, maxActive, currentlyActive: active.length, planned }, null, 2));
@@ -695,12 +794,12 @@ function runMergeRole(group, { execute, worktree }) {
 
   const ledger = loadLedger();
   const freshGroup = itemById(ledger, group.id);
-  if (execute) setGroupStatus(ledger, freshGroup, "merging", "merge started");
+  if (execute) setGroupStatus(undefined, freshGroup, "merging", "merge started");
   const code = runRoleSync(freshGroup, "merge", { execute, worktree });
   if (code !== 0) {
     if (execute) {
       const failedLedger = loadLedger();
-      setGroupStatus(failedLedger, itemById(failedLedger, group.id), "failed", "merge failed");
+      setGroupStatus(undefined, itemById(failedLedger, group.id), "failed", "merge failed");
     }
     process.exitCode = code;
     return false;
@@ -711,7 +810,7 @@ function runMergeRole(group, { execute, worktree }) {
     if (dirtyAfter.length > 0) {
       const failedLedger = loadLedger();
       setGroupStatus(
-        failedLedger,
+        undefined,
         itemById(failedLedger, group.id),
         "failed",
         `merge returned success but main worktree is still dirty; merge must commit or report failure: ${dirtyAfter.split("\n").slice(0, 6).join(" | ")}`,
@@ -814,17 +913,13 @@ async function commandContinue() {
     const planned = [];
 
     if (toStart.length > 0) {
-      for (const group of toStart) {
-        if (execute) {
-          group.status = "leased";
-          group.lease = { agent: `continue:${group.id}`, at: now() };
-          group.attempts.push({ at: now(), event: "continue-start" });
-        }
+      const leasedGroups = execute
+        ? leaseGroups(toStart.map((group) => group.id), { agentPrefix: "continue", eventName: "continue-start" })
+        : toStart;
+      for (const group of leasedGroups) {
         planned.push(startGroupPipeline(group, { execute, worktree, active, roles: "worker,reviewer" }));
       }
       if (execute) {
-        refreshParentStatus(ledger);
-        saveLedger(ledger);
         writeJson(path.join(runsRoot, "active-runs.json"), active);
       }
       console.log(JSON.stringify({ at: now(), event: "continue.started", planned }, null, 2));
@@ -863,6 +958,20 @@ function commandKill(target) {
     } catch {
       // Already gone.
     }
+  }
+  if (selected.length > 0) {
+    const killedGroupIds = new Set(selected.map((run) => run.groupId));
+    updateLedger((ledger) => {
+      for (const groupId of killedGroupIds) {
+        const group = itemById(ledger, groupId);
+        if (["leased", "implementing", "reviewing"].includes(group.status)) {
+          group.status = "pending";
+          group.lease = null;
+          group.notes.push({ at: now(), status: "pending", note: "released by kill command" });
+          ledger.history.push({ at: now(), event: "status", groupId, status: "pending", note: "released by kill command" });
+        }
+      }
+    });
   }
   writeJson(path.join(runsRoot, "active-runs.json"), active.filter((run) => !selected.includes(run)));
   console.log(JSON.stringify({ killed: selected }, null, 2));
