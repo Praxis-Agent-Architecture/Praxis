@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T23:33:41.504Z",
+  "updatedAt": "2026-04-22T23:40:11.215Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -2723,7 +2723,7 @@
       "id": "AC-F-0185",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.test.ts"
@@ -2732,7 +2732,7 @@
       "id": "AC-F-0186",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.test.ts"
@@ -2741,7 +2741,7 @@
       "id": "AC-F-0187",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.test.ts"
@@ -2750,7 +2750,7 @@
       "id": "AC-F-0188",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processSpawning.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processSpawning.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processSpawning.test.ts"
@@ -8938,7 +8938,7 @@
       "id": "AC-G-0047",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0185",
         "AC-F-0186",
@@ -8970,8 +8970,44 @@
       "branch": "codex/agentcore/ac-g-0047",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0047",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-22T23:27:02.861Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T23:27:03.125Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T23:32:50.775Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T23:32:50.795Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T23:37:08.730Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T23:38:58.243Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T23:40:11.215Z",
+          "status": "done",
+          "note": "merge verified and committed"
+        }
+      ]
     },
     {
       "id": "AC-G-0048",
@@ -17687,6 +17723,13 @@
       "groupId": "AC-G-0045",
       "status": "merging",
       "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T23:40:11.215Z",
+      "event": "status",
+      "groupId": "AC-G-0047",
+      "status": "done",
+      "note": "merge verified and committed"
     }
   ],
   "events": [
