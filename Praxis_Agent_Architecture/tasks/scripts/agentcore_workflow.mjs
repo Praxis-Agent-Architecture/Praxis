@@ -362,10 +362,13 @@ function saveActiveRuns(runs) {
 function isPidAlive(pid) {
   try {
     process.kill(pid, 0);
-    return true;
   } catch {
     return false;
   }
+
+  const status = spawnSync("ps", ["-o", "stat=", "-p", String(pid)], { encoding: "utf8" });
+  if (status.status !== 0) return false;
+  return !status.stdout.trim().includes("Z");
 }
 
 function itemById(ledger, id) {
@@ -700,14 +703,7 @@ function commandPipeline(id) {
 
 function reapActiveRuns({ silent = false } = {}) {
   const active = loadJson(path.join(runsRoot, "active-runs.json"), []);
-  const alive = active.filter((run) => {
-    try {
-      process.kill(run.pid, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+  const alive = active.filter((run) => isPidAlive(run.pid));
   const reaped = active.filter((run) => !alive.includes(run));
   writeJson(path.join(runsRoot, "active-runs.json"), alive);
   if (!silent) console.log(JSON.stringify({ alive, reaped }, null, 2));
