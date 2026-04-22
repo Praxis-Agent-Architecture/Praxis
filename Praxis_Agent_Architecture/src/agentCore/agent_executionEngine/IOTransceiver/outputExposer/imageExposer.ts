@@ -7,3 +7,99 @@
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  createOutputExposureEnvelope,
+  hasOutputText,
+  rejectOutputExposure,
+  validateOutputExposureBase,
+  type OutputExposureRequestBase,
+  type OutputExposureResult,
+} from "./textExposer.js";
+
+export type ImageOutputKind = "generated-image" | "edited-image" | "screenshot-annotation" | "vision-analysis";
+
+export type ImageOutputPayload = {
+  kind: ImageOutputKind;
+  format?: string;
+  displayRef?: string;
+  width?: number;
+  height?: number;
+  altText?: string;
+  analysis?: string;
+};
+
+export type ImageOutputExposureRequest = OutputExposureRequestBase & {
+  kind?: ImageOutputKind;
+  format?: string;
+  displayRef?: string;
+  width?: number;
+  height?: number;
+  altText?: string;
+  analysis?: string;
+};
+
+export type ImageOutputExposureResult = OutputExposureResult<"image", ImageOutputPayload>;
+
+function normalizeImagePayload(request: ImageOutputExposureRequest): ImageOutputPayload | undefined {
+  const displayRef = request.displayRef?.trim();
+  const format = request.format?.trim();
+  const altText = request.altText?.trim();
+  const analysis = request.analysis?.trim();
+
+  if (!hasOutputText(displayRef) && !hasOutputText(analysis)) {
+    return undefined;
+  }
+
+  return {
+    kind:
+      request.kind ??
+      (hasOutputText(analysis) && !hasOutputText(displayRef) ? "vision-analysis" : "generated-image"),
+    format: hasOutputText(format) ? format : undefined,
+    displayRef: hasOutputText(displayRef) ? displayRef : undefined,
+    width: request.width,
+    height: request.height,
+    altText: hasOutputText(altText) ? altText : undefined,
+    analysis: hasOutputText(analysis) ? analysis : undefined,
+  };
+}
+
+function hasInvalidImageDimensions(payload: ImageOutputPayload): boolean {
+  return (
+    (payload.width !== undefined && (!Number.isInteger(payload.width) || payload.width <= 0)) ||
+    (payload.height !== undefined && (!Number.isInteger(payload.height) || payload.height <= 0))
+  );
+}
+
+export function exposeImageOutput(request?: ImageOutputExposureRequest): ImageOutputExposureResult {
+  const baseFailure = validateOutputExposureBase<"image", ImageOutputPayload>(request, "image");
+  if (baseFailure !== undefined) {
+    return baseFailure;
+  }
+
+  const safeRequest = request as ImageOutputExposureRequest;
+  const payload = normalizeImagePayload(safeRequest);
+  if (payload === undefined) {
+    return rejectOutputExposure(
+      "MISSING_PAYLOAD",
+      "image output exposure requires a display reference or analysis text",
+      "input",
+      "image",
+    );
+  }
+
+  if (hasInvalidImageDimensions(payload)) {
+    return rejectOutputExposure(
+      "INVALID_PAYLOAD",
+      "image output dimensions must be positive integers",
+      "input",
+      "image",
+    );
+  }
+
+  return {
+    ok: true,
+    exposed: createOutputExposureEnvelope(safeRequest, "image", payload),
+    events: ["output.image.exposure.ready"],
+  };
+}

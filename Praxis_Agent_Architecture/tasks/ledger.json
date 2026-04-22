@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T14:37:00.659Z",
+  "updatedAt": "2026-04-22T14:50:04.272Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -1103,7 +1103,7 @@
       "id": "AC-F-0005",
       "parentId": "AC-SPEC-C:IOTransceiver",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/audioExposer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/audioExposer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/IOTransceiver/outputExposer/audioExposer.test.ts"
@@ -1112,7 +1112,7 @@
       "id": "AC-F-0006",
       "parentId": "AC-SPEC-C:IOTransceiver",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/imageExposer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/imageExposer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/IOTransceiver/outputExposer/imageExposer.test.ts"
@@ -1121,7 +1121,7 @@
       "id": "AC-F-0007",
       "parentId": "AC-SPEC-C:IOTransceiver",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/textExposer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/textExposer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/IOTransceiver/outputExposer/textExposer.test.ts"
@@ -1130,7 +1130,7 @@
       "id": "AC-F-0008",
       "parentId": "AC-SPEC-C:IOTransceiver",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/videoExposer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/videoExposer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/IOTransceiver/outputExposer/videoExposer.test.ts"
@@ -5500,7 +5500,7 @@
       "id": "AC-G-0002",
       "parentId": "AC-SPEC-C:IOTransceiver",
       "bigSpecId": "AC-SPEC-C",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0005",
         "AC-F-0006",
@@ -5532,8 +5532,44 @@
       "branch": "codex/agentcore/ac-g-0002",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0002",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-22T14:42:26.099Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T14:42:26.368Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T14:47:05.443Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T14:47:05.514Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T14:48:11.708Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T14:48:29.238Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T14:49:57.315Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0003",
@@ -11454,6 +11490,48 @@
       "at": "2026-04-22T14:37:00.659Z",
       "event": "status",
       "groupId": "AC-G-0124",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T14:42:26.368Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T14:47:05.443Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T14:47:05.514Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T14:48:11.708Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T14:48:29.238Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T14:49:57.315Z",
+      "event": "status",
+      "groupId": "AC-G-0002",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
