@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T19:15:50.885Z",
+  "updatedAt": "2026-04-22T19:25:03.615Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -9311,7 +9311,7 @@
       "id": "AC-G-0080",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0311",
         "AC-F-0312",
@@ -9342,9 +9342,48 @@
       ],
       "branch": "codex/agentcore/ac-g-0080",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0080",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0080",
+        "at": "2026-04-22T19:17:02.548Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T19:17:02.548Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T19:17:02.878Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:22:02.554Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:22:02.565Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:22:58.661Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:23:05.709Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T19:25:03.615Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0081",
@@ -13121,6 +13160,13 @@
       "at": "2026-04-22T19:15:50.885Z",
       "event": "status",
       "groupId": "AC-G-0078",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:25:03.615Z",
+      "event": "status",
+      "groupId": "AC-G-0080",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
