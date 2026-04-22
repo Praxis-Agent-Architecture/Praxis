@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T21:54:34.753Z",
+  "updatedAt": "2026-04-22T21:57:00.341Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -1751,7 +1751,7 @@
       "id": "AC-F-0077",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.test.ts"
@@ -1760,7 +1760,7 @@
       "id": "AC-F-0078",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.checkoutTarget.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.checkoutTarget.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.checkoutTarget.test.ts"
@@ -1769,7 +1769,7 @@
       "id": "AC-F-0079",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageBranch.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageBranch.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageBranch.test.ts"
@@ -1778,7 +1778,7 @@
       "id": "AC-F-0080",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageTag.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageTag.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageTag.test.ts"
@@ -1895,7 +1895,7 @@
       "id": "AC-F-0093",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.test.ts"
@@ -1904,7 +1904,7 @@
       "id": "AC-F-0094",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.test.ts"
@@ -1913,7 +1913,7 @@
       "id": "AC-F-0095",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.test.ts"
@@ -1922,7 +1922,7 @@
       "id": "AC-F-0096",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.fetchRemoteUpdates.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.fetchRemoteUpdates.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.fetchRemoteUpdates.test.ts"
@@ -1931,7 +1931,7 @@
       "id": "AC-F-0097",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.manageRemote.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.manageRemote.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.manageRemote.test.ts"
@@ -1940,7 +1940,7 @@
       "id": "AC-F-0098",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.test.ts"
@@ -1949,7 +1949,7 @@
       "id": "AC-F-0099",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pushLocalChanges.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pushLocalChanges.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pushLocalChanges.test.ts"
@@ -1958,7 +1958,7 @@
       "id": "AC-F-0100",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.archiveRepository.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.archiveRepository.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.archiveRepository.test.ts"
@@ -1967,7 +1967,7 @@
       "id": "AC-F-0101",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.cloneRepository.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.cloneRepository.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.cloneRepository.test.ts"
@@ -1976,7 +1976,7 @@
       "id": "AC-F-0102",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.test.ts"
@@ -1985,7 +1985,7 @@
       "id": "AC-F-0103",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.addToStaging.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.addToStaging.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.addToStaging.test.ts"
@@ -1994,7 +1994,7 @@
       "id": "AC-F-0104",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.test.ts"
@@ -2003,7 +2003,7 @@
       "id": "AC-F-0105",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.test.ts"
@@ -2012,7 +2012,7 @@
       "id": "AC-F-0106",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.applyStashChanges.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.applyStashChanges.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.applyStashChanges.test.ts"
@@ -2021,7 +2021,7 @@
       "id": "AC-F-0107",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.test.ts"
@@ -2030,7 +2030,7 @@
       "id": "AC-F-0108",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.test.ts"
@@ -7219,7 +7219,7 @@
       "id": "AC-G-0024",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0093",
         "AC-F-0094",
@@ -7251,14 +7251,50 @@
       "branch": "codex/agentcore/ac-g-0024",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0024",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-22T21:39:28.144Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T21:39:28.635Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T21:46:23.348Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T21:46:23.379Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T21:52:13.869Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T21:55:24.754Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T21:57:00.341Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0025",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "fileTaskIds": [
         "AC-F-0097",
         "AC-F-0098",
@@ -7289,15 +7325,44 @@
       ],
       "branch": "codex/agentcore/ac-g-0025",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0025",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0025",
+        "at": "2026-04-22T21:39:28.144Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T21:39:28.144Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T21:39:28.666Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T21:45:25.864Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T21:45:25.930Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T21:51:09.285Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        }
+      ]
     },
     {
       "id": "AC-G-0026",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "fileTaskIds": [
         "AC-F-0101",
         "AC-F-0102",
@@ -7328,15 +7393,44 @@
       ],
       "branch": "codex/agentcore/ac-g-0026",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0026",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0026",
+        "at": "2026-04-22T21:39:28.144Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T21:39:28.144Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T21:39:28.868Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T21:44:49.212Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T21:44:49.253Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T21:48:47.779Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        }
+      ]
     },
     {
       "id": "AC-G-0027",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "pending",
+      "status": "reviewed",
       "fileTaskIds": [
         "AC-F-0105",
         "AC-F-0106",
@@ -7367,9 +7461,38 @@
       ],
       "branch": "codex/agentcore/ac-g-0027",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0027",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0027",
+        "at": "2026-04-22T21:39:28.144Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T21:39:28.144Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T21:39:28.767Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T21:44:28.147Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T21:44:28.189Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T21:48:39.584Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        }
+      ]
     },
     {
       "id": "AC-G-0028",
@@ -15397,48 +15520,6 @@
       "note": "merge started"
     },
     {
-      "at": "2026-04-22T20:44:57.752Z",
-      "event": "status",
-      "groupId": "AC-G-0011",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T20:51:14.006Z",
-      "event": "status",
-      "groupId": "AC-G-0011",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T20:51:14.018Z",
-      "event": "status",
-      "groupId": "AC-G-0011",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T20:52:19.874Z",
-      "event": "status",
-      "groupId": "AC-G-0011",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T20:52:24.493Z",
-      "event": "status",
-      "groupId": "AC-G-0011",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T20:54:46.494Z",
-      "event": "status",
-      "groupId": "AC-G-0011",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
       "at": "2026-04-22T20:44:57.216Z",
       "event": "status",
       "groupId": "AC-G-0007",
@@ -15446,44 +15527,37 @@
       "note": "worker started"
     },
     {
-      "at": "2026-04-22T20:50:17.658Z",
+      "at": "2026-04-22T20:44:57.424Z",
       "event": "status",
-      "groupId": "AC-G-0007",
-      "status": "implemented",
-      "note": "worker done"
+      "groupId": "AC-G-0012",
+      "status": "implementing",
+      "note": "worker started"
     },
     {
-      "at": "2026-04-22T20:50:17.728Z",
+      "at": "2026-04-22T20:44:57.550Z",
       "event": "status",
-      "groupId": "AC-G-0007",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T20:52:53.573Z",
-      "event": "status",
-      "groupId": "AC-G-0007",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T20:56:07.898Z",
-      "event": "status",
-      "groupId": "AC-G-0007",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T20:58:16.667Z",
-      "event": "status",
-      "groupId": "AC-G-0007",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
+      "groupId": "AC-G-0014",
+      "status": "implementing",
+      "note": "worker started"
     },
     {
       "at": "2026-04-22T20:44:57.651Z",
       "event": "status",
       "groupId": "AC-G-0010",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T20:44:57.685Z",
+      "event": "status",
+      "groupId": "AC-G-0013",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T20:44:57.752Z",
+      "event": "status",
+      "groupId": "AC-G-0011",
       "status": "implementing",
       "note": "worker started"
     },
@@ -15502,32 +15576,18 @@
       "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T20:54:32.078Z",
+      "at": "2026-04-22T20:50:17.658Z",
       "event": "status",
-      "groupId": "AC-G-0010",
-      "status": "reviewed",
-      "note": "reviewer done"
+      "groupId": "AC-G-0007",
+      "status": "implemented",
+      "note": "worker done"
     },
     {
-      "at": "2026-04-22T20:59:43.851Z",
+      "at": "2026-04-22T20:50:17.728Z",
       "event": "status",
-      "groupId": "AC-G-0010",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T21:01:09.594Z",
-      "event": "status",
-      "groupId": "AC-G-0010",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T20:44:57.424Z",
-      "event": "status",
-      "groupId": "AC-G-0012",
-      "status": "implementing",
-      "note": "worker started"
+      "groupId": "AC-G-0007",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
       "at": "2026-04-22T20:50:44.376Z",
@@ -15544,11 +15604,130 @@
       "note": "reviewer started"
     },
     {
+      "at": "2026-04-22T20:51:14.006Z",
+      "event": "status",
+      "groupId": "AC-G-0011",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T20:51:14.018Z",
+      "event": "status",
+      "groupId": "AC-G-0011",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T20:51:21.241Z",
+      "event": "status",
+      "groupId": "AC-G-0014",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T20:51:21.256Z",
+      "event": "status",
+      "groupId": "AC-G-0014",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T20:51:24.911Z",
+      "event": "status",
+      "groupId": "AC-G-0013",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T20:51:24.923Z",
+      "event": "status",
+      "groupId": "AC-G-0013",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T20:52:19.874Z",
+      "event": "status",
+      "groupId": "AC-G-0011",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T20:52:23.934Z",
+      "event": "status",
+      "groupId": "AC-G-0013",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T20:52:24.493Z",
+      "event": "status",
+      "groupId": "AC-G-0011",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T20:52:32.523Z",
+      "event": "status",
+      "groupId": "AC-G-0014",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T20:52:53.573Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
       "at": "2026-04-22T20:53:58.554Z",
       "event": "status",
       "groupId": "AC-G-0012",
       "status": "reviewed",
       "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T20:54:32.078Z",
+      "event": "status",
+      "groupId": "AC-G-0010",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T20:54:46.494Z",
+      "event": "status",
+      "groupId": "AC-G-0011",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T20:56:07.898Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T20:58:16.667Z",
+      "event": "status",
+      "groupId": "AC-G-0007",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T20:59:43.851Z",
+      "event": "status",
+      "groupId": "AC-G-0010",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:01:09.594Z",
+      "event": "status",
+      "groupId": "AC-G-0010",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
       "at": "2026-04-22T21:02:44.329Z",
@@ -15565,11 +15744,81 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
+      "at": "2026-04-22T21:05:38.407Z",
+      "event": "status",
+      "groupId": "AC-G-0013",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:08:11.420Z",
+      "event": "status",
+      "groupId": "AC-G-0014",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:09:45.243Z",
+      "event": "status",
+      "groupId": "AC-G-0014",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:11:19.444Z",
+      "event": "status",
+      "groupId": "AC-G-0017",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:11:19.569Z",
+      "event": "status",
+      "groupId": "AC-G-0019",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:11:19.669Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:11:19.695Z",
+      "event": "status",
+      "groupId": "AC-G-0016",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:11:19.825Z",
+      "event": "status",
+      "groupId": "AC-G-0018",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
       "at": "2026-04-22T21:11:19.926Z",
       "event": "status",
       "groupId": "AC-G-0020",
       "status": "implementing",
       "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:15:22.744Z",
+      "event": "status",
+      "groupId": "AC-G-0017",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T21:15:22.756Z",
+      "event": "status",
+      "groupId": "AC-G-0017",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
       "at": "2026-04-22T21:15:33.448Z",
@@ -15600,60 +15849,32 @@
       "note": "merge started"
     },
     {
-      "at": "2026-04-22T21:18:22.215Z",
+      "at": "2026-04-22T21:16:31.654Z",
       "event": "status",
-      "groupId": "AC-G-0020",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T21:11:19.444Z",
-      "event": "status",
-      "groupId": "AC-G-0017",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T21:15:22.744Z",
-      "event": "status",
-      "groupId": "AC-G-0017",
+      "groupId": "AC-G-0018",
       "status": "implemented",
       "note": "worker done"
     },
     {
-      "at": "2026-04-22T21:15:22.756Z",
+      "at": "2026-04-22T21:16:31.667Z",
       "event": "status",
-      "groupId": "AC-G-0017",
+      "groupId": "AC-G-0018",
       "status": "reviewing",
       "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T21:20:33.623Z",
+      "at": "2026-04-22T21:16:34.020Z",
       "event": "status",
-      "groupId": "AC-G-0017",
-      "status": "reviewed",
-      "note": "reviewer done"
+      "groupId": "AC-G-0016",
+      "status": "implemented",
+      "note": "worker done"
     },
     {
-      "at": "2026-04-22T21:20:43.757Z",
+      "at": "2026-04-22T21:16:34.034Z",
       "event": "status",
-      "groupId": "AC-G-0017",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T21:22:57.236Z",
-      "event": "status",
-      "groupId": "AC-G-0017",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T21:11:19.669Z",
-      "event": "status",
-      "groupId": "AC-G-0015",
-      "status": "implementing",
-      "note": "worker started"
+      "groupId": "AC-G-0016",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
       "at": "2026-04-22T21:16:39.943Z",
@@ -15670,34 +15891,6 @@
       "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T21:21:21.971Z",
-      "event": "status",
-      "groupId": "AC-G-0015",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T21:24:15.322Z",
-      "event": "status",
-      "groupId": "AC-G-0015",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T21:26:12.982Z",
-      "event": "status",
-      "groupId": "AC-G-0015",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T21:11:19.569Z",
-      "event": "status",
-      "groupId": "AC-G-0019",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
       "at": "2026-04-22T21:17:44.941Z",
       "event": "status",
       "groupId": "AC-G-0019",
@@ -15712,11 +15905,116 @@
       "note": "reviewer started"
     },
     {
+      "at": "2026-04-22T21:18:22.215Z",
+      "event": "status",
+      "groupId": "AC-G-0020",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:19:41.714Z",
+      "event": "status",
+      "groupId": "AC-G-0021",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:20:33.623Z",
+      "event": "status",
+      "groupId": "AC-G-0017",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:20:41.944Z",
+      "event": "status",
+      "groupId": "AC-G-0018",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:20:43.757Z",
+      "event": "status",
+      "groupId": "AC-G-0017",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:21:21.971Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:21:58.111Z",
+      "event": "status",
+      "groupId": "AC-G-0016",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:22:57.236Z",
+      "event": "status",
+      "groupId": "AC-G-0017",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
       "at": "2026-04-22T21:23:18.002Z",
       "event": "status",
       "groupId": "AC-G-0019",
       "status": "reviewed",
       "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:24:15.322Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:24:40.420Z",
+      "event": "status",
+      "groupId": "AC-G-0021",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T21:24:40.434Z",
+      "event": "status",
+      "groupId": "AC-G-0021",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T21:25:42.523Z",
+      "event": "status",
+      "groupId": "AC-G-0021",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:26:12.982Z",
+      "event": "status",
+      "groupId": "AC-G-0015",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:27:36.809Z",
+      "event": "status",
+      "groupId": "AC-G-0016",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:30:55.846Z",
+      "event": "status",
+      "groupId": "AC-G-0018",
+      "status": "merging",
+      "note": "merge started"
     },
     {
       "at": "2026-04-22T21:33:44.836Z",
@@ -15733,9 +16031,51 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
+      "at": "2026-04-22T21:36:31.200Z",
+      "event": "status",
+      "groupId": "AC-G-0021",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
       "at": "2026-04-22T21:39:28.409Z",
       "event": "status",
       "groupId": "AC-G-0022",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:39:28.535Z",
+      "event": "status",
+      "groupId": "AC-G-0023",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:39:28.635Z",
+      "event": "status",
+      "groupId": "AC-G-0024",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:39:28.666Z",
+      "event": "status",
+      "groupId": "AC-G-0025",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:39:28.767Z",
+      "event": "status",
+      "groupId": "AC-G-0027",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T21:39:28.868Z",
+      "event": "status",
+      "groupId": "AC-G-0026",
       "status": "implementing",
       "note": "worker started"
     },
@@ -15754,32 +16094,32 @@
       "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T21:48:39.930Z",
+      "at": "2026-04-22T21:44:28.147Z",
       "event": "status",
-      "groupId": "AC-G-0022",
-      "status": "reviewed",
-      "note": "reviewer done"
+      "groupId": "AC-G-0027",
+      "status": "implemented",
+      "note": "worker done"
     },
     {
-      "at": "2026-04-22T21:48:48.580Z",
+      "at": "2026-04-22T21:44:28.189Z",
       "event": "status",
-      "groupId": "AC-G-0022",
-      "status": "merging",
-      "note": "merge started"
+      "groupId": "AC-G-0027",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
-      "at": "2026-04-22T21:51:42.692Z",
+      "at": "2026-04-22T21:44:49.212Z",
       "event": "status",
-      "groupId": "AC-G-0022",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
+      "groupId": "AC-G-0026",
+      "status": "implemented",
+      "note": "worker done"
     },
     {
-      "at": "2026-04-22T21:39:28.535Z",
+      "at": "2026-04-22T21:44:49.253Z",
       "event": "status",
-      "groupId": "AC-G-0023",
-      "status": "implementing",
-      "note": "worker started"
+      "groupId": "AC-G-0026",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
       "at": "2026-04-22T21:45:13.993Z",
@@ -15796,9 +16136,86 @@
       "note": "reviewer started"
     },
     {
+      "at": "2026-04-22T21:45:25.864Z",
+      "event": "status",
+      "groupId": "AC-G-0025",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T21:45:25.930Z",
+      "event": "status",
+      "groupId": "AC-G-0025",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T21:46:23.348Z",
+      "event": "status",
+      "groupId": "AC-G-0024",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T21:46:23.379Z",
+      "event": "status",
+      "groupId": "AC-G-0024",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T21:48:39.584Z",
+      "event": "status",
+      "groupId": "AC-G-0027",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:48:39.930Z",
+      "event": "status",
+      "groupId": "AC-G-0022",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:48:47.779Z",
+      "event": "status",
+      "groupId": "AC-G-0026",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:48:48.580Z",
+      "event": "status",
+      "groupId": "AC-G-0022",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T21:51:09.285Z",
+      "event": "status",
+      "groupId": "AC-G-0025",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
       "at": "2026-04-22T21:51:15.715Z",
       "event": "status",
       "groupId": "AC-G-0023",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T21:51:42.692Z",
+      "event": "status",
+      "groupId": "AC-G-0022",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:52:13.869Z",
+      "event": "status",
+      "groupId": "AC-G-0024",
       "status": "reviewed",
       "note": "reviewer done"
     },
@@ -15815,6 +16232,13 @@
       "groupId": "AC-G-0023",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:55:24.754Z",
+      "event": "status",
+      "groupId": "AC-G-0024",
+      "status": "merging",
+      "note": "merge started"
     }
   ],
   "events": [
@@ -15913,6 +16337,13 @@
       "at": "2026-04-22T21:37:23.033Z",
       "event": "status",
       "groupId": "AC-G-0021",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T21:57:00.341Z",
+      "event": "status",
+      "groupId": "AC-G-0024",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
