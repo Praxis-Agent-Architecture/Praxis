@@ -56,7 +56,7 @@
     {
       "id": "AC-SPEC-D",
       "title": "模型适配链",
-      "status": "in_progress",
+      "status": "done",
       "smallSpecIds": [
         "AC-SPEC-D:abstractionLayer",
         "AC-SPEC-D:actualInvocationLayer",
@@ -488,7 +488,7 @@
       "id": "AC-SPEC-D:abstractionLayer",
       "parentId": "AC-SPEC-D",
       "title": "abstractionLayer",
-      "status": "in_progress",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0067",
         "AC-G-0068",
@@ -512,7 +512,7 @@
       "id": "AC-SPEC-D:actualInvocationLayer",
       "parentId": "AC-SPEC-D",
       "title": "actualInvocationLayer",
-      "status": "in_progress",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0070",
         "AC-G-0071",
@@ -616,7 +616,7 @@
       "id": "AC-SPEC-D:bridgingLayer",
       "parentId": "AC-SPEC-D",
       "title": "bridgingLayer",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0089"
       ],
@@ -3605,7 +3605,7 @@
       "id": "AC-F-0283",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.test.ts"
@@ -3614,7 +3614,7 @@
       "id": "AC-F-0284",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customizer.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customizer.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customizer.test.ts"
@@ -3623,7 +3623,7 @@
       "id": "AC-F-0285",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.test.ts"
@@ -3632,7 +3632,7 @@
       "id": "AC-F-0286",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_files.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_files.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_files.test.ts"
@@ -3857,7 +3857,7 @@
       "id": "AC-F-0311",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_completions.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_completions.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_completions.test.ts"
@@ -3866,7 +3866,7 @@
       "id": "AC-F-0312",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_containers.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_containers.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_containers.test.ts"
@@ -3875,7 +3875,7 @@
       "id": "AC-F-0313",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_conversations.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_conversations.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_conversations.test.ts"
@@ -3884,7 +3884,7 @@
       "id": "AC-F-0314",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_embeddings.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_embeddings.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_embeddings.test.ts"
@@ -9111,9 +9111,43 @@
       ],
       "branch": "codex/agentcore/ac-g-0075",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0075",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0075",
+        "at": "2026-04-22T18:54:32.868Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T18:54:32.868Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T18:54:33.301Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:00:45.956Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:00:45.967Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:02:35.499Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:07:26.896Z",
+          "status": "merging",
+          "note": "merge started"
+        }
+      ]
     },
     {
       "id": "AC-G-0076",
@@ -9150,9 +9184,43 @@
       ],
       "branch": "codex/agentcore/ac-g-0076",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0076",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0076",
+        "at": "2026-04-22T18:54:32.868Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T18:54:32.868Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T18:54:33.199Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:00:40.892Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:00:40.941Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:03:33.545Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:09:34.256Z",
+          "status": "merging",
+          "note": "merge started"
+        }
+      ]
     },
     {
       "id": "AC-G-0077",
@@ -9189,9 +9257,43 @@
       ],
       "branch": "codex/agentcore/ac-g-0077",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0077",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0077",
+        "at": "2026-04-22T18:54:32.868Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T18:54:32.868Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T18:54:33.096Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:00:14.554Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:00:14.594Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:03:53.196Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:12:25.128Z",
+          "status": "merging",
+          "note": "merge started"
+        }
+      ]
     },
     {
       "id": "AC-G-0078",
@@ -9538,10 +9640,40 @@
       "branch": "codex/agentcore/ac-g-0082",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0082",
       "lease": null,
-      "attempts": [],
+      "attempts": [
+        {
+          "at": "2026-04-22T19:17:17.668Z",
+          "event": "continue-start"
+        }
+      ],
       "notes": [
         {
-          "at": "2026-04-22T19:35:45.801Z",
+          "at": "2026-04-22T19:17:18.201Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:23:28.431Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:23:28.441Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:25:38.482Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:32:56.807Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T19:34:45.620Z",
           "status": "done",
           "note": "merge verified: typecheck and test:agentCore passed"
         }
@@ -9660,9 +9792,43 @@
       ],
       "branch": "codex/agentcore/ac-g-0084",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0084",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0084",
+        "at": "2026-04-22T19:17:17.668Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T19:17:17.668Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T19:17:18.100Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:23:06.373Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:23:06.414Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:23:55.420Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:39:43.403Z",
+          "status": "merging",
+          "note": "merge started"
+        }
+      ]
     },
     {
       "id": "AC-G-0085",
@@ -9852,9 +10018,42 @@
       ],
       "branch": "codex/agentcore/ac-g-0087",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0087",
-      "lease": null,
-      "attempts": [],
+      "lease": {
+        "agent": "continue:AC-G-0087",
+        "at": "2026-04-22T19:42:16.791Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T19:42:16.791Z",
+          "event": "continue-start"
+        }
+      ],
       "notes": [
+        {
+          "at": "2026-04-22T19:42:17.042Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:48:09.215Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:48:09.353Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:51:16.889Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:59:35.209Z",
+          "status": "merging",
+          "note": "merge started"
+        },
         {
           "at": "2026-04-22T20:01:14.196Z",
           "status": "done",
@@ -11512,8 +11711,38 @@
       "branch": "codex/agentcore/ac-g-0120",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0120",
       "lease": null,
-      "attempts": [],
+      "attempts": [
+        {
+          "at": "2026-04-22T19:42:16.791Z",
+          "event": "continue-start"
+        }
+      ],
       "notes": [
+        {
+          "at": "2026-04-22T19:42:17.453Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:47:20.522Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:47:20.634Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:49:21.238Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:49:21.663Z",
+          "status": "merging",
+          "note": "merge started"
+        },
         {
           "at": "2026-04-22T19:51:28.730Z",
           "status": "done",
@@ -13392,46 +13621,39 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
+      "at": "2026-04-22T18:54:33.096Z",
+      "event": "status",
+      "groupId": "AC-G-0077",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T18:54:33.199Z",
+      "event": "status",
+      "groupId": "AC-G-0076",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T18:54:33.301Z",
+      "event": "status",
+      "groupId": "AC-G-0075",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T18:54:33.403Z",
+      "event": "status",
+      "groupId": "AC-G-0078",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
       "at": "2026-04-22T18:54:33.505Z",
       "event": "status",
       "groupId": "AC-G-0073",
       "status": "implementing",
       "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T19:00:31.109Z",
-      "event": "status",
-      "groupId": "AC-G-0073",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T19:00:31.145Z",
-      "event": "status",
-      "groupId": "AC-G-0073",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T19:01:51.354Z",
-      "event": "status",
-      "groupId": "AC-G-0073",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T19:02:06.276Z",
-      "event": "status",
-      "groupId": "AC-G-0073",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T19:03:43.546Z",
-      "event": "status",
-      "groupId": "AC-G-0073",
-      "status": "done",
-      "note": "merge done"
     },
     {
       "at": "2026-04-22T18:54:33.607Z",
@@ -13455,9 +13677,121 @@
       "note": "reviewer started"
     },
     {
+      "at": "2026-04-22T19:00:14.554Z",
+      "event": "status",
+      "groupId": "AC-G-0077",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:00:14.594Z",
+      "event": "status",
+      "groupId": "AC-G-0077",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:00:29.976Z",
+      "event": "status",
+      "groupId": "AC-G-0078",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:00:30.082Z",
+      "event": "status",
+      "groupId": "AC-G-0078",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:00:31.109Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:00:31.145Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:00:40.892Z",
+      "event": "status",
+      "groupId": "AC-G-0076",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:00:40.941Z",
+      "event": "status",
+      "groupId": "AC-G-0076",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:00:45.956Z",
+      "event": "status",
+      "groupId": "AC-G-0075",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:00:45.967Z",
+      "event": "status",
+      "groupId": "AC-G-0075",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:01:51.354Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
       "at": "2026-04-22T19:01:54.093Z",
       "event": "status",
       "groupId": "AC-G-0074",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:02:06.276Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:02:35.499Z",
+      "event": "status",
+      "groupId": "AC-G-0075",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:03:33.545Z",
+      "event": "status",
+      "groupId": "AC-G-0076",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:03:43.546Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "done",
+      "note": "merge done"
+    },
+    {
+      "at": "2026-04-22T19:03:53.196Z",
+      "event": "status",
+      "groupId": "AC-G-0077",
       "status": "reviewed",
       "note": "reviewer done"
     },
@@ -13469,6 +13803,13 @@
       "note": "merge started"
     },
     {
+      "at": "2026-04-22T19:05:39.575Z",
+      "event": "status",
+      "groupId": "AC-G-0078",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
       "at": "2026-04-22T19:06:15.426Z",
       "event": "status",
       "groupId": "AC-G-0074",
@@ -13476,11 +13817,130 @@
       "note": "merge done"
     },
     {
+      "at": "2026-04-22T19:07:26.896Z",
+      "event": "status",
+      "groupId": "AC-G-0075",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:09:34.256Z",
+      "event": "status",
+      "groupId": "AC-G-0076",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:12:25.128Z",
+      "event": "status",
+      "groupId": "AC-G-0077",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:14:38.779Z",
+      "event": "status",
+      "groupId": "AC-G-0078",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
       "at": "2026-04-22T19:17:02.777Z",
       "event": "status",
       "groupId": "AC-G-0079",
       "status": "implementing",
       "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:17:02.878Z",
+      "event": "status",
+      "groupId": "AC-G-0080",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:17:17.897Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:17:17.997Z",
+      "event": "status",
+      "groupId": "AC-G-0083",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:17:18.100Z",
+      "event": "status",
+      "groupId": "AC-G-0084",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:17:18.201Z",
+      "event": "status",
+      "groupId": "AC-G-0082",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:22:02.554Z",
+      "event": "status",
+      "groupId": "AC-G-0080",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:22:02.565Z",
+      "event": "status",
+      "groupId": "AC-G-0080",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:22:58.661Z",
+      "event": "status",
+      "groupId": "AC-G-0080",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:23:05.709Z",
+      "event": "status",
+      "groupId": "AC-G-0080",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:23:06.373Z",
+      "event": "status",
+      "groupId": "AC-G-0084",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:23:06.414Z",
+      "event": "status",
+      "groupId": "AC-G-0084",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:23:13.475Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:23:13.487Z",
+      "event": "status",
+      "groupId": "AC-G-0081",
+      "status": "reviewing",
+      "note": "reviewer started"
     },
     {
       "at": "2026-04-22T19:23:14.023Z",
@@ -13495,6 +13955,55 @@
       "groupId": "AC-G-0079",
       "status": "reviewing",
       "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:23:28.431Z",
+      "event": "status",
+      "groupId": "AC-G-0082",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:23:28.441Z",
+      "event": "status",
+      "groupId": "AC-G-0082",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:23:28.843Z",
+      "event": "status",
+      "groupId": "AC-G-0083",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:23:28.854Z",
+      "event": "status",
+      "groupId": "AC-G-0083",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:23:55.420Z",
+      "event": "status",
+      "groupId": "AC-G-0084",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:24:31.204Z",
+      "event": "status",
+      "groupId": "AC-G-0083",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:25:38.482Z",
+      "event": "status",
+      "groupId": "AC-G-0082",
+      "status": "reviewed",
+      "note": "reviewer done"
     },
     {
       "at": "2026-04-22T19:26:16.017Z",
@@ -13518,27 +14027,6 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
-      "at": "2026-04-22T19:17:17.897Z",
-      "event": "status",
-      "groupId": "AC-G-0081",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T19:23:13.475Z",
-      "event": "status",
-      "groupId": "AC-G-0081",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T19:23:13.487Z",
-      "event": "status",
-      "groupId": "AC-G-0081",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
       "at": "2026-04-22T19:27:16.588Z",
       "event": "status",
       "groupId": "AC-G-0081",
@@ -13560,39 +14048,18 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
-      "at": "2026-04-22T19:35:45.801Z",
+      "at": "2026-04-22T19:32:56.807Z",
+      "event": "status",
+      "groupId": "AC-G-0082",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:34:45.620Z",
       "event": "status",
       "groupId": "AC-G-0082",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T19:17:17.997Z",
-      "event": "status",
-      "groupId": "AC-G-0083",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T19:23:28.843Z",
-      "event": "status",
-      "groupId": "AC-G-0083",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T19:23:28.854Z",
-      "event": "status",
-      "groupId": "AC-G-0083",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T19:24:31.204Z",
-      "event": "status",
-      "groupId": "AC-G-0083",
-      "status": "reviewed",
-      "note": "reviewer done"
     },
     {
       "at": "2026-04-22T19:36:18.096Z",
@@ -13609,6 +14076,34 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
+      "at": "2026-04-22T19:39:43.403Z",
+      "event": "status",
+      "groupId": "AC-G-0084",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:42:17.042Z",
+      "event": "status",
+      "groupId": "AC-G-0087",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:42:17.144Z",
+      "event": "status",
+      "groupId": "AC-G-0088",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:42:17.247Z",
+      "event": "status",
+      "groupId": "AC-G-0089",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
       "at": "2026-04-22T19:42:17.352Z",
       "event": "status",
       "groupId": "AC-G-0085",
@@ -13616,86 +14111,16 @@
       "note": "worker started"
     },
     {
-      "at": "2026-04-22T19:48:17.611Z",
+      "at": "2026-04-22T19:42:17.453Z",
       "event": "status",
-      "groupId": "AC-G-0085",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T19:48:17.681Z",
-      "event": "status",
-      "groupId": "AC-G-0085",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T19:50:43.906Z",
-      "event": "status",
-      "groupId": "AC-G-0085",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T19:53:10.579Z",
-      "event": "status",
-      "groupId": "AC-G-0085",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T19:55:24.444Z",
-      "event": "status",
-      "groupId": "AC-G-0085",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
+      "groupId": "AC-G-0120",
+      "status": "implementing",
+      "note": "worker started"
     },
     {
       "at": "2026-04-22T19:42:17.556Z",
       "event": "status",
       "groupId": "AC-G-0086",
-      "status": "implementing",
-      "note": "worker started"
-    },
-    {
-      "at": "2026-04-22T19:48:42.497Z",
-      "event": "status",
-      "groupId": "AC-G-0086",
-      "status": "implemented",
-      "note": "worker done"
-    },
-    {
-      "at": "2026-04-22T19:48:42.532Z",
-      "event": "status",
-      "groupId": "AC-G-0086",
-      "status": "reviewing",
-      "note": "reviewer started"
-    },
-    {
-      "at": "2026-04-22T19:53:30.983Z",
-      "event": "status",
-      "groupId": "AC-G-0086",
-      "status": "reviewed",
-      "note": "reviewer done"
-    },
-    {
-      "at": "2026-04-22T19:56:45.929Z",
-      "event": "status",
-      "groupId": "AC-G-0086",
-      "status": "merging",
-      "note": "merge started"
-    },
-    {
-      "at": "2026-04-22T19:58:23.172Z",
-      "event": "status",
-      "groupId": "AC-G-0086",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T19:42:17.144Z",
-      "event": "status",
-      "groupId": "AC-G-0088",
       "status": "implementing",
       "note": "worker started"
     },
@@ -13714,11 +14139,165 @@
       "note": "reviewer started"
     },
     {
+      "at": "2026-04-22T19:47:20.522Z",
+      "event": "status",
+      "groupId": "AC-G-0120",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:47:20.634Z",
+      "event": "status",
+      "groupId": "AC-G-0120",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:47:59.731Z",
+      "event": "status",
+      "groupId": "AC-G-0089",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:47:59.761Z",
+      "event": "status",
+      "groupId": "AC-G-0089",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:48:09.215Z",
+      "event": "status",
+      "groupId": "AC-G-0087",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:48:09.353Z",
+      "event": "status",
+      "groupId": "AC-G-0087",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:48:17.611Z",
+      "event": "status",
+      "groupId": "AC-G-0085",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:48:17.681Z",
+      "event": "status",
+      "groupId": "AC-G-0085",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:48:42.497Z",
+      "event": "status",
+      "groupId": "AC-G-0086",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:48:42.532Z",
+      "event": "status",
+      "groupId": "AC-G-0086",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:49:21.238Z",
+      "event": "status",
+      "groupId": "AC-G-0120",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:49:21.663Z",
+      "event": "status",
+      "groupId": "AC-G-0120",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:51:28.730Z",
+      "event": "status",
+      "groupId": "AC-G-0120",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:50:43.906Z",
+      "event": "status",
+      "groupId": "AC-G-0085",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:51:16.889Z",
+      "event": "status",
+      "groupId": "AC-G-0087",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:51:32.831Z",
+      "event": "status",
+      "groupId": "AC-G-0089",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:53:10.579Z",
+      "event": "status",
+      "groupId": "AC-G-0085",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:55:24.444Z",
+      "event": "status",
+      "groupId": "AC-G-0085",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:53:30.983Z",
+      "event": "status",
+      "groupId": "AC-G-0086",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
       "at": "2026-04-22T19:53:52.895Z",
       "event": "status",
       "groupId": "AC-G-0088",
       "status": "reviewed",
       "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:56:45.929Z",
+      "event": "status",
+      "groupId": "AC-G-0086",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:58:23.172Z",
+      "event": "status",
+      "groupId": "AC-G-0086",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T19:59:35.209Z",
+      "event": "status",
+      "groupId": "AC-G-0087",
+      "status": "merging",
+      "note": "merge started"
     },
     {
       "at": "2026-04-22T20:02:23.843Z",
@@ -13733,6 +14312,13 @@
       "groupId": "AC-G-0088",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T20:04:58.107Z",
+      "event": "status",
+      "groupId": "AC-G-0089",
+      "status": "merging",
+      "note": "merge started"
     },
     {
       "at": "2026-04-22T20:06:16.834Z",
@@ -13800,13 +14386,6 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
-      "at": "2026-04-22T19:28:09.980Z",
-      "event": "status",
-      "groupId": "AC-G-0079",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
       "at": "2026-04-22T19:31:27.038Z",
       "event": "status",
       "groupId": "AC-G-0081",
@@ -13814,7 +14393,7 @@
       "note": "merge verified: typecheck and test:agentCore passed"
     },
     {
-      "at": "2026-04-22T19:35:45.801Z",
+      "at": "2026-04-22T19:34:45.620Z",
       "event": "status",
       "groupId": "AC-G-0082",
       "status": "done",
@@ -13824,13 +14403,6 @@
       "at": "2026-04-22T19:37:43.517Z",
       "event": "status",
       "groupId": "AC-G-0083",
-      "status": "done",
-      "note": "merge verified: typecheck and test:agentCore passed"
-    },
-    {
-      "at": "2026-04-22T19:51:28.730Z",
-      "event": "status",
-      "groupId": "AC-G-0120",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     },
