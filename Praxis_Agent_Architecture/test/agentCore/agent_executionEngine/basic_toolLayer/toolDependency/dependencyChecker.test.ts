@@ -1,9 +1,7 @@
-/*
- * 文件定位：Agent 执行引擎 / 基础工具原语层 / 工具依赖管理层。
- * 核心目的：承载 dependency Checker 这一能力位点。
- * 能力要求1：需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
- * 能力要求2：如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
- * 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
- * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
- * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
- */
+import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
+
+defineAgentCoreContractTest({
+  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.ts",
+  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.md",
+  testFileUrl: import.meta.url,
+});

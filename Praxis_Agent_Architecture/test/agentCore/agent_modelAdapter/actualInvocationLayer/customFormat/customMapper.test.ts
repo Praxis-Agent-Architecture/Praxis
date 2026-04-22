@@ -1,9 +1,7 @@
-/*
- * 文件定位：Agent 模型适配层 / 真实上游调用层 / 非官方/自定义上游格式。
- * 核心目的：把非官方或自定义上游格式映射到 Praxis 可处理的模型适配形态。
- * 能力要求1：需要把自定义 endpoint 的输入、输出、错误、能力描述转换成抽象层可理解的信息。
- * 能力要求2：不把自定义格式提升为 Praxis 核心语义，只负责让它可接入、可调用、可治理。
- * 边界：只处理上游实际调用面，不在这里定义 agentCore 使用 AI 的统一方式。
- * 对接：需要被 runtime.modelAdapter 拉起，并和 provider/carrier、PromptPack lowering、能力抽象链路接通。
- * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
- */
+import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
+
+defineAgentCoreContractTest({
+  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.ts",
+  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.md",
+  testFileUrl: import.meta.url,
+});

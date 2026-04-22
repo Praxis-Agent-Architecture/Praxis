@@ -1,9 +1,7 @@
-/*
- * 文件定位：Agent 执行引擎 / 输入输出收发层 / 输出暴露面。
- * 核心目的：暴露图像输出能力，让 Agent 可以返回生成图、编辑图、截图标注或视觉分析结果。
- * 能力要求1：需要保留图像格式、尺寸、来源和可展示引用。
- * 能力要求2：不直接承担图像生成算法，只负责执行引擎输出面。
- * 边界：只服务 agentCore 内核，不写上层产品逻辑。
- * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
- * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
- */
+import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
+
+defineAgentCoreContractTest({
+  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/imageExposer.ts",
+  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/imageExposer.md",
+  testFileUrl: import.meta.url,
+});

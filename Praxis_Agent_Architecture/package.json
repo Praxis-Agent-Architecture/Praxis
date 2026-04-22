@@ -1,0 +1,19 @@
+{
+  "name": "praxis-agent-architecture",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Praxis agentCore architecture scaffold, tests, and engineering contracts.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test:agentCore": "find test/agentCore -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

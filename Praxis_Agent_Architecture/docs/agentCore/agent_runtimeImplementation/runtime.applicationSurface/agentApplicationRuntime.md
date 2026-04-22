@@ -32,7 +32,7 @@
 - 文件定位：Agent 运行态实现层 / 应用承托面。
 - 核心目的：作为上层 Agent 应用使用 agentCore runtime 的主入口。
 - 能力要求1：应用通过它创建、调用、观察和管理 Agent，而不是直接触碰执行引擎。
-- 能力要求2：它需要承托 官方上层产品和第三方 Agent 应用共同使用 Praxis 的方式。
+- 能力要求2：它需要承托官方上层产品和第三方 Agent 应用共同使用 Praxis 的方式。
 - 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
 - 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
 - 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
@@ -41,7 +41,7 @@
 
 - 作为上层 Agent 应用使用 agentCore runtime 的主入口
 - 应用通过它创建、调用、观察和管理 Agent，而不是直接触碰执行引擎。
-- 它需要承托 官方上层产品和第三方 Agent 应用共同使用 Praxis 的方式。
+- 它需要承托官方上层产品和第三方 Agent 应用共同使用 Praxis 的方式。
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
 - 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
 - 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。

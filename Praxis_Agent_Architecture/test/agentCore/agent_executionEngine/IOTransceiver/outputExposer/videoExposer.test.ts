@@ -1,9 +1,7 @@
-/*
- * 文件定位：Agent 执行引擎 / 输入输出收发层 / 输出暴露面。
- * 核心目的：暴露视频输出能力，让 Agent 可以返回视频生成、视频剪辑、视频理解结果或视频引用。
- * 能力要求1：需要保留视频格式、时长、来源和可展示元信息。
- * 能力要求2：不直接实现视频算法，只定义执行引擎的视频输出能力位点。
- * 边界：只服务 agentCore 内核，不写上层产品逻辑。
- * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
- * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
- */
+import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
+
+defineAgentCoreContractTest({
+  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/videoExposer.ts",
+  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/videoExposer.md",
+  testFileUrl: import.meta.url,
+});
