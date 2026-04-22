@@ -3713,7 +3713,7 @@
       "id": "AC-F-0295",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.test.ts"
@@ -3722,7 +3722,7 @@
       "id": "AC-F-0296",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.test.ts"
@@ -3731,7 +3731,7 @@
       "id": "AC-F-0297",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.test.ts"
@@ -3740,7 +3740,7 @@
       "id": "AC-F-0298",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predict.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predict.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predict.test.ts"
@@ -9119,7 +9119,7 @@
       "id": "AC-G-0076",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0295",
         "AC-F-0296",
