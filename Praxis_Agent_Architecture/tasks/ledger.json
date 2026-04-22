@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T18:53:24.471Z",
+  "updatedAt": "2026-04-22T19:03:53.197Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -8924,7 +8924,7 @@
       "id": "AC-G-0073",
       "parentId": "AC-SPEC-D:actualInvocationLayer",
       "bigSpecId": "AC-SPEC-D",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0283",
         "AC-F-0284",
@@ -8955,9 +8955,48 @@
       ],
       "branch": "codex/agentcore/ac-g-0073",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0073",
-      "lease": null,
-      "attempts": [],
-      "notes": []
+      "lease": {
+        "agent": "continue:AC-G-0073",
+        "at": "2026-04-22T18:54:32.868Z"
+      },
+      "attempts": [
+        {
+          "at": "2026-04-22T18:54:32.868Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-22T18:54:33.505Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-22T19:00:31.109Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-22T19:00:31.145Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-22T19:01:51.354Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T19:02:06.276Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T19:03:43.546Z",
+          "status": "done",
+          "note": "merge done"
+        }
+      ]
     },
     {
       "id": "AC-G-0074",
@@ -12916,6 +12955,48 @@
       "groupId": "AC-G-0072",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-22T18:54:33.505Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-22T19:00:31.109Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-22T19:00:31.145Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-22T19:01:51.354Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-22T19:02:06.276Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T19:03:43.546Z",
+      "event": "status",
+      "groupId": "AC-G-0073",
+      "status": "done",
+      "note": "merge done"
     }
   ]
 }
