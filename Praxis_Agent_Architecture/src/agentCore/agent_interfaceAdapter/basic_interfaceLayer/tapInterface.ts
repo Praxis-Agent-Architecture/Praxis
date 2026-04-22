@@ -7,3 +7,219 @@
  * 对接：需要被 runtime.interfaceAdapter 拉起，并服务官方模块和自定义接口进入 agentCore。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+export type TapInterfaceBoundary = "input" | "contract" | "governance" | "scope" | "runtime-state";
+
+export type TapInterfaceGate = {
+  accepted: boolean;
+  reason?: string;
+};
+
+export type TapInterfaceCapabilityDeclaration = {
+  capabilityId?: string;
+  inputBoundary?: readonly string[];
+  outputBoundary?: readonly string[];
+  rules?: readonly string[];
+};
+
+export type TapInterfaceRequest = {
+  runtimeId?: string;
+  interfaceId?: string;
+  moduleId?: string;
+  capabilities?: readonly TapInterfaceCapabilityDeclaration[];
+  requestedScopes?: readonly string[];
+  allowedScopes?: readonly string[];
+  runtimeReady?: boolean;
+  contract?: TapInterfaceGate;
+  governance?: TapInterfaceGate;
+};
+
+export type TapInterfaceErrorCode =
+  | "MISSING_RUNTIME_ID"
+  | "MISSING_INTERFACE_ID"
+  | "MISSING_MODULE_ID"
+  | "MISSING_CAPABILITY"
+  | "RUNTIME_NOT_READY"
+  | "CONTRACT_REJECTED"
+  | "GOVERNANCE_REJECTED"
+  | "SCOPE_DENIED";
+
+export type TapInterfaceError = {
+  code: TapInterfaceErrorCode;
+  message: string;
+  boundary: TapInterfaceBoundary;
+  safeForRuntimeInspection: true;
+};
+
+export type TapInterfaceCapability = {
+  capabilityId: string;
+  inputBoundary: readonly string[];
+  outputBoundary: readonly string[];
+  rules: readonly string[];
+};
+
+export type TapInterfaceContract = {
+  module: "tap";
+  runtimeId: string;
+  interfaceId: string;
+  moduleId: string;
+  route: "runtime.interfaceAdapter";
+  capabilities: readonly TapInterfaceCapability[];
+  acceptedScopes: readonly string[];
+  contractSurface: "runtime.contractSurface";
+  governanceRequired: true;
+  dispatch: "dry-run";
+  unsafeSideEffects: false;
+  internalStrategyIncluded: false;
+};
+
+export type TapInterfaceResult =
+  | {
+      ok: true;
+      contract: TapInterfaceContract;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: TapInterfaceError;
+      events: readonly string[];
+    };
+
+export const tapInterfaceDescriptor = {
+  module: "tap",
+  route: "runtime.interfaceAdapter",
+  purpose: "define the TAP official-module interface boundary without implementing TAP strategy",
+  unsafeSideEffects: false,
+} as const;
+
+function isBlank(value: string | undefined): boolean {
+  return typeof value !== "string" || value.trim().length === 0;
+}
+
+function cleanList(values: readonly string[] | undefined): readonly string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function failure(code: TapInterfaceErrorCode, message: string, boundary: TapInterfaceBoundary): TapInterfaceResult {
+  return {
+    ok: false,
+    error: { code, message, boundary, safeForRuntimeInspection: true },
+    events: ["interface.tap.boundary.rejected"],
+  };
+}
+
+function normalizeCapabilities(
+  capabilities: readonly TapInterfaceCapabilityDeclaration[] | undefined,
+): TapInterfaceCapability[] | TapInterfaceResult {
+  const normalized: TapInterfaceCapability[] = [];
+
+  for (const capability of capabilities ?? []) {
+    const capabilityId = capability.capabilityId?.trim();
+    if (!capabilityId) {
+      return failure("MISSING_CAPABILITY", "TAP interface capabilities require capabilityId", "input");
+    }
+
+    normalized.push({
+      capabilityId,
+      inputBoundary: cleanList(capability.inputBoundary),
+      outputBoundary: cleanList(capability.outputBoundary),
+      rules: cleanList(capability.rules),
+    });
+  }
+
+  if (normalized.length === 0) {
+    return failure("MISSING_CAPABILITY", "TAP interface boundary requires at least one capability", "input");
+  }
+
+  return normalized;
+}
+
+function resolveScopes(
+  requestedScopes: readonly string[] | undefined,
+  allowedScopes: readonly string[] | undefined,
+): readonly string[] | TapInterfaceResult {
+  const requested = cleanList(requestedScopes);
+  const allowed = cleanList(allowedScopes);
+
+  if (requested.length === 0) {
+    return [];
+  }
+
+  const denied = requested.filter((scope) => !allowed.includes(scope));
+  if (denied.length > 0) {
+    return failure("SCOPE_DENIED", `TAP interface scope ${denied[0]} is outside runtime governance`, "scope");
+  }
+
+  return requested;
+}
+
+export function defineTapInterfaceBoundary(request?: TapInterfaceRequest): TapInterfaceResult {
+  if (request === undefined) {
+    return failure("MISSING_RUNTIME_ID", "TAP interface boundary requires runtimeId", "input");
+  }
+
+  const runtimeId = request.runtimeId?.trim();
+  const interfaceId = request.interfaceId?.trim();
+  const moduleId = request.moduleId?.trim();
+
+  if (!runtimeId) {
+    return failure("MISSING_RUNTIME_ID", "TAP interface boundary requires runtimeId", "input");
+  }
+
+  if (!interfaceId) {
+    return failure("MISSING_INTERFACE_ID", "TAP interface boundary requires interfaceId", "input");
+  }
+
+  if (!moduleId) {
+    return failure("MISSING_MODULE_ID", "TAP interface boundary requires moduleId", "input");
+  }
+
+  if (request.runtimeReady === false) {
+    return failure("RUNTIME_NOT_READY", "TAP interface boundary can only attach to a ready runtime", "runtime-state");
+  }
+
+  if (request.contract?.accepted === false) {
+    return failure(
+      "CONTRACT_REJECTED",
+      request.contract.reason ?? "TAP interface boundary was rejected by contract surface",
+      "contract",
+    );
+  }
+
+  if (request.governance?.accepted === false) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      request.governance.reason ?? "TAP interface boundary was rejected by runtime governance",
+      "governance",
+    );
+  }
+
+  const capabilities = normalizeCapabilities(request.capabilities);
+  if ("ok" in capabilities) {
+    return capabilities;
+  }
+
+  const acceptedScopes = resolveScopes(request.requestedScopes, request.allowedScopes);
+  if ("ok" in acceptedScopes) {
+    return acceptedScopes;
+  }
+
+  return {
+    ok: true,
+    contract: {
+      module: "tap",
+      runtimeId,
+      interfaceId,
+      moduleId,
+      route: "runtime.interfaceAdapter",
+      capabilities,
+      acceptedScopes,
+      contractSurface: "runtime.contractSurface",
+      governanceRequired: true,
+      dispatch: "dry-run",
+      unsafeSideEffects: false,
+      internalStrategyIncluded: false,
+    },
+    events: ["interface.tap.boundary.defined"],
+  };
+}
