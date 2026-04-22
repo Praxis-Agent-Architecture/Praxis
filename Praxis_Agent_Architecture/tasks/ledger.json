@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-22T22:01:39.868Z",
+  "updatedAt": "2026-04-22T22:04:03.021Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -2003,7 +2003,7 @@
       "id": "AC-F-0105",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.test.ts"
@@ -2012,7 +2012,7 @@
       "id": "AC-F-0106",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.applyStashChanges.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.applyStashChanges.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.applyStashChanges.test.ts"
@@ -2021,7 +2021,7 @@
       "id": "AC-F-0107",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.test.ts"
@@ -2030,7 +2030,7 @@
       "id": "AC-F-0108",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.test.ts"
@@ -7447,7 +7447,7 @@
       "id": "AC-G-0027",
       "parentId": "AC-SPEC-E:basic_toolLayer",
       "bigSpecId": "AC-SPEC-E",
-      "status": "reviewed",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0105",
         "AC-F-0106",
@@ -7478,10 +7478,7 @@
       ],
       "branch": "codex/agentcore/ac-g-0027",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0027",
-      "lease": {
-        "agent": "continue:AC-G-0027",
-        "at": "2026-04-22T21:39:28.144Z"
-      },
+      "lease": null,
       "attempts": [
         {
           "at": "2026-04-22T21:39:28.144Z",
@@ -7508,6 +7505,16 @@
           "at": "2026-04-22T21:48:39.584Z",
           "status": "reviewed",
           "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-22T22:02:12.320Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-22T22:04:03.019Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
         }
       ]
     },
@@ -16277,6 +16284,20 @@
       "groupId": "AC-G-0026",
       "status": "merging",
       "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T22:02:12.320Z",
+      "event": "status",
+      "groupId": "AC-G-0027",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-22T22:04:03.019Z",
+      "event": "status",
+      "groupId": "AC-G-0027",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ],
   "events": [

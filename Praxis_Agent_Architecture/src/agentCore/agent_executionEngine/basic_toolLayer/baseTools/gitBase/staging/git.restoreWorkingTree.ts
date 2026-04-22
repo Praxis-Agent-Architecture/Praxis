@@ -8,3 +8,151 @@
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
+
+import {
+  blockRealGitExecution,
+  cleanGitList,
+  createGitAuditEvent,
+  createGitToolFailure,
+  ensureGitToolPermissions,
+  ensureGitToolScope,
+  normalizeGitRepositoryPath,
+  type GitToolContext,
+  type GitToolPermission,
+  type GitToolResult,
+} from "../branch/git.manageBranch.js";
+
+export type GitRestoreWorkingTreeTarget = {
+  repositoryPath: string;
+  paths: readonly string[];
+  sourceRef?: string;
+};
+
+export type GitRestoreWorkingTreeRequest = {
+  target?: Partial<GitRestoreWorkingTreeTarget>;
+  context?: GitToolContext;
+};
+
+export type GitRestoreWorkingTreeOutput = {
+  kind: "agentCore.basicTool.git.restoreWorkingTree";
+  target: GitRestoreWorkingTreeTarget;
+  commandPreview: readonly string[];
+  dryRun: true;
+  executionBlocked: true;
+  permissionsRequired: readonly GitToolPermission[];
+  unsafeSideEffects: true;
+};
+
+export const gitRestoreWorkingTreeDescriptor = {
+  toolId: "git.restoreWorkingTree",
+  capability: "restore-working-tree",
+  route: "agent_executionEngine.basic_toolLayer.baseTools.gitBase.staging",
+  permissionsRequired: ["git:read", "git:write", "filesystem:write"],
+  defaultDryRun: true,
+  unsafeSideEffects: true,
+  tapOwnsApproval: true,
+} as const;
+
+function normalizeRestoreWorkingTreeTarget(
+  target: Partial<GitRestoreWorkingTreeTarget> | undefined,
+  context: GitToolContext | undefined,
+): GitRestoreWorkingTreeTarget | GitToolResult<GitRestoreWorkingTreeOutput> {
+  const toolId = gitRestoreWorkingTreeDescriptor.toolId;
+  const repositoryPath = normalizeGitRepositoryPath(toolId, target?.repositoryPath, context);
+  if (typeof repositoryPath !== "string") {
+    return repositoryPath;
+  }
+
+  const paths = cleanGitList(target?.paths);
+  if (paths.length === 0) {
+    return createGitToolFailure(
+      toolId,
+      "MISSING_TARGET_PATH",
+      "git.restoreWorkingTree requires at least one target path",
+      "input",
+      context,
+      repositoryPath,
+    );
+  }
+
+  return {
+    repositoryPath,
+    paths,
+    sourceRef: target?.sourceRef?.trim() || undefined,
+  };
+}
+
+function restoreWorkingTreeCommandPreview(target: GitRestoreWorkingTreeTarget): readonly string[] {
+  return [
+    "git",
+    "-C",
+    target.repositoryPath,
+    "restore",
+    ...(target.sourceRef === undefined ? [] : ["--source", target.sourceRef]),
+    "--worktree",
+    "--",
+    ...target.paths,
+  ];
+}
+
+export function planGitRestoreWorkingTree(
+  request: GitRestoreWorkingTreeRequest = {},
+): GitToolResult<GitRestoreWorkingTreeOutput> {
+  const toolId = gitRestoreWorkingTreeDescriptor.toolId;
+  const target = normalizeRestoreWorkingTreeTarget(request.target, request.context);
+  if ("ok" in target) {
+    return target;
+  }
+
+  const scopeFailure = ensureGitToolScope<GitRestoreWorkingTreeOutput>(
+    toolId,
+    target.repositoryPath,
+    request.context,
+  );
+  if (scopeFailure !== undefined) {
+    return scopeFailure;
+  }
+
+  const permissionFailure = ensureGitToolPermissions<GitRestoreWorkingTreeOutput>(
+    toolId,
+    gitRestoreWorkingTreeDescriptor.permissionsRequired,
+    request.context,
+    target.repositoryPath,
+  );
+  if (permissionFailure !== undefined) {
+    return permissionFailure;
+  }
+
+  const realExecutionFailure = blockRealGitExecution<GitRestoreWorkingTreeOutput>(
+    toolId,
+    request.context,
+    target.repositoryPath,
+  );
+  if (realExecutionFailure !== undefined) {
+    return realExecutionFailure;
+  }
+
+  return {
+    ok: true,
+    toolId,
+    output: {
+      kind: "agentCore.basicTool.git.restoreWorkingTree",
+      target,
+      commandPreview: restoreWorkingTreeCommandPreview(target),
+      dryRun: true,
+      executionBlocked: true,
+      permissionsRequired: gitRestoreWorkingTreeDescriptor.permissionsRequired,
+      unsafeSideEffects: true,
+    },
+    audit: [
+      createGitAuditEvent(
+        toolId,
+        "agentCore.basicTool.git.restoreWorkingTree.dryRun",
+        request.context,
+        target.repositoryPath,
+        { pathCount: target.paths.length, sourceRef: target.sourceRef },
+      ),
+    ],
+    events: ["basicTool.git.restoreWorkingTree.dryRun"],
+  };
+}
