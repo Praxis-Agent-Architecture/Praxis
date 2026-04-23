@@ -15,14 +15,14 @@ import {
   normalizeLspDependencyDeclarations,
   preferAnthropicExecutor,
 } from "../_shared/baseToolAdapter.js";
-import { planLspCodeCompletion as planLspCodeCompletionCore, type LspCompleteCodeRequest } from "../code.lsp_completeCode.js";
+import { planLspCodeCompletion as planLspCodeCompletionCore, type LspCompleteCodeRequest } from "./core.js";
 import { completeWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeCompletionItem } from "../_shared/runtime.js";
 import { anthropicLspCompleteCodePractice } from "./anthropic.js";
 import { lspCompleteCodeDependencyDeclarations, type LspCompleteCodePracticeProviderName } from "./dependencies.js";
 import { deepmindLspCompleteCodePractice } from "./deepmind.js";
 import { openaiLspCompleteCodePractice } from "./openai.js";
 
-export * from "../code.lsp_completeCode.js";
+export * from "./core.js";
 
 export type LspCompleteCodeRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.completeCode";

@@ -1,13 +1,13 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
-import { createLspFormatRangePlan as createLspFormatRangePlanCore, type LspFormatRangeRequest } from "../code.lsp_formatRange.js";
+import { createLspFormatRangePlan as createLspFormatRangePlanCore, type LspFormatRangeRequest } from "./core.js";
 import { formatRangeWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeTextEdit } from "../_shared/runtime.js";
 import { anthropicLspFormatRangePractice } from "./anthropic.js";
 import { lspFormatRangeDependencyDeclarations, type LspFormatRangePracticeProviderName } from "./dependencies.js";
 import { deepmindLspFormatRangePractice } from "./deepmind.js";
 import { openaiLspFormatRangePractice } from "./openai.js";
 
-export * from "../code.lsp_formatRange.js";
+export * from "./core.js";
 
 export type LspFormatRangeRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.formatRange";

@@ -18,8 +18,8 @@ import {
   type LspToolAuditEvent,
   type LspToolContext,
   type LspToolResult,
-} from "./code.lsp_locateDefinition.js";
-import { requestTextDocumentWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./_shared/runtime.js";
+} from "../code.lsp_locateDefinition/core.js";
+import { requestTextDocumentWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
 import { fileURLToPath } from "node:url";
 
 export type LspRenameWorkspaceEdit = {

@@ -11,7 +11,7 @@ import type {
   BaseToolSchemaLike,
 } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import type { BaseToolExecutorPort } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { LspToolAuditEvent, LspToolResult } from "../code.lsp_locateDefinition.js";
+import type { LspToolAuditEvent, LspToolResult } from "../code.lsp_locateDefinition/core.js";
 
 const lspSharedRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(lspSharedRoot, "../../../../../../");

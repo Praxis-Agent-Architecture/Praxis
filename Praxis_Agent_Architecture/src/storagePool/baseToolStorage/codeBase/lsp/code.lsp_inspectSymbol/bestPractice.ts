@@ -1,13 +1,13 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
-import { inspectLspSymbol as inspectLspSymbolCore, type LspInspectSymbolRequest, type LspSymbolInfo } from "../code.lsp_inspectSymbol.js";
+import { inspectLspSymbol as inspectLspSymbolCore, type LspInspectSymbolRequest, type LspSymbolInfo } from "./core.js";
 import { scanDocumentSymbolsWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeDocumentSymbol } from "../_shared/runtime.js";
 import { anthropicLspInspectSymbolPractice } from "./anthropic.js";
 import { lspInspectSymbolDependencyDeclarations, type LspInspectSymbolPracticeProviderName } from "./dependencies.js";
 import { deepmindLspInspectSymbolPractice } from "./deepmind.js";
 import { openaiLspInspectSymbolPractice } from "./openai.js";
 
-export * from "../code.lsp_inspectSymbol.js";
+export * from "./core.js";
 
 export type LspInspectSymbolRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.inspectSymbol";

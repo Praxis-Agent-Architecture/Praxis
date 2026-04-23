@@ -1,13 +1,13 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
-import { createLspFormatDocumentPlan as createLspFormatDocumentPlanCore, type LspFormatDocumentRequest } from "../code.lsp_formatDocument.js";
+import { createLspFormatDocumentPlan as createLspFormatDocumentPlanCore, type LspFormatDocumentRequest } from "./core.js";
 import { formatDocumentWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeTextEdit } from "../_shared/runtime.js";
 import { anthropicLspFormatDocumentPractice } from "./anthropic.js";
 import { lspFormatDocumentDependencyDeclarations, type LspFormatDocumentPracticeProviderName } from "./dependencies.js";
 import { deepmindLspFormatDocumentPractice } from "./deepmind.js";
 import { openaiLspFormatDocumentPractice } from "./openai.js";
 
-export * from "../code.lsp_formatDocument.js";
+export * from "./core.js";
 
 export type LspFormatDocumentRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.formatDocument";

@@ -1,13 +1,13 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, lspCommonSchemaFragments, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
-import { planLspSignatureAssistance as planLspSignatureAssistanceCore, type LspAssistSignatureRequest } from "../code.lsp_assistSignature.js";
+import { planLspSignatureAssistance as planLspSignatureAssistanceCore, type LspAssistSignatureRequest } from "./core.js";
 import { signatureHelpWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeSignatureHelp } from "../_shared/runtime.js";
 import { anthropicLspAssistSignaturePractice } from "./anthropic.js";
 import { lspAssistSignatureDependencyDeclarations, type LspAssistSignaturePracticeProviderName } from "./dependencies.js";
 import { deepmindLspAssistSignaturePractice } from "./deepmind.js";
 import { openaiLspAssistSignaturePractice } from "./openai.js";
 
-export * from "../code.lsp_assistSignature.js";
+export * from "./core.js";
 
 export type LspAssistSignatureRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.assistSignature";

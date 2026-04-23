@@ -1,5 +1,5 @@
 import type { LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
-import type { LspScanDocumentSymbolsProvider } from "../code.lsp_scanDocumentSymbols.js";
+import type { LspScanDocumentSymbolsProvider } from "./core.js";
 
 export type LspScanDocumentSymbolsPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
 

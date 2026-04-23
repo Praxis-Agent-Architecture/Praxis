@@ -1,5 +1,5 @@
 import type { LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
-import type { LspRenameSymbolProvider } from "../code.lsp_renameSymbol.js";
+import type { LspRenameSymbolProvider } from "./core.js";
 
 export type LspRenameSymbolPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
 

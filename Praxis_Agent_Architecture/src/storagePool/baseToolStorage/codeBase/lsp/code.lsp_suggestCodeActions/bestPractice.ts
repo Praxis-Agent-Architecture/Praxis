@@ -15,13 +15,13 @@ import {
   type LspSuggestCodeActionsOutput,
   type LspSuggestCodeActionsProvider,
   type LspSuggestCodeActionsRequest,
-} from "../code.lsp_suggestCodeActions.js";
+} from "./core.js";
 import { anthropicLspSuggestCodeActionsPractice } from "./anthropic.js";
 import { lspSuggestCodeActionsDependencyDeclarations, type LspSuggestCodeActionsPracticeProviderName } from "./dependencies.js";
 import { deepmindLspSuggestCodeActionsPractice } from "./deepmind.js";
 import { openaiLspSuggestCodeActionsPractice } from "./openai.js";
 
-export * from "../code.lsp_suggestCodeActions.js";
+export * from "./core.js";
 
 export type LspSuggestCodeActionsBestPracticeRequest = LspSuggestCodeActionsRequest & {
   preferredProvider?: LspSuggestCodeActionsPracticeProviderName;

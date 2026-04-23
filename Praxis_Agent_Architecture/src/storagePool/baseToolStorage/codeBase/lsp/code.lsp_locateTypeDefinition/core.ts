@@ -19,8 +19,8 @@ import {
   type LspToolAuditEvent,
   type LspToolContext,
   type LspToolResult,
-} from "./code.lsp_locateDefinition.js";
-import { locateTypeDefinitionWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./_shared/runtime.js";
+} from "../code.lsp_locateDefinition/core.js";
+import { locateTypeDefinitionWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
 
 export type LspLocateTypeDefinitionOutput = {
   kind: "agentCore.basicTool.lsp.locateTypeDefinition";

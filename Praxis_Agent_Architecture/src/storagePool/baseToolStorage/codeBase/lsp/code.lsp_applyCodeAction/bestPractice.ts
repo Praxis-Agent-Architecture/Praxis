@@ -1,13 +1,13 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, lspCommonSchemaFragments, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
-import { planLspApplyCodeAction as planLspApplyCodeActionCore, type LspApplyCodeActionRequest } from "../code.lsp_applyCodeAction.js";
+import { planLspApplyCodeAction as planLspApplyCodeActionCore, type LspApplyCodeActionRequest } from "./core.js";
 import { codeActionsWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeCodeAction } from "../_shared/runtime.js";
 import { anthropicLspApplyCodeActionPractice } from "./anthropic.js";
 import { lspApplyCodeActionDependencyDeclarations, type LspApplyCodeActionPracticeProviderName } from "./dependencies.js";
 import { deepmindLspApplyCodeActionPractice } from "./deepmind.js";
 import { openaiLspApplyCodeActionPractice } from "./openai.js";
 
-export * from "../code.lsp_applyCodeAction.js";
+export * from "./core.js";
 
 export type LspApplyCodeActionRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.applyCodeAction";

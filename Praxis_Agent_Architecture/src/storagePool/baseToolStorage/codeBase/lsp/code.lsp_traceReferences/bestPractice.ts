@@ -15,13 +15,13 @@ import {
   type LspTraceReferencesOutput,
   type LspTraceReferencesProvider,
   type LspTraceReferencesRequest,
-} from "../code.lsp_traceReferences.js";
+} from "./core.js";
 import { anthropicLspTraceReferencesPractice } from "./anthropic.js";
 import { lspTraceReferencesDependencyDeclarations, type LspTraceReferencesPracticeProviderName } from "./dependencies.js";
 import { deepmindLspTraceReferencesPractice } from "./deepmind.js";
 import { openaiLspTraceReferencesPractice } from "./openai.js";
 
-export * from "../code.lsp_traceReferences.js";
+export * from "./core.js";
 
 export type LspTraceReferencesBestPracticeRequest = LspTraceReferencesRequest & {
   preferredProvider?: LspTraceReferencesPracticeProviderName;

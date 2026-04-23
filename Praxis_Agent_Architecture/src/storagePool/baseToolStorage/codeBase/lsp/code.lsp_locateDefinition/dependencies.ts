@@ -10,7 +10,7 @@ import type {
   LspLocation,
   LspTextDocumentPosition,
   LspToolContext,
-} from "../code.lsp_locateDefinition.js";
+} from "./core.js";
 import { locateDefinitionWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
 
 export type { LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";

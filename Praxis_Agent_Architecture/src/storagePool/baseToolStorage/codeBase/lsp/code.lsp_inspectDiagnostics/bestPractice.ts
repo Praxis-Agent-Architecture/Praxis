@@ -1,13 +1,13 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
-import { inspectLspDiagnostics as inspectLspDiagnosticsCore, type LspInspectDiagnosticsRequest } from "../code.lsp_inspectDiagnostics.js";
+import { inspectLspDiagnostics as inspectLspDiagnosticsCore, type LspInspectDiagnosticsRequest } from "./core.js";
 import { inspectDiagnosticsWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeDiagnostic } from "../_shared/runtime.js";
 import { anthropicLspInspectDiagnosticsPractice } from "./anthropic.js";
 import { lspInspectDiagnosticsDependencyDeclarations, type LspInspectDiagnosticsPracticeProviderName } from "./dependencies.js";
 import { deepmindLspInspectDiagnosticsPractice } from "./deepmind.js";
 import { openaiLspInspectDiagnosticsPractice } from "./openai.js";
 
-export * from "../code.lsp_inspectDiagnostics.js";
+export * from "./core.js";
 
 export type LspInspectDiagnosticsRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.inspectDiagnostics";

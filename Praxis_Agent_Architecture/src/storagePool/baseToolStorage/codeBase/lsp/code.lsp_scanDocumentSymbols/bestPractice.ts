@@ -15,13 +15,13 @@ import {
   type LspScanDocumentSymbolsOutput,
   type LspScanDocumentSymbolsProvider,
   type LspScanDocumentSymbolsRequest,
-} from "../code.lsp_scanDocumentSymbols.js";
+} from "./core.js";
 import { anthropicLspScanDocumentSymbolsPractice } from "./anthropic.js";
 import { lspScanDocumentSymbolsDependencyDeclarations, type LspScanDocumentSymbolsPracticeProviderName } from "./dependencies.js";
 import { deepmindLspScanDocumentSymbolsPractice } from "./deepmind.js";
 import { openaiLspScanDocumentSymbolsPractice } from "./openai.js";
 
-export * from "../code.lsp_scanDocumentSymbols.js";
+export * from "./core.js";
 
 export type LspScanDocumentSymbolsBestPracticeRequest = LspScanDocumentSymbolsRequest & {
   preferredProvider?: LspScanDocumentSymbolsPracticeProviderName;

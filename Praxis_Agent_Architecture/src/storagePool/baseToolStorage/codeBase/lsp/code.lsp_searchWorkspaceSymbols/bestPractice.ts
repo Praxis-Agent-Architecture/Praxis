@@ -15,13 +15,13 @@ import {
   type LspSearchWorkspaceSymbolsOutput,
   type LspSearchWorkspaceSymbolsProvider,
   type LspSearchWorkspaceSymbolsRequest,
-} from "../code.lsp_searchWorkspaceSymbols.js";
+} from "./core.js";
 import { anthropicLspSearchWorkspaceSymbolsPractice } from "./anthropic.js";
 import { lspSearchWorkspaceSymbolsDependencyDeclarations, type LspSearchWorkspaceSymbolsPracticeProviderName } from "./dependencies.js";
 import { deepmindLspSearchWorkspaceSymbolsPractice } from "./deepmind.js";
 import { openaiLspSearchWorkspaceSymbolsPractice } from "./openai.js";
 
-export * from "../code.lsp_searchWorkspaceSymbols.js";
+export * from "./core.js";
 
 export type LspSearchWorkspaceSymbolsBestPracticeRequest = LspSearchWorkspaceSymbolsRequest & {
   preferredProvider?: LspSearchWorkspaceSymbolsPracticeProviderName;

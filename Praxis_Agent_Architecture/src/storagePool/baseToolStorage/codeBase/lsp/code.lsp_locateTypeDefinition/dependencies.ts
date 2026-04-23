@@ -1,5 +1,5 @@
 import type { LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
-import type { LspLocateTypeDefinitionProvider } from "../code.lsp_locateTypeDefinition.js";
+import type { LspLocateTypeDefinitionProvider } from "./core.js";
 
 export type LspLocateTypeDefinitionPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
 

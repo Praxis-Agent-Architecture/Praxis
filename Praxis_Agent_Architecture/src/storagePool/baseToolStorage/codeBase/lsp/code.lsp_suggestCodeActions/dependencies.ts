@@ -1,5 +1,5 @@
 import type { LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
-import type { LspSuggestCodeActionsProvider } from "../code.lsp_suggestCodeActions.js";
+import type { LspSuggestCodeActionsProvider } from "./core.js";
 
 export type LspSuggestCodeActionsPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
 

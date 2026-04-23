@@ -1,5 +1,5 @@
 import type { LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
-import type { LspTraceReferencesProvider } from "../code.lsp_traceReferences.js";
+import type { LspTraceReferencesProvider } from "./core.js";
 
 export type LspTraceReferencesPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
 

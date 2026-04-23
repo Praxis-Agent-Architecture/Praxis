@@ -17,8 +17,8 @@ import {
   type LspToolAuditEvent,
   type LspToolContext,
   type LspToolResult,
-} from "./code.lsp_locateDefinition.js";
-import { requestTextDocumentWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./_shared/runtime.js";
+} from "../code.lsp_locateDefinition/core.js";
+import { requestTextDocumentWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "../_shared/runtime.js";
 
 export type LspCodeActionDiagnostic = {
   message: string;

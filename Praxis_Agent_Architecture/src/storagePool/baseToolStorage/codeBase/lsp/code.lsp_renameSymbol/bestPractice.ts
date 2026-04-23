@@ -15,13 +15,13 @@ import {
   type LspRenameSymbolOutput,
   type LspRenameSymbolProvider,
   type LspRenameSymbolRequest,
-} from "../code.lsp_renameSymbol.js";
+} from "./core.js";
 import { anthropicLspRenameSymbolPractice } from "./anthropic.js";
 import { lspRenameSymbolDependencyDeclarations, type LspRenameSymbolPracticeProviderName } from "./dependencies.js";
 import { deepmindLspRenameSymbolPractice } from "./deepmind.js";
 import { openaiLspRenameSymbolPractice } from "./openai.js";
 
-export * from "../code.lsp_renameSymbol.js";
+export * from "./core.js";
 
 export type LspRenameSymbolBestPracticeRequest = LspRenameSymbolRequest & {
   preferredProvider?: LspRenameSymbolPracticeProviderName;

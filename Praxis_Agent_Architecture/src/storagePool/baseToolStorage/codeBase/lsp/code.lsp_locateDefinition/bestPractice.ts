@@ -31,8 +31,8 @@ import type {
   LspLocateDefinitionOutput,
   LspLocateDefinitionProvider,
   LspLocateDefinitionRequest,
-} from "../code.lsp_locateDefinition.js";
-import { locateLspDefinition as locateLspDefinitionCore } from "../code.lsp_locateDefinition.js";
+} from "./core.js";
+import { locateLspDefinition as locateLspDefinitionCore } from "./core.js";
 
 export type LspLocateDefinitionBestPracticeRequest = LspLocateDefinitionRequest & {
   executor?: BaseToolExecutorPort;

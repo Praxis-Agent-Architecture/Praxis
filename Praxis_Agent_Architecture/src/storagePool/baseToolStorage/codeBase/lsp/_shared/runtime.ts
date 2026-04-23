@@ -10,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import type { LspWorkspaceFacts } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
 import { resolveLspDependency } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
 import { ensureDependencyAvailable } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyInstaller.js";
-import type { LspLocation, LspRange, LspTextDocumentPosition } from "../code.lsp_locateDefinition.js";
+import type { LspLocation, LspRange, LspTextDocumentPosition } from "../code.lsp_locateDefinition/core.js";
 
 type JsonRpcId = number;
 

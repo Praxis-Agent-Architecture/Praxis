@@ -15,13 +15,13 @@ import {
   type LspLocateTypeDefinitionOutput,
   type LspLocateTypeDefinitionProvider,
   type LspLocateTypeDefinitionRequest,
-} from "../code.lsp_locateTypeDefinition.js";
+} from "./core.js";
 import { anthropicLspLocateTypeDefinitionPractice } from "./anthropic.js";
 import { lspLocateTypeDefinitionDependencyDeclarations, type LspLocateTypeDefinitionPracticeProviderName } from "./dependencies.js";
 import { deepmindLspLocateTypeDefinitionPractice } from "./deepmind.js";
 import { openaiLspLocateTypeDefinitionPractice } from "./openai.js";
 
-export * from "../code.lsp_locateTypeDefinition.js";
+export * from "./core.js";
 
 export type LspLocateTypeDefinitionBestPracticeRequest = LspLocateTypeDefinitionRequest & {
   preferredProvider?: LspLocateTypeDefinitionPracticeProviderName;

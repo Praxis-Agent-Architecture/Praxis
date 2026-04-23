@@ -1,14 +1,14 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, lspCommonSchemaFragments, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
-import { planLspSymbolExplanation as planLspSymbolExplanationCore, type LspExplainSymbolRequest } from "../code.lsp_explainSymbol.js";
+import { planLspSymbolExplanation as planLspSymbolExplanationCore, type LspExplainSymbolRequest } from "./core.js";
 import { hoverWithLspRuntime, locateDefinitionWithLspRuntime, traceReferencesWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeHover } from "../_shared/runtime.js";
-import type { LspLocation } from "../code.lsp_locateDefinition.js";
+import type { LspLocation } from "../code.lsp_locateDefinition/core.js";
 import { anthropicLspExplainSymbolPractice } from "./anthropic.js";
 import { lspExplainSymbolDependencyDeclarations, type LspExplainSymbolPracticeProviderName } from "./dependencies.js";
 import { deepmindLspExplainSymbolPractice } from "./deepmind.js";
 import { openaiLspExplainSymbolPractice } from "./openai.js";
 
-export * from "../code.lsp_explainSymbol.js";
+export * from "./core.js";
 
 export type LspExplainSymbolRuntimeOutput = {
   kind: "agentCore.basicTool.lsp.explainSymbol";

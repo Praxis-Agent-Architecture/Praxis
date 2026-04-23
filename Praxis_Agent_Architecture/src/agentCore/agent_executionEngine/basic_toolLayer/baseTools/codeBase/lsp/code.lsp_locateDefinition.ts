@@ -25,7 +25,7 @@ export type {
   LspToolGuard,
   LspToolResult,
   LspToolSuccessEnvelope,
-} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition.js";
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/core.js";
 
 export {
   createLspDryRunLocation,
@@ -33,7 +33,7 @@ export {
   ensureLspToolScope,
   lspLocateDefinitionDescriptor,
   normalizeLspTextDocumentPosition,
-} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition.js";
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/core.js";
 
 export {
   locateLspDefinition,
