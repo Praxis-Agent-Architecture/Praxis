@@ -1,20 +1,84 @@
 ---
-description: Find implementations for a symbol through the Praxis shared LSP runtime.
-argument-hint: target.filePath, line, character, workspaceRoot, languageId.
+description: Find implementation locations for the symbol at a file position.
+argument-hint: target.filePath, target.line, target.character, optional target.languageId, context.workspaceRoot, context.dryRun.
 ---
 
 # code.lsp_traceImplementations
 
-## Summary
+## Use This Tool
 
-Use this skill when an agent needs implementations for an interface, abstract method, trait, or symbol. It sends `textDocument/implementation` through the shared Praxis stdio LSP runtime.
+Use this tool when the symbol is an interface, abstract method, trait, protocol, or declaration with concrete implementations elsewhere.
 
-## Parameters
+## Call Shape
 
-- `target.filePath`, `target.line`, `target.character`: required source position.
-- `target.languageId`: optional language override.
-- `context.workspaceRoot` or `runtime.workspaceRoot`: workspace root.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  target: {
+    filePath: string;
+    line: number;
+    character: number;
+    languageId?: string;
+  };
+  context?: {
+    workspaceRoot?: string;
+    dryRun?: boolean;
+    invocationId?: string;
+    allowedFilePaths?: readonly string[];
+  };
+  runtime?: {
+    workspaceRoot?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the language server via `toolDependency`, then call `traceLspImplementations`. The tool is read-only and returns implementation locations only.
+## Required Inputs
+
+- `target.filePath`, `target.line`, and `target.character`.
+- `context.dryRun: false` for a real implementation lookup.
+
+## Optional Inputs
+
+- `target.languageId` and `context.workspaceRoot`.
+
+## Runtime Behavior
+
+- Read-only query tool.
+- Resolves implementations via host executor or shared runtime.
+- Dependency preparation is automatic for trusted managed sources.
+
+## Returns
+
+- `output.implementations` as implementation locations.
+- `output.providerCalled` and `output.dryRun` status.
+
+## Example
+
+```ts
+{
+  target: {
+    filePath: "src/contracts/cache.ts",
+    line: 9,
+    character: 18,
+    languageId: "typescript"
+  },
+  context: {
+    workspaceRoot: "/absolute/workspace",
+    dryRun: false
+  }
+}
+```
+
+## Avoid
+
+- Do not use this for plain text grep over method names; this tool is semantic, not lexical.
+- Do not expect every language server to support implementation search equally well.

@@ -1,19 +1,17 @@
 ---
-description: Locate a symbol definition through the Praxis shared LSP runtime.
-argument-hint: target.filePath, line, character, workspaceRoot, languageId, optional runtime.server.
+description: Resolve the definition location for the symbol at a file position.
+argument-hint: target.filePath, target.line, target.character, optional target.languageId, context.workspaceRoot, context.dryRun.
 ---
 
 # code.lsp_locateDefinition
 
-## Summary
+## Use This Tool
 
-Use this skill when an agent needs the definition location for the symbol at a source position. It sends `textDocument/definition` through the Praxis shared stdio LSP runtime.
+Use this tool when you already know a file path and cursor position and you want the symbol definition. This is the direct semantic equivalent of “go to definition”.
 
-This file is the storagePool implementation skill for `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition`. The baseTools entrypoint exposes the stable tool surface, while this storagePool directory is the model-visible skill source and owns provider practice, shared dependencies, and bestPractice selection.
+## Call Shape
 
-## Parameters
-
-Prefer this input shape:
+Pass one object with this shape:
 
 ```ts
 {
@@ -31,6 +29,10 @@ Prefer this input shape:
   };
   runtime?: {
     workspaceRoot?: string;
+    workspaceFacts?: {
+      markerFiles?: readonly string[];
+      fileContentSample?: string;
+    };
     resolvedServerPath?: string;
     server?: {
       command: string;
@@ -39,116 +41,54 @@ Prefer this input shape:
       fileExtensions: readonly string[];
     };
   };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
 }
 ```
 
-Rules:
+## Required Inputs
 
-- `target.filePath` is required and may be absolute or relative to `workspaceRoot`.
-- `target.line` and `target.character` are required 0-based LSP coordinates.
-- `target.languageId` is optional and overrides file-extension inference.
-- `context.workspaceRoot` or `runtime.workspaceRoot` resolves workspace-relative paths.
-- When `context.dryRun !== false`, return only a dry-run envelope.
-- `runtime.server` is for tests and advanced overrides; normal execution should let `toolDependency` resolve the language server.
+- `target.filePath` points to the source file.
+- `target.line` and `target.character` are 0-based LSP coordinates.
+- Set `context.dryRun: false` when you want a real LSP/runtime call instead of a dry-run envelope.
 
-## Body
+## Optional Inputs
 
-Execution priority:
+- `target.languageId` when file extension is ambiguous.
+- `context.workspaceRoot` when `filePath` is relative.
+- `runtime.server` only for tests or hard overrides.
+- `preferredProvider` only when you want to bias provider strategy selection.
 
-```text
-injected provider
--> host executor.lsp.locateDefinition
--> storagePool shared stdio LSP runtime
-```
+## Runtime Behavior
 
-The shared runtime starts a language-server process and speaks stdio JSON-RPC:
+- Execution order is: injected provider -> host executor -> Praxis shared runtime.
+- If no matching LSP dependency is present, toolDependency will try to prepare a trusted managed dependency automatically.
+- This tool is read-only. It never edits files.
 
-```text
-initialize
-initialized
-textDocument/didOpen
-textDocument/definition
-shutdown
-exit
-```
+## Returns
 
-Dependency resolution is not hard-coded in this skill. Default server selection comes from:
+- `output.locations` as definition locations.
+- `output.providerCalled` to tell you whether a real provider/runtime was used.
+- `output.dryRun` to tell you whether this was only a preview call.
 
-```text
-src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.ts
-```
-
-Dependency source and install-plan governance comes from:
-
-```text
-src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.ts
-```
-
-The target file decides which LSP server is needed:
-
-```text
-target.languageId
--> target.filePath extension
--> workspace markers
--> shebang/content hints
-```
-
-If the matching LSP server is missing, `toolDependency` should generate a Praxis-managed install plan. Trusted built-in sources installed into the Praxis managed directory do not require TAP approval; system-global installs, custom sources, sudo, shell-profile edits, or other boundary-crossing actions require governance confirmation.
-
-## Provider Practice
-
-This tool keeps provider-practice files:
-
-```text
-openai.ts
-anthropic.ts
-deepmind.ts
-dependencies.ts
-bestPractice.ts
-../_shared/runtime.ts
-```
-
-Current practice source:
-
-- Anthropic / Claude Code 2.1.88 provides the strongest direct LSP practice through `tools/LSPTool/` and `services/lsp/`.
-- Codex Rust contributes the registry, handler, and runtime-boundary practice.
-- Gemini CLI contributes the model-facing declaration versus concrete execution split.
-- Praxis does not copy provider source. It extracts the practice and rewrites it as Praxis TypeScript.
-
-## Result
-
-Success returns a standard LSP tool envelope:
+## Example
 
 ```ts
 {
-  ok: true,
-  toolId: "code.lsp_locateDefinition",
-  output: {
-    kind: "agentCore.basicTool.lsp.locateDefinition",
-    target,
-    locations,
-    dryRun,
-    providerCalled,
-    permissionsRequired: ["workspace:read", "lsp:read"],
-    unsafeSideEffects: false
+  target: {
+    filePath: "src/server/router.ts",
+    line: 41,
+    character: 12,
+    languageId: "typescript"
   },
-  audit,
-  events
+  context: {
+    workspaceRoot: "/absolute/workspace",
+    dryRun: false
+  }
 }
 ```
 
-Common public-safe failures:
+## Avoid
 
-- `MISSING_FILE_PATH`
-- `INVALID_POSITION`
-- `SCOPE_REJECTED`
-- `GOVERNANCE_REJECTED`
-- `PROVIDER_UNAVAILABLE`
-- `PROVIDER_REJECTED`
-
-## Verification
-
-```bash
-node --import tsx --test test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateDefinition.test.ts
-npm run typecheck
-```
+- Do not pass 1-based line numbers.
+- Do not use this when you only have a symbol name and no position; use `code.lsp_searchWorkspaceSymbols` first.
+- Do not force `runtime.server` unless normal dependency resolution is the wrong choice.

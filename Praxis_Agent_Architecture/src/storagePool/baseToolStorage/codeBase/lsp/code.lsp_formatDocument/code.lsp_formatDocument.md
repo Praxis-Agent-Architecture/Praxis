@@ -1,29 +1,86 @@
 ---
-description: Ask the language server for full-document formatting edits and return an edit preview only.
-argument-hint: workspaceRoot, documentUri or target.filePath, languageId, formatting options.
+description: Preview whole-document formatting edits.
+argument-hint: documentUri, optional languageId, options.tabSize, options.insertSpaces, workspaceRoot, dryRun.
 ---
 
 # code.lsp_formatDocument
 
-## Summary
+## Use This Tool
 
-Ask the language server for full-document formatting edits and return an edit preview only. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when you want the formatter’s proposed edits for an entire file, but you do not want the tool itself to write the file.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  languageId?: string;
+  options?: {
+    tabSize?: number;
+    insertSpaces?: boolean;
+    trimTrailingWhitespace?: boolean;
+    insertFinalNewline?: boolean;
+  };
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri`.
+- Set `dryRun: false` for a real formatting preview.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- `languageId` when detection may be ambiguous.
+- `options.tabSize` and `options.insertSpaces`.
+- `runtime.workspaceRoot` for relative paths.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- Preview-only tool: even with a real runtime call, it returns text edits, not file writes.
+- Use a higher layer to apply edits if desired.
+- Good for audit-first formatting workflows.
+
+## Returns
+
+- `edits` as formatter text edits.
+- `providerCalled` and `dryRun` status.
+- `appliesChanges` is always false in the runtime result.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/http/controller.ts",
+  languageId: "typescript",
+  options: {
+    tabSize: 2,
+    insertSpaces: true
+  },
+  dryRun: false,
+  runtime: {
+    workspaceRoot: "/absolute/workspace"
+  }
+}
+```
+
+## Avoid
+
+- Do not expect the file to be rewritten automatically.
+- Do not pass invalid `tabSize` values.
+- Do not use this for a small selection; use `code.lsp_formatRange`.

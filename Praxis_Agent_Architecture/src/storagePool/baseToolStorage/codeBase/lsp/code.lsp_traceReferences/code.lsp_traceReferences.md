@@ -1,21 +1,88 @@
 ---
-description: Find references for a symbol through the Praxis shared LSP runtime.
-argument-hint: target.filePath, line, character, includeDeclaration, workspaceRoot, languageId.
+description: Find references for the symbol at a file position.
+argument-hint: target.filePath, target.line, target.character, optional includeDeclaration, target.languageId, context.workspaceRoot, context.dryRun.
 ---
 
 # code.lsp_traceReferences
 
-## Summary
+## Use This Tool
 
-Use this skill when an agent needs all references for the symbol at a source position. It sends `textDocument/references` through the shared Praxis stdio LSP runtime.
+Use this tool when you want all references to a symbol. This is the semantic equivalent of “find references”.
 
-## Parameters
+## Call Shape
 
-- `target.filePath`, `target.line`, `target.character`: required symbol position.
-- `includeDeclaration`: include the symbol declaration when supported.
-- `target.languageId`: optional language override.
-- `context.workspaceRoot` or `runtime.workspaceRoot`: workspace root.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  target: {
+    filePath: string;
+    line: number;
+    character: number;
+    languageId?: string;
+  };
+  includeDeclaration?: boolean;
+  context?: {
+    workspaceRoot?: string;
+    dryRun?: boolean;
+    invocationId?: string;
+    allowedFilePaths?: readonly string[];
+  };
+  runtime?: {
+    workspaceRoot?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve dependencies through `toolDependency`, then call `traceLspReferences`. The tool is read-only and returns reference locations only.
+## Required Inputs
+
+- `target.filePath`, `target.line`, and `target.character`.
+- `context.dryRun: false` for a real reference search.
+
+## Optional Inputs
+
+- `includeDeclaration: true` when you want the declaration included in the returned reference list.
+- `target.languageId` and `context.workspaceRoot`.
+
+## Runtime Behavior
+
+- Read-only query tool.
+- Uses host executor first when available, then Praxis shared runtime.
+- Will auto-prepare trusted managed dependencies when possible.
+
+## Returns
+
+- `output.references` as an array of locations.
+- `output.includeDeclaration` reflects the final flag used.
+- `output.providerCalled` and `output.dryRun` status.
+
+## Example
+
+```ts
+{
+  target: {
+    filePath: "src/features/session.ts",
+    line: 28,
+    character: 14,
+    languageId: "typescript"
+  },
+  includeDeclaration: true,
+  context: {
+    workspaceRoot: "/absolute/workspace",
+    dryRun: false
+  }
+}
+```
+
+## Avoid
+
+- Do not use this when you only need the declaration site; use `code.lsp_locateDefinition`.
+- Do not expect sorted or deduplicated business semantics beyond what the LSP server returns.

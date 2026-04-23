@@ -1,29 +1,86 @@
 ---
-description: Request semantic completion items from the shared LSP runtime without applying them.
-argument-hint: workspaceRoot, documentUri or target.filePath, position.line, position.character, optional prefix/maxItems.
+description: Return semantic completion items for a cursor position.
+argument-hint: documentUri, position.line, position.character, optional triggerCharacter, maxItems, workspaceRoot, dryRun.
 ---
 
 # code.lsp_completeCode
 
-## Summary
+## Use This Tool
 
-Request semantic completion items from the shared LSP runtime without applying them. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when you want LSP-backed completion candidates at a cursor position. It returns candidates only; it does not insert them into the file.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  position: {
+    line: number;
+    character: number;
+  };
+  triggerCharacter?: string;
+  maxItems?: number;
+  workspaceRoot?: string;
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri` as an absolute path or `file://` URI.
+- `position.line` and `position.character` as 0-based coordinates.
+- Set `dryRun: false` for a real completion query.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- `triggerCharacter` when the completion should emulate a typed trigger.
+- `maxItems` to cap result size.
+- `workspaceRoot` if `documentUri` is relative.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- Real execution returns completion items only; it does not write to the file.
+- Host executor is preferred when present; otherwise the shared runtime is used.
+- Dependencies are prepared automatically when possible.
+
+## Returns
+
+- `items` as completion candidates.
+- `providerCalled` and `dryRun` status.
+- `kind` tells you whether this is a preview envelope or a real runtime result.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/server/router.ts",
+  position: {
+    line: 52,
+    character: 18
+  },
+  triggerCharacter: ".",
+  maxItems: 20,
+  workspaceRoot: "/absolute/workspace",
+  dryRun: false
+}
+```
+
+## Avoid
+
+- Do not expect inserted text to be applied automatically.
+- Do not pass 1-based positions.
+- Do not use this when you need hover/definition information instead of completion.

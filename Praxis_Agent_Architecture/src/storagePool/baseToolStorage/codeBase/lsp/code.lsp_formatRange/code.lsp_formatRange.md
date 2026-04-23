@@ -1,29 +1,89 @@
 ---
-description: Ask the language server for range formatting edits and return an edit preview only.
-argument-hint: workspaceRoot, documentUri or target.filePath, range, languageId, formatting options.
+description: Preview formatting edits for a specific range.
+argument-hint: documentUri, range.start, range.end, optional languageId, formatting options, workspaceRoot, dryRun.
 ---
 
 # code.lsp_formatRange
 
-## Summary
+## Use This Tool
 
-Ask the language server for range formatting edits and return an edit preview only. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when you want formatter edits for one specific region instead of the whole file.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  range: {
+    start: { line: number; character: number };
+    end: { line: number; character: number };
+  };
+  languageId?: string;
+  options?: {
+    tabSize?: number;
+    insertSpaces?: boolean;
+  };
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri`.
+- `range.start` and `range.end`.
+- `dryRun: false` for a real formatting preview.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- `languageId`.
+- `options.tabSize` and `options.insertSpaces`.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- Preview-only tool: it returns text edits only.
+- Best when the user wants to reformat a block, function, or pasted region.
+- Uses host executor or shared runtime depending on availability.
+
+## Returns
+
+- `edits` as range formatting text edits.
+- `providerCalled` and `dryRun` status.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/http/controller.ts",
+  range: {
+    start: { line: 12, character: 0 },
+    end: { line: 28, character: 1 }
+  },
+  options: {
+    tabSize: 2,
+    insertSpaces: true
+  },
+  dryRun: false,
+  runtime: {
+    workspaceRoot: "/absolute/workspace"
+  }
+}
+```
+
+## Avoid
+
+- Do not pass an inverted range.
+- Do not use this when you want the entire file formatted.

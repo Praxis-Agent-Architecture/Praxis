@@ -1,29 +1,77 @@
 ---
-description: Inspect LSP diagnostics captured from publishDiagnostics notifications or supplied snapshots.
-argument-hint: workspaceRoot, documentUri or target.filePath, optional severities/filter.
+description: Inspect diagnostics for a file.
+argument-hint: documentUri, optional severities, workspaceRoot, dryRun.
 ---
 
 # code.lsp_inspectDiagnostics
 
-## Summary
+## Use This Tool
 
-Inspect LSP diagnostics captured from publishDiagnostics notifications or supplied snapshots. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when you want compiler or language-server diagnostics for one file: errors, warnings, hints, and summary counts.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  severities?: readonly ("error" | "warning" | "information" | "hint")[];
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    waitMs?: number;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri`.
+- Set `dryRun: false` for a real runtime diagnostics fetch.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- `severities` to filter the returned diagnostics.
+- `runtime.waitMs` to give the server more time before diagnostics are collected.
+- `runtime.workspaceRoot`.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- In preview mode this tool works on a supplied diagnostics snapshot; in real mode the handler can fetch live diagnostics through the runtime.
+- Read-only inspection only; no file mutation.
+- Useful before code actions or formatting.
+
+## Returns
+
+- `diagnostics` as diagnostic items.
+- `providerCalled` and `dryRun` status.
+- Severity-filtered results when `severities` is provided.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/server/router.ts",
+  severities: ["error", "warning"],
+  dryRun: false,
+  runtime: {
+    workspaceRoot: "/absolute/workspace",
+    waitMs: 250
+  }
+}
+```
+
+## Avoid
+
+- Do not use this for semantic hover or symbol lookup.
+- Do not expect diagnostics from languages whose LSP server is only detect-only and missing locally.

@@ -1,29 +1,86 @@
 ---
-description: Inspect document symbols and return the symbol matching a position or name.
-argument-hint: workspaceRoot, documentUri or target.filePath, target.position or target.symbolName.
+description: Inspect symbol metadata in one file by position or exact symbol name.
+argument-hint: documentUri, target.position or target.symbolName, workspaceRoot, dryRun.
 ---
 
 # code.lsp_inspectSymbol
 
-## Summary
+## Use This Tool
 
-Inspect document symbols and return the symbol matching a position or name. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when you want a precise symbol snapshot inside one file: the matching symbol, its kind, range, and related candidates.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  target: {
+    position?: {
+      line: number;
+      character: number;
+    };
+    symbolName?: string;
+  };
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri`.
+- At least one of `target.position` or `target.symbolName`.
+- `dryRun: false` for a real runtime-based inspection.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- Both `target.position` and `target.symbolName` together to narrow results further.
+- `runtime.workspaceRoot`.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- Read-only symbol inspection.
+- Internally this is built on document symbol data.
+- Good when you need the exact symbol shape before a rename or explanation step.
+
+## Returns
+
+- `candidates` as matching symbol entries.
+- `providerCalled` and `dryRun` status.
+- The exact target echoed back in `target`.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/domain/user.ts",
+  target: {
+    position: {
+      line: 18,
+      character: 7
+    }
+  },
+  dryRun: false,
+  runtime: {
+    workspaceRoot: "/absolute/workspace"
+  }
+}
+```
+
+## Avoid
+
+- Do not call this with neither `position` nor `symbolName`.
+- Do not use this for workspace-wide name search.

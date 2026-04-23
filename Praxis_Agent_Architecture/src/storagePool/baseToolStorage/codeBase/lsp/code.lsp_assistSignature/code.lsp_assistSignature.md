@@ -1,29 +1,81 @@
 ---
-description: Request LSP signature help for a function or method call position.
-argument-hint: workspaceRoot, documentUri or target.filePath, position.line, position.character, optional triggerCharacter.
+description: Return signature help at a cursor position.
+argument-hint: documentUri, position.line, position.character, optional triggerCharacter, workspaceRoot, dryRun.
 ---
 
 # code.lsp_assistSignature
 
-## Summary
+## Use This Tool
 
-Request LSP signature help for a function or method call position. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when the cursor is inside a call expression and you want parameter and signature help.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  position: {
+    line: number;
+    character: number;
+  };
+  triggerCharacter?: string;
+  workspaceRoot?: string;
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri`.
+- `position.line` and `position.character`.
+- `dryRun: false` for a real signature lookup.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- `triggerCharacter` when the call was triggered by a character such as `(` or `,`.
+- `workspaceRoot`.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- Returns signature help only; does not edit files.
+- Best when the cursor position is already inside or near a function call.
+- Uses automatic dependency preparation when needed.
+
+## Returns
+
+- `signatureHelp.signatures` with labels and parameter info.
+- `providerCalled` and `dryRun` status.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/api/client.ts",
+  position: {
+    line: 23,
+    character: 31
+  },
+  triggerCharacter: "(",
+  workspaceRoot: "/absolute/workspace",
+  dryRun: false
+}
+```
+
+## Avoid
+
+- Do not use this for general symbol explanation; use `code.lsp_explainSymbol`.
+- Do not expect argument validation beyond what the language server provides.

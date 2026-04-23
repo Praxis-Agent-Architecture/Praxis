@@ -1,29 +1,86 @@
 ---
-description: Prepare an auditable LSP code action application plan without applying edits.
-argument-hint: workspaceRoot, documentUri or target.filePath, actionTitle/actionId, optional editPreview.
+description: Preview matching code actions for a document and selected action title.
+argument-hint: documentUri, actionTitle, optional actionKind, optional actionId for preview metadata, workspaceRoot, dryRun.
 ---
 
 # code.lsp_applyCodeAction
 
-## Summary
+## Use This Tool
 
-Prepare an auditable LSP code action application plan without applying edits. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when you already know which action you want and you want the exact matching action payload or preview. This is still preview-only: no edit is applied here.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  actionTitle?: string;
+  actionId?: string;
+  actionKind?: string;
+  editPreview?: {
+    filesTouched?: readonly string[];
+    diagnosticsResolved?: readonly string[];
+    summary?: string;
+  };
+  workspaceRoot?: string;
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri`.
+- `actionTitle` for real runtime filtering.
+- Set `dryRun: false` to query the runtime instead of returning only the planning envelope.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- `actionKind` to narrow the match.
+- `actionId` only when you want to preserve an external identifier in the preview/planning layer. Do not rely on it as the runtime selector.
+- `editPreview` when you want to attach higher-level intent context.
+- `workspaceRoot`.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- Preview-only tool: it never applies edits directly.
+- Use after `code.lsp_suggestCodeActions` when you want to narrow to one action.
+- In the current implementation, real runtime filtering is based on `actionTitle` and `actionKind`. `actionId` is not a runtime filter.
+- This tool is intentionally audit-first and mutation-free.
+
+## Returns
+
+- `matchingActions` as filtered code actions.
+- `providerCalled` and `dryRun` status.
+- `appliesChanges` is always false.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/server/router.ts",
+  actionTitle: "Add missing import",
+  actionKind: "quickfix",
+  workspaceRoot: "/absolute/workspace",
+  dryRun: false
+}
+```
+
+## Avoid
+
+- Do not treat this as the final edit application step.
+- Do not rely on `actionId` to select a runtime action today.
+- Do not omit `actionTitle` when you want a real filtered runtime result.

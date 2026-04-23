@@ -1,21 +1,84 @@
 ---
-description: Search workspace symbols through the Praxis shared LSP runtime.
-argument-hint: query, limit, workspaceRoot, optional runtime.server.
+description: Search semantic symbols across the workspace.
+argument-hint: query, optional limit, context.workspaceRoot, optional runtime.workspaceLanguageId or runtime.workspaceFilePathHint, context.dryRun.
 ---
 
 # code.lsp_searchWorkspaceSymbols
 
-## Summary
+## Use This Tool
 
-Use this skill when an agent needs symbols across the current workspace. It sends `workspace/symbol` through the shared Praxis stdio LSP runtime.
+Use this tool when you know a symbol name or prefix but do not know the exact file yet. This is the semantic workspace-wide lookup tool.
 
-## Parameters
+## Call Shape
 
-- `query`: required search query.
-- `limit`: optional result cap.
-- `context.workspaceRoot` or `runtime.workspaceRoot`: workspace root.
-- `runtime.server`: currently required for workspace-level runtime calls.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  query: string;
+  limit?: number;
+  context?: {
+    workspaceRoot?: string;
+    dryRun?: boolean;
+    invocationId?: string;
+  };
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    workspaceFilePathHint?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve dependencies through `toolDependency`, then call `searchLspWorkspaceSymbols`. The tool is read-only and returns workspace symbol data only.
+## Required Inputs
+
+- `query` must be non-empty.
+- `context.workspaceRoot` or `runtime.workspaceRoot` should point at the workspace root.
+- `context.dryRun: false` for a real workspace search.
+
+## Optional Inputs
+
+- `limit` to cap results.
+- `runtime.workspaceLanguageId` to help server selection when the workspace contains mixed languages.
+- `runtime.workspaceFilePathHint` if you want to bias selection toward one language/project shape.
+
+## Runtime Behavior
+
+- Read-only query tool.
+- Normal execution no longer requires explicit `runtime.server`.
+- The runtime will infer the LSP server from workspace markers and dependency resolution.
+
+## Returns
+
+- `output.symbols` as workspace symbol results.
+- `output.limit` as the final cap used.
+- `output.providerCalled` and `output.dryRun` status.
+
+## Example
+
+```ts
+{
+  query: "UserService",
+  limit: 20,
+  context: {
+    workspaceRoot: "/absolute/workspace",
+    dryRun: false
+  },
+  runtime: {
+    workspaceLanguageId: "typescript"
+  }
+}
+```
+
+## Avoid
+
+- Do not use this when you already have a precise file+position; use locate/trace tools instead.
+- Do not pass a blank query.

@@ -1,29 +1,85 @@
 ---
-description: Collect hover and symbol context that an agent can use to explain a code symbol.
-argument-hint: workspaceRoot, documentUri or target.filePath, position or symbolName, optional definition/reference hints.
+description: Return hover text plus optional definition/reference hints for a symbol.
+argument-hint: documentUri, position.line, position.character, optional includeDefinitionHint, includeReferencesHint, workspaceRoot, dryRun.
 ---
 
 # code.lsp_explainSymbol
 
-## Summary
+## Use This Tool
 
-Collect hover and symbol context that an agent can use to explain a code symbol. Use this tool when an agent needs LSP-backed semantic information while keeping the baseTool boundary stable and auditable.
+Use this tool when you want the semantic explanation of a symbol at a cursor position: hover text first, optional definition hints second, optional references third.
 
-## Parameters
+## Call Shape
 
-- Provide the workspace root and target document. Prefer a concrete file path when the runtime must open a file.
-- Provide the position, range, action, filters, or formatting options required by this tool.
-- Pass `languageId` when extension-based detection may be ambiguous.
-- Keep write-like operations as preview-only unless a higher layer explicitly applies the returned edit plan.
+Pass one object with this shape:
 
-## Body
+```ts
+{
+  documentUri: string;
+  position: {
+    line: number;
+    character: number;
+  };
+  includeDefinitionHint?: boolean;
+  includeReferencesHint?: boolean;
+  workspaceRoot?: string;
+  dryRun?: boolean;
+  runtime?: {
+    workspaceRoot?: string;
+    workspaceLanguageId?: string;
+    resolvedServerPath?: string;
+    server?: {
+      command: string;
+      args: readonly string[];
+      languageId: string;
+      fileExtensions: readonly string[];
+    };
+  };
+  preferredProvider?: "anthropic" | "openai" | "deepmind" | "praxis-native";
+}
+```
 
-Resolve the target language through `toolDependency/lspDependencyResolver.ts`. The shared runtime consumes the resolved executable from `toolDependency` and talks to the language server over stdio JSON-RPC. Provider files in this folder record the OpenAI, Anthropic, and DeepMind practice sources; `bestPractice.ts` exposes the Praxis-selected entry point.
+## Required Inputs
 
-## Result
+- `documentUri`.
+- `position.line` and `position.character`.
+- `dryRun: false` for a real explanation result.
 
-Return normalized LSP data, an edit preview, or a guarded plan. Do not write files directly from this skill. Surface dependency gaps as install/probe work for `toolDependency` instead of silently falling back to system-global behavior.
+## Optional Inputs
 
-## Verification
+- `includeDefinitionHint` to include definition targets.
+- `includeReferencesHint` to include reference locations.
+- `workspaceRoot`.
 
-Verify that the target file is inside the allowed workspace, that the required LSP dependency is registered, and that the result reports whether it was a dry-run, provider/runtime call, or preview-only edit plan.
+## Runtime Behavior
+
+- Read-only semantic inspection tool.
+- Useful when you want one call that gives hover text and a bit of navigation context.
+- Does not modify files.
+
+## Returns
+
+- `hover` as the main explanation payload.
+- `definitions` and `references` when requested.
+- `providerCalled` and `dryRun` status.
+
+## Example
+
+```ts
+{
+  documentUri: "/absolute/workspace/src/domain/order.ts",
+  position: {
+    line: 44,
+    character: 16
+  },
+  includeDefinitionHint: true,
+  includeReferencesHint: false,
+  workspaceRoot: "/absolute/workspace",
+  dryRun: false
+}
+```
+
+## Avoid
+
+- Do not use this when you need only completion or signature help.
+- Do not rely on it for natural-language summarization beyond the LSP hover payload.

@@ -56,6 +56,21 @@ function flattenSymbols(symbols: readonly LspRuntimeDocumentSymbol[]): readonly 
   return symbols.flatMap((symbol) => [symbol, ...flattenSymbols(symbol.children ?? [])]);
 }
 
+function comparePosition(
+  left: { line: number; character: number },
+  right: { line: number; character: number },
+): number {
+  return left.line === right.line ? left.character - right.character : left.line - right.line;
+}
+
+function containsPosition(
+  symbol: LspRuntimeDocumentSymbol,
+  position: { line: number; character: number },
+): boolean {
+  const range = symbol.selectionRange ?? symbol.range;
+  return comparePosition(range.start, position) <= 0 && comparePosition(position, range.end) <= 0;
+}
+
 function normalizeRuntimeSymbol(symbol: LspRuntimeDocumentSymbol): LspSymbolInfo {
   return {
     name: symbol.name,
@@ -161,10 +176,7 @@ export const lspInspectSymbolHandler: BaseToolHandler<
           : flattenSymbols(await scanDocumentSymbolsWithLspRuntime({ filePath: target.filePath, languageId: target.languageId }, request.input.runtime))
               .filter((symbol) => {
                 const nameMatches = target.symbolName === undefined || symbol.name === target.symbolName;
-                const positionMatches =
-                  target.position === undefined ||
-                  ((symbol.selectionRange ?? symbol.range).start.line <= target.position.line &&
-                    (symbol.selectionRange ?? symbol.range).end.line >= target.position.line);
+                const positionMatches = target.position === undefined || containsPosition(symbol, target.position);
                 return nameMatches && positionMatches;
               })
               .map(normalizeRuntimeSymbol);
