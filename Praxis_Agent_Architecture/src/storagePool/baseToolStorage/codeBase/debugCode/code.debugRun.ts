@@ -13,7 +13,7 @@ import {
   planBaseToolStorageWrite,
   type BaseToolStorageGate,
   type BaseToolStoragePlan,
-} from "../../../storageLogic.js";
+} from "../../../../agentCore/agent_executionEngine/basic_toolLayer/storageLogic.js";
 
 export type CodeDebugRunBoundary = "input" | "contract" | "governance" | "scope" | "storage";
 

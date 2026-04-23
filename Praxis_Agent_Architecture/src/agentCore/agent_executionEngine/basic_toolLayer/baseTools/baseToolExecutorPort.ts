@@ -56,6 +56,38 @@ export type BaseToolGitExecutor = {
   }): Promise<BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string }>>;
 };
 
+export type BaseToolLspPosition = {
+  filePath: string;
+  line: number;
+  character: number;
+  languageId?: string;
+};
+
+export type BaseToolLspRange = {
+  start: {
+    line: number;
+    character: number;
+  };
+  end: {
+    line: number;
+    character: number;
+  };
+};
+
+export type BaseToolLspLocation = {
+  filePath: string;
+  range: BaseToolLspRange;
+  uri?: string;
+  symbolName?: string;
+};
+
+export type BaseToolLspExecutor = {
+  locateDefinition?(request: {
+    target: BaseToolLspPosition;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ locations: readonly BaseToolLspLocation[] }>>;
+};
+
 export type BaseToolNetworkExecutor = {
   fetch?(request: {
     url: string;
@@ -131,6 +163,7 @@ export type BaseToolExecutorPort = {
   filesystem?: BaseToolFilesystemExecutor;
   shell?: BaseToolShellExecutor;
   git?: BaseToolGitExecutor;
+  lsp?: BaseToolLspExecutor;
   network?: BaseToolNetworkExecutor;
   mcp?: BaseToolMcpExecutor;
   device?: BaseToolDeviceExecutor;

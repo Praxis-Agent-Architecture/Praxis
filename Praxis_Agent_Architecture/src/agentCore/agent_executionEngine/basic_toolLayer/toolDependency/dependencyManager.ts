@@ -29,10 +29,12 @@ export type ToolDependencyProbe = {
   dependencyId?: string;
   available?: boolean;
   version?: string;
+  resolvedPath?: string;
   blocked?: boolean;
   conflictWith?: readonly string[];
   observedAt?: string;
   detail?: string;
+  metadata?: Readonly<Record<string, unknown>>;
 };
 
 export type ToolDependencyManagerContext = {
@@ -79,12 +81,14 @@ export type ToolDependencyResolution = {
   status: ToolDependencyStatus;
   requestedVersion?: string;
   observedVersion?: string;
+  resolvedPath?: string;
   acceptedVersions: readonly string[];
   requiredScopes: readonly string[];
   missingScopes: readonly string[];
   conflictWith: readonly string[];
   reasons: readonly string[];
   observedAt?: string;
+  metadata: Readonly<Record<string, unknown>>;
 };
 
 export type ToolDependencyReport = {
@@ -205,7 +209,7 @@ function resolveDependencyStatus(
   allowedScopes: readonly string[],
 ): Pick<
   ToolDependencyResolution,
-  "status" | "missingScopes" | "conflictWith" | "reasons" | "observedVersion" | "observedAt"
+  "status" | "missingScopes" | "conflictWith" | "reasons" | "observedVersion" | "resolvedPath" | "observedAt"
 > {
   const requiredScopes = cleanList(declaration.requiredScopes);
   const missingScopes = requiredScopes.filter((scope) => !allowedScopes.includes(scope));
@@ -220,6 +224,7 @@ function resolveDependencyStatus(
       conflictWith,
       reasons,
       observedVersion: probe?.version?.trim() || undefined,
+      resolvedPath: probe?.resolvedPath?.trim() || undefined,
       observedAt: probe?.observedAt?.trim() || undefined,
     };
   }
@@ -232,6 +237,7 @@ function resolveDependencyStatus(
       conflictWith,
       reasons,
       observedVersion: probe.version?.trim() || undefined,
+      resolvedPath: probe.resolvedPath?.trim() || undefined,
       observedAt: probe.observedAt?.trim() || undefined,
     };
   }
@@ -244,6 +250,7 @@ function resolveDependencyStatus(
       conflictWith,
       reasons,
       observedVersion: probe?.version?.trim() || undefined,
+      resolvedPath: probe?.resolvedPath?.trim() || undefined,
       observedAt: probe?.observedAt?.trim() || undefined,
     };
   }
@@ -256,6 +263,7 @@ function resolveDependencyStatus(
       conflictWith,
       reasons,
       observedVersion: undefined,
+      resolvedPath: undefined,
       observedAt: undefined,
     };
   }
@@ -268,6 +276,7 @@ function resolveDependencyStatus(
       conflictWith,
       reasons,
       observedVersion: probe.version?.trim() || undefined,
+      resolvedPath: probe.resolvedPath?.trim() || undefined,
       observedAt: probe.observedAt?.trim() || undefined,
     };
   }
@@ -280,6 +289,7 @@ function resolveDependencyStatus(
       conflictWith,
       reasons: versionStatus.reasons,
       observedVersion: probe.version?.trim() || undefined,
+      resolvedPath: probe.resolvedPath?.trim() || undefined,
       observedAt: probe.observedAt?.trim() || undefined,
     };
   }
@@ -292,6 +302,7 @@ function resolveDependencyStatus(
       conflictWith,
       reasons,
       observedVersion: probe.version?.trim() || undefined,
+      resolvedPath: probe.resolvedPath?.trim() || undefined,
       observedAt: probe.observedAt?.trim() || undefined,
     };
   }
@@ -303,6 +314,7 @@ function resolveDependencyStatus(
     conflictWith,
     reasons,
     observedVersion: probe.version?.trim() || undefined,
+    resolvedPath: probe.resolvedPath?.trim() || undefined,
     observedAt: probe.observedAt?.trim() || undefined,
   };
 }
@@ -397,7 +409,8 @@ export function manageToolDependencies(request: ToolDependencyManagerRequest = {
     seen.add(dependencyId);
 
     const requiredScopes = cleanList(declaration.requiredScopes);
-    const status = resolveDependencyStatus(declaration, probeMap.get(dependencyId), allowedScopes);
+    const probe = probeMap.get(dependencyId);
+    const status = resolveDependencyStatus(declaration, probe, allowedScopes);
     if (status.missingScopes.length > 0) {
       return failure(
         "SCOPE_DENIED",
@@ -414,12 +427,17 @@ export function manageToolDependencies(request: ToolDependencyManagerRequest = {
       status: status.status,
       requestedVersion: declaration.requestedVersion?.trim() || undefined,
       observedVersion: status.observedVersion,
+      resolvedPath: status.resolvedPath,
       acceptedVersions: cleanList(declaration.acceptedVersions),
       requiredScopes,
       missingScopes: status.missingScopes,
       conflictWith: status.conflictWith,
       reasons: status.reasons,
       observedAt: status.observedAt,
+      metadata: {
+        ...(declaration.metadata ?? {}),
+        ...(probe?.metadata ?? {}),
+      },
     });
   }
 

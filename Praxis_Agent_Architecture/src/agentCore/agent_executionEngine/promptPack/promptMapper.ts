@@ -163,11 +163,29 @@ function createOpenAiToolResultItems(results: readonly AssembledPromptToolResult
   }));
 }
 
+function createOpenAiToolCallItems(callStates: readonly AssembledPromptToolState[]): readonly Record<string, unknown>[] {
+  return callStates.map((state) => ({
+    type: "function_call",
+    call_id: state.callId ?? state.materialId,
+    name: state.name ?? state.materialId,
+    arguments: state.arguments ?? "{}",
+  }));
+}
+
 function createAnthropicToolResultBlocks(results: readonly AssembledPromptToolResult[]): readonly Record<string, unknown>[] {
   return results.map((result) => ({
     type: "tool_result",
     tool_use_id: result.callId ?? result.materialId,
     content: result.content,
+  }));
+}
+
+function createAnthropicToolUseBlocks(callStates: readonly AssembledPromptToolState[]): readonly Record<string, unknown>[] {
+  return callStates.map((state) => ({
+    type: "tool_use",
+    id: state.callId ?? state.materialId,
+    name: state.name ?? state.materialId,
+    input: parseJsonObject(state.arguments),
   }));
 }
 
@@ -179,6 +197,31 @@ function createGeminiFunctionResponseParts(results: readonly AssembledPromptTool
       response: { result: result.content },
     },
   }));
+}
+
+function createGeminiFunctionCallParts(callStates: readonly AssembledPromptToolState[]): readonly Record<string, unknown>[] {
+  return callStates.map((state) => ({
+    functionCall: {
+      name: state.name ?? state.materialId,
+      id: state.callId,
+      args: parseJsonObject(state.arguments),
+    },
+  }));
+}
+
+function parseJsonObject(text: string | undefined): Record<string, unknown> {
+  if (text === undefined || text.trim().length === 0) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : { value: parsed };
+  } catch {
+    return { raw: text };
+  }
 }
 
 function createOpenAiPayload(input: {
@@ -197,6 +240,7 @@ function createOpenAiPayload(input: {
     input.blocks.user
       ? { role: "user", content: input.blocks.user }
       : undefined,
+    ...createOpenAiToolCallItems(input.tools.callStates),
     ...createOpenAiToolResultItems(input.tools.results),
   ].filter((message): message is { role: string; content: string } | Record<string, unknown> => message !== undefined);
   const tools = createOpenAiTools(input.tools.declarations);
@@ -215,13 +259,19 @@ function createOpenAiPayload(input: {
 
 function createAnthropicPayload(input: { model?: string; blocks: MappedPromptBlocks; tools: MappedToolPayloads }): PromptProviderPayload {
   const system = [input.blocks.system, input.blocks.tool].filter(Boolean).join("\n\n");
+  const toolUses = createAnthropicToolUseBlocks(input.tools.callStates);
   const toolResults = createAnthropicToolResultBlocks(input.tools.results);
+  const messages: Array<{ role: "assistant" | "user"; content: unknown }> = [];
+  if (toolUses.length > 0) {
+    messages.push({ role: "assistant", content: toolUses });
+  }
   const userContent = toolResults.length > 0
     ? [
         ...toolResults,
         ...(input.blocks.user ? [{ type: "text", text: input.blocks.user }] : []),
       ]
     : input.blocks.user || "Continue.";
+  messages.push({ role: "user", content: userContent });
   const tools = createAnthropicTools(input.tools.declarations);
   return {
     provider: "anthropic",
@@ -230,7 +280,7 @@ function createAnthropicPayload(input: { model?: string; blocks: MappedPromptBlo
     body: {
       ...(input.model ? { model: input.model } : {}),
       ...(system ? { system } : {}),
-      messages: [{ role: "user", content: userContent }],
+      messages,
       ...(tools.length > 0 ? { tools } : {}),
     },
   };
@@ -238,12 +288,17 @@ function createAnthropicPayload(input: { model?: string; blocks: MappedPromptBlo
 
 function createGeminiPayload(input: { model?: string; blocks: MappedPromptBlocks; tools: MappedToolPayloads }): PromptProviderPayload {
   const system = [input.blocks.system, input.blocks.tool].filter(Boolean).join("\n\n");
+  const functionCallParts = createGeminiFunctionCallParts(input.tools.callStates);
   const functionResponseParts = createGeminiFunctionResponseParts(input.tools.results);
   const userParts = [
     ...(input.blocks.user ? [{ text: input.blocks.user }] : []),
     ...functionResponseParts,
   ];
   const tools = createGeminiTools(input.tools.declarations);
+  const contents = [
+    ...(functionCallParts.length > 0 ? [{ role: "model", parts: functionCallParts }] : []),
+    { role: "user", parts: userParts.length > 0 ? userParts : [{ text: "Continue." }] },
+  ];
   return {
     provider: "gemini",
     model: input.model,
@@ -251,7 +306,7 @@ function createGeminiPayload(input: { model?: string; blocks: MappedPromptBlocks
     body: {
       ...(input.model ? { model: input.model } : {}),
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-      contents: [{ role: "user", parts: userParts.length > 0 ? userParts : [{ text: "Continue." }] }],
+      contents,
       ...(tools.length > 0 ? { config: { tools } } : {}),
     },
   };

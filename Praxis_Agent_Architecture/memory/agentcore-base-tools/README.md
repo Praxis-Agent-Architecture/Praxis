@@ -1,0 +1,129 @@
+# agentCore baseTools construction memory
+
+This folder records the current target and constraints for building `src/agentCore/agent_executionEngine/basic_toolLayer/baseTools` and `src/storagePool/baseToolStorage`.
+
+## Target
+
+- `baseTools/` is the stable entry layer for the 203 builtin base tools.
+- `baseTools/` should hold tool entry contracts, registry lookup, toolSkill references, and the model-visible call boundary.
+- `src/storagePool/baseToolStorage/` is where real tool practice implementations are accumulated.
+- `src/storagePool/baseToolStorage/` should mirror the 203-tool structure, then replace placeholder tool files with provider practice modules and shared dependencies.
+- `toolDependency/`, `storageLogic.ts`, and `baseTool_storagePlane.ts` keep their separate responsibilities:
+  - `toolDependency/`: dependency declarations and dependency status management.
+  - `storageLogic.ts`: storage write/reuse/expiry/isolation logic for tool materials and results.
+  - `baseTool_storagePlane.ts`: governance, exposure, and presentation of storage state.
+
+## Source Priority
+
+When implementing a base tool, research source implementations in this order:
+
+1. CLI source code first.
+2. Agent SDK source code second.
+3. API SDK source code third.
+4. If none contain the needed practice, write a Praxis-native implementation using the official SDK/API conventions as the design language.
+
+The goal is not to copy source code blindly. The goal is to extract the best practice and rewrite it as clean TypeScript in Praxis' own shape.
+
+## Provider Practice Layout
+
+For a given tool, provider differences should live under `src/storagePool/baseToolStorage`, not in the `baseTools` entry file.
+
+Preferred shape for tools with meaningful provider differences:
+
+```text
+src/storagePool/baseToolStorage/<family>/<group>/<toolId>/
+  openai.ts
+  anthropic.ts
+  deepmind.ts
+  dependencies.ts
+  bestPractice.ts
+```
+
+If a shared dependency is common across providers, keep it in `dependencies.ts` instead of duplicating it in each provider implementation. Example: if OpenAI, Anthropic, and DeepMind variants all need LSP, LSP is a shared dependency, not three separate provider-owned implementations.
+
+## Risk And Permissions
+
+- Risk is intentionally coarse at this layer:
+  - `normal`: read-only or non-destructive work.
+  - `risky`: modifications, terminal commands, network calls, or state-changing operations.
+  - `dangerous`: high-impact destructive actions, device access, credentials, force pushes, background/detached processes, or system-level actions.
+- TAP will own finer-grained governance later.
+- `permissionHints` are hints only. Do not treat them as the final Raxode permission model.
+- Each toolSkill markdown should explicitly state the risk level.
+
+## Registry And Custom Tools
+
+- Builtin tools and custom tools must share the same registry path.
+- The current standard layer is:
+  - `baseTools/baseToolDefinition.ts`
+  - `baseTools/baseToolExecutorPort.ts`
+  - `baseTools/baseToolRegistry.ts`
+- Custom tools should be allowed to register with `source: "custom"` and then flow through the same dependency, executor, storage, and result path as builtin tools.
+
+## Current Implementation Status
+
+- `baseToolRegistry.ts` currently discovers 203 builtin tools.
+- Every discovered builtin tool points at a matching markdown toolSkill document.
+- Every discovered builtin tool currently has a coarse risk level and dependency declaration.
+- `inputSchema` and `outputSchema` are still `pending-schema` placeholders. Real schemas should be filled while implementing each tool.
+- Most current 203 tool files still expose dry-run plans. Real execution should be added through `BaseToolHandler.invoke()` plus `BaseToolExecutorPort`, not by embedding ungoverned side effects directly in each entry file.
+
+## First Provider Practice Sample
+
+`code.lsp_locateDefinition` is the first sample tool moved onto the provider practice shape.
+
+Current shape:
+
+```text
+src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/
+  openai.ts
+  anthropic.ts
+  deepmind.ts
+  dependencies.ts
+  bestPractice.ts
+  runtime.ts
+  README.md
+```
+
+Implementation notes:
+
+- `baseTools/codeBase/lsp/code.lsp_locateDefinition.ts` is now a thin stable entrypoint that re-exports the storagePool implementation surface.
+- `bestPractice.ts` selects provider practice in Anthropic -> OpenAI -> DeepMind order unless a preferred provider is supplied.
+- Anthropic currently has direct CLI evidence from Claude Code 2.1.88 LSPTool.
+- OpenAI/Codex and DeepMind/Gemini do not currently expose direct LSP definition tools in the local CLI sources; their practice files route through the shared Praxis host LSP executor.
+- Shared LSP dependency declarations live in `dependencies.ts`.
+- `BaseToolExecutorPort` now includes `lsp.locateDefinition`, so a host can provide LSP execution directly.
+- `runtime.ts` provides the storagePool-owned stdio JSON-RPC LSP runtime for real fallback execution when no injected provider or host executor is supplied.
+- The built-in runtime currently maps TypeScript/JavaScript to `typescript-language-server --stdio`, Python to `pyright-langserver --stdio`, Rust to `rust-analyzer`, and Go to `gopls`.
+- The storagePool implementation README lives at `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/README.md`.
+- `lspLocateDefinitionHandler` adapts `BaseToolInvokeRequest` into the bestPractice layer and returns a standard `BaseToolInvokeResult`.
+
+Verification performed:
+
+```bash
+node --import tsx --test test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateDefinition.test.ts
+find test/agentCore/agent_executionEngine/basic_toolLayer -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test
+npm run typecheck
+```
+
+## Tool Dependency Source Governance
+
+`toolDependency/` now owns dependency source governance for LSP-style tool dependencies.
+
+Current additions:
+
+```text
+src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.ts
+src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.ts
+```
+
+Design decisions:
+
+- Trusted built-in dependency sources installed into the Praxis managed directory do not require TAP approval.
+- TAP/governance is only needed for system-global installs, custom sources, sudo, shell profile edits, project-file mutation, or unknown/manual-review recipes.
+- `dependencySourceRegistry.ts` records source safety, package manager, executable names, version probes, and managed install recipes.
+- `lspDependencyResolver.ts` decides which LSP server is needed from `target.languageId`, `target.filePath`, workspace markers, and shebang/content hints.
+- LSP language support is registry-driven and includes TypeScript/JavaScript, Python, Rust, Go, C#, Java, C/C++, Kotlin, Swift, PHP, Shell, YAML, and Markdown.
+- `dependencyChecker.ts` can plan probes in Praxis managed bin before PATH.
+- `dependencyIterationManager.ts` attaches trusted managed install plans to missing/stale registered dependencies.
+- `code.lsp_locateDefinition/runtime.ts` now consumes the LSP resolver for default server selection; explicit `runtime.server` remains available for tests and advanced overrides.

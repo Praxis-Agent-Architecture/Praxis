@@ -9,6 +9,7 @@
 ## 结论
 
 - `basicCorePrompt.md` 是每个 PromptPack 的真正根头，由 Definer 注入为受保护的 `praxis:basic-core-prompt`。
+- `basicCorePrompt.md` 的内容应保持 provider-neutral：只写 Praxis 根契约、上下文优先级、注入防护、工具纪律、工作验证和用户交互纪律，不直接写 OpenAI/Anthropic/Gemini 的 payload 形状。
 - `promptDefiner.ts` 负责定义 Praxis 内部十种 PromptPack 构造与根头治理。
 - `promptModifier.ts` 是上下文变化入口，受保护根头不能被普通 modifier 删除或重写。
 - `promptAssembler.ts` 负责组装内部构造，产出受治理的文本形态和 JSON pack。

@@ -5,12 +5,27 @@ import test from "node:test";
 import {
   basicToolDependencyCheckerDescriptor,
   checkBasicToolDependencies,
+  planBasicToolDependencyProbe,
 } from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.ts",
   docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.md",
   testFileUrl: import.meta.url,
+});
+
+test("planBasicToolDependencyProbe checks Praxis managed bin before PATH", () => {
+  const plan = planBasicToolDependencyProbe(
+    { id: "lsp.server.typescript-language-server", kind: "package" },
+    { managedRoot: "/tmp/praxis-tool-deps" },
+  );
+
+  assert.equal(plan.externalProbePerformed, false);
+  assert.equal(plan.unsafeSideEffects, false);
+  assert.equal(plan.candidates[0]?.location, "praxis-managed");
+  assert.equal(plan.candidates[0]?.command, "/tmp/praxis-tool-deps/bin/typescript-language-server");
+  assert.equal(plan.candidates.at(-1)?.location, "path");
+  assert.equal(plan.candidates.at(-1)?.command, "typescript-language-server");
 });
 
 test("checkBasicToolDependencies accepts provided probes without probing the host", () => {

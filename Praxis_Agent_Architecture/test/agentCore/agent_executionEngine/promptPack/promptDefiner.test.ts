@@ -22,7 +22,7 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
     targetModel: " model:capability ",
     requestedScopes: [" prompt ", "prompt"],
     allowedScopes: ["prompt", "runtime"],
-    budget: { maxMaterials: 2, maxEstimatedTokens: 200 },
+    budget: { maxMaterials: 2, maxEstimatedTokens: 2000 },
     materials: [
       {
         id: " system ",

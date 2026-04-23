@@ -59,6 +59,35 @@ test("planToolDependencyIteration creates refresh steps from an existing depende
   );
 });
 
+test("planToolDependencyIteration attaches trusted managed install plans without approval", () => {
+  const dependencyReport = manageToolDependencies({
+    toolId: "code.lsp_locateDefinition",
+    declarations: [{ dependencyId: "lsp.server.typescript-language-server", kind: "package" }],
+    probes: [{ dependencyId: "lsp.server.typescript-language-server", available: false }],
+  });
+
+  assert.equal(dependencyReport.ok, true);
+  if (!dependencyReport.ok) {
+    return;
+  }
+
+  const result = planToolDependencyIteration({
+    toolId: "code.lsp_locateDefinition",
+    report: dependencyReport.report,
+    strategy: { managedRoot: "/tmp/praxis-tool-deps" },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  assert.equal(result.plan.refreshSteps[0]?.action, "install");
+  assert.equal(result.plan.refreshSteps[0]?.approvalRequired, false);
+  assert.equal(result.plan.refreshSteps[0]?.installPlan?.target, "praxis-managed");
+  assert.equal(result.plan.refreshSteps[0]?.installPlan?.steps[0]?.command, "npm");
+});
+
 test("planToolDependencyIteration can derive a report from declarations without probing for real", () => {
   const result = planToolDependencyIteration({
     toolId: "code.format",

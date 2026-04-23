@@ -53,11 +53,25 @@ function createAssembledPack() {
         },
       },
       {
+        id: "tool-call-state",
+        kind: "tool",
+        text: "{\"path\":\"README.md\"}",
+        source: "tool",
+        priority: 78,
+        trusted: true,
+        metadata: {
+          toolMaterialType: "call-state",
+          toolName: "workspace_read",
+          toolCallId: "call_123",
+          toolArguments: "{\"path\":\"README.md\"}",
+        },
+      },
+      {
         id: "tool-result",
         kind: "tool",
         text: "{\"ok\":true}",
         source: "tool",
-        priority: 78,
+        priority: 77,
         trusted: true,
         metadata: {
           toolMaterialType: "result",
@@ -112,15 +126,19 @@ test("mapPromptMaterials maps assembled PromptPack into OpenAI provider payload"
     "developer",
     "developer",
     "user",
+    "function_call",
     "function_call_output",
   ]);
   assert.match(result.mappedPack.blocks.system, /Praxis root head/);
   assert.match(result.mappedPack.blocks.tool, /ask before write/);
   assert.match(result.mappedPack.blocks.user, /Explain the current task/);
   assert.equal(result.mappedPack.tools.declarations[0]?.name, "workspace_read");
+  assert.equal(result.mappedPack.tools.callStates[0]?.callId, "call_123");
   assert.equal(result.mappedPack.tools.results[0]?.callId, "call_123");
   const tools = result.mappedPack.providerPayload.body.tools as Array<Record<string, unknown>>;
   assert.equal(tools[0]?.name, "workspace_read");
+  const callItem = (input as Array<Record<string, unknown>>).find((item) => item.type === "function_call");
+  assert.equal(callItem?.name, "workspace_read");
 });
 
 test("mapPromptMaterials folds high-authority blocks for Anthropic and rejects missing target", () => {
@@ -139,9 +157,11 @@ test("mapPromptMaterials folds high-authority blocks for Anthropic and rejects m
   assert.match(String(anthropic.mappedPack.providerPayload.body.system), /ask before write/);
   const anthropicTools = anthropic.mappedPack.providerPayload.body.tools as Array<Record<string, unknown>>;
   assert.equal(anthropicTools[0]?.name, "workspace_read");
-  const messages = anthropic.mappedPack.providerPayload.body.messages as Array<{ content: unknown }>;
-  assert.equal(Array.isArray(messages[0]?.content), true);
-  assert.equal((messages[0]?.content as Array<{ type?: string }>)[0]?.type, "tool_result");
+  const messages = anthropic.mappedPack.providerPayload.body.messages as Array<{ role: string; content: unknown }>;
+  assert.equal(messages[0]?.role, "assistant");
+  assert.equal((messages[0]?.content as Array<{ type?: string }>)[0]?.type, "tool_use");
+  assert.equal(Array.isArray(messages[1]?.content), true);
+  assert.equal((messages[1]?.content as Array<{ type?: string }>)[0]?.type, "tool_result");
 
   const gemini = mapPromptMaterials({
     runtimeId: "runtime",
@@ -155,8 +175,10 @@ test("mapPromptMaterials folds high-authority blocks for Anthropic and rejects m
   }
   const config = gemini.mappedPack.providerPayload.body.config as { tools?: Array<{ functionDeclarations?: unknown[] }> };
   assert.equal(config.tools?.[0]?.functionDeclarations?.length, 1);
-  const contents = gemini.mappedPack.providerPayload.body.contents as Array<{ parts: Array<Record<string, unknown>> }>;
-  assert.equal("functionResponse" in contents[0]!.parts[1]!, true);
+  const contents = gemini.mappedPack.providerPayload.body.contents as Array<{ role: string; parts: Array<Record<string, unknown>> }>;
+  assert.equal(contents[0]?.role, "model");
+  assert.equal("functionCall" in contents[0]!.parts[0]!, true);
+  assert.equal("functionResponse" in contents[1]!.parts[1]!, true);
 
   const missing = mapPromptMaterials({
     runtimeId: "runtime",

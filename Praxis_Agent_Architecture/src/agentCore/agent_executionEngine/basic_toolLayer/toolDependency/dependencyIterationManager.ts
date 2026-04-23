@@ -9,6 +9,11 @@
  */
 
 import type {
+  ToolDependencyInstallPlan,
+  ToolDependencyInstallTarget,
+} from "./dependencySourceRegistry.js";
+import { planDependencyInstallation } from "./dependencySourceRegistry.js";
+import type {
   ToolDependencyDeclaration,
   ToolDependencyManagerError,
   ToolDependencyManagerRequest,
@@ -24,6 +29,7 @@ export type ToolDependencyRefreshReason = "missing" | "stale" | "conflict" | "bl
 
 export type ToolDependencyRefreshAction =
   | "probe"
+  | "install"
   | "refresh-version"
   | "resolve-conflict"
   | "request-scope"
@@ -35,6 +41,10 @@ export type ToolDependencyIterationStrategy = {
   refreshStale?: boolean;
   reviewConflicts?: boolean;
   includeOptional?: boolean;
+  installTarget?: ToolDependencyInstallTarget;
+  managedRoot?: string;
+  env?: Readonly<Record<string, string | undefined>>;
+  homeDir?: string;
 };
 
 export type ToolDependencyIterationContext = {
@@ -84,6 +94,8 @@ export type ToolDependencyRefreshStep = {
   fromStatus: ToolDependencyStatus;
   requestedVersion?: string;
   observedVersion?: string;
+  installPlan?: ToolDependencyInstallPlan;
+  approvalRequired: boolean;
   notes: readonly string[];
 };
 
@@ -226,16 +238,36 @@ function shouldPlanRefresh(
   return true;
 }
 
-function buildRefreshStep(resolution: ToolDependencyResolution): ToolDependencyRefreshStep {
+function buildRefreshStep(
+  resolution: ToolDependencyResolution,
+  strategy: ToolDependencyIterationStrategy,
+): ToolDependencyRefreshStep {
+  const installPlanResult =
+    resolution.status === "missing" || resolution.status === "stale"
+      ? planDependencyInstallation({
+          dependencyId: resolution.dependencyId,
+          target: strategy.installTarget ?? "praxis-managed",
+          managedRoot: strategy.managedRoot,
+          env: strategy.env,
+          homeDir: strategy.homeDir,
+        })
+      : undefined;
+  const installPlan = installPlanResult?.ok === true ? installPlanResult.plan : undefined;
+
   return {
     dependencyId: resolution.dependencyId,
-    action: actionForStatus(resolution.status),
+    action: installPlan !== undefined ? "install" : actionForStatus(resolution.status),
     reason: reasonForStatus(resolution.status),
     required: resolution.required,
     fromStatus: resolution.status,
     requestedVersion: resolution.requestedVersion,
     observedVersion: resolution.observedVersion,
-    notes: resolution.reasons,
+    installPlan,
+    approvalRequired: installPlan?.approvalRequired ?? resolution.status === "blocked",
+    notes:
+      installPlanResult !== undefined && installPlanResult.ok === false
+        ? [...resolution.reasons, installPlanResult.error.message]
+        : resolution.reasons,
   };
 }
 
@@ -331,7 +363,9 @@ export function planToolDependencyIteration(
   }
 
   const strategy = request.strategy ?? {};
-  const refreshSteps = report.resolutions.filter((resolution) => shouldPlanRefresh(resolution, strategy)).map(buildRefreshStep);
+  const refreshSteps = report.resolutions
+    .filter((resolution) => shouldPlanRefresh(resolution, strategy))
+    .map((resolution) => buildRefreshStep(resolution, strategy));
   const hasBlockedRequired = refreshSteps.some((step) => step.required && step.fromStatus === "blocked");
   const status =
     refreshSteps.length === 0 ? "complete" : hasBlockedRequired || report.status === "blocked" ? "blocked" : "needs-refresh";

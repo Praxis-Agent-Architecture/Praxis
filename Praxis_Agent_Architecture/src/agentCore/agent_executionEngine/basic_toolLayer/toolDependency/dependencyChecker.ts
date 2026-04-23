@@ -8,6 +8,9 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import path from "node:path";
+import { lookupDependencySource, managedBinDir } from "./dependencySourceRegistry.js";
+
 export type BasicToolDependencyKind =
   | "binary"
   | "permission"
@@ -26,14 +29,17 @@ export type BasicToolDependencyDeclaration = {
   severity?: BasicToolDependencySeverity;
   versionRange?: string;
   scope?: string;
+  metadata?: Readonly<Record<string, unknown>>;
 };
 
 export type BasicToolDependencyProbe = {
   id: string;
   available: boolean;
   version?: string;
+  resolvedPath?: string;
   scope?: string;
   detail?: string;
+  metadata?: Readonly<Record<string, unknown>>;
 };
 
 export type BasicToolDependencyContext = {
@@ -73,10 +79,29 @@ export type BasicToolDependencyStatus = {
   severity: BasicToolDependencySeverity;
   available: boolean;
   version?: string;
+  resolvedPath?: string;
   versionRange?: string;
   scope?: string;
   staleProbeAccepted: boolean;
   detail?: string;
+  metadata: Readonly<Record<string, unknown>>;
+};
+
+export type BasicToolDependencyProbeLocation = "praxis-managed" | "path";
+
+export type BasicToolDependencyProbeCandidate = {
+  id: string;
+  command: string;
+  args: readonly string[];
+  location: BasicToolDependencyProbeLocation;
+};
+
+export type BasicToolDependencyProbePlan = {
+  kind: "agentCore.basicTool.dependencyProbePlan";
+  dependencyId: string;
+  candidates: readonly BasicToolDependencyProbeCandidate[];
+  externalProbePerformed: false;
+  unsafeSideEffects: false;
 };
 
 export type BasicToolDependencyReport = {
@@ -116,6 +141,43 @@ export const basicToolDependencyCheckerDescriptor = {
   externalProbePerformed: false,
   unsafeSideEffects: false,
 } as const;
+
+export function planBasicToolDependencyProbe(
+  dependency: BasicToolDependencyDeclaration,
+  options: {
+    env?: Readonly<Record<string, string | undefined>>;
+    homeDir?: string;
+    managedRoot?: string;
+  } = {},
+): BasicToolDependencyProbePlan {
+  const sourceLookup = lookupDependencySource(dependency.id);
+  const source = sourceLookup.ok ? sourceLookup.source : undefined;
+  const command = source?.executableName ?? dependency.id;
+  const alternateCommands = source?.alternateExecutableNames ?? [];
+  const binDir = managedBinDir(options);
+  const commands = [command, ...alternateCommands];
+
+  return {
+    kind: "agentCore.basicTool.dependencyProbePlan",
+    dependencyId: dependency.id,
+    candidates: [
+      ...commands.map((candidate) => ({
+        id: `${dependency.id}:managed:${candidate}`,
+        command: path.join(binDir, candidate),
+        args: source?.versionCommand?.args ?? ["--version"],
+        location: "praxis-managed" as const,
+      })),
+      ...commands.map((candidate) => ({
+        id: `${dependency.id}:path:${candidate}`,
+        command: candidate,
+        args: source?.versionCommand?.args ?? ["--version"],
+        location: "path" as const,
+      })),
+    ],
+    externalProbePerformed: false,
+    unsafeSideEffects: false,
+  };
+}
 
 function isBlank(value: string | undefined): boolean {
   return typeof value !== "string" || value.trim().length === 0;
@@ -257,10 +319,15 @@ export function checkBasicToolDependencies(
       severity: dependency.severity ?? "required",
       available,
       version: probe?.version,
+      resolvedPath: probe?.resolvedPath,
       versionRange: dependency.versionRange,
       scope: dependency.scope,
       staleProbeAccepted: request.refreshPolicy === "stale-ok",
       detail: probe?.detail,
+      metadata: {
+        ...(dependency.metadata ?? {}),
+        ...(probe?.metadata ?? {}),
+      },
     });
   }
 
