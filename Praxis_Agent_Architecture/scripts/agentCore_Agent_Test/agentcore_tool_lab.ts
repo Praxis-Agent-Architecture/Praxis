@@ -935,7 +935,7 @@ function normalizeToolCalls(value: unknown): ToolCall[] {
   }
 
   return rawCalls
-    .map((rawCall) => {
+    .map((rawCall): ToolCall | undefined => {
       if (typeof rawCall !== "object" || rawCall === null) {
         return undefined;
       }
