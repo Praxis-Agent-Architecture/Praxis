@@ -18,7 +18,7 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
-import { scanDocumentSymbolsWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
+import { scanDocumentSymbolsWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./_shared/runtime.js";
 
 export type LspDocumentTarget = {
   filePath: string;

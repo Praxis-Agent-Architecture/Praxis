@@ -81,7 +81,6 @@ src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/
   deepmind.ts
   dependencies.ts
   bestPractice.ts
-  runtime.ts
   code.lsp_locateDefinition.md
 ```
 
@@ -93,8 +92,8 @@ Implementation notes:
 - OpenAI/Codex and DeepMind/Gemini do not currently expose direct LSP definition tools in the local CLI sources; their practice files route through the shared Praxis host LSP executor.
 - Shared LSP dependency declarations live in `dependencies.ts`.
 - `BaseToolExecutorPort` now includes `lsp.locateDefinition`, so a host can provide LSP execution directly.
-- `runtime.ts` provides the storagePool-owned stdio JSON-RPC LSP runtime for real fallback execution when no injected provider or host executor is supplied.
-- The built-in runtime currently maps TypeScript/JavaScript to `typescript-language-server --stdio`, Python to `pyright-langserver --stdio`, Rust to `rust-analyzer`, and Go to `gopls`.
+- `src/storagePool/baseToolStorage/codeBase/lsp/_shared/runtime.ts` provides the storagePool-owned stdio JSON-RPC LSP runtime for real fallback execution when no injected provider or host executor is supplied.
+- The shared runtime consumes `toolDependency/lspDependencyResolver.ts` instead of owning a separate language-server map.
 - The storagePool implementation skill document lives at `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/code.lsp_locateDefinition.md`.
 - `lspLocateDefinitionHandler` adapts `BaseToolInvokeRequest` into the bestPractice layer and returns a standard `BaseToolInvokeResult`.
 
@@ -110,6 +109,20 @@ The first LSP runtime batch is now connected to the shared stdio JSON-RPC runtim
 - `code.lsp_suggestCodeActions` as a non-applying action suggestion surface
 
 For these tools, baseTools entry files are thin re-export surfaces and concrete runtime work lives in `src/storagePool/baseToolStorage/codeBase/lsp`.
+
+Each completed LSP tool now has a provider-practice folder:
+
+```text
+code.lsp_xxx/
+  openai.ts
+  anthropic.ts
+  deepmind.ts
+  dependencies.ts
+  bestPractice.ts
+  code.lsp_xxx.md
+```
+
+The old flat `code.lsp_xxx.ts` files are currently kept as compatibility/core implementation files while `bestPractice.ts` acts as the new folder-level entry. A later cleanup can move those core implementations into each folder once all LSP tools are converted.
 
 Verification performed:
 
@@ -139,4 +152,4 @@ Design decisions:
 - LSP language support is registry-driven and includes TypeScript/JavaScript, Python, Rust, Go, C#, Java, C/C++, Kotlin, Swift, PHP, Shell, YAML, and Markdown.
 - `dependencyChecker.ts` can plan probes in Praxis managed bin before PATH.
 - `dependencyIterationManager.ts` attaches trusted managed install plans to missing/stale registered dependencies.
-- `code.lsp_locateDefinition/runtime.ts` now consumes the LSP resolver for default server selection; explicit `runtime.server` remains available for tests and advanced overrides.
+- `_shared/runtime.ts` now consumes the LSP resolver for default server selection; explicit `runtime.server` remains available for tests and advanced overrides.

@@ -1,19 +1,19 @@
 ---
-description: 使用 Praxis 内置 LSP runtime 定位符号定义位置。
-argument-hint: target.filePath、line、character、workspaceRoot、languageId、可选 runtime.server。
+description: Locate a symbol definition through the Praxis shared LSP runtime.
+argument-hint: target.filePath, line, character, workspaceRoot, languageId, optional runtime.server.
 ---
 
 # code.lsp_locateDefinition
 
-## 摘要
+## Summary
 
-这个 skill 描述 `code.lsp_locateDefinition` 的真实执行方式：根据一个源码位置，通过 LSP 的 `textDocument/definition` 请求返回符号定义位置。
+Use this skill when an agent needs the definition location for the symbol at a source position. It sends `textDocument/definition` through the Praxis shared stdio LSP runtime.
 
-它属于 `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition` 的真实工具实践层，不是 `docs/agentCore/.../baseTools/...` 里的 model-facing toolSkill。baseTools 入口只负责稳定暴露工具；本目录负责 provider practice、共享依赖、LSP runtime 和 bestPractice 选择。
+This file is the storagePool implementation skill for `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition`. The model-facing baseTool skill remains under `docs/agentCore/.../baseTools/...`. The baseTools entrypoint exposes the stable tool surface; this storagePool directory owns provider practice, shared dependencies, and bestPractice selection.
 
-## 参数填写指南
+## Parameters
 
-调用时优先提供这些字段：
+Prefer this input shape:
 
 ```ts
 {
@@ -42,26 +42,26 @@ argument-hint: target.filePath、line、character、workspaceRoot、languageId�
 }
 ```
 
-填写规则：
+Rules:
 
-- `target.filePath` 必填，可以是绝对路径，也可以相对 `workspaceRoot`。
-- `target.line` 和 `target.character` 必填，使用 LSP 原生 0-based 坐标。
-- `target.languageId` 可选；如果提供，它优先于文件扩展名。
-- `context.workspaceRoot` 或 `runtime.workspaceRoot` 用于确定 workspace 和相对路径。
-- `context.dryRun !== false` 时只返回 dry-run envelope，不调用 provider/runtime。
-- `runtime.server` 用于测试或高级覆盖；正常情况下应让 toolDependency 解析目标语言并提供 server。
+- `target.filePath` is required and may be absolute or relative to `workspaceRoot`.
+- `target.line` and `target.character` are required 0-based LSP coordinates.
+- `target.languageId` is optional and overrides file-extension inference.
+- `context.workspaceRoot` or `runtime.workspaceRoot` resolves workspace-relative paths.
+- When `context.dryRun !== false`, return only a dry-run envelope.
+- `runtime.server` is for tests and advanced overrides; normal execution should let `toolDependency` resolve the language server.
 
-## 正文
+## Body
 
-执行优先级：
+Execution priority:
 
 ```text
 injected provider
 -> host executor.lsp.locateDefinition
--> storagePool 内置 stdio LSP runtime
+-> storagePool shared stdio LSP runtime
 ```
 
-真实 runtime 会启动语言服务器进程，通过 stdio JSON-RPC 执行：
+The shared runtime starts a language-server process and speaks stdio JSON-RPC:
 
 ```text
 initialize
@@ -72,19 +72,19 @@ shutdown
 exit
 ```
 
-依赖判断不由本文件硬编码。默认 server 选择来自：
+Dependency resolution is not hard-coded in this skill. Default server selection comes from:
 
 ```text
 src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.ts
 ```
 
-依赖源和安装计划来自：
+Dependency source and install-plan governance comes from:
 
 ```text
 src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.ts
 ```
 
-也就是说，工具处理的目标文件决定需要哪个 LSP：
+The target file decides which LSP server is needed:
 
 ```text
 target.languageId
@@ -93,11 +93,11 @@ target.languageId
 -> shebang/content hints
 ```
 
-如果缺少对应 LSP server，正常路径是由 `toolDependency` 生成 Praxis managed install plan。可信内置源安装到 Praxis managed directory 时不需要 TAP 审批；只有 system-global、custom-source、sudo、shell profile 修改等越界场景才进入治理确认。
+If the matching LSP server is missing, `toolDependency` should generate a Praxis-managed install plan. Trusted built-in sources installed into the Praxis managed directory do not require TAP approval; system-global installs, custom sources, sudo, shell-profile edits, or other boundary-crossing actions require governance confirmation.
 
 ## Provider Practice
 
-本工具保留三家 provider practice 文件：
+This tool keeps provider-practice files:
 
 ```text
 openai.ts
@@ -105,19 +105,19 @@ anthropic.ts
 deepmind.ts
 dependencies.ts
 bestPractice.ts
-runtime.ts
+../_shared/runtime.ts
 ```
 
-当前结论：
+Current practice source:
 
-- Anthropic/Claude Code 2.1.88 是直接 LSP 实践来源，尤其是 `tools/LSPTool/` 与 `services/lsp/`。
-- Codex Rust 提供 registry、handler、runtime boundary 的实践。
-- Gemini CLI 提供 model-facing declaration 与 concrete execution 分离的实践。
-- Praxis 不搬运三家源码，而是提炼实践后重写成自己的 TypeScript runtime。
+- Anthropic / Claude Code 2.1.88 provides the strongest direct LSP practice through `tools/LSPTool/` and `services/lsp/`.
+- Codex Rust contributes the registry, handler, and runtime-boundary practice.
+- Gemini CLI contributes the model-facing declaration versus concrete execution split.
+- Praxis does not copy provider source. It extracts the practice and rewrites it as Praxis TypeScript.
 
-## 返回结果
+## Result
 
-成功时返回标准 LSP 工具 envelope：
+Success returns a standard LSP tool envelope:
 
 ```ts
 {
@@ -137,7 +137,7 @@ runtime.ts
 }
 ```
 
-失败时返回 public-safe error，常见类型包括：
+Common public-safe failures:
 
 - `MISSING_FILE_PATH`
 - `INVALID_POSITION`
@@ -146,7 +146,7 @@ runtime.ts
 - `PROVIDER_UNAVAILABLE`
 - `PROVIDER_REJECTED`
 
-## 验证命令
+## Verification
 
 ```bash
 node --import tsx --test test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateDefinition.test.ts

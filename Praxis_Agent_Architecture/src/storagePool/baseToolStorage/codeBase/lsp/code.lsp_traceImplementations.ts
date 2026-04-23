@@ -20,7 +20,7 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
-import { traceImplementationsWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
+import { traceImplementationsWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./_shared/runtime.js";
 
 export type LspTraceImplementationsOutput = {
   kind: "agentCore.basicTool.lsp.traceImplementations";
