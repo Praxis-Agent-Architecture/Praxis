@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T01:21:03.283Z",
+  "updatedAt": "2026-04-23T01:24:55.463Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -818,7 +818,7 @@
       "id": "AC-SPEC-F:runtime.inspection",
       "parentId": "AC-SPEC-F",
       "title": "runtime.inspection",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0109",
         "AC-G-0110"
@@ -4856,7 +4856,7 @@
       "id": "AC-F-0422",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.test.ts"
@@ -4865,7 +4865,7 @@
       "id": "AC-F-0423",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeModuleInspector.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeModuleInspector.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeModuleInspector.test.ts"
@@ -4874,7 +4874,7 @@
       "id": "AC-F-0424",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.test.ts"
@@ -4883,7 +4883,7 @@
       "id": "AC-F-0425",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeSurfaceInspector.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeSurfaceInspector.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeSurfaceInspector.test.ts"
@@ -13646,7 +13646,7 @@
       "id": "AC-G-0110",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0422",
         "AC-F-0423",
@@ -13678,8 +13678,44 @@
       "branch": "codex/agentcore/ac-g-0110",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0110",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-23T00:49:24.010Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-23T00:49:24.422Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-23T00:59:08.008Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-23T00:59:08.148Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-23T01:02:14.697Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T01:21:32.166Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T01:24:55.463Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0111",
@@ -19199,6 +19235,13 @@
       "at": "2026-04-23T01:21:03.283Z",
       "event": "status",
       "groupId": "AC-G-0109",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T01:24:55.463Z",
+      "event": "status",
+      "groupId": "AC-G-0110",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
