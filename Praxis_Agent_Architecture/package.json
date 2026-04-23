@@ -9,6 +9,10 @@
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "chat:agentCore": "node --import tsx scripts/agentcore_chat.ts",
+    "lab:agentCore:tools": "node --import tsx scripts/agentcore_tool_lab.ts",
+    "smoke:agentCore": "node --import tsx scripts/agentcore_smoke.ts",
+    "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
     "test:agentCore": "find test/agentCore -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
     "tasks:agentCore": "node tasks/scripts/agentcore_workflow.mjs"
   },
