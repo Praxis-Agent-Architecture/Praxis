@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T01:26:58.266Z",
+  "updatedAt": "2026-04-23T01:36:40.506Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -879,7 +879,7 @@
       "id": "AC-SPEC-F:runtime.managementPlane",
       "parentId": "AC-SPEC-F",
       "title": "runtime.managementPlane",
-      "status": "pending",
+      "status": "in_progress",
       "groupTaskIds": [
         "AC-G-0116",
         "AC-G-0117",
@@ -5108,7 +5108,7 @@
       "id": "AC-F-0450",
       "parentId": "AC-SPEC-F:runtime.managementPlane",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeRollbackController.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeRollbackController.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeRollbackController.test.ts"
@@ -14079,7 +14079,7 @@
       "id": "AC-G-0118",
       "parentId": "AC-SPEC-F:runtime.managementPlane",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0450"
       ],
@@ -14093,8 +14093,44 @@
       "branch": "codex/agentcore/ac-g-0118",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0118",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-23T01:29:00.323Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-23T01:29:00.863Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-23T01:32:09.137Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-23T01:32:09.150Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-23T01:33:07.138Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T01:33:19.512Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T01:34:33.615Z",
+          "status": "done",
+          "note": "merge done"
+        }
+      ]
     },
     {
       "id": "AC-G-0119",
@@ -19285,6 +19321,48 @@
       "groupId": "AC-G-0110",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T01:29:00.863Z",
+      "event": "status",
+      "groupId": "AC-G-0118",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-23T01:32:09.137Z",
+      "event": "status",
+      "groupId": "AC-G-0118",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-23T01:32:09.150Z",
+      "event": "status",
+      "groupId": "AC-G-0118",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-23T01:33:07.138Z",
+      "event": "status",
+      "groupId": "AC-G-0118",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-23T01:33:19.512Z",
+      "event": "status",
+      "groupId": "AC-G-0118",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-23T01:34:33.615Z",
+      "event": "status",
+      "groupId": "AC-G-0118",
+      "status": "done",
+      "note": "merge done"
     }
   ],
   "events": [
