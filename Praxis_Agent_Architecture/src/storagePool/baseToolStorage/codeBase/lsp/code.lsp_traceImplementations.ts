@@ -20,6 +20,7 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
+import { traceImplementationsWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
 
 export type LspTraceImplementationsOutput = {
   kind: "agentCore.basicTool.lsp.traceImplementations";
@@ -40,6 +41,7 @@ export type LspTraceImplementationsRequest = {
   target?: Partial<LspTextDocumentPosition>;
   context?: LspToolContext;
   provider?: LspTraceImplementationsProvider;
+  runtime?: LspLocateDefinitionRuntimeOptions;
 };
 
 export const lspTraceImplementationsDescriptor = {
@@ -113,19 +115,14 @@ export async function traceLspImplementations(
     };
   }
 
-  if (request.provider === undefined) {
-    return createLspToolFailure(
-      toolId,
-      "PROVIDER_UNAVAILABLE",
-      "trace implementations requires an injected LSP provider when dryRun is disabled",
-      "provider",
-      request.context,
-      target.filePath,
-    );
-  }
-
   try {
-    const implementations = await request.provider(target, request.context ?? {});
+    const implementations =
+      request.provider !== undefined
+        ? await request.provider(target, request.context ?? {})
+        : await traceImplementationsWithLspRuntime(target, {
+            ...request.runtime,
+            workspaceRoot: request.runtime?.workspaceRoot ?? request.context?.workspaceRoot,
+          });
 
     return {
       ok: true,

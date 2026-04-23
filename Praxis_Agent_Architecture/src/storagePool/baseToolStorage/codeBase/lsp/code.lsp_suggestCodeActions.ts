@@ -18,6 +18,7 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
+import { requestTextDocumentWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
 
 export type LspCodeActionDiagnostic = {
   message: string;
@@ -73,6 +74,7 @@ export type LspSuggestCodeActionsRequest = {
   only?: readonly string[];
   context?: LspToolContext;
   provider?: LspSuggestCodeActionsProvider;
+  runtime?: LspLocateDefinitionRuntimeOptions;
 };
 
 export const lspSuggestCodeActionsDescriptor = {
@@ -181,6 +183,24 @@ function normalizeDiagnostics(diagnostics: readonly LspCodeActionDiagnostic[] | 
   );
 }
 
+function normalizeProviderActions(value: unknown): readonly LspCodeActionSuggestionProviderResult[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((action): action is Record<string, unknown> => typeof action === "object" && action !== null)
+    .filter((action) => typeof action.title === "string" && action.title.trim().length > 0)
+    .map((action) => ({
+      title: String(action.title),
+      kind: typeof action.kind === "string" ? action.kind : undefined,
+      diagnostics: Array.isArray(action.diagnostics) ? [] : undefined,
+      isPreferred: typeof action.isPreferred === "boolean" ? action.isPreferred : undefined,
+      editAvailable: action.edit !== undefined,
+      commandAvailable: action.command !== undefined,
+    }));
+}
+
 export async function suggestLspCodeActions(
   request: LspSuggestCodeActionsRequest = {},
 ): Promise<LspToolResult<LspSuggestCodeActionsOutput>> {
@@ -234,19 +254,32 @@ export async function suggestLspCodeActions(
     };
   }
 
-  if (request.provider === undefined) {
-    return createLspToolFailure(
-      toolId,
-      "PROVIDER_UNAVAILABLE",
-      "suggest code actions requires an injected LSP provider when dryRun is disabled",
-      "provider",
-      request.context,
-      target.filePath,
-    );
-  }
-
   try {
-    const actions = await request.provider(target, request.context ?? {}, diagnostics, only);
+    const actions =
+      request.provider !== undefined
+        ? await request.provider(target, request.context ?? {}, diagnostics, only)
+        : normalizeProviderActions(
+            await requestTextDocumentWithLspRuntime(
+              {
+                filePath: target.filePath,
+                line: target.range.start.line,
+                character: target.range.start.character,
+                languageId: target.languageId,
+              },
+              {
+                ...request.runtime,
+                workspaceRoot: request.runtime?.workspaceRoot ?? request.context?.workspaceRoot,
+                method: "textDocument/codeAction",
+                params: {
+                  range: target.range,
+                  context: {
+                    diagnostics: [],
+                    only,
+                  },
+                },
+              },
+            ),
+          );
 
     return {
       ok: true,

@@ -1,7 +1,11 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { suggestLspCodeActions } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_suggestCodeActions.js";
+import { fakeLspServerSource } from "./fakeLspServer.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_suggestCodeActions.ts",
@@ -84,4 +88,50 @@ test("suggestLspCodeActions can call an injected provider without applying edits
   assert.equal(result.output.actions[0]?.title, "Add explicit return type");
   assert.equal(result.output.actions[0]?.source, "provider");
   assert.equal(result.audit[0]?.invocationId, "code-actions-1");
+});
+
+test("suggestLspCodeActions can use the built-in stdio LSP runtime", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "praxis-lsp-code-action-"));
+  const targetPath = path.join(workspaceRoot, "runtime.fake");
+  await writeFile(targetPath, "const value = 1;\n", "utf8");
+
+  try {
+    const result = await suggestLspCodeActions({
+      target: {
+        filePath: targetPath,
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 5 } },
+        languageId: "fake",
+      },
+      context: { dryRun: false, workspaceRoot },
+      runtime: {
+        workspaceRoot,
+        server: {
+          command: process.execPath,
+          args: [
+            "-e",
+            fakeLspServerSource({
+              "textDocument/codeAction": [
+                {
+                  title: "Extract constant",
+                  kind: "refactor.extract",
+                  edit: { changes: {} },
+                },
+              ],
+            }),
+          ],
+          languageId: "fake",
+          fileExtensions: [".fake"],
+        },
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.output.actions[0]?.title, "Extract constant");
+      assert.equal(result.output.actions[0]?.editAvailable, true);
+      assert.equal(result.output.appliesChanges, false);
+    }
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 });

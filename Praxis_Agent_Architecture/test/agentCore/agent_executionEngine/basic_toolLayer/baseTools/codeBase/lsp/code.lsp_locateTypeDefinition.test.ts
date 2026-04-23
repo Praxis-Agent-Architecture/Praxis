@@ -1,7 +1,11 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { locateLspTypeDefinition } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateTypeDefinition.js";
+import { fakeLspServerSource } from "./fakeLspServer.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateTypeDefinition.ts",
@@ -73,4 +77,42 @@ test("locateLspTypeDefinition can call an injected provider when explicitly requ
   assert.equal(result.output.providerCalled, true);
   assert.equal(result.output.locations[0]?.symbolName, "ModelType");
   assert.equal(result.audit[0]?.invocationId, "type-definition-1");
+});
+
+test("locateLspTypeDefinition can use the built-in stdio LSP runtime", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "praxis-lsp-type-"));
+  const targetPath = path.join(workspaceRoot, "model.fake");
+  await writeFile(targetPath, "const model = 1;\n", "utf8");
+
+  try {
+    const result = await locateLspTypeDefinition({
+      target: { filePath: targetPath, line: 0, character: 6, languageId: "fake" },
+      context: { dryRun: false, workspaceRoot },
+      runtime: {
+        workspaceRoot,
+        server: {
+          command: process.execPath,
+          args: [
+            "-e",
+            fakeLspServerSource({
+              "textDocument/typeDefinition": {
+                uri: `file://${targetPath}`,
+                range: { start: { line: 0, character: 6 }, end: { line: 0, character: 11 } },
+              },
+            }),
+          ],
+          languageId: "fake",
+          fileExtensions: [".fake"],
+        },
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.output.locations[0]?.filePath, targetPath);
+      assert.equal(result.output.providerCalled, true);
+    }
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 });

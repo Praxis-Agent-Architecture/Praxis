@@ -1,7 +1,11 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { renameLspSymbol } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_renameSymbol.js";
+import { fakeLspServerSource } from "./fakeLspServer.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_renameSymbol.ts",
@@ -84,4 +88,50 @@ test("renameLspSymbol calls an injected provider for preview edits when dryRun i
   assert.equal(result.output.appliedChanges, false);
   assert.equal(result.output.workspaceEdit.source, "provider");
   assert.equal(Object.isFrozen(result.output.workspaceEdit.changes), true);
+});
+
+test("renameLspSymbol can use the built-in stdio LSP runtime for preview edits", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "praxis-lsp-rename-"));
+  const targetPath = path.join(workspaceRoot, "service.fake");
+  await writeFile(targetPath, "const service = 1;\n", "utf8");
+
+  try {
+    const result = await renameLspSymbol({
+      target: { filePath: targetPath, line: 0, character: 6, languageId: "fake" },
+      newName: "renamed",
+      context: { dryRun: false, workspaceRoot },
+      runtime: {
+        workspaceRoot,
+        server: {
+          command: process.execPath,
+          args: [
+            "-e",
+            fakeLspServerSource({
+              "textDocument/rename": {
+                changes: {
+                  [`file://${targetPath}`]: [
+                    {
+                      range: { start: { line: 0, character: 6 }, end: { line: 0, character: 13 } },
+                      newText: "renamed",
+                    },
+                  ],
+                },
+              },
+            }),
+          ],
+          languageId: "fake",
+          fileExtensions: [".fake"],
+        },
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.output.workspaceEdit.changes[0]?.filePath, targetPath);
+      assert.equal(result.output.workspaceEdit.changes[0]?.newText, "renamed");
+      assert.equal(result.output.appliedChanges, false);
+    }
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 });

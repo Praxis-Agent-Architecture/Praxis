@@ -1,7 +1,11 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { searchLspWorkspaceSymbols } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_searchWorkspaceSymbols.js";
+import { fakeLspServerSource } from "./fakeLspServer.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_searchWorkspaceSymbols.ts",
@@ -67,4 +71,47 @@ test("searchLspWorkspaceSymbols can call an injected provider when dry-run is di
   assert.equal(result.output.symbols[0]?.name, "AgentRuntime");
   assert.equal(result.output.symbols[0]?.source, "provider");
   assert.equal(result.audit[0]?.invocationId, "workspace-symbols-1");
+});
+
+test("searchLspWorkspaceSymbols can use the built-in stdio LSP runtime", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "praxis-lsp-workspace-symbols-"));
+
+  try {
+    const result = await searchLspWorkspaceSymbols({
+      query: "Agent",
+      context: { dryRun: false, workspaceRoot },
+      runtime: {
+        workspaceRoot,
+        server: {
+          command: process.execPath,
+          args: [
+            "-e",
+            fakeLspServerSource({
+              "workspace/symbol": [
+                {
+                  name: "AgentRuntime",
+                  kind: 5,
+                  location: {
+                    uri: `file://${path.join(workspaceRoot, "agent.fake")}`,
+                    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 12 } },
+                  },
+                },
+              ],
+            }),
+          ],
+          languageId: "fake",
+          fileExtensions: [".fake"],
+        },
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.output.symbols[0]?.name, "AgentRuntime");
+      assert.equal(result.output.symbols[0]?.source, "provider");
+      assert.equal(result.output.providerCalled, true);
+    }
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 });

@@ -16,6 +16,7 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
+import { searchWorkspaceSymbolsWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
 
 export type LspWorkspaceSymbol = {
   name: string;
@@ -52,6 +53,7 @@ export type LspSearchWorkspaceSymbolsRequest = {
   limit?: number;
   context?: LspToolContext;
   provider?: LspSearchWorkspaceSymbolsProvider;
+  runtime?: LspLocateDefinitionRuntimeOptions;
 };
 
 export const lspSearchWorkspaceSymbolsDescriptor = {
@@ -157,18 +159,14 @@ export async function searchLspWorkspaceSymbols(
     };
   }
 
-  if (request.provider === undefined) {
-    return createLspToolFailure(
-      toolId,
-      "PROVIDER_UNAVAILABLE",
-      "search workspace symbols requires an injected LSP provider when dryRun is disabled",
-      "provider",
-      request.context,
-    );
-  }
-
   try {
-    const symbols = await request.provider(query, request.context ?? {}, limit);
+    const symbols =
+      request.provider !== undefined
+        ? await request.provider(query, request.context ?? {}, limit)
+        : await searchWorkspaceSymbolsWithLspRuntime(query, {
+            ...request.runtime,
+            workspaceRoot: request.runtime?.workspaceRoot ?? request.context?.workspaceRoot,
+          });
 
     return {
       ok: true,

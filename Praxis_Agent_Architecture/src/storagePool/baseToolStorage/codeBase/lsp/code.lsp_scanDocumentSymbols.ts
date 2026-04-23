@@ -18,6 +18,7 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
+import { scanDocumentSymbolsWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
 
 export type LspDocumentTarget = {
   filePath: string;
@@ -52,6 +53,7 @@ export type LspScanDocumentSymbolsRequest = {
   target?: Partial<LspDocumentTarget>;
   context?: LspToolContext;
   provider?: LspScanDocumentSymbolsProvider;
+  runtime?: LspLocateDefinitionRuntimeOptions;
 };
 
 export const lspScanDocumentSymbolsDescriptor = {
@@ -156,19 +158,14 @@ export async function scanLspDocumentSymbols(
     };
   }
 
-  if (request.provider === undefined) {
-    return createLspToolFailure(
-      toolId,
-      "PROVIDER_UNAVAILABLE",
-      "scan document symbols requires an injected LSP provider when dryRun is disabled",
-      "provider",
-      request.context,
-      target.filePath,
-    );
-  }
-
   try {
-    const symbols = await request.provider(target, request.context ?? {});
+    const symbols =
+      request.provider !== undefined
+        ? await request.provider(target, request.context ?? {})
+        : await scanDocumentSymbolsWithLspRuntime(target, {
+            ...request.runtime,
+            workspaceRoot: request.runtime?.workspaceRoot ?? request.context?.workspaceRoot,
+          });
 
     return {
       ok: true,

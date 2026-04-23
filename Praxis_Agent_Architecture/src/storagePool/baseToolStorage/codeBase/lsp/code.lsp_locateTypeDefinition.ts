@@ -20,6 +20,7 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
+import { locateTypeDefinitionWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
 
 export type LspLocateTypeDefinitionOutput = {
   kind: "agentCore.basicTool.lsp.locateTypeDefinition";
@@ -40,6 +41,7 @@ export type LspLocateTypeDefinitionRequest = {
   target?: Partial<LspTextDocumentPosition>;
   context?: LspToolContext;
   provider?: LspLocateTypeDefinitionProvider;
+  runtime?: LspLocateDefinitionRuntimeOptions;
 };
 
 export const lspLocateTypeDefinitionDescriptor = {
@@ -113,19 +115,14 @@ export async function locateLspTypeDefinition(
     };
   }
 
-  if (request.provider === undefined) {
-    return createLspToolFailure(
-      toolId,
-      "PROVIDER_UNAVAILABLE",
-      "locate type definition requires an injected LSP provider when dryRun is disabled",
-      "provider",
-      request.context,
-      target.filePath,
-    );
-  }
-
   try {
-    const locations = await request.provider(target, request.context ?? {});
+    const locations =
+      request.provider !== undefined
+        ? await request.provider(target, request.context ?? {})
+        : await locateTypeDefinitionWithLspRuntime(target, {
+            ...request.runtime,
+            workspaceRoot: request.runtime?.workspaceRoot ?? request.context?.workspaceRoot,
+          });
 
     return {
       ok: true,

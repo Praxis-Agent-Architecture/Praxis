@@ -1,7 +1,11 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { traceLspImplementations } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_traceImplementations.js";
+import { fakeLspServerSource } from "./fakeLspServer.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_traceImplementations.ts",
@@ -71,4 +75,42 @@ test("traceLspImplementations can call an injected provider when dry-run is disa
   assert.equal(result.output.providerCalled, true);
   assert.equal(result.output.implementations[0]?.symbolName, "ServiceImpl");
   assert.equal(result.audit[0]?.invocationId, "implementations-1");
+});
+
+test("traceLspImplementations can use the built-in stdio LSP runtime", async () => {
+  const workspaceRoot = await mkdtemp(path.join(tmpdir(), "praxis-lsp-implementations-"));
+  const targetPath = path.join(workspaceRoot, "service.fake");
+  await writeFile(targetPath, "interface Service {}\n", "utf8");
+
+  try {
+    const result = await traceLspImplementations({
+      target: { filePath: targetPath, line: 0, character: 10, languageId: "fake" },
+      context: { dryRun: false, workspaceRoot },
+      runtime: {
+        workspaceRoot,
+        server: {
+          command: process.execPath,
+          args: [
+            "-e",
+            fakeLspServerSource({
+              "textDocument/implementation": {
+                uri: `file://${targetPath}`,
+                range: { start: { line: 0, character: 10 }, end: { line: 0, character: 17 } },
+              },
+            }),
+          ],
+          languageId: "fake",
+          fileExtensions: [".fake"],
+        },
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (result.ok) {
+      assert.equal(result.output.implementations[0]?.filePath, targetPath);
+      assert.equal(result.output.providerCalled, true);
+    }
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 });

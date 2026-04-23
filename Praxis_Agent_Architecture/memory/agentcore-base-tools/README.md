@@ -82,7 +82,7 @@ src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/
   dependencies.ts
   bestPractice.ts
   runtime.ts
-  README.md
+  code.lsp_locateDefinition.md
 ```
 
 Implementation notes:
@@ -95,8 +95,21 @@ Implementation notes:
 - `BaseToolExecutorPort` now includes `lsp.locateDefinition`, so a host can provide LSP execution directly.
 - `runtime.ts` provides the storagePool-owned stdio JSON-RPC LSP runtime for real fallback execution when no injected provider or host executor is supplied.
 - The built-in runtime currently maps TypeScript/JavaScript to `typescript-language-server --stdio`, Python to `pyright-langserver --stdio`, Rust to `rust-analyzer`, and Go to `gopls`.
-- The storagePool implementation README lives at `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/README.md`.
+- The storagePool implementation skill document lives at `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/code.lsp_locateDefinition.md`.
 - `lspLocateDefinitionHandler` adapts `BaseToolInvokeRequest` into the bestPractice layer and returns a standard `BaseToolInvokeResult`.
+
+The first LSP runtime batch is now connected to the shared stdio JSON-RPC runtime:
+
+- `code.lsp_locateDefinition`
+- `code.lsp_locateTypeDefinition`
+- `code.lsp_traceReferences`
+- `code.lsp_traceImplementations`
+- `code.lsp_scanDocumentSymbols`
+- `code.lsp_searchWorkspaceSymbols`
+- `code.lsp_renameSymbol` as a preview-only workspace edit plan
+- `code.lsp_suggestCodeActions` as a non-applying action suggestion surface
+
+For these tools, baseTools entry files are thin re-export surfaces and concrete runtime work lives in `src/storagePool/baseToolStorage/codeBase/lsp`.
 
 Verification performed:
 

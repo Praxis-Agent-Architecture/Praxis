@@ -19,6 +19,8 @@ import {
   type LspToolContext,
   type LspToolResult,
 } from "./code.lsp_locateDefinition.js";
+import { requestTextDocumentWithLspRuntime, type LspLocateDefinitionRuntimeOptions } from "./code.lsp_locateDefinition/runtime.js";
+import { fileURLToPath } from "node:url";
 
 export type LspRenameWorkspaceEdit = {
   changes: readonly {
@@ -53,6 +55,7 @@ export type LspRenameSymbolRequest = {
   applyChanges?: boolean;
   context?: LspToolContext;
   provider?: LspRenameSymbolProvider;
+  runtime?: LspLocateDefinitionRuntimeOptions;
 };
 
 export const lspRenameSymbolDescriptor = {
@@ -65,6 +68,11 @@ export const lspRenameSymbolDescriptor = {
   unsafeSideEffects: false,
   tapOwnsApproval: true,
 } as const;
+
+type LspWorkspaceEditResponse = {
+  changes?: Record<string, readonly { range?: LspRange; newText?: string }[]>;
+  documentChanges?: readonly unknown[];
+};
 
 function isBlank(value: string | undefined): value is undefined {
   return typeof value !== "string" || value.trim().length === 0;
@@ -111,6 +119,32 @@ function dryRunWorkspaceEdit(target: LspTextDocumentPosition, newName: string): 
       },
     ],
   };
+}
+
+function uriToPath(uri: string): string {
+  return uri.startsWith("file:") ? fileURLToPath(uri) : uri;
+}
+
+function normalizeWorkspaceEdit(value: unknown): LspRenameWorkspaceEdit {
+  if (typeof value !== "object" || value === null) {
+    return { source: "provider", changes: Object.freeze([]) };
+  }
+
+  const edit = value as LspWorkspaceEditResponse;
+  const changes: LspRenameWorkspaceEdit["changes"][number][] = [];
+  for (const [uri, edits] of Object.entries(edit.changes ?? {})) {
+    for (const textEdit of edits) {
+      if (textEdit.range !== undefined && typeof textEdit.newText === "string") {
+        changes.push({
+          filePath: uriToPath(uri),
+          range: textEdit.range,
+          newText: textEdit.newText,
+        });
+      }
+    }
+  }
+
+  return { source: "provider", changes: Object.freeze(changes) };
 }
 
 export async function renameLspSymbol(
@@ -172,19 +206,24 @@ export async function renameLspSymbol(
     };
   }
 
-  if (request.provider === undefined) {
-    return createLspToolFailure(
-      toolId,
-      "PROVIDER_UNAVAILABLE",
-      "rename symbol requires an injected LSP provider when dryRun is disabled",
-      "provider",
-      request.context,
-      target.filePath,
-    );
-  }
-
   try {
-    const workspaceEdit = await request.provider(target, newName, request.context ?? {});
+    const workspaceEdit =
+      request.provider !== undefined
+        ? await request.provider(target, newName, request.context ?? {})
+        : normalizeWorkspaceEdit(
+            await requestTextDocumentWithLspRuntime(target, {
+              ...request.runtime,
+              workspaceRoot: request.runtime?.workspaceRoot ?? request.context?.workspaceRoot,
+              method: "textDocument/rename",
+              params: {
+                position: {
+                  line: target.line,
+                  character: target.character,
+                },
+                newName,
+              },
+            }),
+          );
 
     return {
       ok: true,

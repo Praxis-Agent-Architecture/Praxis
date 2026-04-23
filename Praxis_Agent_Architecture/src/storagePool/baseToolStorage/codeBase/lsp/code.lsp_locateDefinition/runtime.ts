@@ -56,6 +56,28 @@ export type LspLocateDefinitionRuntimeOptions = {
   maxFileBytes?: number;
 };
 
+export type LspRuntimeRequestOptions = LspLocateDefinitionRuntimeOptions & {
+  method: string;
+  params?: Readonly<Record<string, unknown>>;
+};
+
+export type LspRuntimeDocumentSymbol = {
+  name: string;
+  kind: string;
+  range: LspRange;
+  selectionRange?: LspRange;
+  detail?: string;
+  children?: readonly LspRuntimeDocumentSymbol[];
+};
+
+export type LspRuntimeWorkspaceSymbol = {
+  name: string;
+  kind: string;
+  location?: LspLocation;
+  containerName?: string;
+  detail?: string;
+};
+
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_FILE_BYTES = 10_000_000;
 
@@ -199,6 +221,92 @@ function normalizeDefinitionResult(result: unknown): readonly LspLocation[] {
   return locations;
 }
 
+function normalizeDocumentSymbolKind(kind: unknown): string {
+  return typeof kind === "string" ? kind : typeof kind === "number" ? String(kind) : "unknown";
+}
+
+function normalizeDocumentSymbols(result: unknown): readonly LspRuntimeDocumentSymbol[] {
+  if (!Array.isArray(result)) {
+    return [];
+  }
+
+  const symbols: LspRuntimeDocumentSymbol[] = [];
+  for (const item of result) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+
+    const symbol = item as {
+      name?: unknown;
+      kind?: unknown;
+      range?: unknown;
+      selectionRange?: unknown;
+      location?: { range?: unknown };
+      detail?: unknown;
+      children?: unknown;
+    };
+    const range = toLspRange(symbol.range) ?? toLspRange(symbol.location?.range);
+    if (typeof symbol.name !== "string" || range === undefined) {
+      continue;
+    }
+
+    symbols.push({
+      name: symbol.name,
+      kind: normalizeDocumentSymbolKind(symbol.kind),
+      range,
+      selectionRange: toLspRange(symbol.selectionRange),
+      detail: typeof symbol.detail === "string" ? symbol.detail : undefined,
+      children: normalizeDocumentSymbols(symbol.children),
+    });
+  }
+
+  return symbols;
+}
+
+function normalizeWorkspaceSymbols(result: unknown): readonly LspRuntimeWorkspaceSymbol[] {
+  if (!Array.isArray(result)) {
+    return [];
+  }
+
+  const symbols: LspRuntimeWorkspaceSymbol[] = [];
+  for (const item of result) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+
+    const symbol = item as {
+      name?: unknown;
+      kind?: unknown;
+      location?: { uri?: unknown; range?: unknown };
+      containerName?: unknown;
+      detail?: unknown;
+    };
+    if (typeof symbol.name !== "string") {
+      continue;
+    }
+
+    const uri = typeof symbol.location?.uri === "string" ? symbol.location.uri : undefined;
+    const range = toLspRange(symbol.location?.range);
+    symbols.push({
+      name: symbol.name,
+      kind: normalizeDocumentSymbolKind(symbol.kind),
+      location:
+        uri !== undefined && range !== undefined
+          ? {
+              filePath: uriToFilePath(uri),
+              uri,
+              range,
+              source: "provider",
+            }
+          : undefined,
+      containerName: typeof symbol.containerName === "string" ? symbol.containerName : undefined,
+      detail: typeof symbol.detail === "string" ? symbol.detail : undefined,
+    });
+  }
+
+  return symbols;
+}
+
 class StdioLspJsonRpcClient {
   readonly #process: ChildProcessWithoutNullStreams;
   readonly #timeoutMs: number;
@@ -332,6 +440,24 @@ export async function locateDefinitionWithLspRuntime(
   target: LspTextDocumentPosition,
   options: LspLocateDefinitionRuntimeOptions = {},
 ): Promise<readonly LspLocation[]> {
+  const result = await requestTextDocumentWithLspRuntime(target, {
+    ...options,
+    method: "textDocument/definition",
+    params: {
+      position: {
+        line: target.line,
+        character: target.character,
+      },
+    },
+  });
+
+  return normalizeDefinitionResult(result);
+}
+
+export async function requestTextDocumentWithLspRuntime(
+  target: LspTextDocumentPosition,
+  options: LspRuntimeRequestOptions,
+): Promise<unknown> {
   const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot);
   const targetPath = resolveTargetPath(target, workspaceRoot);
   const fileStat = await stat(targetPath);
@@ -379,15 +505,10 @@ export async function locateDefinitionWithLspRuntime(
       },
     });
 
-    const result = await client.request("textDocument/definition", {
+    return await client.request(options.method, {
       textDocument: { uri },
-      position: {
-        line: target.line,
-        character: target.character,
-      },
+      ...(options.params ?? {}),
     });
-
-    return normalizeDefinitionResult(result);
   } catch (error) {
     const stderr = client.stderr();
     const message = error instanceof Error ? error.message : "LSP runtime failed";
@@ -395,4 +516,140 @@ export async function locateDefinitionWithLspRuntime(
   } finally {
     await client.stop();
   }
+}
+
+export async function requestWorkspaceWithLspRuntime(
+  options: LspLocateDefinitionRuntimeOptions & {
+    method: string;
+    params?: Readonly<Record<string, unknown>>;
+  },
+): Promise<unknown> {
+  const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot);
+  if (options.server === undefined) {
+    throw new Error("workspace-level LSP runtime requests require runtime.server");
+  }
+
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const client = new StdioLspJsonRpcClient(options.server, timeoutMs, workspaceRoot);
+
+  try {
+    await client.request("initialize", {
+      processId: process.pid,
+      rootPath: workspaceRoot,
+      rootUri: pathToFileURL(workspaceRoot).href,
+      workspaceFolders: [
+        {
+          uri: pathToFileURL(workspaceRoot).href,
+          name: path.basename(workspaceRoot),
+        },
+      ],
+      capabilities: {
+        workspace: {
+          symbol: {
+            dynamicRegistration: false,
+          },
+        },
+      },
+      initializationOptions: options.server.initializationOptions,
+    });
+
+    client.notify("initialized", {});
+
+    return await client.request(options.method, options.params ?? {});
+  } catch (error) {
+    const stderr = client.stderr();
+    const message = error instanceof Error ? error.message : "LSP runtime failed";
+    throw new Error(stderr.length > 0 ? `${message}; stderr: ${stderr}` : message);
+  } finally {
+    await client.stop();
+  }
+}
+
+export async function locateTypeDefinitionWithLspRuntime(
+  target: LspTextDocumentPosition,
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<readonly LspLocation[]> {
+  const result = await requestTextDocumentWithLspRuntime(target, {
+    ...options,
+    method: "textDocument/typeDefinition",
+    params: {
+      position: {
+        line: target.line,
+        character: target.character,
+      },
+    },
+  });
+
+  return normalizeDefinitionResult(result);
+}
+
+export async function traceReferencesWithLspRuntime(
+  target: LspTextDocumentPosition,
+  includeDeclaration: boolean,
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<readonly LspLocation[]> {
+  const result = await requestTextDocumentWithLspRuntime(target, {
+    ...options,
+    method: "textDocument/references",
+    params: {
+      position: {
+        line: target.line,
+        character: target.character,
+      },
+      context: { includeDeclaration },
+    },
+  });
+
+  return normalizeDefinitionResult(result);
+}
+
+export async function traceImplementationsWithLspRuntime(
+  target: LspTextDocumentPosition,
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<readonly LspLocation[]> {
+  const result = await requestTextDocumentWithLspRuntime(target, {
+    ...options,
+    method: "textDocument/implementation",
+    params: {
+      position: {
+        line: target.line,
+        character: target.character,
+      },
+    },
+  });
+
+  return normalizeDefinitionResult(result);
+}
+
+export async function scanDocumentSymbolsWithLspRuntime(
+  target: Pick<LspTextDocumentPosition, "filePath" | "languageId">,
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<readonly LspRuntimeDocumentSymbol[]> {
+  const result = await requestTextDocumentWithLspRuntime(
+    {
+      filePath: target.filePath,
+      line: 0,
+      character: 0,
+      languageId: target.languageId,
+    },
+    {
+      ...options,
+      method: "textDocument/documentSymbol",
+    },
+  );
+
+  return normalizeDocumentSymbols(result);
+}
+
+export async function searchWorkspaceSymbolsWithLspRuntime(
+  query: string,
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<readonly LspRuntimeWorkspaceSymbol[]> {
+  const result = await requestWorkspaceWithLspRuntime({
+    ...options,
+    method: "workspace/symbol",
+    params: { query },
+  });
+
+  return normalizeWorkspaceSymbols(result);
 }
