@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T02:10:32.202Z",
+  "updatedAt": "2026-04-23T02:13:08.982Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -993,7 +993,7 @@
       "id": "AC-SPEC-F:runtimeDependencyGraph.ts",
       "parentId": "AC-SPEC-F",
       "title": "runtimeDependencyGraph.ts",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0129"
       ],
@@ -5405,7 +5405,7 @@
       "id": "AC-F-0483",
       "parentId": "AC-SPEC-F:runtimeDependencyGraph.ts",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtimeDependencyGraph.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtimeDependencyGraph.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtimeDependencyGraph.test.ts"
@@ -14902,7 +14902,7 @@
       "id": "AC-G-0129",
       "parentId": "AC-SPEC-F:runtimeDependencyGraph.ts",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0483"
       ],
@@ -14916,8 +14916,44 @@
       "branch": "codex/agentcore/ac-g-0129",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0129",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-23T01:52:34.092Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-23T01:52:34.486Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-23T01:53:31.047Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-23T01:53:31.060Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-23T02:01:26.196Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T02:11:37.204Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T02:13:08.981Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0130",
@@ -19732,6 +19768,48 @@
       "at": "2026-04-23T02:10:32.200Z",
       "event": "status",
       "groupId": "AC-G-0128",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T01:52:34.486Z",
+      "event": "status",
+      "groupId": "AC-G-0129",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-23T01:53:31.047Z",
+      "event": "status",
+      "groupId": "AC-G-0129",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-23T01:53:31.060Z",
+      "event": "status",
+      "groupId": "AC-G-0129",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-23T02:01:26.196Z",
+      "event": "status",
+      "groupId": "AC-G-0129",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-23T02:11:37.204Z",
+      "event": "status",
+      "groupId": "AC-G-0129",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-23T02:13:08.981Z",
+      "event": "status",
+      "groupId": "AC-G-0129",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
