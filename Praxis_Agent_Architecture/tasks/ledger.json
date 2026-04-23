@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T00:31:30.602Z",
+  "updatedAt": "2026-04-23T00:35:25.300Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -75,7 +75,7 @@
     {
       "id": "AC-SPEC-F",
       "title": "运行质量面",
-      "status": "pending",
+      "status": "in_progress",
       "smallSpecIds": [
         "AC-SPEC-F:agentRuntimeInstance.ts",
         "AC-SPEC-F:runtime.adaptiveRuntime",
@@ -630,7 +630,7 @@
       "id": "AC-SPEC-F:agentRuntimeInstance.ts",
       "parentId": "AC-SPEC-F",
       "title": "agentRuntimeInstance.ts",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0090"
       ],
@@ -642,7 +642,7 @@
       "id": "AC-SPEC-F:runtime.adaptiveRuntime",
       "parentId": "AC-SPEC-F",
       "title": "runtime.adaptiveRuntime",
-      "status": "pending",
+      "status": "in_progress",
       "groupTaskIds": [
         "AC-G-0091",
         "AC-G-0092",
@@ -4208,7 +4208,7 @@
       "id": "AC-F-0350",
       "parentId": "AC-SPEC-F:runtime.adaptiveRuntime",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.test.ts"
@@ -4217,7 +4217,7 @@
       "id": "AC-F-0351",
       "parentId": "AC-SPEC-F:runtime.adaptiveRuntime",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.test.ts"
@@ -4226,7 +4226,7 @@
       "id": "AC-F-0352",
       "parentId": "AC-SPEC-F:runtime.adaptiveRuntime",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.test.ts"
@@ -4235,7 +4235,7 @@
       "id": "AC-F-0353",
       "parentId": "AC-SPEC-F:runtime.adaptiveRuntime",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.test.ts"
@@ -12288,7 +12288,7 @@
       "id": "AC-G-0091",
       "parentId": "AC-SPEC-F:runtime.adaptiveRuntime",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0350",
         "AC-F-0351",
@@ -12321,7 +12321,13 @@
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0091",
       "lease": null,
       "attempts": [],
-      "notes": []
+      "notes": [
+        {
+          "at": "2026-04-23T00:35:25.300Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0092",
@@ -18562,6 +18568,13 @@
       "at": "2026-04-23T00:31:08.093Z",
       "event": "status",
       "groupId": "AC-G-0090",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T00:35:25.300Z",
+      "event": "status",
+      "groupId": "AC-G-0091",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
