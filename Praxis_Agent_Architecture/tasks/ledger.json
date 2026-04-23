@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T01:43:31.987Z",
+  "updatedAt": "2026-04-23T01:47:03.949Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -5117,7 +5117,7 @@
       "id": "AC-F-0451",
       "parentId": "AC-SPEC-F:runtime.modeExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.test.ts"
@@ -5126,7 +5126,7 @@
       "id": "AC-F-0452",
       "parentId": "AC-SPEC-F:runtime.modeExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeDescriptor.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeDescriptor.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeDescriptor.test.ts"
@@ -5135,7 +5135,7 @@
       "id": "AC-F-0453",
       "parentId": "AC-SPEC-F:runtime.modeExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeSwitchController.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeSwitchController.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeSwitchController.test.ts"
@@ -5144,7 +5144,7 @@
       "id": "AC-F-0454",
       "parentId": "AC-SPEC-F:runtime.modeExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.test.ts"
@@ -14219,7 +14219,7 @@
       "id": "AC-G-0119",
       "parentId": "AC-SPEC-F:runtime.modeExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0451",
         "AC-F-0452",
@@ -14252,7 +14252,13 @@
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0119",
       "lease": null,
       "attempts": [],
-      "notes": []
+      "notes": [
+        {
+          "at": "2026-04-23T01:47:03.949Z",
+          "status": "done",
+          "note": "merge done"
+        }
+      ]
     },
     {
       "id": "AC-G-0120",
@@ -19782,6 +19788,13 @@
       "at": "2026-04-23T01:43:31.987Z",
       "event": "status",
       "groupId": "AC-G-0117",
+      "status": "done",
+      "note": "merge done"
+    },
+    {
+      "at": "2026-04-23T01:47:03.949Z",
+      "event": "status",
+      "groupId": "AC-G-0119",
       "status": "done",
       "note": "merge done"
     }
