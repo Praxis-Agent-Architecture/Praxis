@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T02:06:54.622Z",
+  "updatedAt": "2026-04-23T02:10:32.202Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -981,7 +981,7 @@
       "id": "AC-SPEC-F:runtimeCompositionRoot.ts",
       "parentId": "AC-SPEC-F",
       "title": "runtimeCompositionRoot.ts",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0128"
       ],
@@ -5396,7 +5396,7 @@
       "id": "AC-F-0482",
       "parentId": "AC-SPEC-F:runtimeCompositionRoot.ts",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtimeCompositionRoot.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtimeCompositionRoot.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtimeCompositionRoot.test.ts"
@@ -14845,7 +14845,7 @@
       "id": "AC-G-0128",
       "parentId": "AC-SPEC-F:runtimeCompositionRoot.ts",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0482"
       ],
@@ -14859,8 +14859,44 @@
       "branch": "codex/agentcore/ac-g-0128",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0128",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-23T01:52:34.092Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-23T01:52:34.640Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-23T02:01:00.392Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-23T02:01:00.404Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-23T02:01:48.231Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T02:08:09.150Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T02:10:32.200Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0129",
@@ -19654,6 +19690,48 @@
       "at": "2026-04-23T01:51:18.595Z",
       "event": "status",
       "groupId": "AC-G-0125",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T01:52:34.641Z",
+      "event": "status",
+      "groupId": "AC-G-0128",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-23T02:01:00.392Z",
+      "event": "status",
+      "groupId": "AC-G-0128",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-23T02:01:00.404Z",
+      "event": "status",
+      "groupId": "AC-G-0128",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-23T02:01:48.231Z",
+      "event": "status",
+      "groupId": "AC-G-0128",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-23T02:08:09.150Z",
+      "event": "status",
+      "groupId": "AC-G-0128",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-23T02:10:32.200Z",
+      "event": "status",
+      "groupId": "AC-G-0128",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
