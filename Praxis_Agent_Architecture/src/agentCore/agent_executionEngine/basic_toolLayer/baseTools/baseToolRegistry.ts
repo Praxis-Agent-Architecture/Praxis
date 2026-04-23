@@ -9,12 +9,14 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   BaseToolDefinition,
+  BaseToolHandler,
   BaseToolDependencyDeclaration,
   BaseToolFamily,
   BaseToolRegistrationResult,
   BaseToolRiskLevel,
   BaseToolSource,
 } from "./baseToolDefinition.js";
+import { builtinBaseToolHandlers, builtinBaseToolHandlersById } from "./builtinBaseToolHandlers.js";
 
 const baseToolsRoot = path.dirname(fileURLToPath(import.meta.url));
 const architectureRoot = path.resolve(baseToolsRoot, "../../../../..");
@@ -50,6 +52,20 @@ export type BaseToolRegistryLookupResult =
       ok: false;
       error: {
         code: "TOOL_NOT_FOUND";
+        message: string;
+        publicSafe: true;
+      };
+    };
+
+export type BaseToolHandlerLookupResult =
+  | {
+      ok: true;
+      handler: BaseToolHandler;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "TOOL_NOT_FOUND" | "HANDLER_NOT_FOUND";
         message: string;
         publicSafe: true;
       };
@@ -279,11 +295,21 @@ function walkToolFiles(root: string, baseRoot = root): readonly string[] {
   return files.sort();
 }
 
-function definitionFromToolFile(filePath: string, root: string, docsRoot: string): BaseToolDefinition {
+function definitionFromToolFile(
+  filePath: string,
+  root: string,
+  docsRoot: string,
+  handlerById: ReadonlyMap<string, BaseToolHandler>,
+): BaseToolDefinition {
   const relative = path.relative(root, filePath).split(path.sep).join("/");
   const [directory] = relative.split("/");
   const family = familyByDirectory[directory ?? ""] ?? "custom";
   const toolId = path.basename(relative, ".ts");
+  const builtinHandler = handlerById.get(toolId);
+  if (builtinHandler !== undefined) {
+    return builtinHandler.definition;
+  }
+
   const riskLevel = riskForTool(toolId);
   const docPath = path
     .join(docsRoot, relative.replace(/\.ts$/u, ".md"))
@@ -349,10 +375,16 @@ function emptyRiskCounts(): Record<BaseToolRiskLevel, number> {
 
 export class BaseToolRegistry {
   readonly #definitions = new Map<string, BaseToolDefinition>();
+  readonly #handlers = new Map<string, BaseToolHandler>();
 
-  constructor(definitions: readonly BaseToolDefinition[] = []) {
+  constructor(definitions: readonly BaseToolDefinition[] = [], handlers: readonly BaseToolHandler[] = []) {
     for (const definition of definitions) {
       this.#definitions.set(definition.toolId, definition);
+    }
+
+    for (const handler of handlers) {
+      this.#handlers.set(handler.definition.toolId, handler);
+      this.#definitions.set(handler.definition.toolId, handler.definition);
     }
   }
 
@@ -376,7 +408,34 @@ export class BaseToolRegistry {
     return { ok: true, definition };
   }
 
-  registerCustomTool(definition: BaseToolDefinition, options: { replace?: boolean } = {}): BaseToolRegistrationResult {
+  lookupHandler(toolId: string): BaseToolHandlerLookupResult {
+    if (!this.#definitions.has(toolId)) {
+      return {
+        ok: false,
+        error: {
+          code: "TOOL_NOT_FOUND",
+          message: `baseTool ${toolId} is not registered`,
+          publicSafe: true,
+        },
+      };
+    }
+
+    const handler = this.#handlers.get(toolId);
+    if (handler === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "HANDLER_NOT_FOUND",
+          message: `baseTool ${toolId} does not have an executable handler yet`,
+          publicSafe: true,
+        },
+      };
+    }
+
+    return { ok: true, handler };
+  }
+
+  registerCustomTool(definition: BaseToolDefinition, options: { replace?: boolean; handler?: BaseToolHandler } = {}): BaseToolRegistrationResult {
     if (definition.toolId.trim().length === 0) {
       return {
         ok: false,
@@ -407,6 +466,9 @@ export class BaseToolRegistry {
     }
 
     this.#definitions.set(definition.toolId, definition);
+    if (options.handler !== undefined) {
+      this.#handlers.set(definition.toolId, options.handler);
+    }
     return { ok: true, definition };
   }
 
@@ -436,15 +498,23 @@ export class BaseToolRegistry {
 export function loadBuiltinBaseToolDefinitions(options: BaseToolRegistryOptions = {}): readonly BaseToolDefinition[] {
   const root = options.builtinRoot ?? baseToolsRoot;
   const docsRoot = options.docsRoot ?? defaultDocsRoot;
+  const handlerById = builtinBaseToolHandlersById();
 
   if (!existsSync(root) || !statSync(root).isDirectory()) {
     return [];
   }
 
-  return walkToolFiles(root).map((filePath) => definitionFromToolFile(filePath, root, docsRoot));
+  return walkToolFiles(root).map((filePath) => definitionFromToolFile(filePath, root, docsRoot, handlerById));
+}
+
+export function loadBuiltinBaseToolHandlers(): readonly BaseToolHandler[] {
+  return builtinBaseToolHandlers;
 }
 
 export function createBaseToolRegistry(options: BaseToolRegistryOptions = {}): BaseToolRegistry {
   const includeBuiltins = options.includeBuiltins ?? true;
-  return new BaseToolRegistry(includeBuiltins ? loadBuiltinBaseToolDefinitions(options) : []);
+  return new BaseToolRegistry(
+    includeBuiltins ? loadBuiltinBaseToolDefinitions(options) : [],
+    includeBuiltins ? loadBuiltinBaseToolHandlers() : [],
+  );
 }

@@ -4,11 +4,12 @@
  */
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { LspWorkspaceFacts } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
 import { resolveLspDependency } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
+import { ensureDependencyAvailable } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyInstaller.js";
 import type { LspLocation, LspRange, LspTextDocumentPosition } from "../code.lsp_locateDefinition.js";
 
 type JsonRpcId = number;
@@ -58,6 +59,8 @@ export type LspLocateDefinitionRuntimeOptions = {
   servers?: readonly LspRuntimeServerConfig[];
   resolvedServerPath?: string;
   workspaceFacts?: LspWorkspaceFacts;
+  workspaceLanguageId?: string;
+  workspaceFilePathHint?: string;
   timeoutMs?: number;
   maxFileBytes?: number;
 };
@@ -147,11 +150,50 @@ function resolveTargetPath(target: LspTextDocumentPosition, workspaceRoot: strin
   return path.isAbsolute(target.filePath) ? target.filePath : path.resolve(workspaceRoot, target.filePath);
 }
 
-function selectServer(
+async function collectWorkspaceFacts(workspaceRoot: string): Promise<LspWorkspaceFacts> {
+  const markerFiles: string[] = [];
+  const fileContentSampleChunks: string[] = [];
+
+  try {
+    const entries = await readdir(workspaceRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isFile()) {
+        markerFiles.push(entry.name);
+        if (fileContentSampleChunks.length === 0 && entry.name.startsWith(".")) {
+          try {
+            fileContentSampleChunks.push(await readFile(path.join(workspaceRoot, entry.name), "utf8"));
+          } catch {
+            // best-effort only
+          }
+        }
+      }
+
+      if (entry.isDirectory() && entry.name === ".github") {
+        try {
+          const nested = await readdir(path.join(workspaceRoot, ".github"), { withFileTypes: true });
+          for (const nestedEntry of nested) {
+            markerFiles.push(path.posix.join(".github", nestedEntry.name));
+          }
+        } catch {
+          // best-effort only
+        }
+      }
+    }
+  } catch {
+    // best-effort only
+  }
+
+  return {
+    markerFiles,
+    fileContentSample: fileContentSampleChunks.join("\n"),
+  };
+}
+
+async function selectServer(
   target: LspTextDocumentPosition,
-  targetPath: string,
+  targetPath: string | undefined,
   options: LspLocateDefinitionRuntimeOptions,
-): LspRuntimeServerConfig {
+): Promise<LspRuntimeServerConfig> {
   if (options.server !== undefined) {
     return {
       ...options.server,
@@ -159,10 +201,11 @@ function selectServer(
     };
   }
 
-  const extension = path.extname(targetPath).toLowerCase();
-  const configuredServer = options.servers?.find((candidate) =>
-    (candidate.fileExtensions as readonly string[]).includes(extension),
-  );
+  const extension = targetPath === undefined ? "" : path.extname(targetPath).toLowerCase();
+  const configuredServer =
+    extension.length === 0
+      ? undefined
+      : options.servers?.find((candidate) => (candidate.fileExtensions as readonly string[]).includes(extension));
 
   if (configuredServer !== undefined) {
     return {
@@ -171,23 +214,31 @@ function selectServer(
     };
   }
 
+  const workspaceFacts = options.workspaceFacts ?? (await collectWorkspaceFacts(resolveWorkspaceRoot(options.workspaceRoot)));
   const resolved = resolveLspDependency({
     target: {
-      filePath: targetPath,
-      languageId: target.languageId,
+      filePath: targetPath ?? options.workspaceFilePathHint ?? target.filePath,
+      languageId: target.languageId ?? options.workspaceLanguageId,
     },
     workspaceRoot: options.workspaceRoot,
-    workspaceFacts: options.workspaceFacts,
+    workspaceFacts,
   });
 
   if (!resolved.ok) {
     throw new Error(resolved.error.message);
   }
 
+  const availability = await ensureDependencyAvailable({
+    dependencyId: resolved.profile.dependencyId,
+  });
+  if (!availability.ok) {
+    throw new Error(availability.error.message);
+  }
+
   return {
-    command: options.resolvedServerPath?.trim() || resolved.profile.serverCommand,
+    command: options.resolvedServerPath?.trim() || availability.availability.resolvedPath || resolved.profile.serverCommand,
     args: resolved.profile.serverArgs,
-    languageId: target.languageId ?? resolved.profile.languageId,
+    languageId: target.languageId ?? options.workspaceLanguageId ?? resolved.profile.languageId,
     fileExtensions: resolved.profile.fileExtensions,
   };
 }
@@ -704,7 +755,7 @@ export async function requestTextDocumentWithLspRuntime(
     throw new Error(`File too large for LSP definition lookup: ${fileStat.size} bytes exceeds ${maxFileBytes} bytes`);
   }
 
-  const server = selectServer(target, targetPath, options);
+  const server = await selectServer(target, targetPath, options);
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const client = new StdioLspJsonRpcClient(server, timeoutMs, workspaceRoot);
   const uri = pathToFileURL(targetPath).href;
@@ -762,12 +813,19 @@ export async function requestWorkspaceWithLspRuntime(
   },
 ): Promise<unknown> {
   const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot);
-  if (options.server === undefined) {
-    throw new Error("workspace-level LSP runtime requests require runtime.server");
-  }
+  const server = await selectServer(
+    {
+      filePath: options.workspaceFilePathHint ?? path.join(workspaceRoot, "__workspace__"),
+      line: 0,
+      character: 0,
+      languageId: options.workspaceLanguageId,
+    },
+    options.workspaceFilePathHint,
+    options,
+  );
 
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const client = new StdioLspJsonRpcClient(options.server, timeoutMs, workspaceRoot);
+  const client = new StdioLspJsonRpcClient(server, timeoutMs, workspaceRoot);
 
   try {
     await client.request("initialize", {
@@ -787,7 +845,7 @@ export async function requestWorkspaceWithLspRuntime(
           },
         },
       },
-      initializationOptions: options.server.initializationOptions,
+      initializationOptions: server.initializationOptions,
     });
 
     client.notify("initialized", {});
@@ -1059,7 +1117,7 @@ export async function inspectDiagnosticsWithLspRuntime(
     throw new Error(`File too large for LSP diagnostics lookup: ${fileStat.size} bytes exceeds ${maxFileBytes} bytes`);
   }
 
-  const server = selectServer(
+  const server = await selectServer(
     { filePath: target.filePath, line: 0, character: 0, languageId: target.languageId },
     targetPath,
     options,

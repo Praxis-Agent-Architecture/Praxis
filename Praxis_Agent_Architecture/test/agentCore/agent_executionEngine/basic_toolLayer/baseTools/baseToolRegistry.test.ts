@@ -100,3 +100,24 @@ test("baseTool registry keeps custom tools on the same registration path", () =>
   const lookup = registry.lookup("custom.issueSummarizer");
   assert.equal(lookup.ok, true);
 });
+
+test("baseTool registry can resolve executable handlers for the directoryized LSP tools", () => {
+  const registry = createBaseToolRegistry();
+
+  const locateDefinitionHandler = registry.lookupHandler("code.lsp_locateDefinition");
+  assert.equal(locateDefinitionHandler.ok, true);
+  if (!locateDefinitionHandler.ok) {
+    return;
+  }
+
+  assert.equal(
+    locateDefinitionHandler.handler.definition.toolSkill.docPath,
+    "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/code.lsp_locateDefinition.md",
+  );
+
+  const noHandlerYet = registry.lookupHandler("code.read");
+  assert.equal(noHandlerYet.ok, false);
+  if (!noHandlerYet.ok) {
+    assert.equal(noHandlerYet.error.code, "HANDLER_NOT_FOUND");
+  }
+});

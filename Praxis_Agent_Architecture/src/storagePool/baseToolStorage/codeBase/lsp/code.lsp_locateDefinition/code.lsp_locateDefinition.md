@@ -9,7 +9,7 @@ argument-hint: target.filePath, line, character, workspaceRoot, languageId, opti
 
 Use this skill when an agent needs the definition location for the symbol at a source position. It sends `textDocument/definition` through the Praxis shared stdio LSP runtime.
 
-This file is the storagePool implementation skill for `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition`. The model-facing baseTool skill remains under `docs/agentCore/.../baseTools/...`. The baseTools entrypoint exposes the stable tool surface; this storagePool directory owns provider practice, shared dependencies, and bestPractice selection.
+This file is the storagePool implementation skill for `src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition`. The baseTools entrypoint exposes the stable tool surface, while this storagePool directory is the model-visible skill source and owns provider practice, shared dependencies, and bestPractice selection.
 
 ## Parameters
 

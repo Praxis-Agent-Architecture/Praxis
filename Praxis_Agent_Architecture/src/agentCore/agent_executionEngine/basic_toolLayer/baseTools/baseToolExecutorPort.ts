@@ -81,11 +81,168 @@ export type BaseToolLspLocation = {
   symbolName?: string;
 };
 
+export type BaseToolLspDocumentSymbol = {
+  name: string;
+  kind: string;
+  range: BaseToolLspRange;
+  selectionRange?: BaseToolLspRange;
+  detail?: string;
+  containerName?: string;
+  children?: readonly BaseToolLspDocumentSymbol[];
+};
+
+export type BaseToolLspWorkspaceSymbol = {
+  name: string;
+  kind: string;
+  location?: BaseToolLspLocation;
+  containerName?: string;
+  detail?: string;
+};
+
+export type BaseToolLspTextEdit = {
+  range: BaseToolLspRange;
+  newText: string;
+};
+
+export type BaseToolLspCompletionItem = {
+  label: string;
+  kind?: string;
+  detail?: string;
+  documentation?: string;
+  sortText?: string;
+  filterText?: string;
+  insertText?: string;
+  textEdit?: BaseToolLspTextEdit;
+};
+
+export type BaseToolLspSignatureHelp = {
+  signatures: readonly {
+    label: string;
+    documentation?: string;
+    parameters: readonly {
+      label: string;
+      documentation?: string;
+    }[];
+  }[];
+  activeSignature?: number;
+  activeParameter?: number;
+};
+
+export type BaseToolLspHover = {
+  contents: string;
+  range?: BaseToolLspRange;
+};
+
+export type BaseToolLspDiagnostic = {
+  range: BaseToolLspRange;
+  message: string;
+  severity?: "error" | "warning" | "information" | "hint";
+  code?: string;
+  source?: string;
+};
+
+export type BaseToolLspCodeAction = {
+  title: string;
+  kind?: string;
+  diagnostics: readonly BaseToolLspDiagnostic[];
+  isPreferred?: boolean;
+  editAvailable: boolean;
+  commandAvailable: boolean;
+};
+
 export type BaseToolLspExecutor = {
   locateDefinition?(request: {
     target: BaseToolLspPosition;
     context?: Readonly<Record<string, unknown>>;
   }): Promise<BaseToolExecutorResult<{ locations: readonly BaseToolLspLocation[] }>>;
+  locateTypeDefinition?(request: {
+    target: BaseToolLspPosition;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ locations: readonly BaseToolLspLocation[] }>>;
+  traceReferences?(request: {
+    target: BaseToolLspPosition;
+    includeDeclaration?: boolean;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ locations: readonly BaseToolLspLocation[] }>>;
+  traceImplementations?(request: {
+    target: BaseToolLspPosition;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ locations: readonly BaseToolLspLocation[] }>>;
+  scanDocumentSymbols?(request: {
+    target: Pick<BaseToolLspPosition, "filePath" | "languageId">;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ symbols: readonly BaseToolLspDocumentSymbol[] }>>;
+  searchWorkspaceSymbols?(request: {
+    query: string;
+    limit?: number;
+    workspaceRoot?: string;
+    languageId?: string;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ symbols: readonly BaseToolLspWorkspaceSymbol[] }>>;
+  suggestCodeActions?(request: {
+    target: { filePath: string; languageId?: string; range: BaseToolLspRange };
+    diagnostics?: readonly BaseToolLspDiagnostic[];
+    only?: readonly string[];
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ actions: readonly BaseToolLspCodeAction[] }>>;
+  applyCodeActionPreview?(request: {
+    target: { filePath: string; languageId?: string; range: BaseToolLspRange };
+    actionTitle?: string;
+    actionKind?: string;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ actions: readonly BaseToolLspCodeAction[] }>>;
+  renameSymbolPreview?(request: {
+    target: BaseToolLspPosition;
+    newName: string;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ edits: readonly { filePath: string; edits: readonly BaseToolLspTextEdit[] }[] }>>;
+  completeCode?(request: {
+    target: BaseToolLspPosition;
+    triggerCharacter?: string;
+    maxItems?: number;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ items: readonly BaseToolLspCompletionItem[] }>>;
+  assistSignature?(request: {
+    target: BaseToolLspPosition;
+    triggerCharacter?: string;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ signatureHelp: BaseToolLspSignatureHelp }>>;
+  explainSymbol?(request: {
+    target: BaseToolLspPosition;
+    includeDefinitionHint?: boolean;
+    includeReferencesHint?: boolean;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<
+    BaseToolExecutorResult<{
+      hover?: BaseToolLspHover;
+      definitions?: readonly BaseToolLspLocation[];
+      references?: readonly BaseToolLspLocation[];
+    }>
+  >;
+  inspectSymbol?(request: {
+    target: {
+      filePath: string;
+      languageId?: string;
+      position?: { line: number; character: number };
+      symbolName?: string;
+    };
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ symbols: readonly BaseToolLspDocumentSymbol[] }>>;
+  inspectDiagnostics?(request: {
+    target: { filePath: string; languageId?: string };
+    waitMs?: number;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ diagnostics: readonly BaseToolLspDiagnostic[] }>>;
+  formatDocumentPreview?(request: {
+    target: { filePath: string; languageId?: string };
+    options?: { tabSize?: number; insertSpaces?: boolean };
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ edits: readonly BaseToolLspTextEdit[] }>>;
+  formatRangePreview?(request: {
+    target: { filePath: string; languageId?: string; range: BaseToolLspRange };
+    options?: { tabSize?: number; insertSpaces?: boolean };
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ edits: readonly BaseToolLspTextEdit[] }>>;
 };
 
 export type BaseToolNetworkExecutor = {

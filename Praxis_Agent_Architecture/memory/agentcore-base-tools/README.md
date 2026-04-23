@@ -121,6 +121,41 @@ The full 16-tool LSP category is now directoryized under the provider-practice l
 
 For these tools, baseTools entry files are thin re-export surfaces and concrete runtime work lives in `src/storagePool/baseToolStorage/codeBase/lsp`.
 
+The LSP category is no longer only a directory/layout sample. It now has a real executable path:
+
+- `baseTools/baseToolRegistry.ts` can now attach builtin `BaseToolHandler`s as well as metadata definitions.
+- `baseTools/builtinBaseToolHandlers.ts` currently registers the full 16 LSP handlers as the first executable builtin batch.
+- The LSP handlers now expose storagePool skill paths from `src/storagePool/baseToolStorage/.../code.lsp_xxx.md` instead of deriving only from legacy `docs/...`.
+- `BaseToolRegistry.lookupHandler(toolId)` now distinguishes:
+  - tool not registered
+  - tool registered but handler not implemented yet
+- All 16 LSP tools now have `BaseToolHandler` coverage:
+  - the first 8 read/query tools adapt the existing `LspToolResult`-style core implementations;
+  - the second 8 plan-only tools now have handler-level runtime execution paths, while keeping the old dry-run preview/snapshot contracts for compatibility.
+- `BaseToolExecutorPort.lsp` now includes a wider LSP host-executor surface:
+  - definitions
+  - type definitions
+  - references
+  - implementations
+  - document/workspace symbols
+  - rename/code action/format previews
+  - completion
+  - signature help
+  - hover-style explainSymbol
+  - diagnostics/symbol inspection
+
+`toolDependency/` also moved from plan-only to install-capable for trusted managed dependencies:
+
+- `dependencyInstaller.ts` can now:
+  - probe managed bin first
+  - probe PATH second
+  - execute a trusted managed install recipe
+  - re-probe after install
+  - persist managed dependency state
+- `dependencyManagedState.ts` stores dependency install/probe state under the Praxis managed root.
+- `_shared/runtime.ts` now calls `ensureDependencyAvailable(...)` before spawning the selected LSP server.
+- workspace-level requests no longer require an explicit `runtime.server`; they can infer the server from workspace markers plus dependency availability.
+
 Each completed LSP tool now has a provider-practice folder:
 
 ```text
