@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T02:24:00.950Z",
+  "updatedAt": "2026-04-23T02:26:16.200Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -1029,7 +1029,7 @@
       "id": "AC-SPEC-F:runtimeManifest.ts",
       "parentId": "AC-SPEC-F",
       "title": "runtimeManifest.ts",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0132"
       ],
@@ -5432,7 +5432,7 @@
       "id": "AC-F-0486",
       "parentId": "AC-SPEC-F:runtimeManifest.ts",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtimeManifest.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtimeManifest.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtimeManifest.test.ts"
@@ -15037,7 +15037,7 @@
       "id": "AC-G-0132",
       "parentId": "AC-SPEC-F:runtimeManifest.ts",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0486"
       ],
@@ -15051,8 +15051,49 @@
       "branch": "codex/agentcore/ac-g-0132",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0132",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-23T02:17:24.468Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-23T02:17:24.725Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-23T02:21:55.952Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-23T02:21:55.964Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-23T02:23:12.218Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T02:24:27.193Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T02:26:16.200Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        },
+        {
+          "at": "2026-04-23T02:26:16.200Z",
+          "status": "done",
+          "note": "merge done"
+        }
+      ]
     },
     {
       "id": "AC-G-0133",
@@ -19901,6 +19942,55 @@
       "groupId": "AC-G-0130",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T02:17:24.725Z",
+      "event": "status",
+      "groupId": "AC-G-0132",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-23T02:21:55.952Z",
+      "event": "status",
+      "groupId": "AC-G-0132",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-23T02:21:55.964Z",
+      "event": "status",
+      "groupId": "AC-G-0132",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-23T02:23:12.218Z",
+      "event": "status",
+      "groupId": "AC-G-0132",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-23T02:24:27.193Z",
+      "event": "status",
+      "groupId": "AC-G-0132",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-23T02:26:16.200Z",
+      "event": "status",
+      "groupId": "AC-G-0132",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T02:26:16.200Z",
+      "event": "status",
+      "groupId": "AC-G-0132",
+      "status": "done",
+      "note": "merge done"
     }
   ],
   "events": [
