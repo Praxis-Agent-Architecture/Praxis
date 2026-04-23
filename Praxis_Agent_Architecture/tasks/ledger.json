@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T01:17:38.109Z",
+  "updatedAt": "2026-04-23T01:21:03.283Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -4820,7 +4820,7 @@
       "id": "AC-F-0418",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeCheckRunner.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeCheckRunner.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeCheckRunner.test.ts"
@@ -4829,7 +4829,7 @@
       "id": "AC-F-0419",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeContractInspector.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeContractInspector.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeContractInspector.test.ts"
@@ -4838,7 +4838,7 @@
       "id": "AC-F-0420",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeGovernanceInspector.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeGovernanceInspector.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeGovernanceInspector.test.ts"
@@ -4847,7 +4847,7 @@
       "id": "AC-F-0421",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInspector.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInspector.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInspector.test.ts"
@@ -13601,7 +13601,7 @@
       "id": "AC-G-0109",
       "parentId": "AC-SPEC-F:runtime.inspection",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0418",
         "AC-F-0419",
@@ -13634,7 +13634,13 @@
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0109",
       "lease": null,
       "attempts": [],
-      "notes": []
+      "notes": [
+        {
+          "at": "2026-04-23T01:21:03.283Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0110",
@@ -19186,6 +19192,13 @@
       "at": "2026-04-23T01:17:38.109Z",
       "event": "status",
       "groupId": "AC-G-0105",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T01:21:03.283Z",
+      "event": "status",
+      "groupId": "AC-G-0109",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
