@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T01:47:03.949Z",
+  "updatedAt": "2026-04-23T01:51:18.597Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -959,7 +959,7 @@
       "id": "AC-SPEC-F:runtime.selfRepair",
       "parentId": "AC-SPEC-F",
       "title": "runtime.selfRepair",
-      "status": "pending",
+      "status": "in_progress",
       "groupTaskIds": [
         "AC-G-0125",
         "AC-G-0126",
@@ -5315,7 +5315,7 @@
       "id": "AC-F-0473",
       "parentId": "AC-SPEC-F:runtime.selfRepair",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.selfRepair/faultClassifier.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/faultClassifier.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.selfRepair/faultClassifier.test.ts"
@@ -5324,7 +5324,7 @@
       "id": "AC-F-0474",
       "parentId": "AC-SPEC-F:runtime.selfRepair",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.test.ts"
@@ -5333,7 +5333,7 @@
       "id": "AC-F-0475",
       "parentId": "AC-SPEC-F:runtime.selfRepair",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairEscalationPort.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairEscalationPort.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairEscalationPort.test.ts"
@@ -5342,7 +5342,7 @@
       "id": "AC-F-0476",
       "parentId": "AC-SPEC-F:runtime.selfRepair",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairPlanBuilder.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairPlanBuilder.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairPlanBuilder.test.ts"
@@ -14633,7 +14633,7 @@
       "id": "AC-G-0125",
       "parentId": "AC-SPEC-F:runtime.selfRepair",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0473",
         "AC-F-0474",
@@ -14665,8 +14665,44 @@
       "branch": "codex/agentcore/ac-g-0125",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0125",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-23T01:29:00.323Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-23T01:29:00.997Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-23T01:34:37.153Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-23T01:34:37.221Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-23T01:35:44.384Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T01:49:13.350Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T01:51:18.595Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0126",
@@ -19499,6 +19535,48 @@
       "at": "2026-04-23T01:41:36.881Z",
       "event": "status",
       "groupId": "AC-G-0116",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T01:29:00.997Z",
+      "event": "status",
+      "groupId": "AC-G-0125",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-23T01:34:37.153Z",
+      "event": "status",
+      "groupId": "AC-G-0125",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-23T01:34:37.221Z",
+      "event": "status",
+      "groupId": "AC-G-0125",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-23T01:35:44.384Z",
+      "event": "status",
+      "groupId": "AC-G-0125",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-23T01:49:13.350Z",
+      "event": "status",
+      "groupId": "AC-G-0125",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-23T01:51:18.595Z",
+      "event": "status",
+      "groupId": "AC-G-0125",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
     }
