@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T01:10:08.155Z",
+  "updatedAt": "2026-04-23T01:14:20.437Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -739,7 +739,7 @@
       "id": "AC-SPEC-F:runtime.debug",
       "parentId": "AC-SPEC-F",
       "title": "runtime.debug",
-      "status": "pending",
+      "status": "done",
       "groupTaskIds": [
         "AC-G-0101",
         "AC-G-0102"
@@ -4577,7 +4577,7 @@
       "id": "AC-F-0391",
       "parentId": "AC-SPEC-F:runtime.debug",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.debug/debugRuntime.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.debug/debugRuntime.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.debug/debugRuntime.test.ts"
@@ -4586,7 +4586,7 @@
       "id": "AC-F-0392",
       "parentId": "AC-SPEC-F:runtime.debug",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.debug/debugSnapshotCollector.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.debug/debugSnapshotCollector.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.debug/debugSnapshotCollector.test.ts"
@@ -4595,7 +4595,7 @@
       "id": "AC-F-0393",
       "parentId": "AC-SPEC-F:runtime.debug",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.debug/debugStateDiff.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.debug/debugStateDiff.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.debug/debugStateDiff.test.ts"
@@ -4604,7 +4604,7 @@
       "id": "AC-F-0394",
       "parentId": "AC-SPEC-F:runtime.debug",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.debug/debugTraceRecorder.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.debug/debugTraceRecorder.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.debug/debugTraceRecorder.test.ts"
@@ -13098,7 +13098,7 @@
       "id": "AC-G-0102",
       "parentId": "AC-SPEC-F:runtime.debug",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0391",
         "AC-F-0392",
@@ -13130,8 +13130,44 @@
       "branch": "codex/agentcore/ac-g-0102",
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0102",
       "lease": null,
-      "attempts": [],
-      "notes": []
+      "attempts": [
+        {
+          "at": "2026-04-23T00:49:24.010Z",
+          "event": "continue-start"
+        }
+      ],
+      "notes": [
+        {
+          "at": "2026-04-23T00:49:24.549Z",
+          "status": "implementing",
+          "note": "worker started"
+        },
+        {
+          "at": "2026-04-23T00:56:23.302Z",
+          "status": "implemented",
+          "note": "worker done"
+        },
+        {
+          "at": "2026-04-23T00:56:23.410Z",
+          "status": "reviewing",
+          "note": "reviewer started"
+        },
+        {
+          "at": "2026-04-23T01:03:58.839Z",
+          "status": "reviewed",
+          "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T01:12:26.753Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T01:14:20.435Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        }
+      ]
     },
     {
       "id": "AC-G-0103",
@@ -19032,6 +19068,48 @@
       "groupId": "AC-G-0098",
       "status": "done",
       "note": "merge done"
+    },
+    {
+      "at": "2026-04-23T00:49:24.549Z",
+      "event": "status",
+      "groupId": "AC-G-0102",
+      "status": "implementing",
+      "note": "worker started"
+    },
+    {
+      "at": "2026-04-23T00:56:23.302Z",
+      "event": "status",
+      "groupId": "AC-G-0102",
+      "status": "implemented",
+      "note": "worker done"
+    },
+    {
+      "at": "2026-04-23T00:56:23.410Z",
+      "event": "status",
+      "groupId": "AC-G-0102",
+      "status": "reviewing",
+      "note": "reviewer started"
+    },
+    {
+      "at": "2026-04-23T01:03:58.839Z",
+      "event": "status",
+      "groupId": "AC-G-0102",
+      "status": "reviewed",
+      "note": "reviewer done"
+    },
+    {
+      "at": "2026-04-23T01:12:26.753Z",
+      "event": "status",
+      "groupId": "AC-G-0102",
+      "status": "merging",
+      "note": "merge started"
+    },
+    {
+      "at": "2026-04-23T01:14:20.435Z",
+      "event": "status",
+      "groupId": "AC-G-0102",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ],
   "events": [
