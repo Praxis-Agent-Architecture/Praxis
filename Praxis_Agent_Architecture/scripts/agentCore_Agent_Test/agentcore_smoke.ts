@@ -1,15 +1,18 @@
-import { providePromptPackInput } from "../src/agentCore/agent_executionEngine/promptPack/promptProvider.js";
-import { createAgentApplicationRuntime } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
-import { mountAgentApplication } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
-import { createAgentRuntimeClient } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeClient.js";
-import { createAgentRuntime } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.js";
-import { createExecEngineRuntime } from "../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineRuntime.js";
-import { bindPromptPack } from "../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindPromptPack.js";
-import { createAgentInvocationEntrypoint } from "../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.js";
-import { createInvocationResultSurface } from "../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationResultSurface.js";
-import { openModelInvocationEntrypoint } from "../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
-import { planModelInvocation } from "../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
-import { lowerPromptForModelAdapter } from "../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { providePromptPackInput } from "../../src/agentCore/agent_executionEngine/promptPack/promptProvider.js";
+import { createAgentApplicationRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
+import { mountAgentApplication } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
+import { createAgentRuntimeClient } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeClient.js";
+import { createAgentRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.js";
+import { createExecEngineRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineRuntime.js";
+import { bindPromptPack } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindPromptPack.js";
+import { createAgentInvocationEntrypoint } from "../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.js";
+import { createInvocationResultSurface } from "../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationResultSurface.js";
+import { openModelInvocationEntrypoint } from "../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
+import { planModelInvocation } from "../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
+import { lowerPromptForModelAdapter } from "../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
 
 type SmokeStep = {
   name: string;
@@ -27,6 +30,37 @@ type JsonObject = Record<string, unknown>;
 
 const args = new Set(process.argv.slice(2));
 const live = args.has("--live") || process.env.AGENTCORE_SMOKE_LIVE === "1";
+const scriptPath = fileURLToPath(import.meta.url);
+const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
+const localEnvPath = path.join(architectureRoot, ".env.agentcore.local");
+
+function loadLocalEnvFile(): void {
+  if (!existsSync(localEnvPath)) {
+    return;
+  }
+
+  const text = readFileSync(localEnvPath, "utf8");
+  for (const line of text.split(/\r?\n/u)) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const separator = trimmed.indexOf("=");
+    if (separator === -1) {
+      continue;
+    }
+
+    const key = trimmed.slice(0, separator).trim();
+    const rawValue = trimmed.slice(separator + 1).trim();
+    const value = rawValue.replace(/^["']|["']$/gu, "");
+    if (key.length > 0 && process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadLocalEnvFile();
 
 function okStep(name: string, detail: string): SmokeStep {
   return { name, ok: true, detail };
@@ -92,7 +126,7 @@ async function probeOpenAI(): Promise<LiveProbe> {
     };
   }
 
-  const model = process.env.OPENAI_SMOKE_MODEL ?? "gpt-4.1-mini";
+  const model = process.env.OPENAI_SMOKE_MODEL ?? process.env.OPENAI_AGENTCORE_MODEL ?? "gpt-4.1-mini";
   const reasoningEffort = process.env.OPENAI_SMOKE_REASONING_EFFORT ?? process.env.OPENAI_REASONING_EFFORT ?? "low";
   const baseUrl = process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1";
   const url = buildEndpoint(baseUrl, "/v1/responses");

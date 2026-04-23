@@ -5,21 +5,21 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath } from "node:url";
-import { providePromptPackInput } from "../src/agentCore/agent_executionEngine/promptPack/promptProvider.js";
-import { adaptRuntimeToolInvocation } from "../src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { mountAgentApplication } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
-import { createAgentApplicationRuntime } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
-import { createAgentRuntimeClient } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeClient.js";
-import { createAgentRuntime } from "../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.js";
-import { createBehaviorExposureRuntime } from "../src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.js";
-import { createCapabilityExposureRuntimeSnapshot } from "../src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/capabilityExposureRuntime.js";
-import type { RuntimeCapabilityDescriptor } from "../src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.js";
-import { bindBasicToolLayer } from "../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.js";
-import { bridgeExecEngineInvocation } from "../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
-import { createRuntimeAccessSession } from "../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
-import { createRuntimeManagementPlane } from "../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.js";
-import { openRuntimeOperatorConsole } from "../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.js";
-import { createRuntimeSurfaceRegistry } from "../src/agentCore/agent_runtimeImplementation/runtimeSurfaceRegistry.js";
+import { providePromptPackInput } from "../../src/agentCore/agent_executionEngine/promptPack/promptProvider.js";
+import { adaptRuntimeToolInvocation } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.js";
+import { mountAgentApplication } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
+import { createAgentApplicationRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
+import { createAgentRuntimeClient } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeClient.js";
+import { createAgentRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.js";
+import { createBehaviorExposureRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.js";
+import { createCapabilityExposureRuntimeSnapshot } from "../../src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/capabilityExposureRuntime.js";
+import type { RuntimeCapabilityDescriptor } from "../../src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.js";
+import { bindBasicToolLayer } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.js";
+import { bridgeExecEngineInvocation } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import { createRuntimeAccessSession } from "../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+import { createRuntimeManagementPlane } from "../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.js";
+import { openRuntimeOperatorConsole } from "../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.js";
+import { createRuntimeSurfaceRegistry } from "../../src/agentCore/agent_runtimeImplementation/runtimeSurfaceRegistry.js";
 
 type LabAgent = {
   id: string;
@@ -68,7 +68,7 @@ type AgentCoreRuntimeAssembly = {
 };
 
 const scriptPath = fileURLToPath(import.meta.url);
-const architectureRoot = path.resolve(path.dirname(scriptPath), "..");
+const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
 const repoRoot = path.resolve(architectureRoot, "..");
 const baseToolsRoot = path.join(
   architectureRoot,
