@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T01:41:36.883Z",
+  "updatedAt": "2026-04-23T01:43:31.987Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -5072,7 +5072,7 @@
       "id": "AC-F-0446",
       "parentId": "AC-SPEC-F:runtime.managementPlane",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.test.ts"
@@ -5081,7 +5081,7 @@
       "id": "AC-F-0447",
       "parentId": "AC-SPEC-F:runtime.managementPlane",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.test.ts"
@@ -5090,7 +5090,7 @@
       "id": "AC-F-0448",
       "parentId": "AC-SPEC-F:runtime.managementPlane",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.test.ts"
@@ -5099,7 +5099,7 @@
       "id": "AC-F-0449",
       "parentId": "AC-SPEC-F:runtime.managementPlane",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.test.ts"
@@ -14112,7 +14112,7 @@
       "id": "AC-G-0117",
       "parentId": "AC-SPEC-F:runtime.managementPlane",
       "bigSpecId": "AC-SPEC-F",
-      "status": "pending",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0446",
         "AC-F-0447",
@@ -14145,7 +14145,18 @@
       "worktreePath": "/home/proview/Desktop/Praxis_series/Praxis_org_agentcore_worktrees/AC-G-0117",
       "lease": null,
       "attempts": [],
-      "notes": []
+      "notes": [
+        {
+          "at": "2026-04-23T01:43:31.987Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
+        },
+        {
+          "at": "2026-04-23T01:43:31.987Z",
+          "status": "done",
+          "note": "merge done"
+        }
+      ]
     },
     {
       "id": "AC-G-0118",
@@ -19757,6 +19768,20 @@
       "at": "2026-04-23T01:26:58.266Z",
       "event": "status",
       "groupId": "AC-G-0111",
+      "status": "done",
+      "note": "merge done"
+    },
+    {
+      "at": "2026-04-23T01:43:31.987Z",
+      "event": "status",
+      "groupId": "AC-G-0117",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T01:43:31.987Z",
+      "event": "status",
+      "groupId": "AC-G-0117",
       "status": "done",
       "note": "merge done"
     }
