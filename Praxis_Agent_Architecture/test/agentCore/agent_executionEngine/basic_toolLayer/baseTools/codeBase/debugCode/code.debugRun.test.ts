@@ -52,7 +52,7 @@ test("planCodeDebugRun creates a dry-run debug launch envelope and storage plan"
   assert.deepEqual(result.plan.environmentKeys, ["NODE_ENV"]);
   assert.equal(result.plan.execution.dryRun, true);
   assert.equal(result.plan.execution.launched, false);
-  assert.equal(result.plan.storage.audit.persisted, false);
+  assert.equal(result.plan.storage.logic.persisted, false);
   assert.ok(result.plan.plannedSteps.includes("handoff-to-tap-governance"));
 });
 

@@ -3,6 +3,8 @@ import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import {
+  BASIC_CORE_PROMPT_MATERIAL_ID,
+  PROMPT_PACK_INTERNAL_MATERIAL_KINDS,
   definePromptPack,
   promptPackDefinerDescriptor,
 } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
@@ -20,7 +22,7 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
     targetModel: " model:capability ",
     requestedScopes: [" prompt ", "prompt"],
     allowedScopes: ["prompt", "runtime"],
-    budget: { maxMaterials: 2, maxEstimatedTokens: 20 },
+    budget: { maxMaterials: 2, maxEstimatedTokens: 200 },
     materials: [
       {
         id: " system ",
@@ -44,10 +46,14 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
   assert.equal(result.definition.sessionId, "session:one");
   assert.equal(result.definition.providerPayloadCreated, false);
   assert.equal(result.definition.unsafeSideEffects, false);
+  assert.deepEqual(promptPackDefinerDescriptor.internalMaterialKinds, PROMPT_PACK_INTERNAL_MATERIAL_KINDS);
+  assert.equal(result.definition.basicCorePromptMaterialId, BASIC_CORE_PROMPT_MATERIAL_ID);
   assert.deepEqual(result.definition.requestedScopes, ["prompt"]);
-  assert.equal(result.definition.materials[0]?.id, "system");
-  assert.equal(result.definition.materials[0]?.source, "runtime.contractSurface");
-  assert.equal(result.definition.materials[0]?.estimatedTokens, 9);
+  assert.equal(result.definition.materials[0]?.id, BASIC_CORE_PROMPT_MATERIAL_ID);
+  assert.equal(result.definition.materials[0]?.source, "runtime.basicCorePrompt");
+  assert.equal(result.definition.materials[0]?.metadata.protected, true);
+  assert.equal(result.definition.materials[1]?.id, "system");
+  assert.equal(result.definition.materials[1]?.source, "runtime.contractSurface");
 });
 
 test("definePromptPack rejects missing inputs, bad budgets, and scope drift", () => {
@@ -59,7 +65,12 @@ test("definePromptPack rejects missing inputs, bad budgets, and scope drift", ()
   assert.equal(missingRuntime.error.code, "MISSING_RUNTIME_ID");
   assert.equal(missingRuntime.error.safeForRuntimeInspection, true);
 
-  const emptyMaterials = definePromptPack({ runtimeId: "runtime", sessionId: "session", materials: [] });
+  const emptyMaterials = definePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    includeBasicCorePrompt: false,
+    materials: [],
+  });
   assert.equal(emptyMaterials.ok, false);
   if (emptyMaterials.ok) {
     throw new Error("expected empty material rejection");

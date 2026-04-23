@@ -49,7 +49,7 @@ test("planCodeDebugCollectLogs creates a dry-run log collection envelope and sto
   assert.equal(result.plan.redaction.secrets, true);
   assert.equal(result.plan.execution.dryRun, true);
   assert.equal(result.plan.execution.collected, false);
-  assert.equal(result.plan.storage.audit.persisted, false);
+  assert.equal(result.plan.storage.logic.persisted, false);
 });
 
 test("planCodeDebugCollectLogs rejects missing sources and real collection attempts", () => {

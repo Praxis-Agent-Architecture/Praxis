@@ -4,8 +4,9 @@ import test from "node:test";
 
 import {
   baseToolStoragePlaneDescriptor,
-  planBaseToolStorageWrite,
+  exposeBaseToolStoragePlane,
 } from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTool_storagePlane.js";
+import { planBaseToolStorageWrite } from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/storageLogic.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTool_storagePlane.ts",
@@ -13,105 +14,108 @@ defineAgentCoreContractTest({
   testFileUrl: import.meta.url,
 });
 
-test("planBaseToolStorageWrite plans dry-run storage for tool material, result, audit, and reuse records", () => {
+function makeStoragePlan() {
   const result = planBaseToolStorageWrite({
-    runtimeId: " runtime-1 ",
-    sessionId: " session-1 ",
-    invocationId: " invoke-1 ",
-    requestedScopes: ["tool:storage"],
-    allowedScopes: ["tool:storage"],
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    invocationId: "invoke-1",
     records: [
       {
-        id: " record-1 ",
+        id: "record-1",
         kind: "audit-trace",
         toolName: "code.debugRun",
         payload: { status: "planned" },
         reuseKey: "debug-run:unit",
-        tags: [" debug ", "audit", "debug"],
+        tags: ["debug", "audit"],
       },
     ],
   });
 
-  assert.equal(baseToolStoragePlaneDescriptor.unsafeSideEffects, false);
+  assert.equal(result.ok, true);
   if (!result.ok) {
-    assert.fail("valid storage request must be accepted");
+    throw new Error("expected storage logic plan");
   }
 
-  assert.equal(result.plan.runtimeId, "runtime-1");
-  assert.equal(result.plan.sessionId, "session-1");
-  assert.equal(result.plan.invocationId, "invoke-1");
-  assert.equal(result.plan.audit.dryRun, true);
-  assert.equal(result.plan.audit.persisted, false);
-  assert.equal(result.plan.unsafeSideEffects, false);
-  assert.equal(result.plan.records[0]?.id, "record-1");
-  assert.deepEqual(result.plan.records[0]?.tags, ["debug", "audit"]);
-  assert.deepEqual(result.plan.reuseIndex["debug-run:unit"], ["record-1"]);
-  assert.deepEqual(result.plan.acceptedScopes, ["tool:storage"]);
+  return result.plan;
+}
+
+test("exposeBaseToolStoragePlane presents a governed summary over a storageLogic plan", () => {
+  const view = exposeBaseToolStoragePlane({
+    runtimeId: " runtime-1 ",
+    sessionId: " session-1 ",
+    storagePlan: makeStoragePlan(),
+    requestedScopes: ["tool:storage:observe"],
+    allowedScopes: ["tool:storage:observe"],
+    auditMetadata: { source: "unit-test" },
+  });
+
+  assert.equal(baseToolStoragePlaneDescriptor.ownsStorageWriteRules, false);
+  assert.equal(baseToolStoragePlaneDescriptor.ownsGovernanceExposure, true);
+  assert.equal(view.ok, true);
+  if (!view.ok) {
+    throw new Error("expected storage plane view");
+  }
+
+  assert.equal(view.view.plane, "baseTool_storagePlane");
+  assert.equal(view.view.storagePool, "storagePool.baseToolStorage");
+  assert.equal(view.view.runtimeId, "runtime-1");
+  assert.equal(view.view.sessionId, "session-1");
+  assert.equal(view.view.recordCount, 1);
+  assert.deepEqual(view.view.recordKinds, { "audit-trace": 1 });
+  assert.deepEqual(view.view.toolNames, ["code.debugRun"]);
+  assert.deepEqual(view.view.reuseKeys, ["debug-run:unit"]);
+  assert.deepEqual(view.view.acceptedScopes, ["tool:storage:observe"]);
+  assert.equal(view.view.records.length, 0);
+  assert.equal(view.view.audit.storageLogicOwnsWriteRules, true);
+  assert.equal(view.view.audit.planeOwnsPresentation, true);
 });
 
-test("planBaseToolStorageWrite rejects empty input and attempts to persist for real", () => {
-  const empty = planBaseToolStorageWrite();
-  assert.equal(empty.ok, false);
-  if (empty.ok) {
-    assert.fail("empty input must be rejected");
-  }
-  assert.equal(empty.error.code, "MISSING_RUNTIME_ID");
-  assert.equal(empty.error.boundary, "input");
-
-  const realWrite = planBaseToolStorageWrite({
+test("exposeBaseToolStoragePlane can present record metadata without exposing payloads", () => {
+  const view = exposeBaseToolStoragePlane({
     runtimeId: "runtime-1",
     sessionId: "session-1",
-    dryRun: false,
-    records: [
-      {
-        id: "record-1",
-        kind: "result-state",
-        toolName: "code.debugRun",
-      },
-    ],
+    storagePlan: makeStoragePlan(),
+    visibility: "records",
   });
-  assert.equal(realWrite.ok, false);
-  if (realWrite.ok) {
-    assert.fail("real storage must be rejected in the first round");
+
+  assert.equal(view.ok, true);
+  if (!view.ok) {
+    throw new Error("expected record view");
   }
-  assert.equal(realWrite.error.code, "REAL_STORAGE_NOT_ALLOWED");
-  assert.equal(realWrite.error.boundary, "governance");
+
+  assert.equal(view.view.records[0]?.id, "record-1");
+  assert.equal(view.view.records[0]?.toolName, "code.debugRun");
+  assert.equal(view.view.records[0]?.payloadExposed, false);
 });
 
-test("planBaseToolStorageWrite classifies invalid records and scope denial", () => {
-  const invalidRecord = planBaseToolStorageWrite({
-    runtimeId: "runtime-1",
-    sessionId: "session-1",
-    records: [
-      {
-        id: "record-1",
-        toolName: "code.debugRun",
-      },
-    ],
-  });
-  assert.equal(invalidRecord.ok, false);
-  if (invalidRecord.ok) {
-    assert.fail("record without kind must be rejected");
+test("exposeBaseToolStoragePlane rejects missing plans, mismatched scope, and governance denial", () => {
+  const missing = exposeBaseToolStoragePlane({ runtimeId: "runtime-1", sessionId: "session-1" });
+  assert.equal(missing.ok, false);
+  if (!missing.ok) {
+    assert.equal(missing.error.code, "MISSING_STORAGE_PLAN");
   }
-  assert.equal(invalidRecord.error.code, "MISSING_RECORD_KIND");
 
-  const denied = planBaseToolStorageWrite({
+  const mismatch = exposeBaseToolStoragePlane({
+    runtimeId: "runtime-2",
+    sessionId: "session-1",
+    storagePlan: makeStoragePlan(),
+  });
+  assert.equal(mismatch.ok, false);
+  if (!mismatch.ok) {
+    assert.equal(mismatch.error.code, "STORAGE_PLAN_SCOPE_MISMATCH");
+    assert.equal(mismatch.error.boundary, "scope");
+  }
+
+  const denied = exposeBaseToolStoragePlane({
     runtimeId: "runtime-1",
     sessionId: "session-1",
-    requestedScopes: ["tool:storage"],
+    storagePlan: makeStoragePlan(),
+    requestedScopes: ["tool:storage:observe"],
     allowedScopes: [],
-    records: [
-      {
-        id: "record-1",
-        kind: "audit-trace",
-        toolName: "code.debugRun",
-      },
-    ],
   });
   assert.equal(denied.ok, false);
-  if (denied.ok) {
-    assert.fail("scope denial must be rejected");
+  if (!denied.ok) {
+    assert.equal(denied.error.code, "SCOPE_DENIED");
+    assert.equal(denied.error.boundary, "scope");
   }
-  assert.equal(denied.error.code, "SCOPE_DENIED");
-  assert.equal(denied.error.boundary, "scope");
 });

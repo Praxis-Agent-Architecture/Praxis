@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { mapPromptMaterials } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptMapper.js";
+import {
+  BASIC_CORE_PROMPT_MATERIAL_ID,
+  definePromptPack,
+} from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
 import {
   modifyPromptMaterials,
   promptModifierDescriptor,
@@ -14,24 +17,28 @@ defineAgentCoreContractTest({
   testFileUrl: import.meta.url,
 });
 
-test("modifyPromptMaterials returns an audited dry-run material plan", () => {
-  const mapped = mapPromptMaterials({
+function createDefinedMaterials() {
+  const defined = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
+    basicCorePromptText: "Praxis root head.",
     materials: [
       { id: "user", kind: "user", text: "Build the PromptPack slice.", source: "user" },
       { id: "memory", kind: "memory", text: "Keep CMP as context source.", source: "cmp" },
     ],
   });
-  assert.equal(mapped.ok, true);
-  if (!mapped.ok) {
-    throw new Error("expected setup materials to map");
+  assert.equal(defined.ok, true);
+  if (!defined.ok) {
+    throw new Error("expected setup materials to define");
   }
+  return defined.definition.materials;
+}
 
+test("modifyPromptMaterials returns an audited dry-run material plan", () => {
   const result = modifyPromptMaterials({
     runtimeId: "runtime",
     sessionId: "session",
-    materials: mapped.materials,
+    materials: createDefinedMaterials(),
     operations: [
       { kind: "replace-text", materialId: "user", text: "Build a narrow PromptPack slice.", reason: "tighten task" },
       { kind: "adjust-priority", materialId: "memory", priority: 8, reason: "CMP material should stay visible" },
@@ -50,31 +57,23 @@ test("modifyPromptMaterials returns an audited dry-run material plan", () => {
   assert.equal(result.providerPayloadCreated, false);
   assert.deepEqual(
     result.materials.map((material) => material.id),
-    ["user", "event"],
+    [BASIC_CORE_PROMPT_MATERIAL_ID, "user", "event"],
   );
   assert.deepEqual(
     result.auditRecords.map((record) => record.operation),
     ["replace-text", "adjust-priority", "drop", "add"],
   );
-  assert.equal(result.materials[0]?.text, "Build a narrow PromptPack slice.");
+  assert.equal(result.materials[1]?.text, "Build a narrow PromptPack slice.");
   assert.deepEqual(result.events, ["promptPack.modification.planned"]);
 });
 
-test("modifyPromptMaterials rejects missing operations, missing materials, and unsafe injection", () => {
-  const mapped = mapPromptMaterials({
-    runtimeId: "runtime",
-    sessionId: "session",
-    materials: [{ id: "user", kind: "user", text: "hello", source: "user" }],
-  });
-  assert.equal(mapped.ok, true);
-  if (!mapped.ok) {
-    throw new Error("expected setup materials to map");
-  }
+test("modifyPromptMaterials rejects missing operations, missing materials, protected core rewrites, and unsafe injection", () => {
+  const materials = createDefinedMaterials();
 
   const missingOperation = modifyPromptMaterials({
     runtimeId: "runtime",
     sessionId: "session",
-    materials: mapped.materials,
+    materials,
   });
   assert.equal(missingOperation.ok, false);
   if (missingOperation.ok) {
@@ -85,7 +84,7 @@ test("modifyPromptMaterials rejects missing operations, missing materials, and u
   const notFound = modifyPromptMaterials({
     runtimeId: "runtime",
     sessionId: "session",
-    materials: mapped.materials,
+    materials,
     operations: [{ kind: "drop", materialId: "missing" }],
   });
   assert.equal(notFound.ok, false);
@@ -94,10 +93,22 @@ test("modifyPromptMaterials rejects missing operations, missing materials, and u
   }
   assert.equal(notFound.error.code, "MATERIAL_NOT_FOUND");
 
+  const protectedDrop = modifyPromptMaterials({
+    runtimeId: "runtime",
+    sessionId: "session",
+    materials,
+    operations: [{ kind: "drop", materialId: BASIC_CORE_PROMPT_MATERIAL_ID }],
+  });
+  assert.equal(protectedDrop.ok, false);
+  if (protectedDrop.ok) {
+    throw new Error("expected protected material rejection");
+  }
+  assert.equal(protectedDrop.error.code, "PROTECTED_MATERIAL");
+
   const injection = modifyPromptMaterials({
     runtimeId: "runtime",
     sessionId: "session",
-    materials: mapped.materials,
+    materials,
     operations: [
       {
         kind: "replace-text",

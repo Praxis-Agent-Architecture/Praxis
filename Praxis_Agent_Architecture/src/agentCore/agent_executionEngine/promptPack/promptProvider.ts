@@ -8,17 +8,11 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import type { MappedPromptPack, PromptProviderPayload } from "./promptMapper.js";
+import type { PromptPackMaterialKind } from "./promptDefiner.js";
+
 export type PromptProviderMaterialKind =
-  | "system"
-  | "user"
-  | "tool-summary"
-  | "command-injection"
-  | "cmp"
-  | "memory"
-  | "file"
-  | "retrieval"
-  | "event"
-  | "runtime";
+  | PromptPackMaterialKind;
 
 export type PromptProviderMaterialSourceKind =
   | "runtime"
@@ -76,6 +70,7 @@ export type PromptProviderRequest = {
   runtimeId?: string;
   sessionId?: string;
   invocationId?: string;
+  mappedPack?: MappedPromptPack;
   materials?: readonly PromptProviderMaterialInput[];
   budget?: PromptProviderBudget;
   allowedSourceKinds?: readonly PromptProviderMaterialSourceKind[];
@@ -136,7 +131,17 @@ export type PromptProviderPack = {
     usedEstimatedTokens: number;
   };
   providerPayloadCreated: false;
-  promptLoweringRequired: true;
+  promptLoweringRequired: boolean;
+  unsafeSideEffects: false;
+};
+
+export type PromptProviderUpstreamRequest = {
+  kind: "prompt-provider-upstream-request";
+  runtimeId: string;
+  sessionId: string;
+  invocationId?: string;
+  payload: PromptProviderPayload;
+  providerPayloadCreated: true;
   unsafeSideEffects: false;
 };
 
@@ -144,6 +149,8 @@ export type PromptProviderResult =
   | {
       ok: true;
       pack: PromptProviderPack;
+      mappedPack?: MappedPromptPack;
+      upstreamRequest?: PromptProviderUpstreamRequest;
       events: readonly string[];
     }
   | {
@@ -154,15 +161,17 @@ export type PromptProviderResult =
 
 export const promptProviderDescriptor = {
   route: "agent_executionEngine.promptPack.promptProvider",
-  purpose: "standardize model-input materials before promptLoweringRuntime without creating provider payloads",
-  providerPayloadCreated: false,
-  promptLoweringRequired: true,
+  purpose: "expose mapped PromptPack provider payloads as the final upstream request boundary",
+  providerPayloadCreated: true,
+  promptLoweringRequired: false,
   unsafeSideEffects: false,
 } as const;
 
 const defaultPriorityByKind: Record<PromptProviderMaterialKind, number> = {
   system: 100,
   user: 90,
+  tool: 80,
+  command: 80,
   "command-injection": 80,
   "tool-summary": 70,
   cmp: 60,
@@ -327,6 +336,68 @@ export function providePromptPackInput(request?: PromptProviderRequest): PromptP
   const scopeFailure = guardScopes(request.requestedScopes, request.allowedScopes);
   if (scopeFailure) {
     return scopeFailure;
+  }
+
+  if (request.mappedPack !== undefined) {
+    if (request.mappedPack.runtimeId !== request.runtimeId?.trim()) {
+      return failure("CONTRACT_REJECTED", "mapped PromptPack runtimeId does not match provider request", "contract");
+    }
+
+    if (request.mappedPack.sessionId !== request.sessionId?.trim()) {
+      return failure("CONTRACT_REJECTED", "mapped PromptPack sessionId does not match provider request", "contract");
+    }
+
+    const materials: PromptPackProvidedMaterial[] = Object.entries(request.mappedPack.blocks)
+      .filter((entry): entry is [keyof MappedPromptPack["blocks"], string] => entry[1].trim().length > 0)
+      .map(([kind, content], index) => ({
+        id: `mapped:${kind}`,
+        kind: kind === "tool" ? "tool" : kind,
+        content,
+        source: { kind: "runtime", ref: request.mappedPack?.sourcePromptPackId, trusted: true },
+        priority: 100 - index,
+        estimatedTokens: estimateTokens(content, undefined),
+        metadata: { mappedProvider: request.mappedPack?.targetProvider ?? "custom" },
+      }));
+
+    const usedEstimatedTokens = materials.reduce((sum, material) => sum + material.estimatedTokens, 0);
+
+    return {
+      ok: true,
+      pack: {
+        kind: "prompt-pack-input",
+        runtimeId: request.runtimeId?.trim() ?? "",
+        sessionId: request.sessionId?.trim() ?? "",
+        invocationId: request.invocationId?.trim() || undefined,
+        materials,
+        sourceRecords: materials.map((material) => ({
+          materialId: material.id,
+          kind: material.kind,
+          source: material.source,
+          trusted: material.source.trusted === true,
+        })),
+        trimRecords: [],
+        injectionRecords: [],
+        budget: {
+          maxEstimatedTokens: request.budget?.maxEstimatedTokens,
+          reservedForLowering: 0,
+          usedEstimatedTokens,
+        },
+        providerPayloadCreated: false,
+        promptLoweringRequired: false,
+        unsafeSideEffects: false,
+      },
+      mappedPack: request.mappedPack,
+      upstreamRequest: {
+        kind: "prompt-provider-upstream-request",
+        runtimeId: request.runtimeId?.trim() ?? "",
+        sessionId: request.sessionId?.trim() ?? "",
+        invocationId: request.invocationId?.trim() || undefined,
+        payload: request.mappedPack.providerPayload,
+        providerPayloadCreated: true,
+        unsafeSideEffects: false,
+      },
+      events: ["promptProvider.provided"],
+    };
   }
 
   if (request.materials === undefined || request.materials.length === 0) {

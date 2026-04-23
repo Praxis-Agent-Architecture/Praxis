@@ -8,9 +8,28 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import type {
+  BaseToolStorageRecordInput,
+  BaseToolStorageRecordKind,
+  BaseToolStoredRecord,
+} from "../../../storagePool/baseToolStorage/baseToolStorageRecords.js";
+
+export type {
+  BaseToolStorageRecordInput,
+  BaseToolStorageRecordKind,
+  BaseToolStoredRecord,
+} from "../../../storagePool/baseToolStorage/baseToolStorageRecords.js";
+
 export type BasicToolStorageOperation = "put" | "read" | "reuse" | "expire";
 
 export type BasicToolStorageBoundary = "input" | "contract" | "scope" | "resource";
+
+export type BaseToolStorageBoundary = "input" | "contract" | "governance" | "scope" | "storage";
+
+export type BaseToolStorageGate = {
+  accepted: boolean;
+  reason?: string;
+};
 
 export type BasicToolStorageScope = {
   runtimeId?: string;
@@ -42,6 +61,18 @@ export type BasicToolStorageRequest = {
   metadata?: Readonly<Record<string, unknown>>;
 };
 
+export type BaseToolStorageWriteRequest = {
+  runtimeId?: string;
+  sessionId?: string;
+  invocationId?: string;
+  records?: readonly BaseToolStorageRecordInput[];
+  requestedScopes?: readonly string[];
+  allowedScopes?: readonly string[];
+  dryRun?: boolean;
+  contract?: BaseToolStorageGate;
+  governance?: BaseToolStorageGate;
+};
+
 export type BasicToolStorageErrorCode =
   | "MISSING_RUNTIME_ID"
   | "MISSING_SESSION_ID"
@@ -53,11 +84,32 @@ export type BasicToolStorageErrorCode =
   | "INVALID_TTL"
   | "REAL_STORAGE_MUTATION_BLOCKED";
 
+export type BaseToolStorageErrorCode =
+  | "MISSING_RUNTIME_ID"
+  | "MISSING_SESSION_ID"
+  | "MISSING_RECORDS"
+  | "MISSING_RECORD_ID"
+  | "MISSING_RECORD_KIND"
+  | "MISSING_TOOL_NAME"
+  | "INVALID_RECORD_PAYLOAD"
+  | "CONTRACT_REJECTED"
+  | "GOVERNANCE_REJECTED"
+  | "SCOPE_DENIED"
+  | "REAL_STORAGE_NOT_ALLOWED";
+
 export type BasicToolStorageError = {
   code: BasicToolStorageErrorCode;
   message: string;
   boundary: BasicToolStorageBoundary;
   publicSafe: true;
+};
+
+export type BaseToolStorageError = {
+  code: BaseToolStorageErrorCode;
+  message: string;
+  boundary: BaseToolStorageBoundary;
+  safeForRuntimeInspection: true;
+  internalDetailExposed: false;
 };
 
 export type BasicToolStoragePlan = {
@@ -78,6 +130,29 @@ export type BasicToolStoragePlan = {
   };
 };
 
+export type BaseToolStoragePlan = {
+  kind: "agentCore.basicTool.storageLogic.writePlan";
+  pool: "storagePool.baseToolStorage";
+  runtimeId: string;
+  sessionId: string;
+  invocationId: string;
+  records: readonly BaseToolStoredRecord[];
+  reuseIndex: Readonly<Record<string, readonly string[]>>;
+  acceptedScopes: readonly string[];
+  logic: {
+    operation: "write-records";
+    dryRun: true;
+    wouldMutateStorage: true;
+    persisted: false;
+    isolation: "runtime-session";
+  };
+  audit: {
+    event: "agentCore.basicTool.storageLogic.writePlanned";
+    metadata: Readonly<Record<string, unknown>>;
+  };
+  unsafeSideEffects: false;
+};
+
 export type BasicToolStorageResult =
   | {
       ok: true;
@@ -90,16 +165,37 @@ export type BasicToolStorageResult =
       events: readonly string[];
     };
 
+export type BaseToolStorageWriteResult =
+  | {
+      ok: true;
+      plan: BaseToolStoragePlan;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: BaseToolStorageError;
+      events: readonly string[];
+    };
+
 export const basicToolStorageLogicDescriptor = {
   capability: "manage-basic-tool-material-storage",
   layer: "agent_executionEngine.basic_toolLayer.storageLogic",
   defaultOperation: "put",
   defaultDryRun: true,
   unsafeSideEffects: false,
+  storagePool: "storagePool.baseToolStorage",
 } as const;
 
 function isBlank(value: string | undefined): boolean {
   return typeof value !== "string" || value.trim().length === 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cleanList(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
 }
 
 function failure(
@@ -112,6 +208,79 @@ function failure(
     error: { code, message, boundary, publicSafe: true },
     events: ["agentCore.basicTool.storageLogic.rejected"],
   };
+}
+
+function writeFailure(
+  code: BaseToolStorageErrorCode,
+  message: string,
+  boundary: BaseToolStorageBoundary,
+): BaseToolStorageWriteResult {
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      boundary,
+      safeForRuntimeInspection: true,
+      internalDetailExposed: false,
+    },
+    events: ["agentCore.basicTool.storageLogic.writeRejected"],
+  };
+}
+
+function resolveWriteScopes(
+  requestedScopes: readonly string[] | undefined,
+  allowedScopes: readonly string[] | undefined,
+): string[] | BaseToolStorageWriteResult {
+  const requested = cleanList(requestedScopes);
+  const allowed = cleanList(allowedScopes);
+
+  if (requested.length === 0) {
+    return [];
+  }
+
+  const denied = requested.filter((scope) => !allowed.includes(scope));
+  if (denied.length > 0) {
+    return writeFailure("SCOPE_DENIED", `base tool storage scope ${denied[0]} is outside runtime governance`, "scope");
+  }
+
+  return requested;
+}
+
+function validateWriteRecord(record: BaseToolStorageRecordInput, index: number): BaseToolStorageWriteResult | undefined {
+  if (isBlank(record.id)) {
+    return writeFailure("MISSING_RECORD_ID", `base tool storage record ${index} requires an id`, "input");
+  }
+
+  if (record.kind === undefined) {
+    return writeFailure("MISSING_RECORD_KIND", `base tool storage record ${index} requires a kind`, "input");
+  }
+
+  if (isBlank(record.toolName)) {
+    return writeFailure("MISSING_TOOL_NAME", `base tool storage record ${index} requires a toolName`, "input");
+  }
+
+  if (record.payload !== undefined && !isRecord(record.payload)) {
+    return writeFailure("INVALID_RECORD_PAYLOAD", `base tool storage record ${index} payload must be a plain record`, "input");
+  }
+
+  return undefined;
+}
+
+function buildReuseIndex(records: readonly BaseToolStoredRecord[]): Record<string, readonly string[]> {
+  const index = new Map<string, string[]>();
+
+  for (const record of records) {
+    if (record.reuseKey === undefined) {
+      continue;
+    }
+
+    const current = index.get(record.reuseKey) ?? [];
+    current.push(record.id);
+    index.set(record.reuseKey, current);
+  }
+
+  return Object.fromEntries(index);
 }
 
 function normalizeNow(value: number | undefined): number {
@@ -255,5 +424,97 @@ export function planBasicToolStorageOperation(request: BasicToolStorageRequest =
       },
     },
     events: ["agentCore.basicTool.storageLogic.planned"],
+  };
+}
+
+export function planBaseToolStorageWrite(request?: BaseToolStorageWriteRequest): BaseToolStorageWriteResult {
+  if (request === undefined || isBlank(request.runtimeId)) {
+    return writeFailure("MISSING_RUNTIME_ID", "base tool storage requires runtimeId", "input");
+  }
+
+  if (isBlank(request.sessionId)) {
+    return writeFailure("MISSING_SESSION_ID", "base tool storage requires sessionId", "input");
+  }
+
+  if (request.dryRun === false) {
+    return writeFailure(
+      "REAL_STORAGE_NOT_ALLOWED",
+      "base tool storage logic only returns a dry-run write plan until a storage executor is injected",
+      "contract",
+    );
+  }
+
+  if (request.contract?.accepted === false) {
+    return writeFailure(
+      "CONTRACT_REJECTED",
+      request.contract.reason ?? "base tool storage write was rejected by contract surface",
+      "contract",
+    );
+  }
+
+  if (request.governance?.accepted === false) {
+    return writeFailure(
+      "GOVERNANCE_REJECTED",
+      request.governance.reason ?? "base tool storage write was rejected by runtime governance",
+      "governance",
+    );
+  }
+
+  if (request.records === undefined || request.records.length === 0) {
+    return writeFailure("MISSING_RECORDS", "base tool storage requires at least one record", "input");
+  }
+
+  const acceptedScopes = resolveWriteScopes(request.requestedScopes, request.allowedScopes);
+  if (!Array.isArray(acceptedScopes)) {
+    return acceptedScopes;
+  }
+
+  const runtimeId = (request.runtimeId ?? "").trim();
+  const sessionId = request.sessionId?.trim() ?? "";
+  const invocationId = request.invocationId?.trim() || `${runtimeId}:${sessionId}:baseToolStorage`;
+  const records: BaseToolStoredRecord[] = [];
+
+  for (const [index, record] of request.records.entries()) {
+    const invalid = validateWriteRecord(record, index);
+    if (invalid !== undefined) {
+      return invalid;
+    }
+
+    records.push({
+      id: record.id?.trim() ?? "",
+      kind: record.kind ?? "runtime-material",
+      toolName: record.toolName?.trim() ?? "",
+      invocationId: record.invocationId?.trim() || invocationId,
+      payload: record.payload ?? {},
+      reuseKey: record.reuseKey?.trim() || undefined,
+      tags: cleanList(record.tags),
+    });
+  }
+
+  return {
+    ok: true,
+    plan: {
+      kind: "agentCore.basicTool.storageLogic.writePlan",
+      pool: "storagePool.baseToolStorage",
+      runtimeId,
+      sessionId,
+      invocationId,
+      records,
+      reuseIndex: buildReuseIndex(records),
+      acceptedScopes,
+      logic: {
+        operation: "write-records",
+        dryRun: true,
+        wouldMutateStorage: true,
+        persisted: false,
+        isolation: "runtime-session",
+      },
+      audit: {
+        event: "agentCore.basicTool.storageLogic.writePlanned",
+        metadata: {},
+      },
+      unsafeSideEffects: false,
+    },
+    events: ["agentCore.basicTool.storageLogic.writePlanned"],
   };
 }

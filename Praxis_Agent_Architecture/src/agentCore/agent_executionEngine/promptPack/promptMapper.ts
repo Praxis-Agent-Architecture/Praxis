@@ -8,54 +8,68 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-import {
-  detectPromptInjectionRisk,
-  estimatePromptTokens,
-  type DefinedPromptMaterial,
-  type PromptPackBoundary,
-  type PromptPackError,
-  type PromptPackErrorCode,
-  type PromptPackMaterialDraft,
-  type PromptPackMaterialKind,
+import type {
+  AssembledPromptMaterial,
+  AssembledPromptToolDeclaration,
+  AssembledPromptToolPack,
+  AssembledPromptToolResult,
+  AssembledPromptToolState,
+  StandardPromptPack,
+} from "./promptAssembler.js";
+import type {
+  PromptPackBoundary,
+  PromptPackError,
+  PromptPackErrorCode,
 } from "./promptDefiner.js";
 
-export type PromptMapperOrdering = "input-order" | "priority-desc";
+export type PromptMapperProvider = "openai" | "anthropic" | "gemini" | "custom";
 
 export type PromptMapperRequest = {
   runtimeId?: string;
   sessionId?: string;
-  materials?: readonly (PromptPackMaterialDraft | DefinedPromptMaterial)[];
-  ordering?: PromptMapperOrdering;
-  allowUntrustedInjection?: boolean;
+  promptPack?: StandardPromptPack;
+  targetProvider?: PromptMapperProvider;
+  targetModel?: string;
+  openaiInstructionRole?: "developer" | "system";
 };
 
-export type PromptMaterialSourceRecord = {
-  materialId: string;
-  source: string;
-  kind: PromptPackMaterialKind;
-  trusted: boolean;
+export type PromptProviderPayload = {
+  provider: PromptMapperProvider;
+  model?: string;
+  endpoint: "responses" | "messages" | "generateContent" | "custom";
+  body: Readonly<Record<string, unknown>>;
 };
 
-export type MappedPromptMaterial = {
-  id: string;
-  kind: PromptPackMaterialKind;
-  text: string;
-  source: string;
-  priority: number;
-  estimatedTokens: number;
-  trusted: boolean;
-  scope?: string;
-  metadata: Readonly<Record<string, string | number | boolean>>;
-  sourceRecord: PromptMaterialSourceRecord;
-  injectionRisk: "none" | "suspected";
-  providerPayloadCreated: false;
+export type MappedPromptBlocks = {
+  system: string;
+  user: string;
+  tool: string;
+};
+
+export type MappedToolPayloads = {
+  declarations: readonly AssembledPromptToolDeclaration[];
+  results: readonly AssembledPromptToolResult[];
+  callStates: readonly AssembledPromptToolState[];
+};
+
+export type MappedPromptPack = {
+  kind: "praxis.promptPack.mapped";
+  runtimeId: string;
+  sessionId: string;
+  targetProvider: PromptMapperProvider;
+  targetModel?: string;
+  sourcePromptPackId: string;
+  blocks: MappedPromptBlocks;
+  tools: MappedToolPayloads;
+  providerPayload: PromptProviderPayload;
+  providerPayloadCreated: true;
+  unsafeSideEffects: false;
 };
 
 export type PromptMapperResult =
   | {
       ok: true;
-      materials: readonly MappedPromptMaterial[];
-      sourceRecords: readonly PromptMaterialSourceRecord[];
+      mappedPack: MappedPromptPack;
       events: readonly string[];
     }
   | {
@@ -67,8 +81,8 @@ export type PromptMapperResult =
 export const promptMapperDescriptor = {
   capability: "prompt-mapper",
   route: "agent_executionEngine.promptPack",
-  purpose: "map raw PromptPack materials into provider-neutral material records",
-  providerPayloadCreated: false,
+  purpose: "map assembled Praxis PromptPack context into target provider payload shape",
+  providerPayloadCreated: true,
   unsafeSideEffects: false,
 } as const;
 
@@ -84,77 +98,234 @@ function failure(code: PromptPackErrorCode, message: string, boundary: PromptPac
   };
 }
 
-function normalizeMaterial(
-  material: PromptPackMaterialDraft | DefinedPromptMaterial,
-  index: number,
-): MappedPromptMaterial {
-  const text = material.text.trim();
-  const id = material.id?.trim() || `mapped:${index + 1}`;
-  const source = material.source?.trim() || "runtime";
-  const trusted = material.trusted === true;
-  const injectionRisk = detectPromptInjectionRisk(text) ? "suspected" : "none";
+function renderMaterials(materials: readonly AssembledPromptMaterial[]): string {
+  return materials
+    .map((material) => [`<${material.kind} id="${material.id}">`, material.text, `</${material.kind}>`].join("\n"))
+    .join("\n\n")
+    .trim();
+}
+
+function groupPromptBlocks(materials: readonly AssembledPromptMaterial[], toolPack: AssembledPromptToolPack): MappedPromptBlocks {
+  const systemMaterials = materials.filter((material) => material.kind === "system" || material.kind === "runtime");
+  const structuredToolMaterialIds = new Set([
+    ...toolPack.declarations.map((tool) => tool.materialId),
+    ...toolPack.results.map((tool) => tool.materialId),
+    ...toolPack.callStates.map((tool) => tool.materialId),
+  ]);
+  const toolPolicyMaterials = toolPack.policies;
+  const userMaterials = materials.filter((material) =>
+    !systemMaterials.includes(material) &&
+    !toolPolicyMaterials.includes(material) &&
+    !structuredToolMaterialIds.has(material.id)
+  );
 
   return {
-    id,
-    kind: material.kind,
-    text,
-    source,
-    priority: material.priority ?? 0,
-    estimatedTokens: material.estimatedTokens ?? estimatePromptTokens(text),
-    trusted,
-    scope: material.scope?.trim() || undefined,
-    metadata: material.metadata ?? {},
-    sourceRecord: {
-      materialId: id,
-      source,
-      kind: material.kind,
-      trusted,
+    system: renderMaterials(systemMaterials),
+    user: renderMaterials(userMaterials),
+    tool: renderMaterials(toolPolicyMaterials),
+  };
+}
+
+function createOpenAiTools(tools: readonly AssembledPromptToolDeclaration[]): readonly Record<string, unknown>[] {
+  return tools.map((tool) => ({
+    type: "function",
+    name: tool.name,
+    description: tool.description,
+    parameters: tool.inputSchema,
+  }));
+}
+
+function createAnthropicTools(tools: readonly AssembledPromptToolDeclaration[]): readonly Record<string, unknown>[] {
+  return tools.map((tool) => ({
+    name: tool.name,
+    description: tool.description,
+    input_schema: tool.inputSchema,
+  }));
+}
+
+function createGeminiTools(tools: readonly AssembledPromptToolDeclaration[]): readonly Record<string, unknown>[] {
+  return tools.length === 0
+    ? []
+    : [{
+        functionDeclarations: tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.inputSchema,
+        })),
+      }];
+}
+
+function createOpenAiToolResultItems(results: readonly AssembledPromptToolResult[]): readonly Record<string, unknown>[] {
+  return results.map((result) => ({
+    type: "function_call_output",
+    call_id: result.callId ?? result.materialId,
+    output: result.content,
+  }));
+}
+
+function createAnthropicToolResultBlocks(results: readonly AssembledPromptToolResult[]): readonly Record<string, unknown>[] {
+  return results.map((result) => ({
+    type: "tool_result",
+    tool_use_id: result.callId ?? result.materialId,
+    content: result.content,
+  }));
+}
+
+function createGeminiFunctionResponseParts(results: readonly AssembledPromptToolResult[]): readonly Record<string, unknown>[] {
+  return results.map((result) => ({
+    functionResponse: {
+      name: result.name ?? result.materialId,
+      id: result.callId,
+      response: { result: result.content },
     },
-    injectionRisk,
-    providerPayloadCreated: false,
+  }));
+}
+
+function createOpenAiPayload(input: {
+  model?: string;
+  blocks: MappedPromptBlocks;
+  tools: MappedToolPayloads;
+  instructionRole: "developer" | "system";
+}): PromptProviderPayload {
+  const inputMessages = [
+    input.blocks.system
+      ? { role: input.instructionRole, content: input.blocks.system }
+      : undefined,
+    input.blocks.tool
+      ? { role: input.instructionRole, content: input.blocks.tool }
+      : undefined,
+    input.blocks.user
+      ? { role: "user", content: input.blocks.user }
+      : undefined,
+    ...createOpenAiToolResultItems(input.tools.results),
+  ].filter((message): message is { role: string; content: string } | Record<string, unknown> => message !== undefined);
+  const tools = createOpenAiTools(input.tools.declarations);
+
+  return {
+    provider: "openai",
+    model: input.model,
+    endpoint: "responses",
+    body: {
+      ...(input.model ? { model: input.model } : {}),
+      input: inputMessages,
+      ...(tools.length > 0 ? { tools } : {}),
+    },
+  };
+}
+
+function createAnthropicPayload(input: { model?: string; blocks: MappedPromptBlocks; tools: MappedToolPayloads }): PromptProviderPayload {
+  const system = [input.blocks.system, input.blocks.tool].filter(Boolean).join("\n\n");
+  const toolResults = createAnthropicToolResultBlocks(input.tools.results);
+  const userContent = toolResults.length > 0
+    ? [
+        ...toolResults,
+        ...(input.blocks.user ? [{ type: "text", text: input.blocks.user }] : []),
+      ]
+    : input.blocks.user || "Continue.";
+  const tools = createAnthropicTools(input.tools.declarations);
+  return {
+    provider: "anthropic",
+    model: input.model,
+    endpoint: "messages",
+    body: {
+      ...(input.model ? { model: input.model } : {}),
+      ...(system ? { system } : {}),
+      messages: [{ role: "user", content: userContent }],
+      ...(tools.length > 0 ? { tools } : {}),
+    },
+  };
+}
+
+function createGeminiPayload(input: { model?: string; blocks: MappedPromptBlocks; tools: MappedToolPayloads }): PromptProviderPayload {
+  const system = [input.blocks.system, input.blocks.tool].filter(Boolean).join("\n\n");
+  const functionResponseParts = createGeminiFunctionResponseParts(input.tools.results);
+  const userParts = [
+    ...(input.blocks.user ? [{ text: input.blocks.user }] : []),
+    ...functionResponseParts,
+  ];
+  const tools = createGeminiTools(input.tools.declarations);
+  return {
+    provider: "gemini",
+    model: input.model,
+    endpoint: "generateContent",
+    body: {
+      ...(input.model ? { model: input.model } : {}),
+      ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+      contents: [{ role: "user", parts: userParts.length > 0 ? userParts : [{ text: "Continue." }] }],
+      ...(tools.length > 0 ? { config: { tools } } : {}),
+    },
+  };
+}
+
+function createCustomPayload(input: { model?: string; blocks: MappedPromptBlocks; tools: MappedToolPayloads }): PromptProviderPayload {
+  return {
+    provider: "custom",
+    model: input.model,
+    endpoint: "custom",
+    body: {
+      ...(input.model ? { model: input.model } : {}),
+      prompt: input.blocks,
+      tools: input.tools,
+    },
   };
 }
 
 export function mapPromptMaterials(request?: PromptMapperRequest): PromptMapperResult {
   if (request === undefined || isBlank(request.runtimeId)) {
-    return failure("MISSING_RUNTIME_ID", "runtimeId is required before mapping PromptPack materials", "input");
+    return failure("MISSING_RUNTIME_ID", "runtimeId is required before mapping PromptPack to provider payload", "input");
   }
 
   if (isBlank(request.sessionId)) {
-    return failure("MISSING_SESSION_ID", "sessionId is required before mapping PromptPack materials", "input");
+    return failure("MISSING_SESSION_ID", "sessionId is required before mapping PromptPack to provider payload", "input");
   }
 
-  const materials = request.materials ?? [];
-  if (materials.length === 0) {
-    return failure("EMPTY_MATERIALS", "PromptPack mapping requires at least one material", "material");
+  if (request.promptPack === undefined || request.promptPack.materials.length === 0) {
+    return failure("EMPTY_MATERIALS", "PromptPack mapping requires an assembled promptPack", "material");
   }
 
-  const mappedMaterials: MappedPromptMaterial[] = [];
-  for (const [index, material] of materials.entries()) {
-    if (material.text.trim().length === 0) {
-      return failure("EMPTY_MATERIAL_TEXT", `PromptPack material ${material.id ?? index} must contain text`, "material");
-    }
-
-    const mapped = normalizeMaterial(material, index);
-    if (mapped.injectionRisk === "suspected" && !mapped.trusted && request.allowUntrustedInjection !== true) {
-      return failure(
-        "UNTRUSTED_INJECTION",
-        `PromptPack material ${mapped.id} contains a suspected prompt injection directive`,
-        "injection",
-      );
-    }
-    mappedMaterials.push(mapped);
+  if (isBlank(request.targetProvider)) {
+    return failure("MISSING_TARGET_PROVIDER", "PromptPack mapping requires a target provider", "input");
   }
 
-  const orderedMaterials =
-    request.ordering === "priority-desc"
-      ? [...mappedMaterials].sort((left, right) => right.priority - left.priority)
-      : mappedMaterials;
+  const runtimeId = request.runtimeId?.trim() ?? "";
+  const sessionId = request.sessionId?.trim() ?? "";
+  const targetProvider = request.targetProvider as PromptMapperProvider;
+  const targetModel = request.targetModel?.trim() || request.promptPack.targetModel;
+  const tools: MappedToolPayloads = {
+    declarations: request.promptPack.toolPack.declarations,
+    results: request.promptPack.toolPack.results,
+    callStates: request.promptPack.toolPack.callStates,
+  };
+  const blocks = groupPromptBlocks(request.promptPack.materials, request.promptPack.toolPack);
+  const providerPayload =
+    targetProvider === "openai"
+      ? createOpenAiPayload({
+          model: targetModel,
+          blocks,
+          tools,
+          instructionRole: request.openaiInstructionRole ?? "developer",
+        })
+      : targetProvider === "anthropic"
+        ? createAnthropicPayload({ model: targetModel, blocks, tools })
+        : targetProvider === "gemini"
+          ? createGeminiPayload({ model: targetModel, blocks, tools })
+          : createCustomPayload({ model: targetModel, blocks, tools });
 
   return {
     ok: true,
-    materials: orderedMaterials,
-    sourceRecords: orderedMaterials.map((material) => material.sourceRecord),
+    mappedPack: {
+      kind: "praxis.promptPack.mapped",
+      runtimeId,
+      sessionId,
+      targetProvider,
+      targetModel,
+      sourcePromptPackId: `${request.promptPack.runtimeId}:${request.promptPack.sessionId}:assembled`,
+      blocks,
+      tools,
+      providerPayload,
+      providerPayloadCreated: true,
+      unsafeSideEffects: false,
+    },
     events: ["promptPack.mapping.accepted"],
   };
 }

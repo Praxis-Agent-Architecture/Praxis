@@ -9,14 +9,15 @@
  */
 
 import {
+  BASIC_CORE_PROMPT_MATERIAL_ID,
   detectPromptInjectionRisk,
   estimatePromptTokens,
+  type DefinedPromptMaterial,
   type PromptPackBoundary,
   type PromptPackError,
   type PromptPackErrorCode,
   type PromptPackMaterialDraft,
 } from "./promptDefiner.js";
-import type { MappedPromptMaterial } from "./promptMapper.js";
 
 export type PromptModificationOperation =
   | {
@@ -49,14 +50,15 @@ export type PromptModificationAuditRecord = {
   dryRun: true;
 };
 
-export type ModifiedPromptMaterial = MappedPromptMaterial & {
+export type ModifiedPromptMaterial = DefinedPromptMaterial & {
   modifierRecords: readonly string[];
+  protected: boolean;
 };
 
 export type PromptModifierRequest = {
   runtimeId?: string;
   sessionId?: string;
-  materials?: readonly MappedPromptMaterial[];
+  materials?: readonly DefinedPromptMaterial[];
   operations?: readonly PromptModificationOperation[];
   allowUntrustedInjection?: boolean;
 };
@@ -79,7 +81,7 @@ export type PromptModifierResult =
 export const promptModifierDescriptor = {
   capability: "prompt-modifier",
   route: "agent_executionEngine.promptPack",
-  purpose: "plan audited PromptPack material changes without external side effects",
+  purpose: "plan audited changes to Praxis internal PromptPack constructs before assembly",
   providerPayloadCreated: false,
   unsafeSideEffects: false,
 } as const;
@@ -96,12 +98,17 @@ function failure(code: PromptPackErrorCode, message: string, boundary: PromptPac
   };
 }
 
-function toModified(material: MappedPromptMaterial, note?: string): ModifiedPromptMaterial {
+function isProtectedMaterial(material: DefinedPromptMaterial): boolean {
+  return material.id === BASIC_CORE_PROMPT_MATERIAL_ID || material.metadata.protected === true;
+}
+
+function toModified(material: DefinedPromptMaterial, note?: string): ModifiedPromptMaterial {
   const modifierRecords =
     "modifierRecords" in material ? (material as ModifiedPromptMaterial).modifierRecords : [];
   const existingRecords: readonly string[] = modifierRecords;
   return {
     ...material,
+    protected: isProtectedMaterial(material),
     modifierRecords: note ? [...existingRecords, note] : existingRecords,
   };
 }
@@ -122,14 +129,7 @@ function createAddedMaterial(material: PromptPackMaterialDraft, index: number): 
     trusted,
     scope: material.scope?.trim() || undefined,
     metadata: material.metadata ?? {},
-    sourceRecord: {
-      materialId: id,
-      source,
-      kind: material.kind,
-      trusted,
-    },
-    injectionRisk: detectPromptInjectionRisk(text) ? "suspected" : "none",
-    providerPayloadCreated: false,
+    protected: false,
     modifierRecords: ["added"],
   };
 }
@@ -176,7 +176,7 @@ export function modifyPromptMaterials(request?: PromptModifierRequest): PromptMo
       }
 
       const added = createAddedMaterial(operation.material, operationIndex);
-      if (added.injectionRisk === "suspected" && !added.trusted && request.allowUntrustedInjection !== true) {
+      if (detectPromptInjectionRisk(added.text) && !added.trusted && request.allowUntrustedInjection !== true) {
         return failure(
           "UNTRUSTED_INJECTION",
           `added PromptPack material ${added.id} contains a suspected prompt injection directive`,
@@ -199,6 +199,14 @@ export function modifyPromptMaterials(request?: PromptModifierRequest): PromptMo
     }
 
     const material = materials[materialIndex];
+    if (material.protected && (operation.kind === "drop" || operation.kind === "replace-text")) {
+      return failure(
+        "PROTECTED_MATERIAL",
+        `PromptPack material ${operation.materialId} is protected and cannot be ${operation.kind === "drop" ? "dropped" : "rewritten"} by modifier`,
+        "governance",
+      );
+    }
+
     if (operation.kind === "drop") {
       materials = materials.filter((candidate) => candidate.id !== operation.materialId);
       auditRecords.push(auditRecord("drop", operation.materialId, operation.reason));
@@ -226,7 +234,6 @@ export function modifyPromptMaterials(request?: PromptModifierRequest): PromptMo
               ...candidate,
               text,
               estimatedTokens: estimatePromptTokens(text),
-              injectionRisk,
               modifierRecords: [...candidate.modifierRecords, "text-replaced"],
             }
           : candidate,

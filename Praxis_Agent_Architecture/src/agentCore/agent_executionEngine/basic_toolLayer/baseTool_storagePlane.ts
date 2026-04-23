@@ -8,102 +8,98 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export type BaseToolStorageBoundary = "input" | "contract" | "governance" | "scope" | "storage";
+import type { BaseToolStoragePlan } from "./storageLogic.js";
 
-export type BaseToolStorageRecordKind = "runtime-material" | "result-state" | "audit-trace" | "reuse-index";
+export type BaseToolStoragePlaneBoundary = "input" | "contract" | "governance" | "scope" | "presentation";
 
-export type BaseToolStorageGate = {
+export type BaseToolStoragePlaneVisibility = "summary" | "records" | "reuse-index";
+
+export type BaseToolStoragePlaneGate = {
   accepted: boolean;
   reason?: string;
 };
 
-export type BaseToolStorageRecordInput = {
-  id?: string;
-  kind?: BaseToolStorageRecordKind;
-  toolName?: string;
-  invocationId?: string;
-  payload?: Record<string, unknown>;
-  reuseKey?: string;
-  tags?: readonly string[];
-};
-
-export type BaseToolStorageRequest = {
+export type BaseToolStoragePlaneRequest = {
   runtimeId?: string;
   sessionId?: string;
-  invocationId?: string;
-  records?: readonly BaseToolStorageRecordInput[];
+  storagePlan?: BaseToolStoragePlan;
+  visibility?: BaseToolStoragePlaneVisibility;
   requestedScopes?: readonly string[];
   allowedScopes?: readonly string[];
-  dryRun?: boolean;
-  contract?: BaseToolStorageGate;
-  governance?: BaseToolStorageGate;
+  contract?: BaseToolStoragePlaneGate;
+  governance?: BaseToolStoragePlaneGate;
+  auditMetadata?: Readonly<Record<string, unknown>>;
 };
 
-export type BaseToolStorageErrorCode =
+export type BaseToolStoragePlaneErrorCode =
   | "MISSING_RUNTIME_ID"
   | "MISSING_SESSION_ID"
-  | "MISSING_RECORDS"
-  | "MISSING_RECORD_ID"
-  | "MISSING_RECORD_KIND"
-  | "MISSING_TOOL_NAME"
-  | "INVALID_RECORD_PAYLOAD"
+  | "MISSING_STORAGE_PLAN"
+  | "STORAGE_PLAN_SCOPE_MISMATCH"
   | "CONTRACT_REJECTED"
   | "GOVERNANCE_REJECTED"
-  | "SCOPE_DENIED"
-  | "REAL_STORAGE_NOT_ALLOWED";
+  | "SCOPE_DENIED";
 
-export type BaseToolStorageError = {
-  code: BaseToolStorageErrorCode;
+export type BaseToolStoragePlaneError = {
+  code: BaseToolStoragePlaneErrorCode;
   message: string;
-  boundary: BaseToolStorageBoundary;
+  boundary: BaseToolStoragePlaneBoundary;
   safeForRuntimeInspection: true;
   internalDetailExposed: false;
 };
 
-export type BaseToolStoredRecord = {
+export type BaseToolStoragePlaneRecordView = {
   id: string;
-  kind: BaseToolStorageRecordKind;
+  kind: string;
   toolName: string;
   invocationId: string;
-  payload: Readonly<Record<string, unknown>>;
   reuseKey?: string;
   tags: readonly string[];
+  payloadExposed: false;
 };
 
-export type BaseToolStoragePlan = {
+export type BaseToolStoragePlaneView = {
   plane: "baseTool_storagePlane";
+  sourcePlanKind: BaseToolStoragePlan["kind"];
+  storagePool: BaseToolStoragePlan["pool"];
   runtimeId: string;
   sessionId: string;
   invocationId: string;
-  records: readonly BaseToolStoredRecord[];
-  reuseIndex: Readonly<Record<string, readonly string[]>>;
+  visibility: BaseToolStoragePlaneVisibility;
+  recordCount: number;
+  recordKinds: Readonly<Record<string, number>>;
+  toolNames: readonly string[];
+  reuseKeys: readonly string[];
+  records: readonly BaseToolStoragePlaneRecordView[];
   acceptedScopes: readonly string[];
   audit: {
-    dryRun: true;
-    persisted: false;
+    event: "agentCore.basicTool.storagePlane.exposed";
     governanceRequired: true;
-    contractSurface: "runtime.contractSurface";
-    storagePurpose: "tool-material-result-audit-reuse";
+    storageLogicOwnsWriteRules: true;
+    planeOwnsPresentation: true;
+    metadata: Readonly<Record<string, unknown>>;
   };
   unsafeSideEffects: false;
 };
 
-export type BaseToolStorageResult =
+export type BaseToolStoragePlaneResult =
   | {
       ok: true;
-      plan: BaseToolStoragePlan;
+      view: BaseToolStoragePlaneView;
       events: readonly string[];
     }
   | {
       ok: false;
-      error: BaseToolStorageError;
+      error: BaseToolStoragePlaneError;
       events: readonly string[];
     };
 
 export const baseToolStoragePlaneDescriptor = {
   plane: "baseTool_storagePlane",
-  purpose: "plan storage for base tool materials, result state, audit traces, and reuse indexes",
-  dryRunOnly: true,
+  purpose: "govern, expose, and present base tool storage plans produced by storageLogic",
+  storagePool: "storagePool.baseToolStorage",
+  ownsStorageWriteRules: false,
+  ownsGovernanceExposure: true,
   unsafeSideEffects: false,
 } as const;
 
@@ -111,19 +107,15 @@ function isBlank(value: string | undefined): boolean {
   return typeof value !== "string" || value.trim().length === 0;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function cleanList(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
 }
 
 function failure(
-  code: BaseToolStorageErrorCode,
+  code: BaseToolStoragePlaneErrorCode,
   message: string,
-  boundary: BaseToolStorageBoundary,
-): BaseToolStorageResult {
+  boundary: BaseToolStoragePlaneBoundary,
+): BaseToolStoragePlaneResult {
   return {
     ok: false,
     error: {
@@ -133,14 +125,14 @@ function failure(
       safeForRuntimeInspection: true,
       internalDetailExposed: false,
     },
-    events: ["agentCore.basicTool.storage.rejected"],
+    events: ["agentCore.basicTool.storagePlane.rejected"],
   };
 }
 
 function resolveScopes(
   requestedScopes: readonly string[] | undefined,
   allowedScopes: readonly string[] | undefined,
-): string[] | BaseToolStorageResult {
+): string[] | BaseToolStoragePlaneResult {
   const requested = cleanList(requestedScopes);
   const allowed = cleanList(allowedScopes);
 
@@ -150,69 +142,70 @@ function resolveScopes(
 
   const denied = requested.filter((scope) => !allowed.includes(scope));
   if (denied.length > 0) {
-    return failure("SCOPE_DENIED", `base tool storage scope ${denied[0]} is outside runtime governance`, "scope");
+    return failure("SCOPE_DENIED", `base tool storage plane scope ${denied[0]} is outside runtime governance`, "scope");
   }
 
   return requested;
 }
 
-function validateRecord(record: BaseToolStorageRecordInput, index: number): BaseToolStorageResult | undefined {
-  if (isBlank(record.id)) {
-    return failure("MISSING_RECORD_ID", `base tool storage record ${index} requires an id`, "input");
+function countRecordKinds(plan: BaseToolStoragePlan): Record<string, number> {
+  const counts: Record<string, number> = {};
+
+  for (const record of plan.records) {
+    counts[record.kind] = (counts[record.kind] ?? 0) + 1;
   }
 
-  if (record.kind === undefined) {
-    return failure("MISSING_RECORD_KIND", `base tool storage record ${index} requires a kind`, "input");
-  }
-
-  if (isBlank(record.toolName)) {
-    return failure("MISSING_TOOL_NAME", `base tool storage record ${index} requires a toolName`, "input");
-  }
-
-  if (record.payload !== undefined && !isRecord(record.payload)) {
-    return failure("INVALID_RECORD_PAYLOAD", `base tool storage record ${index} payload must be a plain record`, "input");
-  }
-
-  return undefined;
+  return counts;
 }
 
-function buildReuseIndex(records: readonly BaseToolStoredRecord[]): Record<string, readonly string[]> {
-  const index = new Map<string, string[]>();
-
-  for (const record of records) {
-    if (record.reuseKey === undefined) {
-      continue;
-    }
-
-    const current = index.get(record.reuseKey) ?? [];
-    current.push(record.id);
-    index.set(record.reuseKey, current);
+function exposeRecords(
+  plan: BaseToolStoragePlan,
+  visibility: BaseToolStoragePlaneVisibility,
+): readonly BaseToolStoragePlaneRecordView[] {
+  if (visibility === "summary") {
+    return [];
   }
 
-  return Object.fromEntries(index);
+  return plan.records.map((record) => ({
+    id: record.id,
+    kind: record.kind,
+    toolName: record.toolName,
+    invocationId: record.invocationId,
+    reuseKey: visibility === "reuse-index" ? record.reuseKey : undefined,
+    tags: record.tags,
+    payloadExposed: false,
+  }));
 }
 
-export function planBaseToolStorageWrite(request?: BaseToolStorageRequest): BaseToolStorageResult {
-  if (request === undefined || isBlank(request.runtimeId)) {
-    return failure("MISSING_RUNTIME_ID", "base tool storage requires runtimeId", "input");
+export function exposeBaseToolStoragePlane(
+  request: BaseToolStoragePlaneRequest = {},
+): BaseToolStoragePlaneResult {
+  const runtimeId = request.runtimeId?.trim();
+  if (isBlank(runtimeId)) {
+    return failure("MISSING_RUNTIME_ID", "base tool storage plane requires runtimeId", "input");
   }
 
-  if (isBlank(request.sessionId)) {
-    return failure("MISSING_SESSION_ID", "base tool storage requires sessionId", "input");
+  const sessionId = request.sessionId?.trim();
+  if (isBlank(sessionId)) {
+    return failure("MISSING_SESSION_ID", "base tool storage plane requires sessionId", "input");
   }
 
-  if (request.dryRun === false) {
+  if (request.storagePlan === undefined) {
+    return failure("MISSING_STORAGE_PLAN", "base tool storage plane requires a storageLogic plan", "input");
+  }
+
+  if (request.storagePlan.runtimeId !== runtimeId || request.storagePlan.sessionId !== sessionId) {
     return failure(
-      "REAL_STORAGE_NOT_ALLOWED",
-      "first-round base tool storage only returns a dry-run storage plan",
-      "governance",
+      "STORAGE_PLAN_SCOPE_MISMATCH",
+      "base tool storage plane can only expose a plan from the same runtime and session",
+      "scope",
     );
   }
 
   if (request.contract?.accepted === false) {
     return failure(
       "CONTRACT_REJECTED",
-      request.contract.reason ?? "base tool storage was rejected by contract surface",
+      request.contract.reason ?? "base tool storage plane was rejected by contract surface",
       "contract",
     );
   }
@@ -220,13 +213,9 @@ export function planBaseToolStorageWrite(request?: BaseToolStorageRequest): Base
   if (request.governance?.accepted === false) {
     return failure(
       "GOVERNANCE_REJECTED",
-      request.governance.reason ?? "base tool storage was rejected by runtime governance",
+      request.governance.reason ?? "base tool storage plane was rejected by runtime governance",
       "governance",
     );
-  }
-
-  if (request.records === undefined || request.records.length === 0) {
-    return failure("MISSING_RECORDS", "base tool storage requires at least one record", "input");
   }
 
   const acceptedScopes = resolveScopes(request.requestedScopes, request.allowedScopes);
@@ -234,47 +223,34 @@ export function planBaseToolStorageWrite(request?: BaseToolStorageRequest): Base
     return acceptedScopes;
   }
 
-  const runtimeId = (request.runtimeId ?? "").trim();
-  const sessionId = request.sessionId?.trim() ?? "";
-  const invocationId = request.invocationId?.trim() || `${runtimeId}:${sessionId}:baseToolStorage`;
-  const records: BaseToolStoredRecord[] = [];
-
-  for (const [index, record] of request.records.entries()) {
-    const invalid = validateRecord(record, index);
-    if (invalid !== undefined) {
-      return invalid;
-    }
-
-    records.push({
-      id: record.id?.trim() ?? "",
-      kind: record.kind ?? "runtime-material",
-      toolName: record.toolName?.trim() ?? "",
-      invocationId: record.invocationId?.trim() || invocationId,
-      payload: record.payload ?? {},
-      reuseKey: record.reuseKey?.trim() || undefined,
-      tags: cleanList(record.tags),
-    });
-  }
+  const visibility = request.visibility ?? "summary";
+  const storagePlan = request.storagePlan;
 
   return {
     ok: true,
-    plan: {
+    view: {
       plane: "baseTool_storagePlane",
-      runtimeId,
-      sessionId,
-      invocationId,
-      records,
-      reuseIndex: buildReuseIndex(records),
+      sourcePlanKind: storagePlan.kind,
+      storagePool: storagePlan.pool,
+      runtimeId: runtimeId ?? "",
+      sessionId: sessionId ?? "",
+      invocationId: storagePlan.invocationId,
+      visibility,
+      recordCount: storagePlan.records.length,
+      recordKinds: countRecordKinds(storagePlan),
+      toolNames: cleanList(storagePlan.records.map((record) => record.toolName)),
+      reuseKeys: Object.keys(storagePlan.reuseIndex).sort(),
+      records: exposeRecords(storagePlan, visibility),
       acceptedScopes,
       audit: {
-        dryRun: true,
-        persisted: false,
+        event: "agentCore.basicTool.storagePlane.exposed",
         governanceRequired: true,
-        contractSurface: "runtime.contractSurface",
-        storagePurpose: "tool-material-result-audit-reuse",
+        storageLogicOwnsWriteRules: true,
+        planeOwnsPresentation: true,
+        metadata: request.auditMetadata ?? {},
       },
       unsafeSideEffects: false,
     },
-    events: ["agentCore.basicTool.storage.planned"],
+    events: ["agentCore.basicTool.storagePlane.exposed"],
   };
 }

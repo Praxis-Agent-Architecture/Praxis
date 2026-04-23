@@ -44,7 +44,7 @@ test("planCodeDebugCaptureState creates a dry-run capture envelope and storage p
   assert.equal(result.plan.capture.includeVariables, true);
   assert.equal(result.plan.execution.dryRun, true);
   assert.equal(result.plan.execution.captured, false);
-  assert.equal(result.plan.storage.audit.persisted, false);
+  assert.equal(result.plan.storage.logic.persisted, false);
   assert.equal(result.plan.storage.records[0]?.toolName, "code.debugCaptureState");
 });
 

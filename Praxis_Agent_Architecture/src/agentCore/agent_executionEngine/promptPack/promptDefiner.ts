@@ -8,16 +8,38 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export type PromptPackMaterialKind =
-  | "system"
-  | "user"
-  | "tool-summary"
-  | "command"
-  | "cmp"
-  | "memory"
-  | "file"
-  | "retrieval"
-  | "event";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+export const PROMPT_PACK_INTERNAL_MATERIAL_KINDS = [
+  "system",
+  "user",
+  "tool",
+  "command",
+  "cmp",
+  "memory",
+  "file",
+  "retrieval",
+  "event",
+  "runtime",
+] as const;
+
+export type PromptPackInternalMaterialKind = (typeof PROMPT_PACK_INTERNAL_MATERIAL_KINDS)[number];
+
+export type PromptPackMaterialKind = PromptPackInternalMaterialKind | "tool-summary" | "command-injection";
+
+export const BASIC_CORE_PROMPT_MATERIAL_ID = "praxis:basic-core-prompt" as const;
+export const BASIC_CORE_PROMPT_SOURCE = "runtime.basicCorePrompt" as const;
+
+export const PROMPT_PACK_TOOL_MATERIAL_TYPES = [
+  "policy",
+  "declaration",
+  "result",
+  "call-state",
+] as const;
+
+export type PromptPackToolMaterialType = (typeof PROMPT_PACK_TOOL_MATERIAL_TYPES)[number];
 
 export type PromptPackBoundary = "input" | "contract" | "governance" | "scope" | "budget" | "material" | "injection";
 
@@ -27,7 +49,9 @@ export type PromptPackErrorCode =
   | "EMPTY_MATERIALS"
   | "EMPTY_MATERIAL_TEXT"
   | "MISSING_OPERATION"
+  | "MISSING_TARGET_PROVIDER"
   | "MATERIAL_NOT_FOUND"
+  | "PROTECTED_MATERIAL"
   | "INVALID_BUDGET"
   | "BUDGET_EXCEEDED"
   | "RUNTIME_NOT_READY"
@@ -56,7 +80,7 @@ export type PromptPackMaterialDraft = {
   estimatedTokens?: number;
   trusted?: boolean;
   scope?: string;
-  metadata?: Readonly<Record<string, string | number | boolean>>;
+  metadata?: Readonly<Record<string, string | number | boolean | object>>;
 };
 
 export type DefinedPromptMaterial = {
@@ -68,7 +92,7 @@ export type DefinedPromptMaterial = {
   estimatedTokens: number;
   trusted: boolean;
   scope?: string;
-  metadata: Readonly<Record<string, string | number | boolean>>;
+  metadata: Readonly<Record<string, string | number | boolean | object>>;
 };
 
 export type PromptPackDefinitionRequest = {
@@ -77,6 +101,8 @@ export type PromptPackDefinitionRequest = {
   targetModel?: string;
   loweringHint?: string;
   materials?: readonly PromptPackMaterialDraft[];
+  includeBasicCorePrompt?: boolean;
+  basicCorePromptText?: string;
   budget?: PromptPackBudget;
   requestedScopes?: readonly string[];
   allowedScopes?: readonly string[];
@@ -99,6 +125,8 @@ export type PromptPackDefinition = {
   targetModel?: string;
   loweringHint?: string;
   materials: readonly DefinedPromptMaterial[];
+  materialKinds: readonly PromptPackMaterialKind[];
+  basicCorePromptMaterialId: typeof BASIC_CORE_PROMPT_MATERIAL_ID;
   budget: PromptPackBudget;
   requestedScopes: readonly string[];
   providerPayloadCreated: false;
@@ -121,7 +149,9 @@ export type PromptPackDefinitionResult =
 export const promptPackDefinerDescriptor = {
   capability: "prompt-definer",
   route: "agent_executionEngine.promptPack",
-  purpose: "define a provider-neutral PromptPack contract before mapping and assembly",
+  purpose: "define Praxis internal PromptPack constructs and the protected basic core prompt head",
+  internalMaterialKinds: PROMPT_PACK_INTERNAL_MATERIAL_KINDS,
+  basicCorePromptMaterialId: BASIC_CORE_PROMPT_MATERIAL_ID,
   providerPayloadCreated: false,
   unsafeSideEffects: false,
 } as const;
@@ -184,6 +214,42 @@ export function detectPromptInjectionRisk(text: string): boolean {
   return /\b(ignore (previous|all)|reveal (the )?(system|developer) prompt|override system|bypass governance)\b/i.test(text);
 }
 
+function loadBasicCorePromptFromDisk(): string {
+  const currentDir = dirname(fileURLToPath(import.meta.url));
+  try {
+    const text = readFileSync(join(currentDir, "basicCorePrompt.md"), "utf8").trim();
+    if (text.length > 0) {
+      return text;
+    }
+  } catch {
+    // Fall through to the embedded minimum so a missing asset does not create an empty root contract.
+  }
+
+  return "You are Praxis agentCore. Keep runtime governance, PromptPack boundaries, and provider-neutral semantics intact.";
+}
+
+export function createBasicCorePromptMaterial(textOverride?: string): PromptPackMaterialDraft {
+  const text = textOverride?.trim() || loadBasicCorePromptFromDisk();
+  return {
+    id: BASIC_CORE_PROMPT_MATERIAL_ID,
+    kind: "system",
+    text,
+    source: BASIC_CORE_PROMPT_SOURCE,
+    priority: 1000,
+    trusted: true,
+    scope: "runtime.core",
+    metadata: {
+      protected: true,
+      coreHead: true,
+      promptPackHead: true,
+    },
+  };
+}
+
+function hasBasicCorePromptMaterial(materials: readonly PromptPackMaterialDraft[]): boolean {
+  return materials.some((material) => material.id?.trim() === BASIC_CORE_PROMPT_MATERIAL_ID);
+}
+
 export function definePromptPack(request?: PromptPackDefinitionRequest): PromptPackDefinitionResult {
   if (request === undefined || isBlank(request.runtimeId)) {
     return promptPackFailure("MISSING_RUNTIME_ID", "runtimeId is required before defining a PromptPack", "input");
@@ -222,7 +288,12 @@ export function definePromptPack(request?: PromptPackDefinitionRequest): PromptP
     return promptPackFailure("INVALID_BUDGET", "PromptPack budget values must be positive integers", "budget");
   }
 
-  const materials = request.materials ?? [];
+  const inputMaterials = request.materials ?? [];
+  const includeBasicCorePrompt = request.includeBasicCorePrompt !== false;
+  const materials =
+    includeBasicCorePrompt && !hasBasicCorePromptMaterial(inputMaterials)
+      ? [createBasicCorePromptMaterial(request.basicCorePromptText), ...inputMaterials]
+      : inputMaterials;
   if (materials.length === 0) {
     return promptPackFailure("EMPTY_MATERIALS", "PromptPack definition requires at least one material", "material");
   }
@@ -286,6 +357,8 @@ export function definePromptPack(request?: PromptPackDefinitionRequest): PromptP
       targetModel: request.targetModel?.trim() || undefined,
       loweringHint: request.loweringHint?.trim() || undefined,
       materials: definedMaterials,
+      materialKinds: [...new Set(definedMaterials.map((material) => material.kind))],
+      basicCorePromptMaterialId: BASIC_CORE_PROMPT_MATERIAL_ID,
       budget: request.budget ?? {},
       requestedScopes: cleanList(request.requestedScopes),
       providerPayloadCreated: false,

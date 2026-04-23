@@ -6,7 +6,10 @@ import {
   assemblePromptPack,
   promptAssemblerDescriptor,
 } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptAssembler.js";
-import { mapPromptMaterials } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptMapper.js";
+import {
+  BASIC_CORE_PROMPT_MATERIAL_ID,
+  definePromptPack,
+} from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/promptPack/promptAssembler.ts",
@@ -15,19 +18,25 @@ defineAgentCoreContractTest({
 });
 
 test("assemblePromptPack emits a standard PromptPack with source and trim records", () => {
-  const mapped = mapPromptMaterials({
+  const defined = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
-    ordering: "priority-desc",
+    basicCorePromptText: "Praxis root head.",
     materials: [
       {
-        id: "system",
-        kind: "system",
-        text: "Keep the PromptPack provider neutral.",
-        source: "runtime",
-        priority: 10,
+        id: "tool-declaration",
+        kind: "tool",
+        text: "Read files in the workspace.",
+        source: "tool",
+        priority: 7,
         trusted: true,
         estimatedTokens: 8,
+        metadata: {
+          toolMaterialType: "declaration",
+          toolName: "workspace_read",
+          toolDescription: "Read a UTF-8 text file from the workspace.",
+          inputSchema: { type: "object", properties: { path: { type: "string" } } },
+        },
       },
       {
         id: "memory",
@@ -47,16 +56,16 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
       },
     ],
   });
-  assert.equal(mapped.ok, true);
-  if (!mapped.ok) {
-    throw new Error("expected setup materials to map");
+  assert.equal(defined.ok, true);
+  if (!defined.ok) {
+    throw new Error("expected setup materials to define");
   }
 
   const result = assemblePromptPack({
     runtimeId: " runtime ",
     sessionId: " session ",
     targetModel: " model ",
-    materials: mapped.materials,
+    materials: defined.definition.materials,
     ordering: "priority-desc",
     budget: { maxMaterials: 2, maxEstimatedTokens: 12, maxMaterialCharacters: 40 },
   });
@@ -68,23 +77,26 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
   }
 
   assert.equal(result.promptPack.kind, "praxis.promptPack");
+  assert.equal(result.promptPack.format, "praxis.promptPack.assembled.v1");
   assert.equal(result.promptPack.runtimeId, "runtime");
   assert.equal(result.promptPack.sessionId, "session");
-  assert.equal(result.promptPack.lowering.promptLoweringRuntime, "pending");
+  assert.equal(result.promptPack.basicCorePromptMaterialId, BASIC_CORE_PROMPT_MATERIAL_ID);
+  assert.equal(result.promptPack.lowering.mapper, "pending");
   assert.equal(result.promptPack.lowering.providerPayloadCreated, false);
   assert.equal(result.promptPack.unsafeSideEffects, false);
   assert.deepEqual(
     result.promptPack.materials.map((material) => material.id),
-    ["system", "memory"],
+    [BASIC_CORE_PROMPT_MATERIAL_ID, "tool-declaration"],
   );
-  assert.equal(result.promptPack.totalEstimatedTokens, 12);
+  assert.equal(result.promptPack.toolPack.declarations[0]?.name, "workspace_read");
+  assert.match(result.promptPack.renderedText, /Praxis root head/);
   assert.deepEqual(
     result.promptPack.trimRecords.map((record) => record.reason),
-    ["max-materials", "max-material-characters", "max-estimated-tokens"],
+    ["max-materials", "max-materials", "max-estimated-tokens"],
   );
   assert.deepEqual(
     result.promptPack.sourceRecords.map((record) => record.source),
-    ["runtime", "cmp"],
+    ["runtime.basicCorePrompt", "tool"],
   );
 });
 
@@ -110,9 +122,6 @@ test("assemblePromptPack rejects missing materials, bad budgets, and unsafe inje
         estimatedTokens: 2,
         trusted: false,
         metadata: {},
-        sourceRecord: { materialId: "user", source: "user", kind: "user", trusted: false },
-        injectionRisk: "none",
-        providerPayloadCreated: false,
       },
     ],
   });
@@ -122,10 +131,10 @@ test("assemblePromptPack rejects missing materials, bad budgets, and unsafe inje
   }
   assert.equal(badBudget.error.code, "INVALID_BUDGET");
 
-  const mappedInjection = mapPromptMaterials({
+  const mappedInjection = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
-    allowUntrustedInjection: true,
+    includeBasicCorePrompt: false,
     materials: [
       {
         id: "user",
@@ -137,13 +146,13 @@ test("assemblePromptPack rejects missing materials, bad budgets, and unsafe inje
   });
   assert.equal(mappedInjection.ok, true);
   if (!mappedInjection.ok) {
-    throw new Error("expected injection setup to map when explicitly allowed");
+    throw new Error("expected injection setup to define when explicitly allowed");
   }
 
   const rejected = assemblePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
-    materials: mappedInjection.materials,
+    materials: mappedInjection.definition.materials,
   });
   assert.equal(rejected.ok, false);
   if (rejected.ok) {

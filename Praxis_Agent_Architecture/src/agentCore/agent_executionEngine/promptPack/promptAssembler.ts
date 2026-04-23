@@ -9,13 +9,16 @@
  */
 
 import {
+  BASIC_CORE_PROMPT_MATERIAL_ID,
   detectPromptInjectionRisk,
+  type DefinedPromptMaterial,
   type PromptPackBoundary,
   type PromptPackBudget,
   type PromptPackError,
   type PromptPackErrorCode,
+  type PromptPackMaterialKind,
+  type PromptPackToolMaterialType,
 } from "./promptDefiner.js";
-import type { MappedPromptMaterial, PromptMaterialSourceRecord } from "./promptMapper.js";
 
 export type PromptAssemblerOrdering = "input-order" | "priority-desc";
 
@@ -23,7 +26,7 @@ export type PromptAssemblerRequest = {
   runtimeId?: string;
   sessionId?: string;
   targetModel?: string;
-  materials?: readonly MappedPromptMaterial[];
+  materials?: readonly DefinedPromptMaterial[];
   budget?: PromptPackBudget;
   ordering?: PromptAssemblerOrdering;
   allowUntrustedInjection?: boolean;
@@ -44,28 +47,75 @@ export type PromptInjectionRecord = {
 
 export type AssembledPromptMaterial = {
   id: string;
-  kind: MappedPromptMaterial["kind"];
+  kind: PromptPackMaterialKind;
   text: string;
   source: string;
   priority: number;
   estimatedTokens: number;
   trusted: boolean;
   scope?: string;
-  metadata: MappedPromptMaterial["metadata"];
+  metadata: Readonly<Record<string, string | number | boolean | object>>;
+  protected: boolean;
+};
+
+export type AssembledPromptToolDeclaration = {
+  materialId: string;
+  name: string;
+  description: string;
+  inputSchema: Readonly<Record<string, unknown>>;
+  metadata: Readonly<Record<string, unknown>>;
+};
+
+export type AssembledPromptToolResult = {
+  materialId: string;
+  callId?: string;
+  name?: string;
+  content: string;
+  metadata: Readonly<Record<string, unknown>>;
+};
+
+export type AssembledPromptToolState = {
+  materialId: string;
+  callId?: string;
+  name?: string;
+  arguments?: string;
+  metadata: Readonly<Record<string, unknown>>;
+};
+
+export type AssembledPromptToolPack = {
+  policies: readonly AssembledPromptMaterial[];
+  declarations: readonly AssembledPromptToolDeclaration[];
+  results: readonly AssembledPromptToolResult[];
+  callStates: readonly AssembledPromptToolState[];
+};
+
+export type PromptMaterialSourceRecord = {
+  materialId: string;
+  source: string;
+  kind: PromptPackMaterialKind;
+  trusted: boolean;
 };
 
 export type StandardPromptPack = {
   kind: "praxis.promptPack";
+  format: "praxis.promptPack.assembled.v1";
   runtimeId: string;
   sessionId: string;
   targetModel?: string;
+  basicCorePromptMaterialId: typeof BASIC_CORE_PROMPT_MATERIAL_ID;
   materials: readonly AssembledPromptMaterial[];
+  toolPack: AssembledPromptToolPack;
+  renderedText: string;
+  json: Readonly<{
+    materials: readonly AssembledPromptMaterial[];
+    toolPack: AssembledPromptToolPack;
+  }>;
   sourceRecords: readonly PromptMaterialSourceRecord[];
   trimRecords: readonly PromptTrimRecord[];
   injectionRecords: readonly PromptInjectionRecord[];
   totalEstimatedTokens: number;
   lowering: {
-    promptLoweringRuntime: "pending";
+    mapper: "pending";
     providerPayloadCreated: false;
   };
   unsafeSideEffects: false;
@@ -86,7 +136,7 @@ export type PromptAssemblerResult =
 export const promptAssemblerDescriptor = {
   capability: "prompt-assembler",
   route: "agent_executionEngine.promptPack",
-  purpose: "assemble provider-neutral PromptPack input with source, trim, and injection records",
+  purpose: "assemble Praxis internal PromptPack constructs into governed text and JSON pack forms",
   providerPayloadCreated: false,
   unsafeSideEffects: false,
 } as const;
@@ -117,7 +167,11 @@ function estimateTruncatedTokens(originalTokens: number, originalLength: number,
   return Math.max(1, Math.min(originalTokens, Math.ceil((originalTokens * keptLength) / originalLength)));
 }
 
-function toAssembledMaterial(material: MappedPromptMaterial): AssembledPromptMaterial {
+function isProtectedMaterial(material: DefinedPromptMaterial): boolean {
+  return material.id === BASIC_CORE_PROMPT_MATERIAL_ID || material.metadata.protected === true;
+}
+
+function toAssembledMaterial(material: DefinedPromptMaterial): AssembledPromptMaterial {
   return {
     id: material.id,
     kind: material.kind,
@@ -128,7 +182,93 @@ function toAssembledMaterial(material: MappedPromptMaterial): AssembledPromptMat
     trusted: material.trusted,
     scope: material.scope,
     metadata: material.metadata,
+    protected: isProtectedMaterial(material),
   };
+}
+
+function readStringMetadata(
+  material: AssembledPromptMaterial,
+  key: string,
+): string | undefined {
+  const value = material.metadata[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readRecordMetadata(
+  material: AssembledPromptMaterial,
+  key: string,
+): Readonly<Record<string, unknown>> | undefined {
+  const value = material.metadata[key];
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Readonly<Record<string, unknown>>)
+    : undefined;
+}
+
+function readToolMaterialType(material: AssembledPromptMaterial): PromptPackToolMaterialType {
+  const type = readStringMetadata(material, "toolMaterialType");
+  return type === "declaration" || type === "result" || type === "call-state" ? type : "policy";
+}
+
+function buildToolPack(materials: readonly AssembledPromptMaterial[]): AssembledPromptToolPack {
+  const policies: AssembledPromptMaterial[] = [];
+  const declarations: AssembledPromptToolDeclaration[] = [];
+  const results: AssembledPromptToolResult[] = [];
+  const callStates: AssembledPromptToolState[] = [];
+
+  for (const material of materials) {
+    if (
+      material.kind !== "tool" &&
+      material.kind !== "tool-summary" &&
+      material.kind !== "command" &&
+      material.kind !== "command-injection"
+    ) {
+      continue;
+    }
+
+    const toolType = readToolMaterialType(material);
+    if (toolType === "policy") {
+      policies.push(material);
+      continue;
+    }
+
+    if (toolType === "declaration") {
+      declarations.push({
+        materialId: material.id,
+        name: readStringMetadata(material, "toolName") ?? material.id,
+        description: readStringMetadata(material, "toolDescription") ?? material.text,
+        inputSchema: readRecordMetadata(material, "inputSchema") ?? { type: "object", properties: {} },
+        metadata: material.metadata,
+      });
+      continue;
+    }
+
+    if (toolType === "result") {
+      results.push({
+        materialId: material.id,
+        callId: readStringMetadata(material, "toolCallId"),
+        name: readStringMetadata(material, "toolName"),
+        content: material.text,
+        metadata: material.metadata,
+      });
+      continue;
+    }
+
+    callStates.push({
+      materialId: material.id,
+      callId: readStringMetadata(material, "toolCallId"),
+      name: readStringMetadata(material, "toolName"),
+      arguments: readStringMetadata(material, "toolArguments") ?? material.text,
+      metadata: material.metadata,
+    });
+  }
+
+  return { policies, declarations, results, callStates };
+}
+
+function renderAssembledText(materials: readonly AssembledPromptMaterial[]): string {
+  return materials
+    .map((material) => [`<${material.kind} id="${material.id}">`, material.text, `</${material.kind}>`].join("\n"))
+    .join("\n\n");
 }
 
 export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAssemblerResult {
@@ -154,7 +294,7 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
 
   const injectionRecords: PromptInjectionRecord[] = [];
   for (const material of materials) {
-    const suspected = material.injectionRisk === "suspected" || detectPromptInjectionRisk(material.text);
+    const suspected = detectPromptInjectionRisk(material.text);
     if (!suspected) {
       continue;
     }
@@ -181,8 +321,16 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
 
   const orderedMaterials =
     request.ordering === "priority-desc"
-      ? [...materials].sort((left, right) => right.priority - left.priority)
-      : [...materials];
+      ? [...materials].sort((left, right) => {
+          if (isProtectedMaterial(left) && !isProtectedMaterial(right)) {
+            return -1;
+          }
+          if (!isProtectedMaterial(left) && isProtectedMaterial(right)) {
+            return 1;
+          }
+          return right.priority - left.priority;
+        })
+      : [...materials].sort((left, right) => Number(isProtectedMaterial(right)) - Number(isProtectedMaterial(left)));
 
   const trimRecords: PromptTrimRecord[] = [];
   const maxMaterials = request.budget?.maxMaterials;
@@ -190,12 +338,14 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
 
   if (maxMaterials !== undefined && orderedMaterials.length > maxMaterials) {
     for (const material of orderedMaterials.slice(maxMaterials)) {
-      trimRecords.push({
-        materialId: material.id,
-        reason: "max-materials",
-        originalEstimatedTokens: material.estimatedTokens,
-        keptEstimatedTokens: 0,
-      });
+      if (!isProtectedMaterial(material)) {
+        trimRecords.push({
+          materialId: material.id,
+          reason: "max-materials",
+          originalEstimatedTokens: material.estimatedTokens,
+          keptEstimatedTokens: 0,
+        });
+      }
     }
   }
 
@@ -207,7 +357,7 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
   for (const material of materialWindow) {
     let assembled = toAssembledMaterial(material);
 
-    if (maxMaterialCharacters !== undefined && assembled.text.length > maxMaterialCharacters) {
+    if (!assembled.protected && maxMaterialCharacters !== undefined && assembled.text.length > maxMaterialCharacters) {
       const text = assembled.text.slice(0, maxMaterialCharacters).trimEnd();
       const keptEstimatedTokens = estimateTruncatedTokens(
         assembled.estimatedTokens,
@@ -223,7 +373,7 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
       assembled = { ...assembled, text, estimatedTokens: keptEstimatedTokens };
     }
 
-    if (maxEstimatedTokens !== undefined && totalEstimatedTokens + assembled.estimatedTokens > maxEstimatedTokens) {
+    if (!assembled.protected && maxEstimatedTokens !== undefined && totalEstimatedTokens + assembled.estimatedTokens > maxEstimatedTokens) {
       const remainingTokens = maxEstimatedTokens - totalEstimatedTokens;
       if (remainingTokens <= 0) {
         trimRecords.push({
@@ -254,20 +404,36 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
     return failure("BUDGET_EXCEEDED", "PromptPack assembly budget removed all materials", "budget");
   }
 
+  const renderedText = renderAssembledText(assembledMaterials);
+  const toolPack = buildToolPack(assembledMaterials);
+
   return {
     ok: true,
     promptPack: {
       kind: "praxis.promptPack",
+      format: "praxis.promptPack.assembled.v1",
       runtimeId,
       sessionId,
       targetModel: request.targetModel?.trim() || undefined,
+      basicCorePromptMaterialId: BASIC_CORE_PROMPT_MATERIAL_ID,
       materials: assembledMaterials,
-      sourceRecords: materialWindow.map((material) => material.sourceRecord),
+      toolPack,
+      renderedText,
+      json: {
+        materials: assembledMaterials,
+        toolPack,
+      },
+      sourceRecords: materialWindow.map((material) => ({
+        materialId: material.id,
+        source: material.source,
+        kind: material.kind,
+        trusted: material.trusted,
+      })),
       trimRecords,
       injectionRecords,
       totalEstimatedTokens,
       lowering: {
-        promptLoweringRuntime: "pending",
+        mapper: "pending",
         providerPayloadCreated: false,
       },
       unsafeSideEffects: false,
