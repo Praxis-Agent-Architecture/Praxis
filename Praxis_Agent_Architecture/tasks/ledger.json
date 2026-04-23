@@ -1,7 +1,7 @@
 {
   "version": 3,
   "generatedAt": "2026-04-22T12:06:57.757Z",
-  "updatedAt": "2026-04-23T00:41:05.158Z",
+  "updatedAt": "2026-04-23T00:43:52.179Z",
   "repoRoot": "/home/proview/Desktop/Praxis_series/Praxis_org",
   "baseBranch": "dev/rebase",
   "groupSize": 4,
@@ -4397,7 +4397,7 @@
       "id": "AC-F-0371",
       "parentId": "AC-SPEC-F:runtime.behaviorExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.test.ts"
@@ -4406,7 +4406,7 @@
       "id": "AC-F-0372",
       "parentId": "AC-SPEC-F:runtime.behaviorExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.test.ts"
@@ -4415,7 +4415,7 @@
       "id": "AC-F-0373",
       "parentId": "AC-SPEC-F:runtime.behaviorExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.test.ts"
@@ -4424,7 +4424,7 @@
       "id": "AC-F-0374",
       "parentId": "AC-SPEC-F:runtime.behaviorExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "reviewed",
+      "status": "done",
       "sourcePath": "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.ts",
       "docPath": "Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.md",
       "testPath": "Praxis_Agent_Architecture/test/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.test.ts"
@@ -12725,7 +12725,7 @@
       "id": "AC-G-0097",
       "parentId": "AC-SPEC-F:runtime.behaviorExposure",
       "bigSpecId": "AC-SPEC-F",
-      "status": "reviewed",
+      "status": "done",
       "fileTaskIds": [
         "AC-F-0371",
         "AC-F-0372",
@@ -12786,6 +12786,16 @@
           "at": "2026-04-23T00:31:30.600Z",
           "status": "reviewed",
           "note": "reviewer done"
+        },
+        {
+          "at": "2026-04-23T00:42:00.492Z",
+          "status": "merging",
+          "note": "merge started"
+        },
+        {
+          "at": "2026-04-23T00:43:52.179Z",
+          "status": "done",
+          "note": "merge verified: typecheck and test:agentCore passed"
         }
       ]
     },
@@ -18946,6 +18956,13 @@
       "groupId": "AC-G-0093",
       "status": "done",
       "note": "merge verified: typecheck and test:agentCore passed"
+    },
+    {
+      "at": "2026-04-23T00:42:00.492Z",
+      "event": "status",
+      "groupId": "AC-G-0097",
+      "status": "merging",
+      "note": "merge started"
     }
   ],
   "events": [
@@ -19179,6 +19196,13 @@
       "groupId": "AC-G-0092",
       "status": "done",
       "note": "merge done"
+    },
+    {
+      "at": "2026-04-23T00:43:52.179Z",
+      "event": "status",
+      "groupId": "AC-G-0097",
+      "status": "done",
+      "note": "merge verified: typecheck and test:agentCore passed"
     }
   ]
 }
