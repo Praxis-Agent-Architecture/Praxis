@@ -6,6 +6,10 @@ function send(id, result) {
   const body = JSON.stringify({ jsonrpc: "2.0", id, result });
   process.stdout.write("Content-Length: " + Buffer.byteLength(body, "utf8") + "\\r\\n\\r\\n" + body);
 }
+function notify(method, params) {
+  const body = JSON.stringify({ jsonrpc: "2.0", method, params });
+  process.stdout.write("Content-Length: " + Buffer.byteLength(body, "utf8") + "\\r\\n\\r\\n" + body);
+}
 function drain() {
   const separator = Buffer.from("\\r\\n\\r\\n");
   while (true) {
@@ -21,6 +25,11 @@ function drain() {
     buffer = buffer.subarray(end);
     if (message.method === "initialize") {
       send(message.id, { capabilities: {} });
+    } else if (message.method === "textDocument/didOpen" && Object.prototype.hasOwnProperty.call(resultsByMethod, "textDocument/publishDiagnostics")) {
+      notify("textDocument/publishDiagnostics", {
+        uri: message.params.textDocument.uri,
+        diagnostics: resultsByMethod["textDocument/publishDiagnostics"],
+      });
     } else if (Object.prototype.hasOwnProperty.call(resultsByMethod, message.method)) {
       send(message.id, resultsByMethod[message.method]);
     } else if (message.method === "shutdown") {

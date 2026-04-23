@@ -31,6 +31,12 @@ type JsonRpcFailure = {
 
 type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure;
 
+type JsonRpcNotification = {
+  jsonrpc: "2.0";
+  method: string;
+  params?: unknown;
+};
+
 type PendingRequest = {
   method: string;
   resolve(value: unknown): void;
@@ -76,6 +82,58 @@ export type LspRuntimeWorkspaceSymbol = {
   location?: LspLocation;
   containerName?: string;
   detail?: string;
+};
+
+export type LspRuntimeTextEdit = {
+  range: LspRange;
+  newText: string;
+};
+
+export type LspRuntimeCompletionItem = {
+  label: string;
+  kind?: string;
+  detail?: string;
+  documentation?: string;
+  sortText?: string;
+  filterText?: string;
+  insertText?: string;
+  textEdit?: LspRuntimeTextEdit;
+};
+
+export type LspRuntimeSignatureHelp = {
+  signatures: readonly {
+    label: string;
+    documentation?: string;
+    parameters: readonly {
+      label: string;
+      documentation?: string;
+    }[];
+  }[];
+  activeSignature?: number;
+  activeParameter?: number;
+};
+
+export type LspRuntimeHover = {
+  contents: string;
+  range?: LspRange;
+};
+
+export type LspRuntimeDiagnostic = {
+  range: LspRange;
+  message: string;
+  severity?: "error" | "warning" | "information" | "hint";
+  code?: string;
+  source?: string;
+};
+
+export type LspRuntimeCodeAction = {
+  title: string;
+  kind?: string;
+  diagnostics: readonly LspRuntimeDiagnostic[];
+  isPreferred?: boolean;
+  editAvailable: boolean;
+  commandAvailable: boolean;
+  raw: unknown;
 };
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -307,6 +365,175 @@ function normalizeWorkspaceSymbols(result: unknown): readonly LspRuntimeWorkspac
   return symbols;
 }
 
+function stringifyMarkupContent(value: unknown): string | undefined {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => stringifyMarkupContent(item)).filter((item): item is string => item !== undefined).join("\n\n");
+  }
+
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const content = value as { value?: unknown; language?: unknown };
+  if (typeof content.value === "string") {
+    return content.value;
+  }
+
+  return undefined;
+}
+
+function normalizeTextEdit(value: unknown): LspRuntimeTextEdit | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const edit = value as { range?: unknown; newText?: unknown };
+  const range = toLspRange(edit.range);
+  if (range === undefined || typeof edit.newText !== "string") {
+    return undefined;
+  }
+
+  return { range, newText: edit.newText };
+}
+
+function normalizeTextEdits(result: unknown): readonly LspRuntimeTextEdit[] {
+  if (!Array.isArray(result)) {
+    return [];
+  }
+
+  return result.map((item) => normalizeTextEdit(item)).filter((item): item is LspRuntimeTextEdit => item !== undefined);
+}
+
+function normalizeCompletionResult(result: unknown, maxItems = 100): readonly LspRuntimeCompletionItem[] {
+  const items =
+    typeof result === "object" && result !== null && Array.isArray((result as { items?: unknown }).items)
+      ? (result as { items: unknown[] }).items
+      : Array.isArray(result)
+        ? result
+        : [];
+
+  return items
+    .filter((item): item is Record<string, unknown> => typeof item === "object" && item !== null)
+    .filter((item) => typeof item.label === "string" && item.label.trim().length > 0)
+    .slice(0, maxItems)
+    .map((item) => ({
+      label: String(item.label),
+      kind: typeof item.kind === "number" || typeof item.kind === "string" ? String(item.kind) : undefined,
+      detail: typeof item.detail === "string" ? item.detail : undefined,
+      documentation: stringifyMarkupContent(item.documentation),
+      sortText: typeof item.sortText === "string" ? item.sortText : undefined,
+      filterText: typeof item.filterText === "string" ? item.filterText : undefined,
+      insertText: typeof item.insertText === "string" ? item.insertText : undefined,
+      textEdit: normalizeTextEdit(item.textEdit),
+    }));
+}
+
+function normalizeSignatureHelp(result: unknown): LspRuntimeSignatureHelp {
+  if (typeof result !== "object" || result === null) {
+    return { signatures: [] };
+  }
+
+  const help = result as { signatures?: unknown; activeSignature?: unknown; activeParameter?: unknown };
+  const signatures = Array.isArray(help.signatures) ? help.signatures : [];
+
+  return {
+    signatures: signatures
+      .filter((signature): signature is Record<string, unknown> => typeof signature === "object" && signature !== null)
+      .filter((signature) => typeof signature.label === "string")
+      .map((signature) => ({
+        label: String(signature.label),
+        documentation: stringifyMarkupContent(signature.documentation),
+        parameters: (Array.isArray(signature.parameters) ? signature.parameters : [])
+          .filter((parameter): parameter is Record<string, unknown> => typeof parameter === "object" && parameter !== null)
+          .map((parameter) => ({
+            label: Array.isArray(parameter.label) ? parameter.label.join(",") : String(parameter.label ?? ""),
+            documentation: stringifyMarkupContent(parameter.documentation),
+          }))
+          .filter((parameter) => parameter.label.trim().length > 0),
+      })),
+    activeSignature: typeof help.activeSignature === "number" ? help.activeSignature : undefined,
+    activeParameter: typeof help.activeParameter === "number" ? help.activeParameter : undefined,
+  };
+}
+
+function normalizeHover(result: unknown): LspRuntimeHover | undefined {
+  if (typeof result !== "object" || result === null) {
+    return undefined;
+  }
+
+  const hover = result as { contents?: unknown; range?: unknown };
+  const contents = stringifyMarkupContent(hover.contents)?.trim();
+  if (contents === undefined || contents.length === 0) {
+    return undefined;
+  }
+
+  return {
+    contents,
+    range: toLspRange(hover.range),
+  };
+}
+
+function normalizeSeverity(value: unknown): LspRuntimeDiagnostic["severity"] {
+  if (value === 1) return "error";
+  if (value === 2) return "warning";
+  if (value === 3) return "information";
+  if (value === 4) return "hint";
+  if (value === "error" || value === "warning" || value === "information" || value === "hint") return value;
+  return undefined;
+}
+
+function normalizeDiagnostic(value: unknown): LspRuntimeDiagnostic | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const diagnostic = value as { range?: unknown; message?: unknown; severity?: unknown; code?: unknown; source?: unknown };
+  const range = toLspRange(diagnostic.range);
+  if (range === undefined || typeof diagnostic.message !== "string" || diagnostic.message.trim().length === 0) {
+    return undefined;
+  }
+
+  return {
+    range,
+    message: diagnostic.message.trim(),
+    severity: normalizeSeverity(diagnostic.severity),
+    code:
+      typeof diagnostic.code === "string" || typeof diagnostic.code === "number" ? String(diagnostic.code) : undefined,
+    source: typeof diagnostic.source === "string" ? diagnostic.source : undefined,
+  };
+}
+
+function normalizeDiagnostics(value: unknown): readonly LspRuntimeDiagnostic[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((item) => normalizeDiagnostic(item)).filter((item): item is LspRuntimeDiagnostic => item !== undefined);
+}
+
+function normalizeCodeActions(result: unknown): readonly LspRuntimeCodeAction[] {
+  if (!Array.isArray(result)) {
+    return [];
+  }
+
+  return result
+    .filter((action): action is Record<string, unknown> => typeof action === "object" && action !== null)
+    .filter((action) => typeof action.title === "string" && action.title.trim().length > 0)
+    .map((action) => ({
+      title: String(action.title),
+      kind: typeof action.kind === "string" ? action.kind : undefined,
+      diagnostics: normalizeDiagnostics(action.diagnostics),
+      isPreferred: typeof action.isPreferred === "boolean" ? action.isPreferred : undefined,
+      editAvailable: action.edit !== undefined,
+      commandAvailable: action.command !== undefined,
+      raw: action,
+    }));
+}
+
 class StdioLspJsonRpcClient {
   readonly #process: ChildProcessWithoutNullStreams;
   readonly #timeoutMs: number;
@@ -314,6 +541,7 @@ class StdioLspJsonRpcClient {
   #buffer = Buffer.alloc(0);
   readonly #pending = new Map<JsonRpcId, PendingRequest>();
   readonly #stderrChunks: string[] = [];
+  readonly #notifications: JsonRpcNotification[] = [];
 
   constructor(server: LspRuntimeServerConfig, timeoutMs: number, cwd: string) {
     this.#timeoutMs = timeoutMs;
@@ -373,6 +601,12 @@ class StdioLspJsonRpcClient {
     return this.#stderrChunks.join("").trim();
   }
 
+  notifications(method?: string): readonly JsonRpcNotification[] {
+    return method === undefined
+      ? [...this.#notifications]
+      : this.#notifications.filter((notification) => notification.method === method);
+  }
+
   #write(message: unknown): void {
     const body = JSON.stringify(message);
     this.#process.stdin.write(`Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`);
@@ -402,12 +636,15 @@ class StdioLspJsonRpcClient {
 
       const body = this.#buffer.subarray(bodyStart, bodyEnd).toString("utf8");
       this.#buffer = this.#buffer.subarray(bodyEnd);
-      this.#handleMessage(JSON.parse(body) as JsonRpcResponse);
+      this.#handleMessage(JSON.parse(body) as JsonRpcResponse | JsonRpcNotification);
     }
   }
 
-  #handleMessage(message: JsonRpcResponse): void {
+  #handleMessage(message: JsonRpcResponse | JsonRpcNotification): void {
     if (!("id" in message)) {
+      if ("method" in message) {
+        this.#notifications.push(message);
+      }
       return;
     }
 
@@ -652,4 +889,233 @@ export async function searchWorkspaceSymbolsWithLspRuntime(
   });
 
   return normalizeWorkspaceSymbols(result);
+}
+
+export async function completeWithLspRuntime(
+  target: LspTextDocumentPosition,
+  options: LspLocateDefinitionRuntimeOptions & {
+    triggerCharacter?: string;
+    maxItems?: number;
+  } = {},
+): Promise<readonly LspRuntimeCompletionItem[]> {
+  const result = await requestTextDocumentWithLspRuntime(target, {
+    ...options,
+    method: "textDocument/completion",
+    params: {
+      position: {
+        line: target.line,
+        character: target.character,
+      },
+      context:
+        options.triggerCharacter === undefined
+          ? undefined
+          : {
+              triggerKind: 2,
+              triggerCharacter: options.triggerCharacter,
+            },
+    },
+  });
+
+  return normalizeCompletionResult(result, options.maxItems);
+}
+
+export async function signatureHelpWithLspRuntime(
+  target: LspTextDocumentPosition,
+  options: LspLocateDefinitionRuntimeOptions & {
+    triggerCharacter?: string;
+  } = {},
+): Promise<LspRuntimeSignatureHelp> {
+  const result = await requestTextDocumentWithLspRuntime(target, {
+    ...options,
+    method: "textDocument/signatureHelp",
+    params: {
+      position: {
+        line: target.line,
+        character: target.character,
+      },
+      context:
+        options.triggerCharacter === undefined
+          ? undefined
+          : {
+              triggerKind: 2,
+              triggerCharacter: options.triggerCharacter,
+            },
+    },
+  });
+
+  return normalizeSignatureHelp(result);
+}
+
+export async function hoverWithLspRuntime(
+  target: LspTextDocumentPosition,
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<LspRuntimeHover | undefined> {
+  const result = await requestTextDocumentWithLspRuntime(target, {
+    ...options,
+    method: "textDocument/hover",
+    params: {
+      position: {
+        line: target.line,
+        character: target.character,
+      },
+    },
+  });
+
+  return normalizeHover(result);
+}
+
+export async function formatDocumentWithLspRuntime(
+  target: Pick<LspTextDocumentPosition, "filePath" | "languageId">,
+  formattingOptions: { tabSize: number; insertSpaces: boolean },
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<readonly LspRuntimeTextEdit[]> {
+  const result = await requestTextDocumentWithLspRuntime(
+    {
+      filePath: target.filePath,
+      line: 0,
+      character: 0,
+      languageId: target.languageId,
+    },
+    {
+      ...options,
+      method: "textDocument/formatting",
+      params: {
+        options: formattingOptions,
+      },
+    },
+  );
+
+  return normalizeTextEdits(result);
+}
+
+export async function formatRangeWithLspRuntime(
+  target: Pick<LspTextDocumentPosition, "filePath" | "languageId">,
+  range: LspRange,
+  formattingOptions: { tabSize: number; insertSpaces: boolean },
+  options: LspLocateDefinitionRuntimeOptions = {},
+): Promise<readonly LspRuntimeTextEdit[]> {
+  const result = await requestTextDocumentWithLspRuntime(
+    {
+      filePath: target.filePath,
+      line: range.start.line,
+      character: range.start.character,
+      languageId: target.languageId,
+    },
+    {
+      ...options,
+      method: "textDocument/rangeFormatting",
+      params: {
+        range,
+        options: formattingOptions,
+      },
+    },
+  );
+
+  return normalizeTextEdits(result);
+}
+
+export async function codeActionsWithLspRuntime(
+  target: Pick<LspTextDocumentPosition, "filePath" | "languageId"> & { range: LspRange },
+  options: LspLocateDefinitionRuntimeOptions & {
+    diagnostics?: readonly LspRuntimeDiagnostic[];
+    only?: readonly string[];
+  } = {},
+): Promise<readonly LspRuntimeCodeAction[]> {
+  const result = await requestTextDocumentWithLspRuntime(
+    {
+      filePath: target.filePath,
+      line: target.range.start.line,
+      character: target.range.start.character,
+      languageId: target.languageId,
+    },
+    {
+      ...options,
+      method: "textDocument/codeAction",
+      params: {
+        range: target.range,
+        context: {
+          diagnostics: options.diagnostics ?? [],
+          only: options.only ?? [],
+        },
+      },
+    },
+  );
+
+  return normalizeCodeActions(result);
+}
+
+export async function inspectDiagnosticsWithLspRuntime(
+  target: Pick<LspTextDocumentPosition, "filePath" | "languageId">,
+  options: LspLocateDefinitionRuntimeOptions & {
+    waitMs?: number;
+  } = {},
+): Promise<readonly LspRuntimeDiagnostic[]> {
+  const workspaceRoot = resolveWorkspaceRoot(options.workspaceRoot);
+  const targetPath = resolveTargetPath({ filePath: target.filePath, line: 0, character: 0, languageId: target.languageId }, workspaceRoot);
+  const fileStat = await stat(targetPath);
+  const maxFileBytes = options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES;
+
+  if (fileStat.size > maxFileBytes) {
+    throw new Error(`File too large for LSP diagnostics lookup: ${fileStat.size} bytes exceeds ${maxFileBytes} bytes`);
+  }
+
+  const server = selectServer(
+    { filePath: target.filePath, line: 0, character: 0, languageId: target.languageId },
+    targetPath,
+    options,
+  );
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const client = new StdioLspJsonRpcClient(server, timeoutMs, workspaceRoot);
+  const uri = pathToFileURL(targetPath).href;
+
+  try {
+    await client.request("initialize", {
+      processId: process.pid,
+      rootPath: workspaceRoot,
+      rootUri: pathToFileURL(workspaceRoot).href,
+      workspaceFolders: [
+        {
+          uri: pathToFileURL(workspaceRoot).href,
+          name: path.basename(workspaceRoot),
+        },
+      ],
+      capabilities: {
+        textDocument: {
+          publishDiagnostics: {
+            relatedInformation: true,
+            versionSupport: false,
+            codeDescriptionSupport: true,
+            dataSupport: true,
+          },
+        },
+      },
+      initializationOptions: server.initializationOptions,
+    });
+
+    client.notify("initialized", {});
+    client.notify("textDocument/didOpen", {
+      textDocument: {
+        uri,
+        languageId: server.languageId,
+        version: 1,
+        text: await readFile(targetPath, "utf8"),
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, options.waitMs ?? 200));
+    const diagnostics = client
+      .notifications("textDocument/publishDiagnostics")
+      .flatMap((notification) => {
+        const params = notification.params as { uri?: unknown; diagnostics?: unknown } | undefined;
+        return params?.uri === uri ? normalizeDiagnostics(params.diagnostics) : [];
+      });
+
+    return diagnostics;
+  } catch (error) {
+    const stderr = client.stderr();
+    const message = error instanceof Error ? error.message : "LSP runtime failed";
+    throw new Error(stderr.length > 0 ? `${message}; stderr: ${stderr}` : message);
+  } finally {
+    await client.stop();
+  }
 }

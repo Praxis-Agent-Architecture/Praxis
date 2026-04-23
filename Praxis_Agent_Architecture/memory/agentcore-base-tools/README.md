@@ -108,6 +108,17 @@ The first LSP runtime batch is now connected to the shared stdio JSON-RPC runtim
 - `code.lsp_renameSymbol` as a preview-only workspace edit plan
 - `code.lsp_suggestCodeActions` as a non-applying action suggestion surface
 
+The full 16-tool LSP category is now directoryized under the provider-practice layout. The remaining second batch also has `openai.ts`, `anthropic.ts`, `deepmind.ts`, `dependencies.ts`, `bestPractice.ts`, and an English `code.lsp_xxx.md` skill file:
+
+- `code.lsp_applyCodeAction` as a preview-only code action application plan.
+- `code.lsp_assistSignature` with shared runtime support for `textDocument/signatureHelp`.
+- `code.lsp_completeCode` with shared runtime support for `textDocument/completion`.
+- `code.lsp_explainSymbol` with shared runtime support for hover-style symbol context.
+- `code.lsp_formatDocument` with shared runtime support for `textDocument/formatting` edit previews.
+- `code.lsp_formatRange` with shared runtime support for `textDocument/rangeFormatting` edit previews.
+- `code.lsp_inspectDiagnostics` with shared runtime support for capturing `textDocument/publishDiagnostics` notifications.
+- `code.lsp_inspectSymbol` with document-symbol snapshot support and shared runtime building blocks.
+
 For these tools, baseTools entry files are thin re-export surfaces and concrete runtime work lives in `src/storagePool/baseToolStorage/codeBase/lsp`.
 
 Each completed LSP tool now has a provider-practice folder:
@@ -153,3 +164,4 @@ Design decisions:
 - `dependencyChecker.ts` can plan probes in Praxis managed bin before PATH.
 - `dependencyIterationManager.ts` attaches trusted managed install plans to missing/stale registered dependencies.
 - `_shared/runtime.ts` now consumes the LSP resolver for default server selection; explicit `runtime.server` remains available for tests and advanced overrides.
+- `_shared/runtime.ts` also exposes runtime helpers for completion, signature help, hover, document formatting, range formatting, code actions, and diagnostics notification capture.
