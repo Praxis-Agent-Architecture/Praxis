@@ -198,7 +198,9 @@ export function buildShellPracticeAuditMetadata(selection: ShellBestPracticeSele
   };
 }
 
-export function adaptShellToolResultToInvokeResult<Output>(result: ShellToolResult<Output>): BaseToolInvokeResult<Output> {
+export function adaptShellToolResultToInvokeResult<Output, Code extends string = string>(
+  result: ShellToolResult<Output, Code>,
+): BaseToolInvokeResult<Output> {
   if (!result.ok) {
     return {
       ok: false,
@@ -223,9 +225,9 @@ export function adaptShellToolResultToInvokeResult<Output>(result: ShellToolResu
   };
 }
 
-export function createShellCoreHandler<Input, Output>(
+export function createShellCoreHandler<Input, Output, Code extends string = string>(
   definition: BaseToolDefinition<Input, Output>,
-  invokeCore: (request: BaseToolInvokeRequest<Input>) => Promise<ShellToolResult<Output>>,
+  invokeCore: (request: BaseToolInvokeRequest<Input>) => Promise<ShellToolResult<Output, Code>>,
 ): BaseToolHandler<Input, Output> {
   return {
     definition,

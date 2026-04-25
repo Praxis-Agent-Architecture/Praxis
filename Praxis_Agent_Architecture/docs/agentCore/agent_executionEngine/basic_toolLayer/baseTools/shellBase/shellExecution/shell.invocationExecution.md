@@ -37,7 +37,7 @@
 - 能力要求3：后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
 - 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
 - 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 实现提示：真实执行实现位于 storagePool/baseToolStorage，入口层只暴露稳定 public surface。
 
 ## 5. 需要提供的能力
 

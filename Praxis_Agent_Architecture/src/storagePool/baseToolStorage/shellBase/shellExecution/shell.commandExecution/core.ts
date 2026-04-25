@@ -105,15 +105,25 @@ export type ShellToolSuccessEnvelope<Output> = {
   events: readonly string[];
 };
 
-export type ShellToolFailureEnvelope = {
+export type ShellToolError<Code extends string = ShellCommandExecutionErrorCode> = {
+  code: Code;
+  message: string;
+  boundary: ShellExecutionBoundary;
+  safeForRuntimeInspection: true;
+  internalDetailExposed: false;
+};
+
+export type ShellToolFailureEnvelope<Code extends string = ShellCommandExecutionErrorCode> = {
   ok: false;
   toolId: string;
-  error: ShellCommandExecutionError;
+  error: ShellToolError<Code>;
   audit: readonly ShellToolAuditEvent[];
   events: readonly string[];
 };
 
-export type ShellToolResult<Output> = ShellToolSuccessEnvelope<Output> | ShellToolFailureEnvelope;
+export type ShellToolResult<Output, Code extends string = ShellCommandExecutionErrorCode> =
+  | ShellToolSuccessEnvelope<Output>
+  | ShellToolFailureEnvelope<Code>;
 
 export type ShellCommandExecutionPlan = {
   toolId: "shell.commandExecution";
@@ -199,12 +209,20 @@ export const shellCommandExecutionDescriptor = {
   tapOwnsApproval: true,
 } as const;
 
-function isBlank(value: string | undefined): boolean {
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function isBlank(value: unknown): boolean {
   return typeof value !== "string" || value.trim().length === 0;
 }
 
 function cleanList(values: readonly string[] | undefined): string[] {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+  if (!Array.isArray(values)) {
+    return [];
+  }
+
+  return [...new Set(values.map((value) => stringValue(value)?.trim() ?? "").filter(Boolean))];
 }
 
 function dryRunEnabled(context: ShellToolContext | undefined): boolean {
@@ -212,7 +230,7 @@ function dryRunEnabled(context: ShellToolContext | undefined): boolean {
 }
 
 function invocationId(context: ShellToolContext | undefined, runtimeId: string, command: string): string {
-  return context?.invocationId?.trim() || `${runtimeId}:shell.commandExecution:${command}`;
+  return stringValue(context?.invocationId)?.trim() || `${runtimeId}:shell.commandExecution:${command}`;
 }
 
 function guardRejected(guard: ShellExecutionGate | undefined): boolean {
@@ -227,7 +245,7 @@ function auditEvent(
   return {
     type,
     toolId: shellCommandExecutionDescriptor.toolId,
-    invocationId: context?.invocationId?.trim() || `${shellCommandExecutionDescriptor.toolId}:dry-run`,
+    invocationId: stringValue(context?.invocationId)?.trim() || `${shellCommandExecutionDescriptor.toolId}:dry-run`,
     dryRun: dryRunEnabled(context),
     metadata: {
       ...(context?.auditMetadata ?? {}),
@@ -295,12 +313,12 @@ function resolveScopes(
   return requested;
 }
 
-function normalizeCommand(value: string | undefined): string | ShellCommandExecutionFailure {
+function normalizeCommand(value: unknown): string | ShellCommandExecutionFailure {
   if (isBlank(value)) {
     return failure("MISSING_COMMAND", "shell.commandExecution requires command", "input");
   }
 
-  const command = value?.trim() ?? "";
+  const command = stringValue(value)?.trim() ?? "";
   if (command.includes("\0") || /[\r\n]/u.test(command)) {
     return failure("INVALID_COMMAND", "shell.commandExecution command must be a single safe command token", "input");
   }
@@ -308,11 +326,18 @@ function normalizeCommand(value: string | undefined): string | ShellCommandExecu
   return command;
 }
 
-function normalizeArgs(values: readonly string[] | undefined): string[] | ShellCommandExecutionFailure {
-  const args = values ?? [];
+function normalizeArgs(values: unknown): string[] | ShellCommandExecutionFailure {
+  if (values === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(values)) {
+    return failure("INVALID_ARGUMENT", "shell.commandExecution args must be safe strings", "input");
+  }
+
   const normalized: string[] = [];
 
-  for (const arg of args) {
+  for (const arg of values) {
     if (typeof arg !== "string" || arg.includes("\0")) {
       return failure("INVALID_ARGUMENT", "shell.commandExecution args must be safe strings", "input");
     }
@@ -327,9 +352,13 @@ function normalizeArgs(values: readonly string[] | undefined): string[] | ShellC
   return normalized;
 }
 
-function normalizeCwd(value: string | undefined): string | ShellCommandExecutionFailure | undefined {
+function normalizeCwd(value: unknown): string | ShellCommandExecutionFailure | undefined {
   if (value === undefined) {
     return undefined;
+  }
+
+  if (typeof value !== "string") {
+    return failure("INVALID_CWD", "shell.commandExecution cwd must be a safe path string", "input");
   }
 
   const cwd = value.trim();
@@ -340,7 +369,11 @@ function normalizeCwd(value: string | undefined): string | ShellCommandExecution
   return cwd;
 }
 
-function normalizeTimeout(value: number | undefined): number | ShellCommandExecutionFailure {
+function normalizeTimeout(value: unknown): number | ShellCommandExecutionFailure {
+  if (value !== undefined && typeof value !== "number") {
+    return failure("INVALID_TIMEOUT", "shell.commandExecution timeoutMs must be between 1 and 600000", "resource");
+  }
+
   const timeoutMs = value ?? shellCommandExecutionDescriptor.defaultTimeoutMs;
   if (!Number.isInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > shellCommandExecutionDescriptor.maxTimeoutMs) {
     return failure("INVALID_TIMEOUT", "shell.commandExecution timeoutMs must be between 1 and 600000", "resource");
@@ -353,7 +386,7 @@ function normalizeShellCommandExecution(
   request: ShellCommandExecutionRequest,
   options: { allowRealExecution: boolean },
 ): NormalizedShellCommandExecution | ShellCommandExecutionFailure {
-  const runtimeId = request.context?.runtimeId?.trim() ?? "";
+  const runtimeId = stringValue(request.context?.runtimeId)?.trim() ?? "";
   if (isBlank(runtimeId)) {
     return failure("MISSING_RUNTIME_ID", "shell.commandExecution requires context.runtimeId for audit", "input");
   }
@@ -405,7 +438,7 @@ function normalizeShellCommandExecution(
     command,
     args,
     cwd,
-    shellType: request.shellType?.trim() || undefined,
+    shellType: stringValue(request.shellType)?.trim() || undefined,
     timeoutMs,
     acceptedScopes,
   };

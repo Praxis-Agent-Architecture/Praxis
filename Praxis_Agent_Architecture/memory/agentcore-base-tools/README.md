@@ -174,6 +174,49 @@ Implementation notes:
 - The shell practice contract now mirrors LSP more closely: provider practice files expose `createProvider(...)`, `selectShellCommandExecutionPractice(...)` returns `providerName`, `practice`, and `provider`, and dependency declarations use `satisfies readonly BaseToolDependencyDeclaration[]`.
 - A registry-level invocation test verifies the unified mount path: `createBaseToolRegistry().lookupHandler("shell.commandExecution").handler.invoke(...)` can call a runtime-supplied `executor.shell.run`.
 
+`shell.invocationExecution` and `shell.scriptExecution` now follow the same shell provider-practice standard.
+
+Current shape:
+
+```text
+src/storagePool/baseToolStorage/shellBase/shellExecution/shell.invocationExecution/
+  openai.ts
+  anthropic.ts
+  deepmind.ts
+  dependencies.ts
+  bestPractice.ts
+  core.ts
+  shell.invocationExecution.md
+
+src/storagePool/baseToolStorage/shellBase/shellExecution/shell.scriptExecution/
+  openai.ts
+  anthropic.ts
+  deepmind.ts
+  dependencies.ts
+  bestPractice.ts
+  core.ts
+  shell.scriptExecution.md
+```
+
+Implementation notes:
+
+- Both `baseTools/shellBase/shellExecution/shell.invocationExecution.ts` and `shell.scriptExecution.ts` are now thin explicit re-export entrypoints.
+- Both tools keep their old dry-run planner contracts and add provider-backed execution functions:
+  - `executeShellInvocation`
+  - `executeShellScript`
+- Both tools register executable handlers in `builtinBaseToolHandlers.ts`, so the registry resolves:
+  - `lookupHandler("shell.invocationExecution")`
+  - `lookupHandler("shell.scriptExecution")`
+- `shell.invocationExecution` normalizes a structured invocation object, including argv, cwd, timeout, stdin, and env metadata. `stdin` must be a string when supplied; malformed runtime JSON is rejected before provider dispatch.
+- The v1 host executor path for `shell.invocationExecution` rejects env overrides as `PROVIDER_UNAVAILABLE` because `BaseToolExecutorPort.shell.run` does not yet expose an `env` field. Injected custom providers may still support env overrides directly.
+- `shell.scriptExecution` maps scripts into the existing v1 shell executor shape:
+  - `sh`, `bash`, `zsh`, and `fish` use `<language> -c <script>`.
+  - `unknown` uses `sh -c <script>`.
+  - `powershell` uses `pwsh -NoProfile -Command <script>`.
+  - `stdin` must be a string when supplied; malformed runtime JSON is rejected before provider dispatch.
+- Both tools keep approval, sandbox, sudo, session, background process, and output-stream ownership out of baseTools. Runtime and TAP still own those policies.
+- Real smoke has verified both tools through the unified registry handler path with a runtime-supplied executor around `printf`.
+
 Shell baseTool rollout standard:
 
 - Shell tools should mirror the LSP provider-practice layout unless there is a documented reason not to:
@@ -209,6 +252,9 @@ src/storagePool/baseToolStorage/shellBase/<group>/<toolId>/
   - `practice`
   - `provider`
 - `core.ts` owns primitive normalization, dry-run compatibility, provider dispatch, public-safe errors, audit events, and provider-called output flags.
+- `core.ts` must defensively validate runtime JSON input shapes instead of trusting TypeScript-only types. Malformed model/runtime inputs must return public-safe classified errors, not throw raw `TypeError`s.
+- When one tool wraps or delegates to another primitive, harden both layers. Example: `shell.invocationExecution` delegates command/argv/cwd validation to `shell.commandExecution`, so the shared command core also needs malformed JSON regression tests.
+- Runtime JSON regression tests should include non-string scalar fields, null objects, non-array argv values, malformed env entries, invalid cwd values, invalid stdin values, and invalid timeout values where the tool accepts those fields.
 - `core.ts` must not implement approval, sandbox, sudo policy, long-running session ownership, background process management, or output-stream ownership. Those are runtime/TAP responsibilities.
 - Real shell execution is allowed only through runtime-supplied providers such as `BaseToolExecutorPort.shell.run`, or through injected test providers.
 - If `context.dryRun !== false`, provider dispatch must not happen.

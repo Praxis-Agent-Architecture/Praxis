@@ -113,6 +113,40 @@ test("planShellCommandExecution rejects invalid resource limits and unsafe strin
   }
 });
 
+test("planShellCommandExecution returns public-safe errors for malformed runtime JSON shapes", () => {
+  const malformedRuntime = planShellCommandExecution({
+    context: { runtimeId: 1 } as never,
+    command: "pwd",
+  });
+  assert.equal(malformedRuntime.ok, false);
+  if (!malformedRuntime.ok) {
+    assert.equal(malformedRuntime.error.code, "MISSING_RUNTIME_ID");
+    assert.equal(malformedRuntime.error.boundary, "input");
+  }
+
+  const malformedArgs = planShellCommandExecution({
+    context: { runtimeId: "runtime-1" },
+    command: "pwd",
+    args: {} as never,
+  });
+  assert.equal(malformedArgs.ok, false);
+  if (!malformedArgs.ok) {
+    assert.equal(malformedArgs.error.code, "INVALID_ARGUMENT");
+    assert.equal(malformedArgs.error.boundary, "input");
+  }
+
+  const malformedCwd = planShellCommandExecution({
+    context: { runtimeId: "runtime-1" },
+    command: "pwd",
+    cwd: 1 as never,
+  });
+  assert.equal(malformedCwd.ok, false);
+  if (!malformedCwd.ok) {
+    assert.equal(malformedCwd.error.code, "INVALID_CWD");
+    assert.equal(malformedCwd.error.boundary, "input");
+  }
+});
+
 test("executeShellCommand returns dry-run output without calling the provider", async () => {
   let providerCalled = false;
 
