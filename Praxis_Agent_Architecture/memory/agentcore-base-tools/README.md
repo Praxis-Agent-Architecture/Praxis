@@ -24,6 +24,24 @@ When implementing a base tool, research source implementations in this order:
 
 The goal is not to copy source code blindly. The goal is to extract the best practice and rewrite it as clean TypeScript in Praxis' own shape.
 
+This source priority is also the execution-practice decision chain:
+
+```text
+CLI implementation evidence
+  -> Agent SDK implementation evidence
+  -> API SDK implementation evidence
+  -> Praxis-native fallback
+```
+
+For the three main provider families, the provider-practice files should make the best available source explicit:
+
+- `anthropic.ts` should primarily learn from Claude Code when Claude Code has a real tool implementation.
+- `openai.ts` should primarily learn from Codex when Codex has a real tool implementation.
+- `deepmind.ts` should primarily learn from Gemini CLI when Gemini CLI has a real tool implementation.
+- If a provider CLI does not expose the exact tool, use that provider's closest Agent SDK or API SDK practice, then document why Praxis routes through a shared host/runtime executor instead.
+
+The provider-practice layer exists so Praxis can adapt to Codex, Claude Code, and Gemini CLI style differences without changing the stable `baseTools` entrypoint. Model/provider routing should choose a practice surface, but actual side effects still go through the Praxis runtime executor and governance chain.
+
 ## Provider Practice Layout
 
 For a given tool, provider differences should live under `src/storagePool/baseToolStorage`, not in the `baseTools` entry file.
@@ -40,6 +58,14 @@ src/storagePool/baseToolStorage/<family>/<group>/<toolId>/
 ```
 
 If a shared dependency is common across providers, keep it in `dependencies.ts` instead of duplicating it in each provider implementation. Example: if OpenAI, Anthropic, and DeepMind variants all need LSP, LSP is a shared dependency, not three separate provider-owned implementations.
+
+Each provider practice file should answer three questions:
+
+- Which upstream implementation or SDK convention is the source of the practice?
+- Does that source support the tool directly, or is Praxis adapting the closest available execution pattern?
+- Which Praxis runtime/provider dependency actually performs the work?
+
+This keeps provider routing meaningful: the model-facing practice can follow Codex, Claude Code, or Gemini CLI conventions, while the real invocation remains mounted through the same `BaseToolHandler` and `BaseToolExecutorPort` path.
 
 ## Risk And Permissions
 
