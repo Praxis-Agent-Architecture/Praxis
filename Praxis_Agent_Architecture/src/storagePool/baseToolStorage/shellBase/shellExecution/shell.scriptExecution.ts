@@ -9,7 +9,7 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-import type { ShellExecutionBoundary, ShellExecutionContext } from "./shell.commandExecution.js";
+import type { ShellExecutionBoundary, ShellExecutionContext } from "./shell.commandExecution/core.js";
 
 export type ShellScriptLanguage = "sh" | "bash" | "zsh" | "fish" | "powershell" | "unknown";
 

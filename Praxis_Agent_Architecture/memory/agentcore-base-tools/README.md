@@ -119,6 +119,35 @@ The full 16-tool LSP category is now directoryized under the provider-practice l
 - `code.lsp_inspectDiagnostics` with shared runtime support for capturing `textDocument/publishDiagnostics` notifications.
 - `code.lsp_inspectSymbol` with document-symbol snapshot support and shared runtime building blocks.
 
+## First Shell Provider Practice Sample
+
+`shell.commandExecution` is the first shell tool moved onto the provider-practice shape.
+
+Current shape:
+
+```text
+src/storagePool/baseToolStorage/shellBase/_shared/baseToolAdapter.ts
+src/storagePool/baseToolStorage/shellBase/shellExecution/shell.commandExecution/
+  openai.ts
+  anthropic.ts
+  deepmind.ts
+  dependencies.ts
+  bestPractice.ts
+  core.ts
+  shell.commandExecution.md
+```
+
+Implementation notes:
+
+- `baseTools/shellBase/shellExecution/shell.commandExecution.ts` is now a thin stable entrypoint that re-exports the storagePool implementation surface.
+- `planShellCommandExecution` remains compatible with the existing dry-run plan contract.
+- `executeShellCommand` is the new provider-backed primitive. It calls a provider only when `context.dryRun === false`.
+- The shell tool does not own approval, sandbox, session, process lifecycle, or output ownership policy. Those stay in runtime governance and runtime execution surfaces.
+- `bestPractice.ts` adapts `BaseToolExecutorPort.shell.run` into the command execution provider and exposes `shellCommandExecutionHandler`.
+- `builtinBaseToolHandlers.ts` now registers `shell.commandExecution`, so `BaseToolRegistry.lookupHandler("shell.commandExecution")` resolves successfully.
+- The shell practice contract now mirrors LSP more closely: provider practice files expose `createProvider(...)`, `selectShellCommandExecutionPractice(...)` returns `providerName`, `practice`, and `provider`, and dependency declarations use `satisfies readonly BaseToolDependencyDeclaration[]`.
+- A registry-level invocation test verifies the unified mount path: `createBaseToolRegistry().lookupHandler("shell.commandExecution").handler.invoke(...)` can call a runtime-supplied `executor.shell.run`.
+
 For these tools, baseTools entry files are thin re-export surfaces and concrete runtime work lives in `src/storagePool/baseToolStorage/codeBase/lsp`.
 
 The LSP category is no longer only a directory/layout sample. It now has a real executable path:

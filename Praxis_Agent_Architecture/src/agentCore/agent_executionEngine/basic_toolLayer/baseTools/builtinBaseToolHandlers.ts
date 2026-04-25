@@ -1,5 +1,6 @@
 import type { BaseToolHandler } from "./baseToolDefinition.js";
 
+import { shellCommandExecutionHandler } from "../../../../storagePool/baseToolStorage/shellBase/shellExecution/shell.commandExecution/bestPractice.js";
 import { lspApplyCodeActionHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/bestPractice.js";
 import { lspAssistSignatureHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/bestPractice.js";
 import { lspCompleteCodeHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_completeCode/bestPractice.js";
@@ -18,6 +19,7 @@ import { lspTraceImplementationsHandler } from "../../../../storagePool/baseTool
 import { lspTraceReferencesHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_traceReferences/bestPractice.js";
 
 export const builtinBaseToolHandlers = [
+  shellCommandExecutionHandler,
   lspApplyCodeActionHandler,
   lspAssistSignatureHandler,
   lspCompleteCodeHandler,

@@ -14,7 +14,7 @@ import {
   type ShellCommandExecutionPlan,
   type ShellExecutionBoundary,
   type ShellExecutionContext,
-} from "./shell.commandExecution.js";
+} from "./shell.commandExecution/core.js";
 
 export type ShellInvocationEnvironmentEntry = {
   name: string;

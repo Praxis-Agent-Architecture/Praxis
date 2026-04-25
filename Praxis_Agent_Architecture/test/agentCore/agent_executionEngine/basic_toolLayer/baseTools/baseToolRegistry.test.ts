@@ -101,8 +101,19 @@ test("baseTool registry keeps custom tools on the same registration path", () =>
   assert.equal(lookup.ok, true);
 });
 
-test("baseTool registry can resolve executable handlers for the directoryized LSP tools", () => {
+test("baseTool registry can resolve executable handlers for directoryized storage tools", () => {
   const registry = createBaseToolRegistry();
+
+  const shellCommandExecutionHandler = registry.lookupHandler("shell.commandExecution");
+  assert.equal(shellCommandExecutionHandler.ok, true);
+  if (!shellCommandExecutionHandler.ok) {
+    return;
+  }
+
+  assert.equal(
+    shellCommandExecutionHandler.handler.definition.toolSkill.docPath,
+    "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/shellBase/shellExecution/shell.commandExecution/shell.commandExecution.md",
+  );
 
   const locateDefinitionHandler = registry.lookupHandler("code.lsp_locateDefinition");
   assert.equal(locateDefinitionHandler.ok, true);
