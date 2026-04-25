@@ -39,6 +39,48 @@ export type BaseToolFilesystemExecutor = {
 };
 
 export type BaseToolShellExecutor = {
+  assembleArguments?(request: {
+    input: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  generateCommand?(request: {
+    input: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  buildExecutionGuard?(request: {
+    input: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  constructInvocation?(request: {
+    input: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  generateScript?(request: {
+    input: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  validateCommand?(request: {
+    command: string;
+    workingDirectory?: string;
+    shell: "sh" | "bash" | "zsh";
+    policy?: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  controlPermission?(request: {
+    command: string;
+    workingDirectory?: string;
+    requestedPermissions: readonly string[];
+    riskLevel: "low" | "medium" | "high";
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  enforceSandbox?(request: {
+    command: string;
+    workingDirectory: string;
+    requestedPaths: readonly string[];
+    accessIntents: readonly string[];
+    policy?: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
   run?(request: {
     command: string;
     args?: readonly string[];
@@ -46,6 +88,77 @@ export type BaseToolShellExecutor = {
     timeoutMs?: number;
     stdin?: string;
   }): Promise<BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string }>>;
+  spawnProcess?(request: {
+    target: Readonly<Record<string, unknown>>;
+    launchMode: "foreground" | "background" | "detached";
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  startBackground?(request: {
+    command: string;
+    shell: "sh" | "bash" | "zsh";
+    cwd?: string;
+    jobId: string;
+    monitorIntervalMs: number;
+    outputBufferLimitBytes: number;
+    captureOutput: boolean;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  startDetached?(request: {
+    command: string;
+    shell: "sh" | "bash" | "zsh";
+    cwd?: string;
+    launchId: string;
+    pidFilePath?: string;
+    stdoutLogPath?: string;
+    stderrLogPath?: string;
+    restartPolicy: "none" | "on-failure";
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  terminateProcess?(request: {
+    processId: number;
+    signal: "SIGTERM" | "SIGINT" | "SIGHUP" | "SIGKILL";
+    reason?: string;
+    force: boolean;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  monitorExecution?(request: {
+    target: Readonly<Record<string, unknown>>;
+    observation?: Readonly<Record<string, unknown>>;
+    staleAfterMs?: number;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  captureOutput?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  controlInteractive?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  handlePrompt?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  feedStdin?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  manageLifecycle?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  manageProcess?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  manageResource?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  manageSession?(request: {
+    target: Readonly<Record<string, unknown>>;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
 };
 
 export type BaseToolGitExecutor = {

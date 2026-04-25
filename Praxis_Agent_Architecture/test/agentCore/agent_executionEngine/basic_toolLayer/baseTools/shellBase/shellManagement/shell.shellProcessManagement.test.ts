@@ -44,8 +44,8 @@ test("planShellProcessManagement creates a guarded process inspection dry-run en
   assert.deepEqual(result.events, ["basicTool.shell.shellProcessManagement.inspect.dryRun"]);
 });
 
-test("planShellProcessManagement requires approval for destructive process changes", () => {
-  const rejected = planShellProcessManagement({
+test("planShellProcessManagement marks destructive process changes approval-relevant without owning approval policy", () => {
+  const signaled = planShellProcessManagement({
     target: {
       action: "signal",
       processId: 1234,
@@ -53,10 +53,11 @@ test("planShellProcessManagement requires approval for destructive process chang
     },
     context: { grantedPermissions: ["shell:process:manage"] },
   });
-  assert.equal(rejected.ok, false);
-  if (!rejected.ok) {
-    assert.equal(rejected.error.code, "APPROVAL_REQUIRED");
-    assert.equal(rejected.error.boundary, "approval");
+  assert.equal(signaled.ok, true);
+  if (signaled.ok) {
+    assert.equal(signaled.output.action, "signal");
+    assert.equal(signaled.output.requiresTapApproval, true);
+    assert.equal(signaled.output.approvalId, undefined);
   }
 
   const approved = planShellProcessManagement({
@@ -148,5 +149,46 @@ test("planShellProcessManagement rejects missing references, scope, permission, 
   if (!real.ok) {
     assert.equal(real.error.code, "REAL_PROCESS_CHANGE_BLOCKED");
     assert.equal(real.error.boundary, "contract");
+  }
+});
+
+test("planShellProcessManagement returns public-safe errors for malformed runtime JSON shapes", () => {
+  const malformedCases = [
+    {
+      request: { target: { action: "inspect", sessionId: 1 } },
+      code: "INVALID_SESSION_ID",
+    },
+    {
+      request: { target: { action: "inspect", processId: "1234" } },
+      code: "INVALID_PROCESS_ID",
+    },
+    {
+      request: { target: { action: "signal", processId: 1234, signal: {} } },
+      code: "INVALID_SIGNAL",
+    },
+    {
+      request: {
+        target: { action: "inspect", processId: 1234, reason: 1 },
+        context: { invocationId: 1, grantedPermissions: {}, allowedProcessIds: { length: 1 }, auditMetadata: 1 },
+      },
+      code: "PERMISSION_DENIED",
+    },
+    {
+      request: {
+        target: { action: "inspect", processId: 1234, priority: "high" },
+        context: { grantedPermissions: ["shell:process:manage"] },
+      },
+      code: "INVALID_PRIORITY",
+    },
+  ];
+
+  for (const { request, code } of malformedCases) {
+    const result = planShellProcessManagement(request as unknown as Parameters<typeof planShellProcessManagement>[0]);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, code);
+      assert.equal(result.error.publicSafe, true);
+      assert.equal(result.error.internalDetailExposed, false);
+    }
   }
 });

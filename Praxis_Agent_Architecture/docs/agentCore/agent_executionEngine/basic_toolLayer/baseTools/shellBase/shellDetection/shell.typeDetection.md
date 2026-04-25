@@ -2,6 +2,15 @@
 
 > 对应源码：`Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.ts`
 
+## Runtime Contract Snapshot
+
+- Call Shape：调用 `executeShellTypeDetection({ shellPath?, executableName?, envShell?, context, provider? })`，或通过 registry 的 `shellTypeDetectionHandler.invoke(request)` 进入。
+- Required Inputs：`context.runtimeId` 必须是非空字符串，并且 `shellPath`、`executableName`、`envShell` 至少一个是非空字符串。
+- Runtime Behavior：默认 dry-run，只分类传入 shell hint，不探测宿主。真实 probe 必须 `context.dryRun=false` 且 guard 明确允许；缺 provider 返回 `PROVIDER_UNAVAILABLE`。shell hint 会在 provider 前拒绝 NUL、换行和控制字符。
+- Returns：返回 detected shell type、confidence、normalized shell name、source hint、accepted scopes、required permissions、audit metadata；dry-run 权限为 `shell:detect:dry-run`，真实 provider probe 权限为 `shell:detect`，错形 metadata 会被忽略为 `{}`。
+- Example：`shellTypeDetectionHandler.invoke({ toolCallId, runtimeId, sessionId, input: { shellPath: "/bin/zsh", context: { runtimeId } }, executor: {} })`。
+- Avoid：不要把 shell 类型检测当作命令执行 approval；不要透出 provider/runtime 的原始错误文本。
+
 ## 1. 文件位置
 
 - 所属顶层模块：执行引擎（`agent_executionEngine`）。
@@ -35,9 +44,9 @@
 - 能力要求1：需要定义该能力的输入、输出、错误、权限需求和可观测事件。
 - 能力要求2：这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
 - 能力要求3：后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
-- 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 边界：入口层只保留显式导出，真实实现与 provider practice 位于 storagePool。
+- 对接：通过 builtin baseTool registry 暴露 handler，由 runtime 注入 executor 与治理上下文。
+- 实现提示：保持入口薄层，不在这里实现探测、审批、sandbox 或进程策略。
 
 ## 5. 需要提供的能力
 

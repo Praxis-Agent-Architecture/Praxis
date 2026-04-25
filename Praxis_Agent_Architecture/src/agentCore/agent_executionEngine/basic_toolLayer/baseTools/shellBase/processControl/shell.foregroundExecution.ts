@@ -9,324 +9,35 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-import type { ShellProcessSpawningPermission } from "./shell.processSpawning.js";
+export type {
+  ShellForegroundExecutionPermission,
+  ShellForegroundExecutionBoundary,
+  ShellForegroundExecutionContext,
+  ShellForegroundExecutionTarget,
+  ShellForegroundExecutionRequest,
+  ShellForegroundExecutionErrorCode,
+  ShellForegroundExecutionError,
+  ShellForegroundExecutionAuditEvent,
+  ShellForegroundExecutionOutput,
+  ShellForegroundExecutionResult,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/processControl/shell.foregroundExecution/core.js";
 
-export type ShellForegroundExecutionPermission = ShellProcessSpawningPermission;
+export {
+  executeShellForegroundExecution,
+  planShellForegroundExecution,
+  shellForegroundExecutionDescriptor,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/processControl/shell.foregroundExecution/bestPractice.js";
 
-export type ShellForegroundExecutionBoundary = "input" | "scope" | "permission" | "contract" | "resource";
+export type {
+  ShellForegroundExecutionBestPracticeRequest,
+  ShellForegroundExecutionHandlerInput,
+  ShellForegroundExecutionPracticeSelection,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/processControl/shell.foregroundExecution/bestPractice.js";
 
-export type ShellForegroundExecutionContext = {
-  runtimeId?: string;
-  invocationId?: string;
-  dryRun?: boolean;
-  allowedWorkingDirectories?: readonly string[];
-  grantedPermissions?: readonly ShellForegroundExecutionPermission[];
-  auditMetadata?: Readonly<Record<string, unknown>>;
-};
-
-export type ShellForegroundExecutionTarget = {
-  command: string;
-  workingDirectory?: string;
-  shell?: "sh" | "bash" | "zsh";
-  timeoutMs?: number;
-  stdin?: string;
-  captureStdout?: boolean;
-  captureStderr?: boolean;
-};
-
-export type ShellForegroundExecutionRequest = {
-  target?: Partial<ShellForegroundExecutionTarget>;
-  context?: ShellForegroundExecutionContext;
-};
-
-export type ShellForegroundExecutionErrorCode =
-  | "MISSING_COMMAND"
-  | "INVALID_SHELL"
-  | "INVALID_TIMEOUT"
-  | "SCOPE_REJECTED"
-  | "PERMISSION_DENIED"
-  | "REAL_EXECUTION_BLOCKED";
-
-export type ShellForegroundExecutionError = {
-  code: ShellForegroundExecutionErrorCode;
-  message: string;
-  boundary: ShellForegroundExecutionBoundary;
-  publicSafe: true;
-  internalDetailExposed: false;
-};
-
-export type ShellForegroundExecutionAuditEvent = {
-  type: string;
-  toolId: "shell.foregroundExecution";
-  invocationId: string;
-  dryRun: boolean;
-  workingDirectory?: string;
-  metadata: Readonly<Record<string, unknown>>;
-};
-
-export type ShellForegroundExecutionOutput = {
-  kind: "agentCore.basicTool.shell.foregroundExecution";
-  target: {
-    command: string;
-    workingDirectory?: string;
-    shell: "sh" | "bash" | "zsh";
-    timeoutMs: number;
-    stdinBytes: number;
-    captureStdout: boolean;
-    captureStderr: boolean;
-  };
-  commandPreview: readonly string[];
-  permissionsRequired: readonly ShellForegroundExecutionPermission[];
-  foregroundContract: {
-    blocksCallerUntilExit: true;
-    exitStatusWillBeCaptured: true;
-  };
-  dryRun: true;
-  executionBlocked: true;
-  unsafeSideEffects: false;
-  resultEnvelope: {
-    planned: true;
-    exitCode?: never;
-    stdout?: never;
-    stderr?: never;
-  };
-};
-
-export type ShellForegroundExecutionResult =
-  | {
-      ok: true;
-      toolId: "shell.foregroundExecution";
-      output: ShellForegroundExecutionOutput;
-      audit: readonly ShellForegroundExecutionAuditEvent[];
-      events: readonly string[];
-    }
-  | {
-      ok: false;
-      toolId: "shell.foregroundExecution";
-      error: ShellForegroundExecutionError;
-      audit: readonly ShellForegroundExecutionAuditEvent[];
-      events: readonly string[];
-    };
-
-export const shellForegroundExecutionDescriptor = {
-  toolId: "shell.foregroundExecution",
-  capability: "shell-foreground-execution",
-  route: "agent_executionEngine.basic_toolLayer.baseTools.shellBase.processControl",
-  defaultDryRun: true,
-  tapOwnsApproval: true,
-  permissionsRequired: ["shell:execute"] as readonly ShellForegroundExecutionPermission[],
-  unsafeSideEffects: false,
-} as const;
-
-const defaultTimeoutMs = 30_000;
-const maxTimeoutMs = 600_000;
-
-function cleanList<T extends string>(values: readonly T[] | undefined): readonly T[] {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean) as T[])];
-}
-
-function dryRunEnabled(context: ShellForegroundExecutionContext | undefined): boolean {
-  return context?.dryRun !== false;
-}
-
-function invocationId(context: ShellForegroundExecutionContext | undefined): string {
-  return context?.invocationId?.trim() || "shell.foregroundExecution:dry-run";
-}
-
-function normalizeDirectory(directory: string): string {
-  const trimmed = directory.trim();
-  return trimmed === "/" ? trimmed : trimmed.replace(/\/+$/, "");
-}
-
-function auditEvent(
-  type: string,
-  context: ShellForegroundExecutionContext | undefined,
-  workingDirectory?: string,
-  metadata?: Readonly<Record<string, unknown>>,
-): ShellForegroundExecutionAuditEvent {
-  return {
-    type,
-    toolId: shellForegroundExecutionDescriptor.toolId,
-    invocationId: invocationId(context),
-    dryRun: dryRunEnabled(context),
-    workingDirectory,
-    metadata: {
-      ...(context?.auditMetadata ?? {}),
-      ...(metadata ?? {}),
-    },
-  };
-}
-
-function failure(
-  code: ShellForegroundExecutionErrorCode,
-  message: string,
-  boundary: ShellForegroundExecutionBoundary,
-  context: ShellForegroundExecutionContext | undefined,
-  workingDirectory?: string,
-): ShellForegroundExecutionResult {
-  return {
-    ok: false,
-    toolId: shellForegroundExecutionDescriptor.toolId,
-    error: { code, message, boundary, publicSafe: true, internalDetailExposed: false },
-    audit: [auditEvent("agentCore.basicTool.shell.foregroundExecution.rejected", context, workingDirectory, { code })],
-    events: ["basicTool.shell.foregroundExecution.rejected"],
-  };
-}
-
-function normalizeTarget(
-  target: Partial<ShellForegroundExecutionTarget> | undefined,
-  context: ShellForegroundExecutionContext | undefined,
-): ShellForegroundExecutionOutput["target"] | ShellForegroundExecutionResult {
-  const command = target?.command?.trim() ?? "";
-  if (command.length === 0) {
-    return failure("MISSING_COMMAND", "shell.foregroundExecution requires a non-empty command", "input", context, target?.workingDirectory);
-  }
-
-  const shell = target?.shell ?? "sh";
-  if (shell !== "sh" && shell !== "bash" && shell !== "zsh") {
-    return failure("INVALID_SHELL", "shell.foregroundExecution shell must be sh, bash, or zsh", "input", context, target?.workingDirectory);
-  }
-
-  const timeoutMs = target?.timeoutMs ?? defaultTimeoutMs;
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > maxTimeoutMs) {
-    return failure(
-      "INVALID_TIMEOUT",
-      `shell.foregroundExecution timeoutMs must be an integer between 1 and ${maxTimeoutMs}`,
-      "resource",
-      context,
-      target?.workingDirectory,
-    );
-  }
-
-  const workingDirectory = target?.workingDirectory?.trim() || undefined;
-  return {
-    command,
-    workingDirectory: workingDirectory === undefined ? undefined : normalizeDirectory(workingDirectory),
-    shell,
-    timeoutMs,
-    stdinBytes: target?.stdin === undefined ? 0 : Buffer.byteLength(target.stdin, "utf8"),
-    captureStdout: target?.captureStdout !== false,
-    captureStderr: target?.captureStderr !== false,
-  };
-}
-
-function ensureScope(
-  workingDirectory: string | undefined,
-  context: ShellForegroundExecutionContext | undefined,
-): ShellForegroundExecutionResult | undefined {
-  if (workingDirectory === undefined) {
-    return undefined;
-  }
-
-  const allowedDirectories = cleanList(context?.allowedWorkingDirectories).map(normalizeDirectory);
-  if (allowedDirectories.length === 0) {
-    return undefined;
-  }
-
-  const allowed = allowedDirectories.some(
-    (directory) => directory === "/" || workingDirectory === directory || workingDirectory.startsWith(`${directory}/`),
-  );
-  if (allowed) {
-    return undefined;
-  }
-
-  return failure(
-    "SCOPE_REJECTED",
-    "shell.foregroundExecution workingDirectory is outside allowed execution scope",
-    "scope",
-    context,
-    workingDirectory,
-  );
-}
-
-function ensurePermissions(
-  workingDirectory: string | undefined,
-  context: ShellForegroundExecutionContext | undefined,
-): ShellForegroundExecutionResult | undefined {
-  if (context?.grantedPermissions === undefined) {
-    return undefined;
-  }
-
-  const granted = cleanList(context.grantedPermissions);
-  const missing = shellForegroundExecutionDescriptor.permissionsRequired.filter((permission) => !granted.includes(permission));
-  if (missing.length === 0) {
-    return undefined;
-  }
-
-  return failure(
-    "PERMISSION_DENIED",
-    `shell.foregroundExecution is missing permissions: ${missing.join(", ")}`,
-    "permission",
-    context,
-    workingDirectory,
-  );
-}
-
-function ensureDryRunOnly(
-  workingDirectory: string | undefined,
-  context: ShellForegroundExecutionContext | undefined,
-): ShellForegroundExecutionResult | undefined {
-  if (dryRunEnabled(context)) {
-    return undefined;
-  }
-
-  return failure(
-    "REAL_EXECUTION_BLOCKED",
-    "shell.foregroundExecution only returns a guarded dry-run foreground execution plan in the first implementation",
-    "contract",
-    context,
-    workingDirectory,
-  );
-}
-
-export function planShellForegroundExecution(request: ShellForegroundExecutionRequest = {}): ShellForegroundExecutionResult {
-  const target = normalizeTarget(request.target, request.context);
-  if ("ok" in target) {
-    return target;
-  }
-
-  const scopeFailure = ensureScope(target.workingDirectory, request.context);
-  if (scopeFailure !== undefined) {
-    return scopeFailure;
-  }
-
-  const permissionFailure = ensurePermissions(target.workingDirectory, request.context);
-  if (permissionFailure !== undefined) {
-    return permissionFailure;
-  }
-
-  const realExecutionFailure = ensureDryRunOnly(target.workingDirectory, request.context);
-  if (realExecutionFailure !== undefined) {
-    return realExecutionFailure;
-  }
-
-  return {
-    ok: true,
-    toolId: shellForegroundExecutionDescriptor.toolId,
-    output: {
-      kind: "agentCore.basicTool.shell.foregroundExecution",
-      target,
-      commandPreview: [target.shell, "-lc", target.command],
-      permissionsRequired: shellForegroundExecutionDescriptor.permissionsRequired,
-      foregroundContract: {
-        blocksCallerUntilExit: true,
-        exitStatusWillBeCaptured: true,
-      },
-      dryRun: true,
-      executionBlocked: true,
-      unsafeSideEffects: false,
-      resultEnvelope: {
-        planned: true,
-      },
-    },
-    audit: [
-      auditEvent("agentCore.basicTool.shell.foregroundExecution.dryRun", request.context, target.workingDirectory, {
-        shell: target.shell,
-        timeoutMs: target.timeoutMs,
-        captureStdout: target.captureStdout,
-        captureStderr: target.captureStderr,
-      }),
-    ],
-    events: ["basicTool.shell.foregroundExecution.dryRun"],
-  };
-}
+export {
+  shellForegroundExecutionBaseToolDefinition,
+  shellForegroundExecutionBestPracticeDescriptor,
+  shellForegroundExecutionHandler,
+  shellForegroundExecutionProviderPractices,
+  selectShellForegroundExecutionPractice,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/processControl/shell.foregroundExecution/bestPractice.js";

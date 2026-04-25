@@ -2,6 +2,15 @@
 
 > 对应源码：`Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.ts`
 
+## Runtime Contract Snapshot
+
+- Call Shape：调用 `executeShellCapabilityDetection({ target, context, provider? })`，或通过 registry 的 `shellCapabilityDetectionHandler.invoke(request)` 进入。
+- Required Inputs：`target.shellExecutable` 必须是非空字符串；`target.requestedCapabilities` 如提供，必须是已知能力名数组。
+- Runtime Behavior：默认 dry-run，只根据传入 hint 生成能力信封，不调用 provider，`probePlan.realProbeRequired=false`。真实探测必须 `context.dryRun=false` 且 `guard.allowed===true` 或 `guard.accepted===true`，否则返回 `GOVERNANCE_REJECTED`；缺 provider 返回 `PROVIDER_UNAVAILABLE`。`shellExecutable` 会在 provider 前拒绝 NUL、换行和控制字符。
+- Returns：返回 capability findings、required permissions、audit events、`dryRun`、`executionBlocked`，不把 detection 当成执行授权。
+- Example：`shellCapabilityDetectionHandler.invoke({ toolCallId, runtimeId, sessionId, input: { target: { shellExecutable: "/bin/bash" } }, executor: {} })`。
+- Avoid：不要在 baseTools 内直接执行 shell 探测；不要把 provider/runtime 的原始错误或 stderr 泄漏给上层。
+
 ## 1. 文件位置
 
 - 所属顶层模块：执行引擎（`agent_executionEngine`）。
@@ -35,9 +44,9 @@
 - 能力要求1：需要定义该能力的输入、输出、错误、权限需求和可观测事件。
 - 能力要求2：这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
 - 能力要求3：后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
-- 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 边界：入口层只保留显式导出，真实实现与 provider practice 位于 storagePool。
+- 对接：通过 builtin baseTool registry 暴露 handler，由 runtime 注入 executor 与治理上下文。
+- 实现提示：保持入口薄层，不在这里实现探测、审批、sandbox 或进程策略。
 
 ## 5. 需要提供的能力
 

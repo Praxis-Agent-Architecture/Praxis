@@ -74,3 +74,45 @@ test("planShellResourceManagement rejects invalid inputs, scope escapes, and rea
     assert.equal(real.error.code, "REAL_EXECUTION_BLOCKED");
   }
 });
+
+test("planShellResourceManagement returns public-safe errors for malformed runtime JSON shapes", () => {
+  const malformedCases = [
+    {
+      request: { target: { action: "delete", resourceKind: "pty" } },
+      code: "INVALID_ACTION",
+    },
+    {
+      request: { target: { action: "inspect", resourceKind: 1 } },
+      code: "INVALID_RESOURCE_KIND",
+    },
+    {
+      request: { target: { action: "inspect", resourceKind: "pty", resourceId: 1 } },
+      code: "INVALID_RESOURCE_ID",
+    },
+    {
+      request: { target: { action: "reserve", resourceKind: "pty", amount: "1" } },
+      code: "INVALID_RESOURCE_AMOUNT",
+    },
+    {
+      request: { target: { action: "adjust-limit", resourceKind: "io-buffer", limitName: 1, limitValue: 4096 } },
+      code: "MISSING_LIMIT_NAME",
+    },
+    {
+      request: {
+        target: { action: "reserve", resourceKind: "pty" },
+        context: { invocationId: 1, grantedPermissions: {}, allowedResourceIds: { length: 1 }, auditMetadata: 1 },
+      },
+      code: "PERMISSION_DENIED",
+    },
+  ];
+
+  for (const { request, code } of malformedCases) {
+    const result = planShellResourceManagement(request as unknown as Parameters<typeof planShellResourceManagement>[0]);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, code);
+      assert.equal(result.error.publicSafe, true);
+      assert.equal(result.error.internalDetailExposed, false);
+    }
+  }
+});

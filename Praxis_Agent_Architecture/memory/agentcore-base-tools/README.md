@@ -217,6 +217,41 @@ Implementation notes:
 - Both tools keep approval, sandbox, sudo, session, background process, and output-stream ownership out of baseTools. Runtime and TAP still own those policies.
 - Real smoke has verified both tools through the unified registry handler path with a runtime-supplied executor around `printf`.
 
+The first shell generation batch now follows the same provider-practice standard:
+
+```text
+src/storagePool/baseToolStorage/shellBase/shellGeneration/shell.argumentAssembly/
+src/storagePool/baseToolStorage/shellBase/shellGeneration/shell.commandGeneration/
+src/storagePool/baseToolStorage/shellBase/shellGeneration/shell.executionGuard/
+src/storagePool/baseToolStorage/shellBase/shellGeneration/shell.invocationConstruction/
+src/storagePool/baseToolStorage/shellBase/shellGeneration/shell.scriptGeneration/
+```
+
+Implementation notes:
+
+- All five `baseTools/shellBase/shellGeneration/shell.*.ts` entry files are thin explicit re-export surfaces.
+- All five storage folders include `core.ts`, `bestPractice.ts`, `dependencies.ts`, provider-practice metadata files, and practical toolSkill markdown.
+- The batch is registered in `builtinBaseToolHandlers.ts`:
+  - `shell.argumentAssembly`
+  - `shell.commandGeneration`
+  - `shell.executionGuard`
+  - `shell.invocationConstruction`
+  - `shell.scriptGeneration`
+- These generation tools are pure/dry-run primitives. They do not own approval, sandbox, sudo policy, process lifecycle, or shell execution.
+- Runtime JSON boundary hardening was added for malformed executable, argv, command, generatedCommand, guard, commands, and environment shapes so bad input returns classified errors instead of raw `TypeError`.
+- A shellGeneration registry test verifies `createBaseToolRegistry().lookupHandler(...).handler.invoke(...)` for the full generation chain.
+- The batch is now provider-backed in the same architectural sense as shellExecution/LSP, while remaining side-effect free:
+  - `dependencies.ts` defines provider/dependency/practice contracts.
+  - `anthropic.ts`, `openai.ts`, and `deepmind.ts` expose `createProvider(...)`.
+  - `bestPractice.ts` selects `providerName + practice + provider` and invokes the selected provider.
+  - injected providers are tested and called through the bestPractice layer.
+  - default provider functions route to the deterministic Praxis core implementation.
+- CLI-first evidence is now represented in provider metadata:
+  - Anthropic practices reference Claude Code BashTool and its shell permission/safety flow.
+  - OpenAI practices reference Codex Rust shell payload, handler, sandboxing, and approval flow.
+  - DeepMind practices reference Gemini CLI shell invocation, shell-utils, and confirmation/policy flow.
+- Additional regression tests cover provider selection, injected provider calls, registry-level malformed JSON handling, and core malformed JSON no-throw cases.
+
 Shell baseTool rollout standard:
 
 - Shell tools should mirror the LSP provider-practice layout unless there is a documented reason not to:

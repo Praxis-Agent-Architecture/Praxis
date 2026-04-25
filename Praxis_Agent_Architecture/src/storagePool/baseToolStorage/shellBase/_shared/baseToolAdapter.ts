@@ -25,7 +25,7 @@ export type ShellBestPracticeSource = {
 
 export type ShellBestPracticeMetadata<Name extends string = ShellBestPracticeProviderName> = {
   providerName: Name;
-  source: string | ShellBestPracticeSource;
+  source: ShellBestPracticeSource;
   directCliSupport: boolean;
   sideEffectPolicy?: "runtime-governed";
   notes?: readonly string[];
@@ -38,7 +38,18 @@ export type ShellBestPracticeSelection<Name extends string = ShellBestPracticePr
   sourcePath?: string;
   directCliSupport: boolean;
   sideEffectPolicy?: string;
-  notes: readonly string[];
+  notes?: readonly string[];
+};
+
+export type ShellProviderPracticeMetadata<Name extends string, Provider, Dependencies> =
+  ShellBestPracticeMetadata<Name> & {
+    createProvider?(dependencies: Dependencies): Provider | undefined;
+  };
+
+export type ShellProviderPracticeSelection<Name extends string, Provider, Practice> = {
+  providerName: Name;
+  practice: Practice;
+  provider?: Provider;
 };
 
 export type ShellBaseToolDefinitionOptions<Input, Output> = {
@@ -148,10 +159,10 @@ function normalizePracticeSource(
   };
 }
 
-export function orderShellPractices<Name extends string>(
-  practices: readonly ShellBestPracticeMetadata<Name>[],
+export function orderShellPractices<Name extends string, Practice extends ShellBestPracticeMetadata<Name>>(
+  practices: readonly Practice[],
   preferredProvider: Name | undefined,
-): readonly ShellBestPracticeMetadata<Name>[] {
+): readonly Practice[] {
   if (preferredProvider === undefined) {
     return practices;
   }
@@ -184,6 +195,35 @@ export function selectShellPractice<Name extends ShellBestPracticeProviderName>(
     directCliSupport: selected.directCliSupport,
     sideEffectPolicy: selected.sideEffectPolicy,
     notes: selected.notes ?? [],
+  };
+}
+
+export function selectShellProviderPractice<Name extends string, Provider, Dependencies>(
+  practices: readonly ShellProviderPracticeMetadata<Name, Provider, Dependencies>[],
+  dependencies: Dependencies & { preferredProvider?: Name },
+  fallbackPractice: ShellProviderPracticeMetadata<Name, Provider, Dependencies>,
+): ShellProviderPracticeSelection<Name, Provider, ShellProviderPracticeMetadata<Name, Provider, Dependencies>> {
+  const orderedPractices: readonly ShellProviderPracticeMetadata<Name, Provider, Dependencies>[] =
+    dependencies.preferredProvider === undefined
+      ? practices
+      : [
+          ...practices.filter((practice) => practice.providerName === dependencies.preferredProvider),
+          ...practices.filter((practice) => practice.providerName !== dependencies.preferredProvider),
+        ];
+
+  const selectedPractice = orderedPractices[0];
+  if (selectedPractice !== undefined) {
+    return {
+      providerName: selectedPractice.providerName,
+      practice: selectedPractice,
+      provider: selectedPractice.createProvider?.(dependencies),
+    };
+  }
+
+  return {
+    providerName: fallbackPractice.providerName,
+    practice: fallbackPractice,
+    provider: fallbackPractice.createProvider?.(dependencies),
   };
 }
 

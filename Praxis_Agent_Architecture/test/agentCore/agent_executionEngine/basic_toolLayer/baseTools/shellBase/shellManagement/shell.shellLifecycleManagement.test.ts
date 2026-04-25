@@ -43,18 +43,19 @@ test("planShellLifecycleManagement creates a guarded shell lifecycle dry-run env
   assert.deepEqual(result.events, ["basicTool.shell.shellLifecycleManagement.create.dryRun"]);
 });
 
-test("planShellLifecycleManagement requires approval for close actions", () => {
-  const rejected = planShellLifecycleManagement({
+test("planShellLifecycleManagement marks close actions approval-relevant without owning approval policy", () => {
+  const close = planShellLifecycleManagement({
     target: {
       action: "close",
       sessionId: "shell-session-1",
     },
     context: { grantedPermissions: ["shell:lifecycle:manage"] },
   });
-  assert.equal(rejected.ok, false);
-  if (!rejected.ok) {
-    assert.equal(rejected.error.code, "APPROVAL_REQUIRED");
-    assert.equal(rejected.error.boundary, "approval");
+  assert.equal(close.ok, true);
+  if (close.ok) {
+    assert.equal(close.output.plannedState, "closed");
+    assert.equal(close.output.requiresTapApproval, true);
+    assert.equal(close.output.approvalId, undefined);
   }
 
   const approved = planShellLifecycleManagement({
@@ -138,5 +139,39 @@ test("planShellLifecycleManagement rejects missing action, scope, permission, ti
   if (!real.ok) {
     assert.equal(real.error.code, "REAL_LIFECYCLE_CHANGE_BLOCKED");
     assert.equal(real.error.boundary, "contract");
+  }
+});
+
+test("planShellLifecycleManagement returns public-safe errors for malformed runtime JSON shapes", () => {
+  const malformedCases = [
+    {
+      request: { target: { action: "attach", sessionId: 1 } },
+      code: "INVALID_SESSION_ID",
+    },
+    {
+      request: { target: { action: "create", workingDirectory: 1 } },
+      code: "INVALID_WORKING_DIRECTORY",
+    },
+    {
+      request: { target: { action: "create", idleTimeoutMs: "fast" } },
+      code: "INVALID_TIMEOUT",
+    },
+    {
+      request: {
+        target: { action: "create" },
+        context: { invocationId: 1, grantedPermissions: {}, auditMetadata: 1 },
+      },
+      code: "PERMISSION_DENIED",
+    },
+  ];
+
+  for (const { request, code } of malformedCases) {
+    const result = planShellLifecycleManagement(request as unknown as Parameters<typeof planShellLifecycleManagement>[0]);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, code);
+      assert.equal(result.error.publicSafe, true);
+      assert.equal(result.error.internalDetailExposed, false);
+    }
   }
 });

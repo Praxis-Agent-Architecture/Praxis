@@ -20,8 +20,8 @@
 - 原始文件名：`shell.sandboxEnforcement.ts`。
 - 命名片段：`shell` / `sandbox` / `Enforcement`。
 - 工程含义：这是 `shellBase` 下 `executionGuard` 分组里的 `sandboxEnforcement` 基础工具原语，重点是把一个底层动作做成可治理、可审计、可测试的最小工具能力。
-- 第一实现重点：先定义工具调用参数、权限需求、dry-run/guard/audit 结果，再决定是否接真实系统动作。
-- 与 TAP 的关系：这里只提供底层原语；审批、组合、专业工具库和替换策略应交给 TAP 高级系统。
+- 当前实现重点：返回可审计的 sandbox envelope；`decision: enforced` 只说明 scope material 通过检查，不表示 baseTool 已经创建 OS sandbox。
+- 与 TAP 的关系：这里只提供底层原语；最终执行审批、主机隔离、shell 进程创建和拒绝原因归档都属于 runtime/TAP。
 
 ## 3. 目录语义
 
@@ -60,6 +60,9 @@
 
 - 工具执行结果、工具事件、审计材料和可交给 TAP 继续治理的状态。
 - 不泄漏底层实现细节的标准工具结果信封。
+- `baseToolAppliedSandbox` 固定为 `false`，`executionBlocked` 保持为 `true`，用于明确本工具不直接创建 OS sandbox 或执行 shell。
+- provider 只能补充或收紧 `decision`、`reasons`、`requiresTapApproval` 这类判定字段；`command`、`workingDirectory`、`sandboxRoots`、`requestedPaths`、`kind` 和安全标志由 baseTool 归一化后固定。
+- `workingDirectory`、`sandboxRoots` 和 `requestedPaths` 会折叠 `..`、反斜杠和重复分隔符后再做 scope 判断。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 
@@ -117,6 +120,6 @@
 
 ## 14. 与系统链路的关系
 
-它处在工具调用链的底层：runtime 和 TAP 经过治理后调用这些基础工具原语。
+它处在工具调用链的底层：runtime 和 TAP 经过治理后调用这些基础工具原语。真实 provider 调用必须先满足非冲突的 affirmative runtime guard；guard 缺失、错形、拒绝或冲突时返回 `GOVERNANCE_REJECTED`，不会调用 provider。
 
 这份文档服务后续编码：当实现该文件时，应先回看本文件说明，再决定类型、函数、类和测试如何落位。

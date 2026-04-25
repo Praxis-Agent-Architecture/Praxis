@@ -9,260 +9,42 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-import { quoteShellArgument, type ShellArgumentAssemblyOutput } from "./shell.argumentAssembly.js";
+export type {
+  ShellCommandGenerationAuditEvent,
+  ShellCommandGenerationBoundary,
+  ShellCommandGenerationContext,
+  ShellCommandGenerationError,
+  ShellCommandGenerationErrorCode,
+  ShellCommandGenerationOutput,
+  ShellCommandGenerationPermission,
+  ShellCommandGenerationRequest,
+  ShellCommandGenerationResult,
+  ShellCommandShell,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/shellGeneration/shell.commandGeneration/core.js";
 
-export type ShellCommandGenerationPermission = "shell:generate";
+export {
+  generateShellCommand,
+  shellCommandGenerationDescriptor,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/shellGeneration/shell.commandGeneration/core.js";
 
-export type ShellCommandGenerationBoundary = "input" | "permission" | "contract" | "governance";
+export {
+  generateShellCommandBestPractice,
+  shellCommandGenerationBaseToolDefinition,
+  shellCommandGenerationBestPracticeDescriptor,
+  shellCommandGenerationHandler,
+  shellCommandGenerationProviderPractices,
+  selectShellCommandGenerationPractice,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/shellGeneration/shell.commandGeneration/bestPractice.js";
 
-export type ShellCommandShell = "sh" | "bash" | "zsh";
+export type {
+  ShellCommandGenerationBestPracticeRequest,
+  ShellCommandGenerationHandlerInput,
+  ShellCommandGenerationPracticeSelection,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/shellGeneration/shell.commandGeneration/bestPractice.js";
 
-export type ShellCommandGenerationContext = {
-  runtimeId?: string;
-  invocationId?: string;
-  dryRun?: boolean;
-  grantedPermissions?: readonly ShellCommandGenerationPermission[];
-  auditMetadata?: Readonly<Record<string, unknown>>;
-};
-
-export type ShellCommandGenerationRequest = {
-  argv?: readonly string[];
-  assembledArguments?: ShellArgumentAssemblyOutput;
-  shell?: ShellCommandShell;
-  workingDirectory?: string;
-  environmentKeys?: readonly string[];
-  context?: ShellCommandGenerationContext;
-};
-
-export type ShellCommandGenerationErrorCode =
-  | "MISSING_ARGUMENT_VECTOR"
-  | "INVALID_ARGUMENT_VECTOR"
-  | "INVALID_SHELL"
-  | "PERMISSION_DENIED"
-  | "REAL_EXECUTION_BLOCKED";
-
-export type ShellCommandGenerationError = {
-  code: ShellCommandGenerationErrorCode;
-  message: string;
-  boundary: ShellCommandGenerationBoundary;
-  publicSafe: true;
-  internalDetailExposed: false;
-};
-
-export type ShellCommandGenerationAuditEvent = {
-  type: string;
-  toolId: "shell.commandGeneration";
-  invocationId: string;
-  dryRun: boolean;
-  commandPreview?: string;
-  metadata: Readonly<Record<string, unknown>>;
-};
-
-export type ShellCommandGenerationOutput = {
-  kind: "agentCore.basicTool.shell.commandGeneration";
-  shell: ShellCommandShell;
-  commandLine: string;
-  argv: readonly string[];
-  executable: string;
-  workingDirectory?: string;
-  environmentKeys: readonly string[];
-  requiredPermission: ShellCommandGenerationPermission;
-  dryRun: true;
-  executionBlocked: true;
-  unsafeSideEffects: false;
-};
-
-export type ShellCommandGenerationResult =
-  | {
-      ok: true;
-      toolId: "shell.commandGeneration";
-      output: ShellCommandGenerationOutput;
-      audit: readonly ShellCommandGenerationAuditEvent[];
-      events: readonly string[];
-    }
-  | {
-      ok: false;
-      toolId: "shell.commandGeneration";
-      error: ShellCommandGenerationError;
-      audit: readonly ShellCommandGenerationAuditEvent[];
-      events: readonly string[];
-    };
-
-export const shellCommandGenerationDescriptor = {
-  toolId: "shell.commandGeneration",
-  capability: "shell-command-generation",
-  route: "agent_executionEngine.basic_toolLayer.baseTools.shellBase.shellGeneration",
-  defaultDryRun: true,
-  tapOwnsApproval: true,
-  requiredPermission: "shell:generate",
-  unsafeSideEffects: false,
-} as const;
-
-function dryRunEnabled(context: ShellCommandGenerationContext | undefined): boolean {
-  return context?.dryRun !== false;
-}
-
-function invocationId(context: ShellCommandGenerationContext | undefined): string {
-  return context?.invocationId?.trim() || "shell.commandGeneration:dry-run";
-}
-
-function cleanList(values: readonly string[] | undefined): readonly string[] {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
-}
-
-function cleanPermissions(
-  permissions: readonly ShellCommandGenerationPermission[] | undefined,
-): readonly ShellCommandGenerationPermission[] {
-  return [...new Set((permissions ?? []).filter((permission): permission is ShellCommandGenerationPermission => permission === "shell:generate"))];
-}
-
-function auditEvent(
-  type: string,
-  context: ShellCommandGenerationContext | undefined,
-  commandPreview?: string,
-  metadata?: Readonly<Record<string, unknown>>,
-): ShellCommandGenerationAuditEvent {
-  return {
-    type,
-    toolId: shellCommandGenerationDescriptor.toolId,
-    invocationId: invocationId(context),
-    dryRun: dryRunEnabled(context),
-    commandPreview,
-    metadata: {
-      ...(context?.auditMetadata ?? {}),
-      ...(metadata ?? {}),
-    },
-  };
-}
-
-function failure(
-  code: ShellCommandGenerationErrorCode,
-  message: string,
-  boundary: ShellCommandGenerationBoundary,
-  context: ShellCommandGenerationContext | undefined,
-  commandPreview?: string,
-): ShellCommandGenerationResult {
-  return {
-    ok: false,
-    toolId: shellCommandGenerationDescriptor.toolId,
-    error: { code, message, boundary, publicSafe: true, internalDetailExposed: false },
-    audit: [auditEvent("agentCore.basicTool.shell.commandGeneration.rejected", context, commandPreview, { code })],
-    events: ["basicTool.shell.commandGeneration.rejected"],
-  };
-}
-
-function ensurePermissions(
-  context: ShellCommandGenerationContext | undefined,
-): ShellCommandGenerationResult | undefined {
-  if (context?.grantedPermissions === undefined) {
-    return undefined;
-  }
-
-  const granted = cleanPermissions(context.grantedPermissions);
-  if (granted.includes(shellCommandGenerationDescriptor.requiredPermission)) {
-    return undefined;
-  }
-
-  return failure(
-    "PERMISSION_DENIED",
-    "shell.commandGeneration is missing permission: shell:generate",
-    "permission",
-    context,
-  );
-}
-
-function ensureDryRunOnly(
-  context: ShellCommandGenerationContext | undefined,
-): ShellCommandGenerationResult | undefined {
-  if (dryRunEnabled(context)) {
-    return undefined;
-  }
-
-  return failure(
-    "REAL_EXECUTION_BLOCKED",
-    "shell.commandGeneration only creates a dry-run command envelope in the first implementation",
-    "contract",
-    context,
-  );
-}
-
-function commandShell(shell: ShellCommandShell | undefined): ShellCommandShell | undefined {
-  if (shell === undefined) {
-    return "sh";
-  }
-
-  if (shell === "sh" || shell === "bash" || shell === "zsh") {
-    return shell;
-  }
-
-  return undefined;
-}
-
-function argumentVector(request: ShellCommandGenerationRequest): readonly string[] {
-  return request.assembledArguments?.argv ?? request.argv ?? [];
-}
-
-export function generateShellCommand(request: ShellCommandGenerationRequest = {}): ShellCommandGenerationResult {
-  const shell = commandShell(request.shell);
-  if (shell === undefined) {
-    return failure("INVALID_SHELL", "shell.commandGeneration shell must be sh, bash, or zsh", "input", request.context);
-  }
-
-  const permissionFailure = ensurePermissions(request.context);
-  if (permissionFailure !== undefined) {
-    return permissionFailure;
-  }
-
-  const realExecutionFailure = ensureDryRunOnly(request.context);
-  if (realExecutionFailure !== undefined) {
-    return realExecutionFailure;
-  }
-
-  const argv = argumentVector(request).map((value) => value.trim());
-  if (argv.length === 0) {
-    return failure(
-      "MISSING_ARGUMENT_VECTOR",
-      "shell.commandGeneration requires an argv vector from argument assembly",
-      "input",
-      request.context,
-    );
-  }
-
-  if (argv.some((value) => value.length === 0)) {
-    return failure(
-      "INVALID_ARGUMENT_VECTOR",
-      "shell.commandGeneration does not accept blank argv tokens",
-      "input",
-      request.context,
-    );
-  }
-
-  const commandLine = argv.map(quoteShellArgument).join(" ");
-  const environmentKeys = cleanList(request.environmentKeys);
-
-  return {
-    ok: true,
-    toolId: shellCommandGenerationDescriptor.toolId,
-    output: {
-      kind: "agentCore.basicTool.shell.commandGeneration",
-      shell,
-      commandLine,
-      argv,
-      executable: argv[0] ?? "",
-      workingDirectory: request.workingDirectory?.trim() || undefined,
-      environmentKeys,
-      requiredPermission: shellCommandGenerationDescriptor.requiredPermission,
-      dryRun: true,
-      executionBlocked: true,
-      unsafeSideEffects: false,
-    },
-    audit: [
-      auditEvent("agentCore.basicTool.shell.commandGeneration.dryRun", request.context, commandLine, {
-        shell,
-        argc: argv.length,
-        environmentKeys,
-      }),
-    ],
-    events: ["basicTool.shell.commandGeneration.generated"],
-  };
-}
+export type {
+  ShellCommandGenerationDependencies,
+  ShellCommandGenerationPracticeProviderName,
+  ShellCommandGenerationProvider,
+  ShellCommandGenerationProviderPractice,
+} from "../../../../../../storagePool/baseToolStorage/shellBase/shellGeneration/shell.commandGeneration/dependencies.js";
