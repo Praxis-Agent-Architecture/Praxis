@@ -148,6 +148,96 @@ Implementation notes:
 - The shell practice contract now mirrors LSP more closely: provider practice files expose `createProvider(...)`, `selectShellCommandExecutionPractice(...)` returns `providerName`, `practice`, and `provider`, and dependency declarations use `satisfies readonly BaseToolDependencyDeclaration[]`.
 - A registry-level invocation test verifies the unified mount path: `createBaseToolRegistry().lookupHandler("shell.commandExecution").handler.invoke(...)` can call a runtime-supplied `executor.shell.run`.
 
+Shell baseTool rollout standard:
+
+- Shell tools should mirror the LSP provider-practice layout unless there is a documented reason not to:
+
+```text
+src/storagePool/baseToolStorage/shellBase/<group>/<toolId>/
+  openai.ts
+  anthropic.ts
+  deepmind.ts
+  dependencies.ts
+  bestPractice.ts
+  core.ts
+  <toolId>.md
+```
+
+- The matching `baseTools/shellBase/<group>/<toolId>.ts` file should stay as the stable model/runtime entrypoint and explicitly re-export:
+  - public core types and descriptors
+  - the dry-run compatibility function if one already exists
+  - the provider-backed best-practice function
+  - `BaseToolDefinition`
+  - `BaseToolHandler`
+  - the provider practice selection type/function
+- Do not leave the entrypoint as a bare `export *`; it must show the intended public surface the same way the directoryized LSP entries do.
+- `dependencies.ts` owns the provider-practice contract for that tool:
+  - `PracticeProviderName`
+  - `Dependencies`
+  - `ProviderPractice`
+  - dependency declarations using `satisfies readonly BaseToolDependencyDeclaration[]`
+  - helper functions that adapt `BaseToolExecutorPort` into the tool provider
+- Each `anthropic.ts`, `openai.ts`, and `deepmind.ts` practice file should export provider metadata plus `createProvider(...)`.
+- `bestPractice.ts` should select practices in Anthropic -> OpenAI -> DeepMind order unless `preferredProvider` is supplied, and its selection result should include:
+  - `providerName`
+  - `practice`
+  - `provider`
+- `core.ts` owns primitive normalization, dry-run compatibility, provider dispatch, public-safe errors, audit events, and provider-called output flags.
+- `core.ts` must not implement approval, sandbox, sudo policy, long-running session ownership, background process management, or output-stream ownership. Those are runtime/TAP responsibilities.
+- Real shell execution is allowed only through runtime-supplied providers such as `BaseToolExecutorPort.shell.run`, or through injected test providers.
+- If `context.dryRun !== false`, provider dispatch must not happen.
+- If runtime guard says denied, provider dispatch must not happen.
+- If `context.dryRun === false` and no provider exists, return a public-safe provider-unavailable error instead of falling back to hidden local execution.
+- The storage toolSkill markdown should follow the LSP practical style:
+  - frontmatter with `description` and `argument-hint`
+  - `Use This Tool`
+  - `Call Shape`
+  - `Required Inputs`
+  - `Optional Inputs`
+  - `Runtime Behavior`
+  - `Returns`
+  - `Example`
+  - `Avoid`
+
+Shell baseTool acceptance tests:
+
+- Keep the old dry-run planner tests passing when replacing a flat shell file with a directoryized implementation.
+- Add direct core tests for dry-run no-provider-call, provider call when `dryRun: false`, provider unavailable, governance denial, and provider failure mapping.
+- Add a handler test that invokes the exported `shellXxxHandler` through `BaseToolInvokeRequest` and a fake `executor.shell`.
+- Add a registry-level test that calls `createBaseToolRegistry().lookupHandler(toolId).handler.invoke(...)`.
+- Add at least one non-mutating live smoke when practical, using the registry handler and a runtime-supplied executor around a harmless command such as `printf`.
+- After each shell conversion, run:
+
+```bash
+npm run typecheck
+node --import tsx --test test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/<group>/<toolId>.test.ts
+find test/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test
+npm run test:agentCore
+```
+
+Rollout order for the remaining shell tools:
+
+1. Pure/near-pure guard and generation tools:
+   - `shell.commandValidation`
+   - `shell.executionGuard`
+   - `shell.invocationConstruction`
+2. Observation/result tools that consume runtime-provided material:
+   - `shell.outputCapture`
+   - `shell.exitCodeChecking`
+   - `shell.runtimeObservation`
+3. Foreground process primitives:
+   - `shell.processSpawning`
+   - `shell.foregroundExecution`
+4. Stateful or high-risk shell tools:
+   - background execution
+   - detached execution
+   - interactive control
+   - stdin feeding
+   - prompt handling
+   - session/process/resource management
+
+Stateful or high-risk shell tools should wait until the runtime-side session/process/output ownership contracts are ready. Do not make baseTools invent those policies locally.
+
 For these tools, baseTools entry files are thin re-export surfaces and concrete runtime work lives in `src/storagePool/baseToolStorage/codeBase/lsp`.
 
 The LSP category is no longer only a directory/layout sample. It now has a real executable path:
