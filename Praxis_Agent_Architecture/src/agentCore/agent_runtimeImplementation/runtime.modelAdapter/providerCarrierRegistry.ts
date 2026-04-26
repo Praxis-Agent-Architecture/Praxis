@@ -12,6 +12,11 @@ import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
 } from "./modelAdapterRuntime.js";
+import type {
+  ProviderCachePolicy,
+  ProviderReasoningConfig,
+} from "../../agent_modelAdapter/providerAccessLayer/providerCarrier.js";
+import type { CredentialRef } from "../../agent_modelAdapter/authProfileLayer/credentialRef.js";
 
 export type ProviderCarrierKind =
   | "openai"
@@ -25,6 +30,13 @@ export type ProviderCarrierEndpointShape =
   | "messages"
   | "completion"
   | "embedding"
+  | "image"
+  | "audio"
+  | "realtime"
+  | "video"
+  | "files"
+  | "vector-store"
+  | "skills"
   | "custom"
   | (string & {});
 
@@ -59,6 +71,11 @@ export type ProviderCarrierInput = {
   carrierId?: string;
   provider?: ProviderCarrierKind;
   endpointShape?: ProviderCarrierEndpointShape;
+  baseURL?: string;
+  model?: string;
+  reasoning?: ProviderReasoningConfig;
+  credentialRef?: CredentialRef;
+  cachePolicy?: ProviderCachePolicy;
   capabilities?: readonly string[];
   scopes?: readonly string[];
   metadata?: Readonly<Record<string, unknown>>;
@@ -78,6 +95,11 @@ export type RegisteredProviderCarrier = {
   carrierId: string;
   provider: ProviderCarrierKind;
   endpointShape?: ProviderCarrierEndpointShape;
+  baseURL?: string;
+  model?: string;
+  reasoning?: ProviderReasoningConfig;
+  credentialRef?: CredentialRef;
+  cachePolicy: ProviderCachePolicy;
   capabilities: readonly string[];
   scopes: readonly string[];
   metadata: Readonly<Record<string, unknown>>;
@@ -166,12 +188,34 @@ function normalizeCarrier(carrier: ProviderCarrierInput): RegisteredProviderCarr
     provider: carrier.provider.trim(),
     capabilities: cleanList(carrier.capabilities),
     scopes: cleanList(carrier.scopes),
+    cachePolicy: carrier.cachePolicy ?? { intent: "none" },
     metadata: carrier.metadata ?? {},
     status: "registered",
   };
 
   if (endpointShape !== undefined && endpointShape.length > 0) {
     normalized.endpointShape = endpointShape;
+  }
+
+  const baseURL = carrier.baseURL?.trim().replace(/\/+$/, "");
+  if (baseURL !== undefined && baseURL.length > 0) {
+    normalized.baseURL = baseURL;
+  }
+
+  const model = carrier.model?.trim();
+  if (model !== undefined && model.length > 0) {
+    normalized.model = model;
+  }
+
+  if (carrier.reasoning !== undefined) {
+    normalized.reasoning = {
+      effort: carrier.reasoning.effort?.trim() || undefined,
+      summary: carrier.reasoning.summary?.trim() || undefined,
+    };
+  }
+
+  if (carrier.credentialRef !== undefined) {
+    normalized.credentialRef = carrier.credentialRef;
   }
 
   return normalized;

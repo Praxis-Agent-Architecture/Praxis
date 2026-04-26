@@ -9,6 +9,9 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import type { AuthEnvelope } from "../../authProfileLayer/authEnvelope.js";
+import { unwrapProviderCallerBody } from "../../providerAccessLayer/providerCaller.js";
+
 export const OPENAI_V1_RESPONSES_ENDPOINT = "/v1/responses" as const;
 export const DEFAULT_OPENAI_V1_RESPONSES_BASE_URL = "https://api.openai.com" as const;
 
@@ -59,7 +62,7 @@ export type OpenAIV1ResponsesAuthEnvelope = {
 export type OpenAIV1ResponsesRequestEnvelope = {
   provider: "openai";
   apiVersion: "v1";
-  endpoint: typeof OPENAI_V1_RESPONSES_ENDPOINT;
+  endpoint: string;
   operation: string;
   method: OpenAIV1ResponsesMethod;
   url: string;
@@ -83,12 +86,13 @@ export type OpenAIV1ResponsesProviderCaller = (
 export type OpenAIV1ResponsesInvocationRequest = {
   operation?: string;
   method?: OpenAIV1ResponsesMethod;
+  endpointPath?: string;
   pathSuffix?: string;
   query?: Readonly<Record<string, string | number | boolean | undefined>>;
   headers?: Readonly<Record<string, string | undefined>>;
   body?: unknown;
   baseUrl?: string;
-  auth?: OpenAIV1ResponsesAuthEnvelope;
+  auth?: OpenAIV1ResponsesAuthEnvelope | AuthEnvelope;
   runtime?: OpenAIV1ResponsesRuntimeContext;
   requiredScopes?: readonly string[];
   allowedScopes?: readonly string[];
@@ -102,7 +106,7 @@ export type OpenAIV1ResponsesInvocationRequest = {
 
 export type OpenAIV1ResponsesResponseEnvelope = {
   provider: "openai";
-  endpoint: typeof OPENAI_V1_RESPONSES_ENDPOINT;
+  endpoint: string;
   mode: "dry-run" | "mock" | "caller";
   raw: unknown;
   providerFieldsOpaque: true;
@@ -110,7 +114,7 @@ export type OpenAIV1ResponsesResponseEnvelope = {
 
 export type OpenAIV1ResponsesCapabilitySignal = {
   provider: "openai";
-  endpoint: typeof OPENAI_V1_RESPONSES_ENDPOINT;
+  endpoint: string;
   operation: string;
   rawShape: "response-object" | "response-list" | "mock" | "dry-run";
 };
@@ -165,19 +169,33 @@ function cleanHeaders(headers: OpenAIV1ResponsesInvocationRequest["headers"]): R
   );
 }
 
+function authHeaderPlan(auth: OpenAIV1ResponsesInvocationRequest["auth"]): Readonly<Record<string, string>> {
+  if (auth === undefined || !("headerPlan" in auth)) {
+    return {};
+  }
+
+  return Object.fromEntries(auth.headerPlan.map((header) => [header.name.trim().toLowerCase(), String(header.value)]));
+}
+
 function normalizeBaseUrl(baseUrl: string | undefined): string {
   return hasText(baseUrl) ? baseUrl.trim().replace(/\/+$/, "") : DEFAULT_OPENAI_V1_RESPONSES_BASE_URL;
+}
+
+function normalizeEndpointPath(endpointPath: string | undefined): string {
+  const cleaned = endpointPath?.trim().replace(/^\/+/, "").replace(/\/+$/, "");
+  return `/${cleaned || OPENAI_V1_RESPONSES_ENDPOINT.replace(/^\/+/u, "")}`;
 }
 
 function cleanPathSuffix(pathSuffix: string | undefined): string {
   return pathSuffix?.trim().replace(/^\/+/, "").replace(/\/+$/, "") ?? "";
 }
 
-function buildUrl(baseUrl: string | undefined, pathSuffix: string | undefined): string {
+function buildUrl(baseUrl: string | undefined, endpointPath: string | undefined, pathSuffix: string | undefined): string {
   const suffix = cleanPathSuffix(pathSuffix);
+  const endpoint = normalizeEndpointPath(endpointPath);
   return suffix
-    ? `${normalizeBaseUrl(baseUrl)}${OPENAI_V1_RESPONSES_ENDPOINT}/${suffix}`
-    : `${normalizeBaseUrl(baseUrl)}${OPENAI_V1_RESPONSES_ENDPOINT}`;
+    ? `${normalizeBaseUrl(baseUrl)}${endpoint}/${suffix}`
+    : `${normalizeBaseUrl(baseUrl)}${endpoint}`;
 }
 
 function failure(
@@ -229,7 +247,15 @@ export function classifyOpenAIV1ResponsesProviderError(error: unknown): OpenAIV1
     return "PROVIDER_AUTH_FAILED";
   }
 
+  if (code.includes("provider_auth_failed")) {
+    return "PROVIDER_AUTH_FAILED";
+  }
+
   if (status === 429) {
+    return "PROVIDER_RATE_LIMITED";
+  }
+
+  if (code.includes("provider_rate_limited")) {
     return "PROVIDER_RATE_LIMITED";
   }
 
@@ -241,7 +267,11 @@ export function classifyOpenAIV1ResponsesProviderError(error: unknown): OpenAIV1
     return "PROVIDER_UNAVAILABLE";
   }
 
-  if (code.includes("format") || code.includes("schema") || code.includes("parse")) {
+  if (code.includes("provider_unavailable")) {
+    return "PROVIDER_UNAVAILABLE";
+  }
+
+  if (code.includes("format") || code.includes("schema") || code.includes("parse") || code.includes("response_format_drift")) {
     return "RESPONSE_FORMAT_DRIFT";
   }
 
@@ -276,7 +306,16 @@ export async function invokeOpenAIV1Responses(
     );
   }
 
-  if (input.auth?.present === false) {
+  const liveMode = input.dryRun === false;
+  if (liveMode && input.governance?.accepted !== true) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      "OpenAI v1 responses live invocation requires affirmative runtime governance",
+      "governance",
+    );
+  }
+
+  if (liveMode && input.auth?.present !== true) {
     return failure("AUTH_REJECTED", "OpenAI v1 responses auth envelope is unavailable", "auth");
   }
 
@@ -298,13 +337,16 @@ export async function invokeOpenAIV1Responses(
   const request: OpenAIV1ResponsesRequestEnvelope = {
     provider: "openai",
     apiVersion: "v1",
-    endpoint: OPENAI_V1_RESPONSES_ENDPOINT,
+    endpoint: normalizeEndpointPath(input.endpointPath),
     operation,
     method: input.method ?? "POST",
-    url: buildUrl(input.baseUrl, input.pathSuffix),
+    url: buildUrl(input.baseUrl, input.endpointPath, input.pathSuffix),
     pathSuffix,
     query: cleanQuery(input.query),
-    headers: cleanHeaders(input.headers),
+    headers: {
+      ...cleanHeaders(input.headers),
+      ...authHeaderPlan(input.auth),
+    },
     body: input.body,
     runtime: {
       runtimeId: runtime.runtimeId.trim(),
@@ -314,8 +356,8 @@ export async function invokeOpenAIV1Responses(
     },
     requestedScopes,
     grantedScopes: requestedScopes,
-    dryRun: input.dryRun !== false,
-    providerCallPlanned: input.dryRun === false,
+    dryRun: !liveMode,
+    providerCallPlanned: liveMode,
     unsafeSideEffects: false,
     providerFieldsOpaque: true,
   };
@@ -326,14 +368,14 @@ export async function invokeOpenAIV1Responses(
       request,
       response: {
         provider: "openai",
-        endpoint: OPENAI_V1_RESPONSES_ENDPOINT,
+        endpoint: request.endpoint,
         mode: input.mockResponse === undefined ? "dry-run" : "mock",
         raw: input.mockResponse ?? null,
         providerFieldsOpaque: true,
       },
       capability: {
         provider: "openai",
-        endpoint: OPENAI_V1_RESPONSES_ENDPOINT,
+        endpoint: request.endpoint,
         operation,
         rawShape: input.mockResponse === undefined ? "dry-run" : "mock",
       },
@@ -352,7 +394,7 @@ export async function invokeOpenAIV1Responses(
   }
 
   try {
-    const raw = await input.caller(request);
+    const raw = unwrapProviderCallerBody(await input.caller(request));
     if (input.expectResponseObject === true && !isRecord(raw)) {
       return failure(
         "RESPONSE_FORMAT_DRIFT",
@@ -368,14 +410,14 @@ export async function invokeOpenAIV1Responses(
       request,
       response: {
         provider: "openai",
-        endpoint: OPENAI_V1_RESPONSES_ENDPOINT,
+        endpoint: request.endpoint,
         mode: "caller",
         raw,
         providerFieldsOpaque: true,
       },
       capability: {
         provider: "openai",
-        endpoint: OPENAI_V1_RESPONSES_ENDPOINT,
+        endpoint: request.endpoint,
         operation,
         rawShape: inferRawShape(operation, raw),
       },

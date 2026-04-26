@@ -6,12 +6,28 @@ import {
   classifyOpenAIV1ImagesGenerationsProviderError,
   invokeOpenAIV1ImagesGenerations,
 } from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.js";
+import { createApiKeyAuthEnvelope } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
+import { createCredentialRef } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.ts",
   docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.md",
   testFileUrl: import.meta.url,
 });
+
+function testAuthEnvelope() {
+  const ref = createCredentialRef({
+    id: "images-test",
+    provider: "openai",
+    credentialType: "openai_api_key",
+    source: { kind: "test", label: "unit" },
+  });
+  assert.equal(ref.ok, true);
+  if (!ref.ok) {
+    throw new Error("expected ref");
+  }
+  return createApiKeyAuthEnvelope({ credentialRef: ref.credentialRef, apiKey: "sk-test-secret-images" }).envelope;
+}
 
 test("OpenAI v1 images generations builds a dry-run provider envelope", async () => {
   const result = await invokeOpenAIV1ImagesGenerations({
@@ -48,10 +64,13 @@ test("OpenAI v1 images generations invokes only an injected caller in live mode"
     body: { model: "gpt-image-1", prompt: "a compact workspace" },
     runtime: { runtimeId: "runtime-1" },
     dryRun: false,
+    auth: testAuthEnvelope(),
+    governance: { accepted: true },
     expectImageListResponse: true,
     caller: (envelope) => {
       assert.equal(envelope.providerCallPlanned, true);
       assert.equal(envelope.unsafeSideEffects, false);
+      assert.equal(envelope.headers.authorization, "[redacted:28]");
       return { data: [{ url: "https://example.test/image.png" }] };
     },
   });
@@ -66,4 +85,29 @@ test("OpenAI v1 images generations invokes only an injected caller in live mode"
 
 test("OpenAI v1 images generations classifies provider timeout", () => {
   assert.equal(classifyOpenAIV1ImagesGenerationsProviderError({ code: "timeout" }), "PROVIDER_TIMEOUT");
+});
+
+test("OpenAI v1 images generations blocks live mode without explicit auth/gov/caller", async () => {
+  const missingAuth = await invokeOpenAIV1ImagesGenerations({
+    body: { model: "gpt-image-1", prompt: "x" },
+    runtime: { runtimeId: "runtime-1" },
+    dryRun: false,
+    governance: { accepted: true },
+  });
+  assert.equal(missingAuth.ok, false);
+  if (!missingAuth.ok) {
+    assert.equal(missingAuth.error.code, "AUTH_REJECTED");
+  }
+
+  const missingCaller = await invokeOpenAIV1ImagesGenerations({
+    body: { model: "gpt-image-1", prompt: "x" },
+    runtime: { runtimeId: "runtime-1" },
+    dryRun: false,
+    governance: { accepted: true },
+    auth: testAuthEnvelope(),
+  });
+  assert.equal(missingCaller.ok, false);
+  if (!missingCaller.ok) {
+    assert.equal(missingCaller.error.code, "CALLER_REQUIRED");
+  }
 });

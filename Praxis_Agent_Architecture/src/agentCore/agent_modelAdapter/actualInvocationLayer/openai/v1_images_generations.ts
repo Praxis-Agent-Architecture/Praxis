@@ -9,6 +9,9 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import type { AuthEnvelope } from "../../authProfileLayer/authEnvelope.js";
+import { unwrapProviderCallerBody } from "../../providerAccessLayer/providerCaller.js";
+
 export const OPENAI_V1_IMAGES_GENERATIONS_ENDPOINT = "/v1/images/generations" as const;
 export const DEFAULT_OPENAI_V1_IMAGES_GENERATIONS_BASE_URL = "https://api.openai.com" as const;
 
@@ -80,7 +83,7 @@ export type OpenAIV1ImagesGenerationsInvocationRequest = {
   body?: unknown;
   baseUrl?: string;
   headers?: Readonly<Record<string, string | undefined>>;
-  auth?: OpenAIV1ImagesGenerationsAuthEnvelope;
+  auth?: OpenAIV1ImagesGenerationsAuthEnvelope | AuthEnvelope;
   runtime?: OpenAIV1ImagesGenerationsRuntimeContext;
   requiredScopes?: readonly string[];
   allowedScopes?: readonly string[];
@@ -151,6 +154,14 @@ function cleanHeaders(
   );
 }
 
+function authHeaderPlan(auth: OpenAIV1ImagesGenerationsInvocationRequest["auth"]): Readonly<Record<string, string>> {
+  if (auth === undefined || !("headerPlan" in auth)) {
+    return {};
+  }
+
+  return Object.fromEntries(auth.headerPlan.map((header) => [header.name.trim().toLowerCase(), String(header.value)]));
+}
+
 function normalizeBaseUrl(baseUrl: string | undefined): string {
   return hasText(baseUrl) ? baseUrl.trim().replace(/\/+$/, "") : DEFAULT_OPENAI_V1_IMAGES_GENERATIONS_BASE_URL;
 }
@@ -202,7 +213,15 @@ export function classifyOpenAIV1ImagesGenerationsProviderError(
     return "PROVIDER_AUTH_FAILED";
   }
 
+  if (code.includes("provider_auth_failed")) {
+    return "PROVIDER_AUTH_FAILED";
+  }
+
   if (status === 429) {
+    return "PROVIDER_RATE_LIMITED";
+  }
+
+  if (code.includes("provider_rate_limited")) {
     return "PROVIDER_RATE_LIMITED";
   }
 
@@ -214,7 +233,11 @@ export function classifyOpenAIV1ImagesGenerationsProviderError(
     return "PROVIDER_UNAVAILABLE";
   }
 
-  if (code.includes("format") || code.includes("schema") || code.includes("parse")) {
+  if (code.includes("provider_unavailable")) {
+    return "PROVIDER_UNAVAILABLE";
+  }
+
+  if (code.includes("format") || code.includes("schema") || code.includes("parse") || code.includes("response_format_drift")) {
     return "RESPONSE_FORMAT_DRIFT";
   }
 
@@ -253,7 +276,16 @@ export async function invokeOpenAIV1ImagesGenerations(
     );
   }
 
-  if (input.auth?.present === false) {
+  const liveMode = input.dryRun === false;
+  if (liveMode && input.governance?.accepted !== true) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      "OpenAI v1 images generations live invocation requires affirmative runtime governance",
+      "governance",
+    );
+  }
+
+  if (liveMode && input.auth?.present !== true) {
     return failure("AUTH_REJECTED", "OpenAI v1 images generations auth envelope is unavailable", "auth");
   }
 
@@ -277,7 +309,10 @@ export async function invokeOpenAIV1ImagesGenerations(
     operation: "create-image",
     method: "POST",
     url: `${normalizeBaseUrl(input.baseUrl)}${OPENAI_V1_IMAGES_GENERATIONS_ENDPOINT}`,
-    headers: cleanHeaders(input.headers),
+    headers: {
+      ...cleanHeaders(input.headers),
+      ...authHeaderPlan(input.auth),
+    },
     body: input.body,
     runtime: {
       runtimeId: runtime.runtimeId.trim(),
@@ -287,8 +322,8 @@ export async function invokeOpenAIV1ImagesGenerations(
     },
     requestedScopes,
     grantedScopes: requestedScopes,
-    dryRun: input.dryRun !== false,
-    providerCallPlanned: input.dryRun === false,
+    dryRun: !liveMode,
+    providerCallPlanned: liveMode,
     unsafeSideEffects: false,
     providerFieldsOpaque: true,
   };
@@ -325,7 +360,7 @@ export async function invokeOpenAIV1ImagesGenerations(
   }
 
   try {
-    const raw = await input.caller(request);
+    const raw = unwrapProviderCallerBody(await input.caller(request));
     if (input.expectImageListResponse === true && !isImageListResponse(raw)) {
       return failure(
         "RESPONSE_FORMAT_DRIFT",

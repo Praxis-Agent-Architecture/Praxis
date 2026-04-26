@@ -9,12 +9,20 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import type { AuthEnvelope } from "../../authProfileLayer/authEnvelope.js";
+import { unwrapProviderCallerBody } from "../../providerAccessLayer/providerCaller.js";
+
+export const OPENAI_V1_AUDIO_TRANSCRIPTIONS_ENDPOINT = "/v1/audio/transcriptions" as const;
+export const DEFAULT_OPENAI_V1_AUDIO_TRANSCRIPTIONS_BASE_URL = "https://api.openai.com" as const;
+
 export type OpenAIAudioTranscriptionBoundary =
   | "input"
   | "provider"
   | "contract"
   | "governance"
-  | "scope";
+  | "auth"
+  | "scope"
+  | "response";
 
 export type OpenAIAudioTranscriptionGate = {
   accepted: boolean;
@@ -45,6 +53,9 @@ export type OpenAIAudioTranscriptionRequest = {
   model?: string;
   file?: OpenAIAudioTranscriptionFile;
   body?: Readonly<Record<string, unknown>>;
+  baseUrl?: string;
+  headers?: Readonly<Record<string, string | undefined>>;
+  auth?: AuthEnvelope;
   apiKeyRef?: string;
   organizationId?: string;
   projectId?: string;
@@ -55,6 +66,8 @@ export type OpenAIAudioTranscriptionRequest = {
   trace?: Readonly<Record<string, string | undefined>>;
   providerResponse?: unknown;
   providerError?: OpenAIAudioTranscriptionProviderError;
+  expectResponseObject?: boolean;
+  caller?: (envelope: OpenAIAudioTranscriptionEnvelope) => unknown | Promise<unknown>;
   contract?: OpenAIAudioTranscriptionGate;
   governance?: OpenAIAudioTranscriptionGate;
 };
@@ -67,6 +80,8 @@ export type OpenAIAudioTranscriptionErrorCode =
   | "CONTRACT_REJECTED"
   | "GOVERNANCE_REJECTED"
   | "SCOPE_DENIED"
+  | "AUTH_REJECTED"
+  | "CALLER_REQUIRED"
   | "REAL_PROVIDER_CALL_NOT_ALLOWED"
   | "PROVIDER_AUTH_FAILED"
   | "PROVIDER_RATE_LIMITED"
@@ -85,23 +100,27 @@ export type OpenAIAudioTranscriptionError = {
 
 export type OpenAIAudioTranscriptionEnvelope = {
   provider: "openai";
-  endpoint: "/v1/audio/transcriptions";
+  endpoint: typeof OPENAI_V1_AUDIO_TRANSCRIPTIONS_ENDPOINT;
   method: "POST";
+  url: string;
   requestId: string;
   requestShape: "multipart-form-data";
   model: string;
   file: OpenAIAudioTranscriptionFile;
+  headers: Readonly<Record<string, string>>;
   body: Readonly<Record<string, unknown>>;
   auth: {
     apiKeyRef?: string;
     organizationId?: string;
     projectId?: string;
     materialPresent: boolean;
+    envelope?: AuthEnvelope;
   };
   runtime: {
     timeoutMs?: number;
     requestedScopes: readonly string[];
-    dryRun: true;
+    dryRun: boolean;
+    providerCallPlanned: boolean;
     unsafeSideEffects: false;
   };
   trace: Readonly<Record<string, string | undefined>>;
@@ -109,7 +128,7 @@ export type OpenAIAudioTranscriptionEnvelope = {
 
 export type OpenAIAudioTranscriptionResponseEnvelope = {
   provider: "openai";
-  endpoint: "/v1/audio/transcriptions";
+  endpoint: typeof OPENAI_V1_AUDIO_TRANSCRIPTIONS_ENDPOINT;
   raw: unknown;
   received: true;
   providerRawShapePromoted: false;
@@ -165,6 +184,24 @@ function cleanTrace(trace: Readonly<Record<string, string | undefined>> | undefi
   return cleaned;
 }
 
+function cleanHeaders(headers: OpenAIAudioTranscriptionRequest["headers"]): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(headers ?? {})
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+      .map(([key, value]) => [key.trim().toLowerCase(), value.trim()]),
+  );
+}
+
+function authHeaderPlan(auth: AuthEnvelope | undefined): Readonly<Record<string, string>> {
+  return Object.fromEntries((auth?.headerPlan ?? []).map((header) => [header.name.trim().toLowerCase(), String(header.value)]));
+}
+
+function normalizeBaseUrl(baseUrl: string | undefined): string {
+  return typeof baseUrl === "string" && baseUrl.trim().length > 0
+    ? baseUrl.trim().replace(/\/+$/u, "")
+    : DEFAULT_OPENAI_V1_AUDIO_TRANSCRIPTIONS_BASE_URL;
+}
+
 function failure(
   code: OpenAIAudioTranscriptionErrorCode,
   message: string,
@@ -184,6 +221,26 @@ function failure(
 }
 
 function classifyProviderError(error: OpenAIAudioTranscriptionProviderError): OpenAIAudioTranscriptionResult {
+  if (error.code === "PROVIDER_AUTH_FAILED") {
+    return failure("PROVIDER_AUTH_FAILED", "OpenAI audio transcription authentication was rejected", "provider");
+  }
+
+  if (error.code === "PROVIDER_RATE_LIMITED") {
+    return failure("PROVIDER_RATE_LIMITED", "OpenAI audio transcription was rate limited", "provider");
+  }
+
+  if (error.code === "PROVIDER_TIMEOUT") {
+    return failure("PROVIDER_TIMEOUT", "OpenAI audio transcription request timed out", "provider");
+  }
+
+  if (error.code === "PROVIDER_UNAVAILABLE") {
+    return failure("PROVIDER_ENDPOINT_UNAVAILABLE", "OpenAI audio transcription endpoint is unavailable", "provider");
+  }
+
+  if (error.code === "RESPONSE_FORMAT_DRIFT") {
+    return failure("PROVIDER_RESPONSE_DRIFT", "OpenAI audio transcription response shape drifted from the expected envelope", "provider");
+  }
+
   if (error.timedOut === true || error.code === "timeout") {
     return failure("PROVIDER_TIMEOUT", "OpenAI audio transcription request timed out", "provider");
   }
@@ -207,9 +264,9 @@ function classifyProviderError(error: OpenAIAudioTranscriptionProviderError): Op
   return failure("PROVIDER_REJECTED", error.message ?? "OpenAI audio transcription provider rejected the request", "provider");
 }
 
-export function createOpenAIAudioTranscriptionInvocation(
+export async function createOpenAIAudioTranscriptionInvocation(
   request: OpenAIAudioTranscriptionRequest = {},
-): OpenAIAudioTranscriptionResult {
+): Promise<OpenAIAudioTranscriptionResult> {
   if (isBlank(request.model)) {
     return failure("MISSING_MODEL", "OpenAI audio transcription invocation requires a model", "input");
   }
@@ -224,14 +281,6 @@ export function createOpenAIAudioTranscriptionInvocation(
 
   if (request.timeoutMs !== undefined && (!Number.isFinite(request.timeoutMs) || request.timeoutMs <= 0)) {
     return failure("INVALID_TIMEOUT", "OpenAI audio transcription timeout must be a positive number", "input");
-  }
-
-  if (request.dryRun === false) {
-    return failure(
-      "REAL_PROVIDER_CALL_NOT_ALLOWED",
-      "first-round OpenAI audio transcription invocation only builds dry-run or mock envelopes",
-      "governance",
-    );
   }
 
   if (request.contract?.accepted === false) {
@@ -250,6 +299,19 @@ export function createOpenAIAudioTranscriptionInvocation(
     );
   }
 
+  const liveMode = request.dryRun === false;
+  if (liveMode && request.governance?.accepted !== true) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      "OpenAI audio transcription live invocation requires affirmative runtime governance",
+      "governance",
+    );
+  }
+
+  if (liveMode && request.auth?.present !== true) {
+    return failure("AUTH_REJECTED", "OpenAI audio transcription auth envelope is unavailable", "auth");
+  }
+
   const requestedScopes = cleanList(request.requestedScopes);
   const allowedScopes = cleanList(request.allowedScopes);
   const deniedScopes = requestedScopes.filter((scope) => allowedScopes.length > 0 && !allowedScopes.includes(scope));
@@ -265,27 +327,70 @@ export function createOpenAIAudioTranscriptionInvocation(
   const requestId = request.requestId?.trim() || `openai:audio:transcriptions:${model}`;
   const envelope: OpenAIAudioTranscriptionEnvelope = {
     provider: "openai",
-    endpoint: "/v1/audio/transcriptions",
+    endpoint: OPENAI_V1_AUDIO_TRANSCRIPTIONS_ENDPOINT,
     method: "POST",
+    url: `${normalizeBaseUrl(request.baseUrl)}${OPENAI_V1_AUDIO_TRANSCRIPTIONS_ENDPOINT}`,
     requestId,
     requestShape: "multipart-form-data",
     model,
     file: request.file,
+    headers: {
+      ...cleanHeaders(request.headers),
+      ...authHeaderPlan(request.auth),
+    },
     body: request.body ?? {},
     auth: {
       apiKeyRef: request.apiKeyRef?.trim() || undefined,
       organizationId: request.organizationId?.trim() || undefined,
       projectId: request.projectId?.trim() || undefined,
-      materialPresent: !isBlank(request.apiKeyRef),
+      materialPresent: request.auth?.present === true || !isBlank(request.apiKeyRef),
+      envelope: request.auth,
     },
     runtime: {
       timeoutMs: request.timeoutMs,
       requestedScopes,
-      dryRun: true,
+      dryRun: !liveMode,
+      providerCallPlanned: liveMode,
       unsafeSideEffects: false,
     },
     trace: cleanTrace(request.trace),
   };
+
+  if (liveMode) {
+    if (request.caller === undefined) {
+      return failure(
+        "CALLER_REQUIRED",
+        "OpenAI audio transcription live invocation requires an injected provider caller",
+        "provider",
+      );
+    }
+
+    try {
+      const raw = unwrapProviderCallerBody(await request.caller(envelope));
+      if (request.expectResponseObject === true && !isPlainRecord(raw)) {
+        return failure(
+          "PROVIDER_RESPONSE_DRIFT",
+          "OpenAI audio transcription response shape drifted from the expected envelope",
+          "response",
+        );
+      }
+      return {
+        ok: true,
+        request: envelope,
+        response: {
+          provider: "openai",
+          endpoint: OPENAI_V1_AUDIO_TRANSCRIPTIONS_ENDPOINT,
+          raw,
+          received: true,
+          providerRawShapePromoted: false,
+        },
+        capability: openAIAudioTranscriptionsDescriptor,
+        events: ["modelAdapter.openai.audio.transcriptions.called"],
+      };
+    } catch (error) {
+      return classifyProviderError(error as OpenAIAudioTranscriptionProviderError);
+    }
+  }
 
   return {
     ok: true,
