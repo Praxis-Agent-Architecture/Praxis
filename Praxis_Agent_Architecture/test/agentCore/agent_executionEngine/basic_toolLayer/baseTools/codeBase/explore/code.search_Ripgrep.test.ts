@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   codeSearchRipgrepDescriptor,
+  type CodeSearchRipgrepExecutor,
   planCodeSearchRipgrep,
 } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.js";
 
@@ -53,10 +54,10 @@ test("planCodeSearchRipgrep can use an injected executor envelope", async () => 
     query: "needle",
     directoryPath: "src",
     dryRun: false,
-    executor: ({ command }) => ({
+    executor: (({ command }) => ({
       exitCode: 0,
       matches: [{ path: String(command.at(-1)), line: 1, text: "needle" }],
-    }),
+    })) satisfies CodeSearchRipgrepExecutor,
   });
 
   assert.equal(result.ok, true);
@@ -90,6 +91,36 @@ test("planCodeSearchRipgrep rejects missing query and failed rg execution", asyn
   assert.equal(failed.ok, false);
   if (!failed.ok) {
     assert.equal(failed.error.code, "RIPGREP_FAILED");
-    assert.equal(failed.error.boundary, "execution");
+    assert.equal(failed.error.boundary, "provider");
   }
+});
+
+test("planCodeSearchRipgrep rejects malformed JSON without provider dispatch", async () => {
+  const malformed = await planCodeSearchRipgrep(null);
+  assert.equal(malformed.ok, false);
+  if (!malformed.ok) {
+    assert.equal(malformed.error.code, "INVALID_REQUEST");
+    assert.equal(malformed.error.safeForRuntimeInspection, true);
+    assert.equal(malformed.error.internalDetailExposed, false);
+  }
+
+  const badGlob = await planCodeSearchRipgrep({ query: "needle", directoryPath: "src", fileGlob: "\0" });
+  assert.equal(badGlob.ok, false);
+  if (!badGlob.ok) {
+    assert.equal(badGlob.error.code, "INVALID_GLOB");
+  }
+
+  let providerCalled = false;
+  const denied = await planCodeSearchRipgrep({
+    query: "needle",
+    directoryPath: "src",
+    dryRun: false,
+    context: { guard: { allowed: false, reason: "blocked" } },
+    executor: (() => {
+      providerCalled = true;
+      return { exitCode: 0, matches: [] };
+    }) satisfies CodeSearchRipgrepExecutor,
+  });
+  assert.equal(denied.ok, false);
+  assert.equal(providerCalled, false);
 });

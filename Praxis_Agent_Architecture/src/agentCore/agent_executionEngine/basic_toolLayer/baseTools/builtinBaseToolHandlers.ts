@@ -32,6 +32,9 @@ import { shellLifecycleManagementHandler } from "../../../../storagePool/baseToo
 import { shellProcessManagementHandler } from "../../../../storagePool/baseToolStorage/shellBase/shellManagement/shell.shellProcessManagement/bestPractice.js";
 import { shellResourceManagementHandler } from "../../../../storagePool/baseToolStorage/shellBase/shellManagement/shell.shellResourceManagement/bestPractice.js";
 import { shellSessionManagementHandler } from "../../../../storagePool/baseToolStorage/shellBase/shellManagement/shell.shellSessionManagement/bestPractice.js";
+import { codeReadHandler } from "../../../../storagePool/baseToolStorage/codeBase/explore/code.read/bestPractice.js";
+import { codeScanHandler } from "../../../../storagePool/baseToolStorage/codeBase/explore/code.scan/bestPractice.js";
+import { codeSearchRipgrepHandler } from "../../../../storagePool/baseToolStorage/codeBase/explore/code.search_Ripgrep/bestPractice.js";
 import { lspApplyCodeActionHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/bestPractice.js";
 import { lspAssistSignatureHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/bestPractice.js";
 import { lspCompleteCodeHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_completeCode/bestPractice.js";
@@ -82,6 +85,9 @@ export const builtinBaseToolHandlers = [
   shellProcessManagementHandler,
   shellResourceManagementHandler,
   shellSessionManagementHandler,
+  codeReadHandler,
+  codeScanHandler,
+  codeSearchRipgrepHandler,
   lspApplyCodeActionHandler,
   lspAssistSignatureHandler,
   lspCompleteCodeHandler,

@@ -126,9 +126,34 @@ test("baseTool registry can resolve executable handlers for directoryized storag
     "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateDefinition/code.lsp_locateDefinition.md",
   );
 
-  const noHandlerYet = registry.lookupHandler("code.read");
-  assert.equal(noHandlerYet.ok, false);
-  if (!noHandlerYet.ok) {
-    assert.equal(noHandlerYet.error.code, "HANDLER_NOT_FOUND");
+  const codeReadHandler = registry.lookupHandler("code.read");
+  assert.equal(codeReadHandler.ok, true);
+  if (!codeReadHandler.ok) {
+    return;
   }
+
+  assert.equal(
+    codeReadHandler.handler.definition.toolSkill.docPath,
+    "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/explore/code.read/code.read.md",
+  );
+
+  const codeScanHandler = registry.lookupHandler("code.scan");
+  assert.equal(codeScanHandler.ok, true);
+  if (!codeScanHandler.ok) {
+    return;
+  }
+  assert.equal(
+    codeScanHandler.handler.definition.toolSkill.docPath,
+    "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/explore/code.scan/code.scan.md",
+  );
+
+  const codeSearchRipgrepHandler = registry.lookupHandler("code.search_Ripgrep");
+  assert.equal(codeSearchRipgrepHandler.ok, true);
+  if (!codeSearchRipgrepHandler.ok) {
+    return;
+  }
+  assert.equal(
+    codeSearchRipgrepHandler.handler.definition.toolSkill.docPath,
+    "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/explore/code.search_Ripgrep/code.search_Ripgrep.md",
+  );
 });

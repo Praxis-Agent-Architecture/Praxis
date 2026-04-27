@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   codeReadDescriptor,
+  type CodeReadProvider,
   planCodeRead,
 } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.read.js";
 
@@ -40,10 +41,10 @@ test("planCodeRead can use an injected reader envelope without direct fs access"
     targetPath: "src/index.ts",
     dryRun: false,
     maxBytes: 32,
-    reader: ({ targetPath }) => ({
+    reader: (({ targetPath }) => ({
       content: `read:${targetPath}`,
       encoding: "utf8",
-    }),
+    })) satisfies CodeReadProvider,
   });
 
   assert.equal(result.ok, true);
@@ -75,6 +76,35 @@ test("planCodeRead rejects invalid ranges and missing injected readers", async (
   assert.equal(noReader.ok, false);
   if (!noReader.ok) {
     assert.equal(noReader.error.code, "READER_NOT_INJECTED");
-    assert.equal(noReader.error.boundary, "execution");
+    assert.equal(noReader.error.boundary, "provider");
+  }
+});
+
+test("planCodeRead rejects malformed JSON without throwing raw TypeError", async () => {
+  const malformed = await planCodeRead(null);
+  assert.equal(malformed.ok, false);
+  if (!malformed.ok) {
+    assert.equal(malformed.error.code, "INVALID_REQUEST");
+    assert.equal(malformed.error.safeForRuntimeInspection, true);
+    assert.equal(malformed.error.internalDetailExposed, false);
+  }
+
+  const badTarget = await planCodeRead({ targetPaths: [null] });
+  assert.equal(badTarget.ok, false);
+  if (!badTarget.ok) {
+    assert.equal(badTarget.error.code, "INVALID_TARGETS");
+  }
+
+  const denied = await planCodeRead({
+    targetPath: "src/index.ts",
+    context: { guard: { allowed: false, reason: "blocked" } },
+    dryRun: false,
+    reader: (() => {
+      throw new Error("should not be called");
+    }) satisfies CodeReadProvider,
+  });
+  assert.equal(denied.ok, false);
+  if (!denied.ok) {
+    assert.equal(denied.error.code, "GOVERNANCE_REJECTED");
   }
 });

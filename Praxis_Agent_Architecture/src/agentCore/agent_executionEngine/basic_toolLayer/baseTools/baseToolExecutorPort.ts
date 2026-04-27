@@ -374,6 +374,26 @@ export type BaseToolNetworkExecutor = {
   }): Promise<BaseToolExecutorResult<{ results: readonly { title: string; url: string; snippet?: string }[] }>>;
 };
 
+export type BaseToolSearchExecutor = {
+  ripgrep?(request: {
+    command: readonly string[];
+    query: string;
+    directoryPath: string;
+    fileGlob?: string;
+    maxMatches: number;
+    literal: boolean;
+    caseSensitive: boolean;
+    includeHidden: boolean;
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<
+    BaseToolExecutorResult<{
+      exitCode: number;
+      matches: readonly { path: string; line: number; column?: number; text: string }[];
+      stderr?: string;
+    }>
+  >;
+};
+
 export type BaseToolMcpExecutor = {
   callTool?(request: {
     serverId: string;
@@ -434,6 +454,7 @@ export type BaseToolExecutorPort = {
   shell?: BaseToolShellExecutor;
   git?: BaseToolGitExecutor;
   lsp?: BaseToolLspExecutor;
+  search?: BaseToolSearchExecutor;
   network?: BaseToolNetworkExecutor;
   mcp?: BaseToolMcpExecutor;
   device?: BaseToolDeviceExecutor;

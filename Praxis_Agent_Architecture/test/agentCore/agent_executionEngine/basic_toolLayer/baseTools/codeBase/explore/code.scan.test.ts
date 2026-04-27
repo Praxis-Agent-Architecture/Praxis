@@ -79,3 +79,32 @@ test("planCodeScan rejects scope violations and invalid limits", async () => {
     assert.equal(invalid.error.code, "INVALID_MAX_ENTRIES");
   }
 });
+
+test("planCodeScan rejects malformed JSON without provider dispatch", async () => {
+  const malformed = await planCodeScan(null);
+  assert.equal(malformed.ok, false);
+  if (!malformed.ok) {
+    assert.equal(malformed.error.code, "INVALID_REQUEST");
+    assert.equal(malformed.error.safeForRuntimeInspection, true);
+    assert.equal(malformed.error.internalDetailExposed, false);
+  }
+
+  const badGlob = await planCodeScan({ directoryPath: "src", includeGlobs: [null] });
+  assert.equal(badGlob.ok, false);
+  if (!badGlob.ok) {
+    assert.equal(badGlob.error.code, "INVALID_GLOB");
+  }
+
+  let providerCalled = false;
+  const denied = await planCodeScan({
+    directoryPath: "src",
+    dryRun: false,
+    context: { guard: { allowed: false, reason: "blocked" } },
+    scanner: (() => {
+      providerCalled = true;
+      return [];
+    }),
+  });
+  assert.equal(denied.ok, false);
+  assert.equal(providerCalled, false);
+});

@@ -13,6 +13,8 @@
     "chat:agentCore:live": "node --import tsx scripts/agentCore_Agent_Test/agentcore_chat.ts",
     "test:agentCore:shell-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_shell_live_matrix.ts --dialogue",
     "test:agentCore:shell-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_shell_live_matrix.ts",
+    "test:agentCore:codebase-explore-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_codebase_explore_live_matrix.ts --dialogue",
+    "test:agentCore:codebase-explore-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_codebase_explore_live_matrix.ts",
     "lab:agentCore:tools": "node --import tsx scripts/agentCore_Agent_Test/agentcore_tool_lab.ts",
     "smoke:agentCore": "node --import tsx scripts/agentCore_Agent_Test/agentcore_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
