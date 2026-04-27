@@ -57,6 +57,42 @@ test("planCodeRead can use an injected reader envelope without direct fs access"
   assert.equal(result.output?.unsafeSideEffects, false);
 });
 
+test("planCodeRead keeps range semantics in storage and hides provider failure detail", async () => {
+  let providerSawRange = false;
+  const ranged = await planCodeRead({
+    targetPath: "src/index.ts",
+    range: { startLine: 2, endLine: 3 },
+    dryRun: false,
+    reader: ((request) => {
+      providerSawRange = "range" in request;
+      return {
+        content: ["line1", "line2", "line3", "line4"].join("\n"),
+        encoding: "utf8",
+      };
+    }) satisfies CodeReadProvider,
+  });
+
+  assert.equal(ranged.ok, true);
+  if (!ranged.ok) throw new Error("expected storage-owned ranged read");
+  assert.equal(providerSawRange, false);
+  assert.equal(ranged.output?.content, "line2\nline3");
+
+  const failed = await planCodeRead({
+    targetPath: "src/secret.ts",
+    dryRun: false,
+    reader: (() => {
+      throw new Error("leaked /tmp/private/path TOKEN=abc");
+    }) satisfies CodeReadProvider,
+  });
+  assert.equal(failed.ok, false);
+  if (!failed.ok) {
+    assert.equal(failed.error.code, "READER_REJECTED");
+    assert.equal(failed.error.message, "code.read provider rejected the request");
+    assert.equal(failed.error.message.includes("/tmp/private"), false);
+    assert.equal(failed.error.internalDetailExposed, false);
+  }
+});
+
 test("planCodeRead rejects invalid ranges and missing injected readers", async () => {
   const invalidRange = await planCodeRead({
     targetPath: "src/index.ts",

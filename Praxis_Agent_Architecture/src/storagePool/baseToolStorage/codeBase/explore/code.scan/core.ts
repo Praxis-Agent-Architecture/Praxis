@@ -143,7 +143,7 @@ export const codeScanDescriptor = {
   defaultDispatch: "dry-run",
   unsafeSideEffects: false,
   defaultMaxEntries: 200,
-  defaultDepth: 2,
+  defaultDepth: 1,
 } as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -256,6 +256,75 @@ function normalizeGlobs(value: unknown): readonly string[] | CodeScanResult {
   return [...new Set(globs)];
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.+^${}()|[\]\\]/gu, "\\$&");
+}
+
+function globToRegExp(glob: string): RegExp {
+  const normalized = glob.replaceAll("\\", "/");
+  let source = "";
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    const next = normalized[index + 1];
+    if (character === "*" && next === "*") {
+      const afterNext = normalized[index + 2];
+      if (afterNext === "/") {
+        source += "(?:.*\\/)?";
+        index += 2;
+      } else {
+        source += ".*";
+        index += 1;
+      }
+    } else if (character === "*") {
+      source += "[^/]*";
+    } else if (character === "?") {
+      source += "[^/]";
+    } else {
+      source += escapeRegExp(character ?? "");
+    }
+  }
+  return new RegExp(`^${source}$`, "u");
+}
+
+function normalizeEntryPath(entryPath: string): string {
+  return path.posix.normalize(entryPath.trim().replaceAll("\\", "/")).replace(/^\.\//u, "");
+}
+
+function relativeEntryPath(entryPath: string, directoryPath: string): string {
+  const normalizedEntry = normalizeEntryPath(entryPath).replace(/\/$/u, "");
+  const normalizedDirectory = normalizeEntryPath(directoryPath).replace(/\/$/u, "");
+  if (normalizedDirectory === "." || normalizedEntry === normalizedDirectory) return normalizedEntry;
+  const prefix = `${normalizedDirectory}/`;
+  return normalizedEntry.startsWith(prefix) ? normalizedEntry.slice(prefix.length) : normalizedEntry;
+}
+
+function entryDepth(entryPath: string, directoryPath: string): number {
+  const relative = relativeEntryPath(entryPath, directoryPath);
+  if (relative.length === 0 || relative === ".") return 0;
+  return relative.split("/").filter(Boolean).length;
+}
+
+function matchesAnyGlob(entryPath: string, globs: readonly string[], directoryPath: string): boolean {
+  if (globs.length === 0) return false;
+  const normalizedEntry = normalizeEntryPath(entryPath);
+  const relative = relativeEntryPath(entryPath, directoryPath);
+  return globs.some((glob) => {
+    const matcher = globToRegExp(glob);
+    return matcher.test(relative) || matcher.test(normalizedEntry);
+  });
+}
+
+function filterEntries(entries: readonly CodeScanEntry[], normalized: NormalizedScanRequest): readonly CodeScanEntry[] {
+  return entries.filter((entry) => {
+    if (entryDepth(entry.path, normalized.directoryPath) > normalized.depth) return false;
+    if (normalized.includeGlobs.length > 0 && !matchesAnyGlob(entry.path, normalized.includeGlobs, normalized.directoryPath)) {
+      return false;
+    }
+    if (matchesAnyGlob(entry.path, normalized.excludeGlobs, normalized.directoryPath)) return false;
+    return true;
+  });
+}
+
 function resolveAcceptedScopes(requestedScopes: unknown, allowedScopes: unknown): readonly string[] | CodeScanResult {
   const requested = cleanList(requestedScopes);
   const allowed = cleanList(allowedScopes);
@@ -346,7 +415,7 @@ export async function planCodeScan(request: unknown = {}): Promise<CodeScanResul
     return failure("SCANNER_NOT_INJECTED", "code.scan requires an injected scanner when dryRun is false", "provider");
   }
   try {
-    const entries = [...(await normalized.provider({
+    const entries = filterEntries(await normalized.provider({
       directoryPath: normalized.directoryPath,
       maxEntries: normalized.maxEntries + normalized.offset + 1,
       includeGlobs: normalized.includeGlobs,
@@ -354,7 +423,7 @@ export async function planCodeScan(request: unknown = {}): Promise<CodeScanResul
       depth: normalized.depth,
       offset: normalized.offset,
       context: normalized.context,
-    }))];
+    }), normalized);
     const pagedEntries = entries.slice(normalized.offset, normalized.offset + normalized.maxEntries);
     return {
       ok: true,
@@ -372,7 +441,8 @@ export async function planCodeScan(request: unknown = {}): Promise<CodeScanResul
       events: ["code.scan.injectedScannerCompleted"],
     };
   } catch (error) {
-    return failure("SCANNER_REJECTED", error instanceof Error ? error.message : "code.scan injected scanner rejected the request", "provider");
+    void error;
+    return failure("SCANNER_REJECTED", "code.scan provider rejected the request", "provider");
   }
 }
 

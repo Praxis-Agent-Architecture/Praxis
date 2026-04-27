@@ -40,6 +40,7 @@ test("planCodeScan can use an injected scanner and truncate results", async () =
     directoryPath: ".",
     dryRun: false,
     maxEntries: 1,
+    depth: 2,
     scanner: () => [
       { path: "src/a.ts", kind: "file", language: "typescript" },
       { path: "src/b.ts", kind: "file", language: "typescript" },
@@ -55,6 +56,60 @@ test("planCodeScan can use an injected scanner and truncate results", async () =
   assert.equal(result.output?.entries.length, 1);
   assert.equal(result.output?.truncated, true);
   assert.equal(result.output?.unsafeSideEffects, false);
+});
+
+test("planCodeScan applies depth and glob semantics in storage and hides provider failure detail", async () => {
+  const filtered = await planCodeScan({
+    directoryPath: "src",
+    dryRun: false,
+    maxEntries: 10,
+    depth: 2,
+    includeGlobs: ["**/*.ts"],
+    excludeGlobs: ["**/*.test.ts"],
+    scanner: () => [
+      { path: "src/index.ts", kind: "file" },
+      { path: "src/a/b.ts", kind: "file" },
+      { path: "src/a/b/c.ts", kind: "file" },
+      { path: "src/a/b.test.ts", kind: "file" },
+      { path: "src/readme.md", kind: "file" },
+    ],
+  });
+
+  assert.equal(filtered.ok, true);
+  if (!filtered.ok) throw new Error("expected filtered scan result");
+  assert.deepEqual(filtered.output?.entries.map((entry) => entry.path), ["src/index.ts", "src/a/b.ts"]);
+
+  const failed = await planCodeScan({
+    directoryPath: "src",
+    dryRun: false,
+    scanner: () => {
+      throw new Error("leaked /tmp/private/path TOKEN=abc");
+    },
+  });
+  assert.equal(failed.ok, false);
+  if (!failed.ok) {
+    assert.equal(failed.error.code, "SCANNER_REJECTED");
+    assert.equal(failed.error.message, "code.scan provider rejected the request");
+    assert.equal(failed.error.message.includes("/tmp/private"), false);
+    assert.equal(failed.error.internalDetailExposed, false);
+  }
+});
+
+test("planCodeScan defaults to first-level entries", async () => {
+  const result = await planCodeScan({
+    directoryPath: "src",
+    dryRun: false,
+    scanner: () => [
+      { path: "src/agentCore/", kind: "directory" },
+      { path: "src/agentCore/agent_executionEngine/", kind: "directory" },
+      { path: "src/DSLCore/", kind: "directory" },
+      { path: "src/DSLCore/DSL_runtimeImplementation/", kind: "directory" },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected first-level scan result");
+  assert.deepEqual(result.output?.entries.map((entry) => entry.path), ["src/agentCore/", "src/DSLCore/"]);
 });
 
 test("planCodeScan rejects scope violations and invalid limits", async () => {

@@ -35,6 +35,9 @@ export type BaseToolFilesystemExecutor = {
   list?(request: {
     path: string;
     maxEntries?: number;
+    depth?: number;
+    includeGlobs?: readonly string[];
+    excludeGlobs?: readonly string[];
   }): Promise<BaseToolExecutorResult<{ entries: readonly string[] }>>;
 };
 
@@ -384,6 +387,8 @@ export type BaseToolSearchExecutor = {
     literal: boolean;
     caseSensitive: boolean;
     includeHidden: boolean;
+    multiline: boolean;
+    contextLines: number;
     context?: Readonly<Record<string, unknown>>;
   }): Promise<
     BaseToolExecutorResult<{

@@ -42,19 +42,19 @@ type CodeBaseExploreCase = {
 const codeBaseExploreCases: readonly CodeBaseExploreCase[] = [
   {
     toolId: "code.read",
-    userPrompt: "读取 src/index.ts 的前 20 行，不要用 shell。",
+    userPrompt: "你先帮我看一下 src/index.ts 开头大概在做什么，前二十行就够。",
     input: { targetPath: "src/index.ts", range: { startLine: 1, endLine: 20 }, context: { dryRun: false, guard: { allowed: true } } },
     expectedCall: "readText:src/index.ts",
   },
   {
     toolId: "code.scan",
-    userPrompt: "扫描 src 目录下的代码结构，不要用 shell。",
+    userPrompt: "我想先摸一下这个项目的 src 结构，你帮我扫一眼目录。",
     input: { directoryPath: "src", depth: 2, maxEntries: 20, context: { dryRun: false, guard: { allowed: true } } },
     expectedCall: "list:src",
   },
   {
     toolId: "code.search_Ripgrep",
-    userPrompt: "在 src 里精准搜索 createBaseToolRegistry，不要用 shell 或 rg 命令。",
+    userPrompt: "帮我找找 createBaseToolRegistry 在 src 里面哪里出现过。",
     input: { query: "createBaseToolRegistry", directoryPath: "src", fileGlob: "**/*.ts", context: { dryRun: false, guard: { allowed: true } } },
     expectedCall: "ripgrep:createBaseToolRegistry:src",
   },
@@ -246,6 +246,55 @@ function toolCallFromCase(testCase: CodeBaseExploreCase): CodeBaseExploreToolCal
   return { tool: testCase.toolId, arguments: testCase.input };
 }
 
+function withRuntimeGovernance(tool: string, toolArguments: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const input: Record<string, unknown> = { ...toolArguments };
+  const context = typeof input.context === "object" && input.context !== null && !Array.isArray(input.context)
+    ? input.context as Record<string, unknown>
+    : {};
+
+  if (tool === "code.read") {
+    input.targetPath ??= input.path ?? input.file;
+    if (typeof input.range === "object" && input.range !== null && !Array.isArray(input.range)) {
+      const range = input.range as Record<string, unknown>;
+      input.range = {
+        ...range,
+        startLine: range.startLine ?? range.start,
+        endLine: range.endLine ?? range.end,
+      };
+    }
+    if (input.range === undefined && (input.startLine !== undefined || input.endLine !== undefined)) {
+      input.range = { startLine: input.startLine, endLine: input.endLine };
+    }
+  }
+
+  if (tool === "code.scan") {
+    input.directoryPath ??= input.directory ?? input.path ?? ".";
+    input.maxEntries ??= input.limit;
+  }
+
+  if (tool === "code.search_Ripgrep") {
+    input.query ??= input.pattern;
+    input.directoryPath ??= input.directory ?? input.path ?? input.cwd ?? ".";
+    input.fileGlob ??= input.glob;
+  }
+
+  input.context = {
+    ...context,
+    dryRun: false,
+    guard: {
+      ...(typeof context.guard === "object" && context.guard !== null && !Array.isArray(context.guard)
+        ? context.guard as Record<string, unknown>
+        : {}),
+      allowed: true,
+      accepted: true,
+    },
+    requestedScopes: Array.isArray(context.requestedScopes) ? context.requestedScopes : ["filesystem:read"],
+    allowedScopes: Array.isArray(context.allowedScopes) ? context.allowedScopes : ["filesystem:read"],
+  };
+
+  return input;
+}
+
 function expectedCallSeen(expectedCall: string, calls: readonly string[]): boolean {
   return calls.includes(expectedCall);
 }
@@ -278,11 +327,12 @@ async function main(): Promise<void> {
 
     if (useModel) {
       const prompt = [
-        "请模拟一次真实 agentCore 对话里的工具调用。",
+        "请模拟一次真实 agentCore 对话里的工具选择。",
         `用户请求：${testCase.userPrompt}`,
-        `必须优先调用 codeBase 内置工具，不能调用 shell：${testCase.toolId}`,
-        "必须使用以下 arguments，不能改字段名，不能省略 context：",
-        JSON.stringify(testCase.input, null, 2),
+        "这是普通用户话术，用户不会自己写工具参数。你要像 agent 一样自己选择最合适的 codeBase explore 工具。",
+        "可用工具只有：code.read, code.scan, code.search_Ripgrep。不要选择 shell，也不要输出解释。",
+        "参数字段提示：code.read 用 targetPath/range；code.scan 用 directoryPath/depth/maxEntries；code.search_Ripgrep 用 query/directoryPath/fileGlob/maxMatches。",
+        `期望的任务类别是 ${testCase.toolId}，但你仍然需要根据用户请求组织参数。`,
         "只返回：{\"tool_calls\":[{\"tool\":\"...\",\"arguments\":{...}}]}",
       ].join("\n");
       try {
@@ -294,9 +344,9 @@ async function main(): Promise<void> {
         } else if (parsedToolCall.tool !== testCase.toolId) {
           modelOk = false;
           modelError = `MODEL_TOOL_MISMATCH:${parsedToolCall.tool}`;
-          toolCall = parsedToolCall;
+          toolCall = { tool: parsedToolCall.tool, arguments: withRuntimeGovernance(parsedToolCall.tool, parsedToolCall.arguments) };
         } else {
-          toolCall = parsedToolCall;
+          toolCall = { tool: parsedToolCall.tool, arguments: withRuntimeGovernance(parsedToolCall.tool, parsedToolCall.arguments) };
         }
       } catch (error) {
         modelOk = false;

@@ -428,11 +428,8 @@ export async function planCodeSearchRipgrep(request: unknown = {}): Promise<Code
       events: ["code.search_Ripgrep.injectedExecutorCompleted"],
     };
   } catch (error) {
-    return failure(
-      "EXECUTOR_REJECTED",
-      error instanceof Error ? error.message : "code.search_Ripgrep injected executor rejected the request",
-      "provider",
-    );
+    void error;
+    return failure("EXECUTOR_REJECTED", "code.search_Ripgrep provider rejected the request", "provider");
   }
 }
 

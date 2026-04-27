@@ -28,7 +28,6 @@ export type CodeReadPayload = {
 
 export type CodeReadProvider = (request: {
   targetPath: string;
-  range?: CodeReadRange;
   maxBytes: number;
   encoding: string;
   context?: CodeReadContext;
@@ -512,7 +511,6 @@ export async function planCodeRead(request: unknown = {}): Promise<CodeReadResul
     for (const target of normalized.targets) {
       const payload = await normalized.provider({
         targetPath: target.targetPath,
-        range: target.range,
         maxBytes: normalized.maxBytesPerFile,
         encoding: normalized.encoding,
         context: normalized.context,
@@ -560,11 +558,8 @@ export async function planCodeRead(request: unknown = {}): Promise<CodeReadResul
       events: ["code.read.injectedReaderCompleted"],
     };
   } catch (error) {
-    return failure(
-      "READER_REJECTED",
-      error instanceof Error ? error.message : "code.read injected reader rejected the request",
-      "provider",
-    );
+    void error;
+    return failure("READER_REJECTED", "code.read provider rejected the request", "provider");
   }
 }
 

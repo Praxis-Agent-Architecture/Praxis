@@ -61,6 +61,8 @@ export function createHostExecutorCodeSearchRipgrepProvider(
       literal: request.literal,
       caseSensitive: request.caseSensitive,
       includeHidden: request.includeHidden,
+      multiline: request.multiline,
+      contextLines: request.contextLines,
       context: request.context,
     });
 

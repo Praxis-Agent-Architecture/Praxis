@@ -6,6 +6,8 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath } from "node:url";
 import { providePromptPackInput } from "../../src/agentCore/agent_executionEngine/promptPack/promptProvider.js";
+import type { BaseToolExecutorPort } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { adaptRuntimeToolInvocation } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.js";
 import { mountAgentApplication } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
 import { createAgentApplicationRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
@@ -541,6 +543,86 @@ function runProcess(command: string, args: string[], cwd: string): ToolResult["o
   };
 }
 
+function failExecutor(code: string, message: string) {
+  return { ok: false as const, error: { code, message, publicSafe: true as const } };
+}
+
+function createToolLabCodeBaseExecutor(): BaseToolExecutorPort {
+  return {
+    filesystem: {
+      async readText(request) {
+        const target = resolveAnyPath(request.path);
+        if (!existsSync(target) || !statSync(target).isFile()) {
+          return failExecutor("FILE_NOT_FOUND", `File not found: ${request.path}`);
+        }
+
+        const encoding = request.encoding === "utf8" || request.encoding === undefined ? "utf8" : "utf8";
+        const content = readFileSync(target, encoding);
+        if (request.maxBytes === undefined || Buffer.byteLength(content, encoding) <= request.maxBytes) {
+          return { ok: true, output: { content, truncated: false } };
+        }
+
+        let end = content.length;
+        while (end > 0 && Buffer.byteLength(content.slice(0, end), encoding) > request.maxBytes) {
+          end -= 1;
+        }
+        return { ok: true, output: { content: content.slice(0, end), truncated: true } };
+      },
+      async list(request) {
+        const root = resolveAnyPath(request.path);
+        if (!existsSync(root) || !statSync(root).isDirectory()) {
+          return failExecutor("DIRECTORY_NOT_FOUND", `Directory not found: ${request.path}`);
+        }
+
+        return { ok: true, output: { entries: scanDirectory(root, request.maxEntries ?? 200, request.depth ?? 1) } };
+      },
+    },
+    search: {
+      async ripgrep(request) {
+        const directory = resolveAnyPath(request.directoryPath);
+        if (!existsSync(directory) || !statSync(directory).isDirectory()) {
+          return failExecutor("DIRECTORY_NOT_FOUND", `Directory not found: ${request.directoryPath}`);
+        }
+
+        const rgArgs = [
+          "--line-number",
+          "--column",
+          "--max-count",
+          String(request.maxMatches),
+          request.literal ? "--fixed-strings" : "",
+          request.caseSensitive ? "--case-sensitive" : "--ignore-case",
+          request.includeHidden ? "--hidden" : "",
+          ...(request.fileGlob === undefined ? [] : ["-g", request.fileGlob]),
+          request.query,
+          ".",
+        ].filter(Boolean);
+        const raw = runProcess("rg", rgArgs, directory) as Record<string, unknown>;
+        const stdout = typeof raw.stdout === "string" ? raw.stdout : "";
+        const stderr = typeof raw.stderr === "string" ? raw.stderr : "";
+        const status = typeof raw.status === "number" ? raw.status : 1;
+        const matches = stdout
+          .split(/\r?\n/u)
+          .filter(Boolean)
+          .slice(0, request.maxMatches)
+          .map((line) => {
+            const match = /^(.*?):(\d+):(\d+):(.*)$/u.exec(line);
+            if (match === null) {
+              return { path: "", line: 0, text: line };
+            }
+            return {
+              path: path.relative(repoRoot, path.resolve(directory, match[1] ?? "")).split(path.sep).join("/"),
+              line: Number(match[2]),
+              column: Number(match[3]),
+              text: match[4] ?? "",
+            };
+          });
+
+        return { ok: true, output: { exitCode: status, matches, stderr: stderr.length > 0 ? stderr : undefined } };
+      },
+    },
+  };
+}
+
 function publishRuntimeBehaviorEvent(eventKind: string, payload: Record<string, unknown>): void {
   const behaviorRuntime = assertOk(
     "runtime.behaviorExposure",
@@ -627,14 +709,15 @@ function createAgentCoreToolInvocationEnvelope(tool: string, args: Record<string
   return undefined;
 }
 
-function scanDirectory(root: string, limit: number): string[] {
+function scanDirectory(root: string, limit: number, depth = 1): string[] {
   const outputPaths: string[] = [];
 
-  function walk(current: string): void {
+  function walk(current: string, currentDepth: number): void {
     if (outputPaths.length >= limit) {
       return;
     }
 
+    const childDirectories: string[] = [];
     for (const entry of readdirSync(current, { withFileTypes: true })) {
       if (entry.name === "node_modules" || entry.name === ".git") {
         continue;
@@ -643,20 +726,246 @@ function scanDirectory(root: string, limit: number): string[] {
       const absolutePath = path.join(current, entry.name);
       outputPaths.push(path.relative(repoRoot, absolutePath).split(path.sep).join("/") + (entry.isDirectory() ? "/" : ""));
       if (entry.isDirectory()) {
-        walk(absolutePath);
+        childDirectories.push(absolutePath);
       }
 
       if (outputPaths.length >= limit) {
         return;
       }
     }
+
+    if (currentDepth >= depth) {
+      return;
+    }
+
+    for (const childDirectory of childDirectories) {
+      walk(childDirectory, currentDepth + 1);
+      if (outputPaths.length >= limit) {
+        return;
+      }
+    }
   }
 
-  walk(root);
+  walk(root, 1);
   return outputPaths;
 }
 
-async function runTool(tool: string, args: Record<string, unknown> = {}): Promise<ToolResult> {
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function toolLabGovernedContext(args: Record<string, unknown>): Record<string, unknown> {
+  const inputContext = isRecord(args.context) ? args.context : {};
+  return {
+    ...inputContext,
+    dryRun: false,
+    guard: { ...(isRecord(inputContext.guard) ? inputContext.guard : {}), allowed: true, accepted: true },
+    workspaceRoot: typeof inputContext.workspaceRoot === "string" ? inputContext.workspaceRoot : repoRoot,
+    allowedRoots: Array.isArray(inputContext.allowedRoots) ? inputContext.allowedRoots : [repoRoot, architectureRoot],
+    requestedScopes: Array.isArray(inputContext.requestedScopes) ? inputContext.requestedScopes : ["filesystem:read"],
+    allowedScopes: Array.isArray(inputContext.allowedScopes) ? inputContext.allowedScopes : ["filesystem:read"],
+    auditMetadata: {
+      ...(isRecord(inputContext.auditMetadata) ? inputContext.auditMetadata : {}),
+      labRunId: runId,
+      activeAgentId: activeAgent.id,
+      surface: "agentcore_tool_lab",
+    },
+  };
+}
+
+function normalizeCodeBaseExploreTool(tool: string): "code.read" | "code.scan" | "code.search_Ripgrep" | undefined {
+  const normalized = tool.trim();
+  if (normalized === "code.read") return "code.read";
+  if (normalized === "code.scan" || normalized === "code.list") return "code.scan";
+  if (normalized === "code.search_Ripgrep" || normalized === "skill.ripgrep") return "code.search_Ripgrep";
+  return undefined;
+}
+
+function firstNonBlankString(...values: readonly unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value !== "string") {
+      continue;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function parseSmallChineseInteger(value: string): number | undefined {
+  const normalized = value.trim();
+  if (/^\d+$/u.test(normalized)) {
+    const parsed = Number(normalized);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+  }
+
+  const digits: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+  if (normalized === "十") return 10;
+  const tenPrefix = normalized.match(/^十([一二两三四五六七八九])$/u);
+  if (tenPrefix !== null) return 10 + digits[tenPrefix[1]];
+  const tenSuffix = normalized.match(/^([一二两三四五六七八九])十$/u);
+  if (tenSuffix !== null) return digits[tenSuffix[1]] * 10;
+  const compound = normalized.match(/^([一二两三四五六七八九])十([一二两三四五六七八九])$/u);
+  if (compound !== null) return digits[compound[1]] * 10 + digits[compound[2]];
+  return digits[normalized];
+}
+
+function inferReadRangeFromUserText(userText: string | undefined): { startLine: number; endLine: number } | undefined {
+  if (userText === undefined) {
+    return undefined;
+  }
+
+  const explicit = userText.match(/(?:前|开头)\s*([0-9]+|[一二两三四五六七八九十]{1,3})\s*行/u);
+  if (explicit !== null) {
+    const endLine = parseSmallChineseInteger(explicit[1]);
+    if (endLine !== undefined) {
+      return { startLine: 1, endLine };
+    }
+  }
+
+  if (/(?:开头几行|前几行|开头看看|开头在做什么)/u.test(userText)) {
+    return { startLine: 1, endLine: 12 };
+  }
+
+  return undefined;
+}
+
+function inferExtensionFromUserText(userText: string | undefined): string | undefined {
+  if (userText === undefined) {
+    return undefined;
+  }
+
+  const match = userText.match(/(?:只看|只列|只在|仅看|仅列|仅在|过滤|筛选)[^。\n]*(?:\.?([A-Za-z0-9_-]{1,12})\s*文件|\.([A-Za-z0-9_-]{1,12}))/u);
+  const rawExtension = match?.[1] ?? match?.[2];
+  if (rawExtension === undefined) {
+    return undefined;
+  }
+
+  const extension = rawExtension.toLowerCase();
+  return /^[a-z0-9_-]+$/u.test(extension) ? extension : undefined;
+}
+
+function normalizeCodeBaseExploreInput(
+  tool: "code.read" | "code.scan" | "code.search_Ripgrep",
+  args: Record<string, unknown>,
+  userText?: string,
+): Record<string, unknown> {
+  const input: Record<string, unknown> = { ...args, context: toolLabGovernedContext(args) };
+
+  if (tool === "code.read") {
+    input.targetPath = firstNonBlankString(input.targetPath, args.path, args.file) ?? input.targetPath;
+    if (isRecord(input.range)) {
+      input.range = {
+        ...input.range,
+        startLine: input.range.startLine ?? input.range.start,
+        endLine: input.range.endLine ?? input.range.end,
+      };
+    }
+    if (input.range === undefined && (args.startLine !== undefined || args.endLine !== undefined)) {
+      input.range = { startLine: args.startLine, endLine: args.endLine };
+    }
+    input.range ??= inferReadRangeFromUserText(userText);
+  }
+
+  if (tool === "code.scan") {
+    input.directoryPath = firstNonBlankString(input.directoryPath, args.directory, args.path) ?? ".";
+    input.maxEntries ??= args.limit;
+    input.depth ??= args.depth ?? 1;
+    if (input.includeGlobs === undefined) {
+      const extension = inferExtensionFromUserText(userText);
+      if (extension !== undefined) {
+        input.includeGlobs = [`*.${extension}`, `**/*.${extension}`];
+      }
+    }
+  }
+
+  if (tool === "code.search_Ripgrep") {
+    input.query ??= args.pattern;
+    input.directoryPath = firstNonBlankString(input.directoryPath, args.directory, args.path, args.cwd) ?? "Praxis_Agent_Architecture";
+    input.fileGlob ??= args.glob;
+    if (input.fileGlob === undefined) {
+      const extension = inferExtensionFromUserText(userText);
+      if (extension !== undefined) {
+        input.fileGlob = `**/*.${extension}`;
+      }
+    }
+  }
+
+  return input;
+}
+
+function mountedCodeBaseFailureHint(
+  mountedTool: "code.read" | "code.scan" | "code.search_Ripgrep",
+  input: Record<string, unknown>,
+): string | undefined {
+  const target = mountedTool === "code.read"
+    ? input.targetPath
+    : mountedTool === "code.scan"
+      ? input.directoryPath
+      : input.directoryPath;
+  if (typeof target !== "string" || target.trim().length === 0) {
+    return undefined;
+  }
+
+  const absoluteTarget = resolveAnyPath(target);
+  if (!existsSync(absoluteTarget)) {
+    return `${mountedTool} target does not exist: ${target}. Use code.scan or code.search_Ripgrep to find the correct path; do not switch to shell.`;
+  }
+  return undefined;
+}
+
+async function runMountedCodeBaseExploreTool(tool: string, args: Record<string, unknown>, userText?: string): Promise<ToolResult | undefined> {
+  const mountedTool = normalizeCodeBaseExploreTool(tool);
+  if (mountedTool === undefined) {
+    return undefined;
+  }
+
+  const input = normalizeCodeBaseExploreInput(mountedTool, args, userText);
+  const lookup = createBaseToolRegistry().lookupHandler(mountedTool);
+  if (!lookup.ok) {
+    return { tool, ok: false, error: `baseTool registry did not mount ${mountedTool}: ${lookup.error.code}` };
+  }
+
+  const result = await lookup.handler.invoke({
+    toolCallId: `${activeAgent.runtimeId}:handler:${mountedTool}:${Date.now()}`,
+    runtimeId: activeAgent.runtimeId,
+    sessionId: activeAgent.sessionId,
+    input,
+    executor: createToolLabCodeBaseExecutor(),
+    metadata: {
+      labRunId: runId,
+      activeAgentId: activeAgent.id,
+      mountedVia: "createBaseToolRegistry.lookupHandler",
+    },
+  });
+  logEvent("baseTool.handler.invoked", { requestedTool: tool, mountedTool, input, result });
+
+  if (!result.ok) {
+    const hint = mountedCodeBaseFailureHint(mountedTool, input);
+    return {
+      tool,
+      ok: false,
+      error: `${hint === undefined ? result.error.code : "FILE_NOT_FOUND"}: ${hint ?? result.error.message}`,
+    };
+  }
+
+  return { tool, ok: true, output: result.output };
+}
+
+async function runTool(tool: string, args: Record<string, unknown> = {}, userText?: string): Promise<ToolResult> {
   const startedAt = Date.now();
   logEvent("tool.started", { tool, args });
   const agentCoreEnvelopeFailure = createAgentCoreToolInvocationEnvelope(tool, args);
@@ -667,6 +976,11 @@ async function runTool(tool: string, args: Record<string, unknown> = {}): Promis
 
   try {
     const normalized = tool.trim();
+    const mountedCodeBaseResult = await runMountedCodeBaseExploreTool(normalized, args, userText);
+    if (mountedCodeBaseResult !== undefined) {
+      logEvent("tool.finished", { ...mountedCodeBaseResult, durationMs: Date.now() - startedAt });
+      return mountedCodeBaseResult;
+    }
 
     if (normalized === "tool.catalog" || normalized === "tools.list") {
       const query = typeof args.query === "string" ? args.query : "";
@@ -674,43 +988,6 @@ async function runTool(tool: string, args: Record<string, unknown> = {}): Promis
         ? toolCatalog.filter((entry) => entry.toolId.includes(query) || entry.sourcePath.includes(query))
         : toolCatalog;
       const result = { tool, ok: true, output: { count: tools.length, tools: tools.slice(0, Number(args.limit ?? 120)) } };
-      logEvent("tool.finished", { ...result, durationMs: Date.now() - startedAt });
-      return result;
-    }
-
-    if (normalized === "code.read" || normalized.endsWith(".read")) {
-      const target = resolveAnyPath(args.path ?? args.targetPath ?? args.file);
-      const content = readFileSync(target, "utf8");
-      const startLine = Number(args.startLine ?? 1);
-      const endLine = args.endLine === undefined ? undefined : Number(args.endLine);
-      const lines = content.split(/\r?\n/);
-      const selected = lines.slice(Math.max(0, startLine - 1), endLine ?? lines.length).join("\n");
-      const result: ToolResult = {
-        tool,
-        ok: true,
-        output: {
-          path: target,
-          exists: true,
-          size: statSync(target).size,
-          content: limitText(selected),
-        },
-      };
-      logEvent("tool.finished", { ...result, durationMs: Date.now() - startedAt });
-      return result;
-    }
-
-    if (normalized === "code.scan" || normalized === "code.list") {
-      const root = resolveAnyPath(args.path ?? args.directory ?? args.directoryPath, ".");
-      const result = { tool, ok: true, output: { root, paths: scanDirectory(root, Number(args.limit ?? 200)) } };
-      logEvent("tool.finished", { ...result, durationMs: Date.now() - startedAt });
-      return result;
-    }
-
-    if (normalized === "code.search_Ripgrep" || normalized === "skill.ripgrep") {
-      const query = String(args.query ?? args.pattern ?? "");
-      const directory = resolveAnyPath(args.path ?? args.directoryPath ?? args.cwd, ".");
-      const rgArgs = ["--line-number", "--column", "--max-count", String(args.maxMatches ?? 80), query, "."];
-      const result = { tool, ok: true, output: runProcess("rg", rgArgs, directory) };
       logEvent("tool.finished", { ...result, durationMs: Date.now() - startedAt });
       return result;
     }
@@ -910,8 +1187,49 @@ async function callModel(prompt: string): Promise<string> {
 }
 
 function extractJsonObject(text: string): unknown | undefined {
-  const fenced = text.match(/```json\s*([\s\S]*?)```/u);
-  const candidate = fenced?.[1] ?? text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+  const trimmed = text.trim();
+  const fenced = trimmed.startsWith("```")
+    ? trimmed.match(/^```(?:json)?\s*([\s\S]*?)```\s*$/u)
+    : undefined;
+  const source = fenced?.[1] ?? text;
+  const firstBrace = source.indexOf("{");
+  if (firstBrace === -1) {
+    return undefined;
+  }
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  let end = -1;
+  for (let index = firstBrace; index < source.length; index += 1) {
+    const character = source[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === "\"") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) {
+      continue;
+    }
+    if (character === "{") {
+      depth += 1;
+    } else if (character === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        end = index + 1;
+        break;
+      }
+    }
+  }
+
+  const candidate = end === -1 ? source.slice(firstBrace, source.lastIndexOf("}") + 1) : source.slice(firstBrace, end);
   if (candidate.trim().length === 0) {
     return undefined;
   }
@@ -956,6 +1274,13 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
   return [
     "你是 Praxis agentCore 的临时全工具测试 agent。",
     "当前阶段是功能测试，agentCore 侧不做治理拦截，所有工具都对你可见。",
+    "当用户要读取代码、扫描目录、查找符号或搜索文本时，必须优先并且只使用 code.read、code.scan、code.search_Ripgrep。",
+    "调用 code.read 时，如果用户说“前 N 行”“开头 N 行”，必须设置 range: { startLine: 1, endLine: N }；如果说“开头几行”，设置 range: { startLine: 1, endLine: 12 }。",
+    "调用 code.scan 时，如果用户说“下面有什么”“有哪些文件/文件夹”“第一层”，必须设置 depth: 1；只有用户明确说递归、展开多层、看结构或 deeper 时才设置更大的 depth。",
+    "调用 code.search_Ripgrep 时必须提供 directoryPath；如果用户没有指定范围，默认用 Praxis_Agent_Architecture。",
+    "如果用户说“只看/只列/只在 ts 文件”，code.scan 使用 includeGlobs: [\"*.ts\", \"**/*.ts\"]，code.search_Ripgrep 使用 fileGlob: \"**/*.ts\"；其他后缀同理。",
+    "代码探索任务禁止改用 shell.commandExecution、shell.scriptExecution、bash、sed、head、find、rg、grep、cat、ls 等 shell 路径。",
+    "如果 code.read 返回 FILE_NOT_FOUND 或 READER_REJECTED，不要改用 shell。先用 code.scan 或 code.search_Ripgrep 查正确路径；如果仍找不到，就回答路径不存在。",
     "如果你需要工具，请只输出 JSON，不要加解释：",
     '{"tool_calls":[{"tool":"code.read","arguments":{"path":"Praxis_Agent_Architecture/package.json"}}]}',
     "如果不需要工具，请输出 JSON：",
@@ -963,6 +1288,7 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
     "可用工具很多，样例工具如下：",
     sampleTools,
     "当前已有真实执行器的工具包括：tool.catalog, code.read, code.scan, code.search_Ripgrep, code.write, code.append, code.delete, shell.commandExecution, shell.scriptExecution, git.getRepositoryStatus, git.getWorkingTreeDiff, git.getCommitHistory, search.fetch。",
+    "注意：shell 工具只用于明确的 shell/命令执行测试，不用于代码阅读、目录扫描或文本搜索。",
     `当前 agent: ${agent.id}, runtimeId=${agent.runtimeId}, sessionId=${agent.sessionId}`,
     transcript.length > 0 ? `对话历史：\n${transcript}` : "",
     `用户输入：\n${userText}`,
@@ -997,20 +1323,37 @@ async function askAgent(userText: string): Promise<void> {
 
     logEvent("agent.tool_calls.requested", { round, toolCalls });
     for (const call of toolCalls) {
-      const result = await runTool(call.tool, call.arguments ?? {});
+      const result = await runTool(call.tool, call.arguments ?? {}, userText);
       toolResults.push(result);
       console.log(`tool:${call.tool}> ${JSON.stringify(result).slice(0, 1600)}`);
     }
 
     prompt = [
       buildToolAwarePrompt(activeAgent, history, userText),
-      "刚才的工具执行结果如下，请继续。如果还需要工具，继续输出 tool_calls JSON；如果已经能回答，输出 answer JSON。",
+      "刚才的工具执行结果如下，请继续。如果还需要工具，继续输出 tool_calls JSON；如果已经能回答，输出 answer JSON。代码探索失败时仍然禁止切到 shell，只能继续用 code.scan/code.search_Ripgrep 或直接说明找不到。",
       JSON.stringify(toolResults).slice(0, maxOutputBytes),
     ].join("\n\n");
   }
 
-  console.log(`agentCore> 工具轮次已达到上限 ${maxToolRounds}，请收窄测试目标。`);
-  logEvent("agent.turn.tool_round_limit", { userText, toolResults });
+  const finalPrompt = [
+    buildToolAwarePrompt(activeAgent, history, userText),
+    `工具轮次已经达到上限 ${maxToolRounds}，现在禁止继续调用任何工具。`,
+    "请只输出 JSON：{\"answer\":\"...\"}。",
+    "根据已有工具结果给出最终回答；如果目标路径不存在或没有找到匹配项，直接说明这一点。",
+    JSON.stringify(toolResults).slice(0, maxOutputBytes),
+  ].join("\n\n");
+  const finalText = await callModel(finalPrompt);
+  const finalParsed = extractJsonObject(finalText);
+  const finalAnswer = typeof finalParsed === "object" && finalParsed !== null && typeof (finalParsed as Record<string, unknown>).answer === "string"
+    ? String((finalParsed as Record<string, unknown>).answer)
+    : finalText;
+  history.push({ role: "user", content: userText }, { role: "assistant", content: finalAnswer });
+  if (toolResults.length > 0) {
+    history.push({ role: "tool", content: JSON.stringify(toolResults) });
+  }
+  activeAgent.turns += 1;
+  console.log(`agentCore> ${finalAnswer}`);
+  logEvent("agent.turn.tool_round_limit_final_answer", { userText, toolResults, finalAnswer });
 }
 
 function printBanner(): void {

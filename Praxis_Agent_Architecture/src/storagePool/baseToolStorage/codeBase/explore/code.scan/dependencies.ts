@@ -53,6 +53,9 @@ export function createHostExecutorCodeScanProvider(executor: BaseToolExecutorPor
     const result = await list({
       path: request.directoryPath,
       maxEntries: request.maxEntries,
+      depth: request.depth,
+      includeGlobs: request.includeGlobs,
+      excludeGlobs: request.excludeGlobs,
     });
 
     if (!result.ok) {
