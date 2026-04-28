@@ -1,10 +1,15 @@
+---
+description: "Remove a tracked file through fixed git rm semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","filePath":"src/obsolete.ts","force":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.removeTrackedFile
 
 ## Use This Tool
 
-Use `git.removeTrackedFile` when the model needs to remove a tracked file through `git rm`.
+Use `git.removeTrackedFile` to remove a tracked file through fixed git rm semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
+Risk class: `destructive`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -13,80 +18,94 @@ This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
   "target": {
     "repositoryPath": "/repo/project",
     "filePath": "src/obsolete.ts",
-    "keepWorkingTree": false,
-    "force": false
+    "force": true
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"],
-    "allowedRepositoryRoots": ["/repo"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: local repository path governed by runtime scope.
-- `target.filePath`: repository-relative tracked file path.
+- `target.repositoryPath`.
+- `target.filePath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.keepWorkingTree`: pass `--cached` to remove only from the Git index while keeping the working tree file.
-- `target.force`: pass `--force`.
-- `timeoutMs`: runtime git execution timeout.
-- `context.allowedRepositoryRoots`: optional scope boundary.
-- `context.grantedPermissions`: optional explicit permission check.
+- `target.keepWorkingTree`: uses --cached.
+- `target.force`: uses --force.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage core validates JSON, repository scope, file path safety, permissions, governance, risk metadata, and output shape. Runtime owns the host process through:
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-```text
-BaseToolExecutorPort.git.runGit({ repositoryPath, args, timeoutMs })
-```
+Allowed fixed argv or fixed action:
 
-Allowed argv form is fixed:
+- `rm [--cached] [--force] -- <filePath>`
 
-```text
-git rm [--cached] [--force] -- <filePath>
-```
-
-`dryRun !== false` returns only the command plan and never calls the provider. `dryRun:false` requires `context.guard.allowed === true` or `context.guard.accepted === true`.
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes:
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-- `runtimeEntry.port: "BaseToolExecutorPort.git.runGit"`
-- fixed `gitArgs`
-- `commandPreview`
-- `risk` metadata with index and working-tree mutation flags
-- `removesTrackedFile: true`
-- `providerCalled`
-- `exitCode`, `stdout`, and `stderr` when runtime executes
-- `resultEnvelope` with file path, cached-only mode, line counts, removed paths, and safe fallback counters
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
 ```json
 {
-  "target": {
-    "repositoryPath": "/repo/project",
-    "filePath": "src/obsolete.ts",
-    "keepWorkingTree": true
-  },
-  "context": {
-    "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read"]
+  "tool": "git.removeTrackedFile",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "filePath": "src/obsolete.ts",
+      "force": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
   }
 }
 ```
 
 ## Avoid
 
-- Do not route tracked-file removal through `shell.commandExecution`.
-- Do not let the model provide arbitrary Git subcommands.
-- Do not execute without an affirmative runtime guard.
-- Do not pass absolute paths or `..` path traversal in `target.filePath`.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.removeTrackedFile")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

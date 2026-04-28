@@ -1,10 +1,15 @@
+---
+description: "Delete untracked files through fixed git clean semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","paths":["tmp/a.log","build"],"includeDirectories":true,"ignoredMode":"tracked-ignored"},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.cleanUntrackedFiles
 
 ## Use This Tool
 
-Use `git.cleanUntrackedFiles` when the model needs to delete untracked files through `git clean`.
+Use `git.cleanUntrackedFiles` to delete untracked files through fixed git clean semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
+Risk class: `destructive`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -12,82 +17,103 @@ This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "paths": ["tmp/output.log", "build"],
+    "paths": [
+      "tmp/a.log",
+      "build"
+    ],
     "includeDirectories": true,
-    "ignoredMode": "none"
+    "ignoredMode": "tracked-ignored"
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"],
-    "allowedRepositoryRoots": ["/repo"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: local repository path governed by runtime scope.
+- `target.repositoryPath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.paths`: repository-relative path filters. Empty means repository-wide clean.
-- `target.includeDirectories`: include untracked directories with `-d`. Defaults to `true`.
-- `target.ignoredMode`: `none`, `tracked-ignored` for `-x`, or `ignored-only` for `-X`.
-- `timeoutMs`: runtime git execution timeout.
-- `context.allowedRepositoryRoots`: optional scope boundary.
-- `context.grantedPermissions`: optional explicit permission check.
+- `target.paths`.
+- `target.includeDirectories`.
+- `target.ignoredMode`: none, tracked-ignored, or ignored-only.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage core validates JSON, repository scope, path safety, permissions, governance, destructive risk metadata, and output shape. Runtime owns the host process through:
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-```text
-BaseToolExecutorPort.git.runGit({ repositoryPath, args, timeoutMs })
-```
+Allowed fixed argv or fixed action:
 
-Allowed argv forms are fixed:
+- `clean -f [-d] [-x|-X] -- <paths>`
 
-```text
-git clean --dry-run -f [-d] [-x|-X] [-- <paths...>]
-git clean -f [-d] [-x|-X] [-- <paths...>]
-```
-
-`dryRun !== false` returns only the command plan with `--dry-run` and never calls the provider. `dryRun:false` requires `context.guard.allowed === true` or `context.guard.accepted === true`.
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes:
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-- `runtimeEntry.port: "BaseToolExecutorPort.git.runGit"`
-- fixed `gitArgs`
-- `commandPreview`
-- destructive `risk` metadata
-- `deletesUntrackedFiles: true`
-- `providerCalled`
-- `exitCode`, `stdout`, and `stderr` when runtime executes
-- `resultEnvelope` with path filters, ignored mode, line counts, removed paths, preview paths, and safe fallback counters
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
 ```json
 {
-  "target": {
-    "repositoryPath": "/repo/project",
-    "paths": ["tmp/output.log"],
-    "includeDirectories": false
-  },
-  "context": {
-    "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+  "tool": "git.cleanUntrackedFiles",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "paths": [
+        "tmp/a.log",
+        "build"
+      ],
+      "includeDirectories": true,
+      "ignoredMode": "tracked-ignored"
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
   }
 }
 ```
 
 ## Avoid
 
-- Do not route clean requests through `shell.commandExecution`.
-- Do not let the model provide arbitrary Git subcommands.
-- Do not execute destructive cleanup without an affirmative runtime guard.
-- Do not pass absolute paths or `..` path traversal in `target.paths`.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.cleanUntrackedFiles")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

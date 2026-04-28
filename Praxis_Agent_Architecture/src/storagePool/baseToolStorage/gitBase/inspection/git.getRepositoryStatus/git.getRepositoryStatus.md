@@ -1,98 +1,109 @@
 ---
-description: Read branch and working tree status through the runtime-owned git executor.
-argument-hint: "{ target: { repositoryPath: string, porcelainVersion?: 'v1' | 'v2' }, context?: { dryRun?: boolean, guard?: object } }"
+description: "Read branch and working tree status."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","porcelainVersion":"v1","includeUntracked":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","filesystem:read"]}}'
 ---
 
 # git.getRepositoryStatus
 
 ## Use This Tool
 
-Use this tool to inspect a Git repository's branch and working tree status. It is read-only and should be preferred over shelling out to `git status` from a model-facing workflow.
+Use `git.getRepositoryStatus` to read branch and working tree status. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-This tool is a narrow Git primitive, not a generic Git command runner. The runtime owns process execution, while this storage implementation owns the status-read contract, argv shape, parser, and public result envelope.
+Risk class: `read-only-inspection`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
-```ts
+```json
 {
-  target: {
-    repositoryPath: "/repo/project",
-    includeBranch: true,
-    includeUntracked: true,
-    porcelainVersion: "v1"
+  "target": {
+    "repositoryPath": "/repo/project",
+    "porcelainVersion": "v1",
+    "includeUntracked": true
   },
-  timeoutMs: 30000,
-  context: {
-    runtimeId: "runtime-1",
-    invocationId: "git-status-1",
-    dryRun: true,
-    guard: { allowed: true }
+  "context": {
+    "dryRun": false,
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "filesystem:read"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: repository working tree path passed to the runtime git executor.
+- `target.repositoryPath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.includeBranch`: retained for caller compatibility; the runtime command still includes `--branch` so parsing stays stable.
-- `target.includeUntracked`: include untracked files; defaults to `true`.
-- `target.porcelainVersion`: `v1` or `v2`; defaults to `v1`.
-- `timeoutMs`: runtime git execution timeout.
-- `context.guard`: required for `dryRun: false`.
-- `preferredProvider`: only biases practice metadata; it does not bypass runtime execution.
-
-## Risk Granularity
-
-- `category`: `read-only-inspection`.
-- `riskLevel`: `normal`.
-- `mutatesRepository`: `false`.
-- `mutatesWorkingTree`: `false`.
-- `spawnsProcess`: `true`, through the runtime-owned Git executor.
-- `requiresTapApproval`: `true`; TAP owns user-facing approval and product policy.
+- `target.porcelainVersion`: v1 or v2, default v1.
+- `target.includeUntracked`: false adds --untracked-files=no.
+- `target.includeBranch`: compatibility flag; command still includes --branch.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-- Dry-run mode returns the exact `git status` command plan and does not call a provider.
-- Real execution requires `context.dryRun === false` and an affirmative guard.
-- Real execution calls only `BaseToolExecutorPort.git.runGit({ repositoryPath, args, timeoutMs })`.
-- The only subcommand this tool may produce is `status`.
-- The only argv shape is `["status", "--porcelain=v1|v2", "--branch"]`, plus `--untracked-files=no` when `includeUntracked === false`.
-- Missing runtime git support returns `PROVIDER_UNAVAILABLE`.
-- Provider failures return a public-safe `PROVIDER_REJECTED` error.
-- Approval, repository sandbox policy, process spawning, timeout enforcement, cancellation, and host binary ownership remain runtime/TAP responsibilities.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
+
+Allowed fixed argv or fixed action:
+
+- `status --porcelain=v1 --branch`
+- `status --porcelain=v2 --branch`
+- `append --untracked-files=no when includeUntracked is false`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-Returns:
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-- `output.runtimeEntry`: the real runtime entry, currently `BaseToolExecutorPort.git.runGit`.
-- `output.risk`: the risk classification for upper-layer policy.
-- `output.gitArgs` and `output.commandPreview`: the fixed Git argv and human-readable command preview.
-- `output.resultEnvelope`: branch, upstream, ahead/behind counts when available, and working tree entries with index and working-tree status codes.
-- `metadata.audit` when invoked through `gitGetRepositoryStatusHandler`.
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
-```ts
-await handler.invoke({
-  toolCallId: "status-1",
-  runtimeId: "runtime-1",
-  sessionId: "session-1",
-  input: {
-    target: { repositoryPath: "/repo/project", porcelainVersion: "v2" },
-    context: { dryRun: false, guard: { allowed: true } }
-  },
-  executor
-});
+```json
+{
+  "tool": "git.getRepositoryStatus",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "porcelainVersion": "v1",
+      "includeUntracked": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "filesystem:read"
+      ]
+    }
+  }
+}
 ```
 
 ## Avoid
 
-- Do not use this tool for staging, committing, resetting, or cleaning files.
-- Do not use this tool as a generic `git.execute`.
-- Do not bypass the runtime git executor with hidden local process execution.
-- Do not treat `dryRun: false` as approval without an affirmative guard.
-- Do not move repository mutation policy into this baseTool; mutation tools need their own narrow contracts and risk categories.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.getRepositoryStatus")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

@@ -1,61 +1,118 @@
+---
+description: "Push branches or tags through fixed git push semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","remoteName":"origin","branchName":"feature/a","setUpstream":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","network:egress"]}}'
+---
+
 # git.pushLocalChanges
 
-`git.pushLocalChanges` pushes local refs through a fixed `git push` action. It is a narrow gitBase primitive, not a generic `git.execute` surface.
+## Use This Tool
 
-## Runtime Boundary
+Use `git.pushLocalChanges` to push branches or tags through fixed git push semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-- Storage core builds the only allowed argv.
-- Runtime executes through `BaseToolExecutorPort.git.runGit`.
-- The model cannot pass arbitrary Git subcommands.
-- `dryRun !== false` returns a command plan and never calls the provider.
-- `dryRun:false` requires `context.guard.allowed === true` or `context.guard.accepted === true`.
+Risk class: `remote-network or destructive`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
-## Input Shape
+## Call Shape
 
 ```json
 {
   "target": {
     "repositoryPath": "/repo/project",
     "remoteName": "origin",
-    "branchName": "main",
-    "setUpstream": true,
-    "forceWithLease": false,
-    "pushTags": false,
-    "deleteRemoteBranch": false
+    "branchName": "feature/a",
+    "setUpstream": true
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "network:egress"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "network:egress"
+    ]
   }
 }
 ```
 
-## Fixed Argv
+## Required Inputs
 
-- Branch push: `push [--set-upstream] [--force-with-lease] <remoteName> <branchName>`
-- Tag push: `push <remoteName> --tags`
-- Remote branch delete: `push <remoteName> :<branchName>`
+- `target.repositoryPath`.
+- `target.remoteName`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
-`remoteName` and `branchName` must be safe Git atoms: no whitespace, no NUL bytes, and no leading dash.
+## Optional Inputs
 
-## Output
+- `target.branchName`.
+- `target.setUpstream`.
+- `target.forceWithLease`.
+- `target.pushTags`.
+- `target.deleteRemoteBranch`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
-The result includes:
+## Runtime Behavior
 
-- `runtimeEntry.port: "BaseToolExecutorPort.git.runGit"`
-- `gitArgs`
-- `commandPreview`
-- `risk`
-- `permissionsRequired`
-- `providerCalled`
-- `resultEnvelope`
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-`resultEnvelope` parses pushed refs and rejected hints from public-safe stdout/stderr. Provider failures are mapped to stable public-safe errors.
+Allowed fixed argv or fixed action:
+
+- `push [--set-upstream] [--force-with-lease] <remoteName> <branchName>`
+- `push --tags <remoteName>`
+- `push <remoteName> --delete <branchName>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
+
+## Returns
+
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.pushLocalChanges",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "remoteName": "origin",
+      "branchName": "feature/a",
+      "setUpstream": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "network:egress"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use `shell.commandExecution` for push.
-- Do not expose a generic `git push ...` text command from the model.
-- Do not expand runtime into `executor.git.pushLocalChanges`; keep runtime as the lower-level `runGit` port.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.pushLocalChanges")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

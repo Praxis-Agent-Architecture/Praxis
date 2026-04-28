@@ -1,13 +1,15 @@
 ---
-description: Stage files through the runtime git executor.
-argument-hint: '{"target":{"repositoryPath":"/repo","pathspecs":["src/index.ts"]},"context":{"dryRun":false,"guard":{"allowed":true}}}'
+description: "Add repository paths to the index through fixed git add semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","pathspecs":["src/index.ts"],"intentToAdd":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
 ---
 
 # git.addToStaging
 
 ## Use This Tool
 
-Use `git.addToStaging` when a model needs to stage repository-relative files or perform a governed `git add --all` / `git add --update`.
+Use `git.addToStaging` to add repository paths to the index through fixed git add semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `workspace-mutation`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -15,55 +17,101 @@ Use `git.addToStaging` when a model needs to stage repository-relative files or 
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "pathspecs": ["src/index.ts"],
-    "intentToAdd": false,
-    "force": false
+    "pathspecs": [
+      "src/index.ts"
+    ],
+    "intentToAdd": true
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: absolute repository path approved by runtime scope.
-- One of `target.pathspecs`, `target.all: true`, or `target.update: true`.
+- `target.repositoryPath`.
+- `target.pathspecs unless target.all or target.update is true`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.pathspecs`: repository-relative paths passed after `--`.
-- `target.all`: fixed `git add --all`.
-- `target.update`: fixed `git add --update`.
-- `target.intentToAdd`: fixed `git add --intent-to-add`.
-- `target.force`: fixed `git add --force`.
-- `target.patch`: dry-run preview only; interactive real execution is rejected.
-- `timeoutMs`: runtime git executor timeout.
+- `target.all`.
+- `target.update`.
+- `target.intentToAdd`.
+- `target.force`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage constructs fixed argv for one action only: `git add ...`. Runtime owns the real Git process through `BaseToolExecutorPort.git.runGit`.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-Real execution requires `context.dryRun === false` plus an affirmative guard. Dry-run returns the plan and never calls the provider.
+Allowed fixed argv or fixed action:
+
+- `add [--all|--update|--intent-to-add] [--force] -- <pathspecs>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, provider state, raw stdout/stderr when executed, and a staging result envelope.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
 ```json
 {
-  "target": { "repositoryPath": "/repo/project", "pathspecs": ["src/index.ts"] },
-  "context": { "dryRun": false, "guard": { "allowed": true } }
+  "tool": "git.addToStaging",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "pathspecs": [
+        "src/index.ts"
+      ],
+      "intentToAdd": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
+  }
 }
 ```
 
 ## Avoid
 
-- Do not use this as `git.execute`.
-- Do not pass arbitrary git add options.
-- Do not use shell tools for staging when this fixed-action gitBase tool is available.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.addToStaging")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

@@ -1,10 +1,15 @@
-# git.manageWorktree
+---
+description: "List or manage Git worktrees through fixed git worktree semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","action":"list"},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","filesystem:read"]}}'
+---
 
-`git.manageWorktree` manages Git worktrees through fixed `git worktree` actions. It is a fine-grained gitBase primitive, not a generic `git.execute` surface.
+# git.manageWorktree
 
 ## Use This Tool
 
-Use this tool to list, add, remove, or prune Git worktrees while keeping real process execution in the runtime.
+Use `git.manageWorktree` to list or manage Git worktrees through fixed git worktree semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `read-only-inspection or workspace-mutation or destructive`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -12,46 +17,95 @@ Use this tool to list, add, remove, or prune Git worktrees while keeping real pr
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "action": "add",
-    "worktreePath": "/repo/worktrees/feature-a",
-    "branchName": "feature/a",
-    "targetRef": "main",
-    "detach": false,
-    "force": false
+    "action": "list"
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "filesystem:read"
+    ]
   }
 }
 ```
 
+## Required Inputs
+
+- `target.repositoryPath`.
+- `target.action`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
+
+## Optional Inputs
+
+- `target.worktreePath`.
+- `target.targetRef`.
+- `target.branchName`.
+- `target.detach`.
+- `target.force`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
+
 ## Runtime Behavior
 
-- Storage builds the only allowed argv.
-- Runtime executes through `BaseToolExecutorPort.git.runGit`.
-- `dryRun !== false` returns a plan and never calls the provider.
-- `dryRun:false` mutation actions require an affirmative guard.
-- Missing runtime provider returns `PROVIDER_UNAVAILABLE`.
-- Provider failures are mapped to public-safe provider errors.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-## Fixed Argv
+Allowed fixed argv or fixed action:
 
-- `list`: `worktree list --porcelain`
-- `add`: `worktree add [--force] [--detach] [-b <branchName>] <worktreePath> [targetRef]`
-- `remove`: `worktree remove [--force] <worktreePath>`
-- `prune`: `worktree prune [--force]`
+- `worktree list --porcelain`
+- `worktree add [--detach] [-b <branchName>] <worktreePath> <targetRef>`
+- `worktree remove [--force] <worktreePath>`
+- `worktree prune`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes `runtimeEntry`, `risk`, `gitArgs`, `commandPreview`, `providerCalled`, and `resultEnvelope`.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-For `list`, `resultEnvelope.worktrees` parses porcelain output into stable entries.
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.manageWorktree",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "action": "list"
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "filesystem:read"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use `shell.commandExecution` for worktree management.
-- Do not let the model supply arbitrary Git subcommands or flags.
-- Do not add a high-level `executor.git.manageWorktree`; runtime stays at `BaseToolExecutorPort.git.runGit`.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.manageWorktree")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

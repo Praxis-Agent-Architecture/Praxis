@@ -1,53 +1,122 @@
+---
+description: "List, create, delete, rename, or set upstream for branches."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","action":"rename","branchName":"feature/a","newBranchName":"feature/b","force":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.manageBranch
 
-Use `git.manageBranch` when an agent needs to list branches, create a branch, delete a branch, rename a branch, or set a branch upstream through fixed Git actions.
+## Use This Tool
 
-## Runtime Contract
+Use `git.manageBranch` to list, create, delete, rename, or set upstream for branches. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-- Fixed action: `git branch`.
-- Runtime entry: `BaseToolExecutorPort.git.runGit`.
-- No generic `git.execute` surface is exposed.
-- `dryRun !== false` returns the command plan and never calls the provider.
-- `dryRun:false` for create, delete, rename, or set-upstream requires an affirmative runtime guard.
-- The runtime receives only `{ repositoryPath, args, timeoutMs }` after storage has validated and assembled argv.
+Risk class: `read-only-inspection or history-mutation or destructive`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
-## Input Shape
+## Call Shape
 
 ```json
 {
   "target": {
     "repositoryPath": "/repo/project",
     "action": "rename",
-    "branchName": "feature/old",
-    "newBranchName": "feature/new",
-    "force": false
+    "branchName": "feature/a",
+    "newBranchName": "feature/b",
+    "force": true
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
-## Fixed Argv
+## Required Inputs
 
-- List branches: `branch --list`.
-- Create branch: `branch [--force] <branchName> [startPoint]`.
-- Delete branch: `branch -d <branchName>` or `branch -D <branchName>` when `force:true`.
-- Rename branch: `branch -m <branchName> <newBranchName>` or `branch -M ...` when `force:true`.
-- Set upstream: `branch --set-upstream-to <upstream> <branchName>`.
+- `target.repositoryPath`.
+- `target.action`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
-Refs reject empty values, whitespace, NUL, leading dash, path traversal, `@{`, backslash, `//`, colon, and `.lock` suffix.
+## Optional Inputs
 
-## Output
+- `target.branchName`.
+- `target.newBranchName`.
+- `target.startPoint`.
+- `target.upstream`.
+- `target.force`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
-The output includes `runtimeEntry`, `risk`, `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, and a `resultEnvelope` with action, branch name, parsed branch list/current branch, operation hint, and create/delete/rename/upstream status.
+## Runtime Behavior
+
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
+
+Allowed fixed argv or fixed action:
+
+- `branch --list`
+- `branch <branchName> <startPoint>`
+- `branch -d|-D <branchName>`
+- `branch -m|-M <branchName> <newBranchName>`
+- `branch --set-upstream-to <upstream> <branchName>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
+
+## Returns
+
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.manageBranch",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "action": "rename",
+      "branchName": "feature/a",
+      "newBranchName": "feature/b",
+      "force": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use `shell.commandExecution` for branch operations.
-- Do not let the model choose arbitrary git subcommands.
-- Do not use this tool for switch, checkout, merge, rebase, commit, or push.
-- Do not auto-allow repository roots from model-provided arguments.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.manageBranch")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

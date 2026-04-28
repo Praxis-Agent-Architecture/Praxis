@@ -1,13 +1,15 @@
 ---
-description: Move or rename one tracked file with fixed git mv argv through the runtime git executor.
-argument-hint: "{target:{repositoryPath,sourcePath,destinationPath,force?},context:{dryRun?,guard?,allowedRepositoryRoots?,grantedPermissions?}}"
+description: "Move or rename one tracked file through fixed git mv semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","sourcePath":"src/old.ts","destinationPath":"src/new.ts","force":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
 ---
 
 # git.moveOrRenameFile
 
 ## Use This Tool
 
-Use `git.moveOrRenameFile` when an agent needs to move or rename a tracked file in a Git repository.
+Use `git.moveOrRenameFile` to move or rename one tracked file through fixed git mv semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `workspace-mutation`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -17,63 +19,95 @@ Use `git.moveOrRenameFile` when an agent needs to move or rename a tracked file 
     "repositoryPath": "/repo/project",
     "sourcePath": "src/old.ts",
     "destinationPath": "src/new.ts",
-    "force": false
+    "force": true
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: repository root.
-- `target.sourcePath`: repository-relative tracked source path.
-- `target.destinationPath`: repository-relative destination path.
+- `target.repositoryPath`.
+- `target.sourcePath`.
+- `target.destinationPath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.force`: adds `--force`.
-- `timeoutMs`: runtime git executor timeout.
+- `target.force`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage builds exactly:
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-```text
-git mv [--force] -- <sourcePath> <destinationPath>
-```
+Allowed fixed argv or fixed action:
 
-The runtime owns process execution through `BaseToolExecutorPort.git.runGit`. `dryRun !== false` returns a plan only. Real execution requires `dryRun:false` plus an affirmative guard.
+- `mv [--force] -- <sourcePath> <destinationPath>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The result includes `runtimeEntry`, `risk`, `gitArgs`, `commandPreview`, `providerCalled`, `exitCode/stdout/stderr` for real execution, and a `resultEnvelope` with the moved source/destination pair.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
 ```json
 {
-  "target": {
-    "repositoryPath": "/repo/project",
-    "sourcePath": "docs/old.md",
-    "destinationPath": "docs/new.md",
-    "force": true
-  },
-  "context": {
-    "dryRun": false,
-    "guard": { "allowed": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+  "tool": "git.moveOrRenameFile",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "sourcePath": "src/old.ts",
+      "destinationPath": "src/new.ts",
+      "force": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
   }
 }
 ```
 
 ## Avoid
 
-- Do not use this as a generic `git.execute`.
-- Do not pass absolute paths or `..` path traversal.
-- Do not use shell commands for Git moves when this fixed-action tool can express the intent.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.moveOrRenameFile")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

@@ -1,17 +1,17 @@
+---
+description: "Merge one branch through fixed git merge semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","sourceBranch":"feature/a","mode":"no-ff","commitMessage":"Merge feature/a"},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.mergeBranch
 
-Use `git.mergeBranch` when an agent needs to merge one safe source branch into the current branch.
+## Use This Tool
 
-## Runtime Contract
+Use `git.mergeBranch` to merge one branch through fixed git merge semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-- Fixed action: `git merge`.
-- Runtime entry: `BaseToolExecutorPort.git.runGit`.
-- No generic `git.execute` surface is exposed.
-- `dryRun !== false` returns the command plan and never calls the provider.
-- `dryRun:false` requires an affirmative runtime guard.
-- The runtime receives only `{ repositoryPath, args, timeoutMs }` after storage has validated and assembled argv.
+Risk class: `history-mutation`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
-## Input Shape
+## Call Shape
 
 ```json
 {
@@ -19,36 +19,97 @@ Use `git.mergeBranch` when an agent needs to merge one safe source branch into t
     "repositoryPath": "/repo/project",
     "sourceBranch": "feature/a",
     "mode": "no-ff",
-    "commitMessage": "Merge feature/a",
-    "noCommit": false,
-    "allowUnrelatedHistories": false
+    "commitMessage": "Merge feature/a"
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
-## Fixed Argv
+## Required Inputs
 
-- Default merge: `merge <sourceBranch>`.
-- Fast-forward only: `merge --ff-only <sourceBranch>`.
-- No fast-forward: `merge --no-ff [-m message] <sourceBranch>`.
-- Squash merge: `merge --squash <sourceBranch>`.
-- Preview merge without commit: `merge --no-commit <sourceBranch>`.
+- `target.repositoryPath`.
+- `target.sourceBranch`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
-Branch refs reject empty values, whitespace, NUL, leading dash, path traversal, `@{`, backslash, `//`, colon, and `.lock` suffix.
+## Optional Inputs
 
-## Output
+- `target.mode`: default, ff-only, no-ff, or squash.
+- `target.commitMessage`.
+- `target.noCommit`.
+- `target.allowUnrelatedHistories`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
-The output includes `runtimeEntry`, `risk`, `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, and a `resultEnvelope` with merge mode, fast-forward/conflict hints, line counts, and whether a merge commit may have been created.
+## Runtime Behavior
+
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
+
+Allowed fixed argv or fixed action:
+
+- `merge [--ff-only|--no-ff|--squash] [-m <commitMessage>] [--no-commit] [--allow-unrelated-histories] <sourceBranch>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
+
+## Returns
+
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.mergeBranch",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "sourceBranch": "feature/a",
+      "mode": "no-ff",
+      "commitMessage": "Merge feature/a"
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use `shell.commandExecution` for merge operations.
-- Do not let the model choose arbitrary git subcommands.
-- Do not use this tool for rebase, cherry-pick, or reset.
-- Do not auto-allow repository roots from model-provided arguments.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.mergeBranch")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

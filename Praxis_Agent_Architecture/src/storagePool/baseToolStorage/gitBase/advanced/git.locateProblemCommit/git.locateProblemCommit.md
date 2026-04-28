@@ -1,10 +1,15 @@
-# git.locateProblemCommit
+---
+description: "Find bisect candidate commits without running arbitrary verification commands."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","knownGoodRef":"main~3","knownBadRef":"HEAD","verificationCommand":"npm test","maxSteps":16},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","filesystem:read"]}}'
+---
 
-`git.locateProblemCommit` inspects likely problem-commit candidates through a fixed read-only `git rev-list --bisect-all` action. It is a fine-grained gitBase primitive, not a generic `git.execute` or shell verification runner.
+# git.locateProblemCommit
 
 ## Use This Tool
 
-Use this tool when the model needs to narrow a known-good to known-bad Git range into bisect candidates while keeping real process execution in the runtime.
+Use `git.locateProblemCommit` to find bisect candidate commits without running arbitrary verification commands. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `read-only-inspection`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -12,43 +17,96 @@ Use this tool when the model needs to narrow a known-good to known-bad Git range
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "knownGoodRef": "v1.0.0",
+    "knownGoodRef": "main~3",
     "knownBadRef": "HEAD",
     "verificationCommand": "npm test",
-    "maxSteps": 64
+    "maxSteps": 16
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "filesystem:read"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "filesystem:read"
+    ]
   }
 }
 ```
 
+## Required Inputs
+
+- `target.repositoryPath`.
+- `target.knownGoodRef`.
+- `target.knownBadRef`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
+
+## Optional Inputs
+
+- `target.verificationCommand`: recorded only, not executed.
+- `target.maxSteps`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
+
 ## Runtime Behavior
 
-- Storage builds the only allowed argv.
-- Runtime executes through `BaseToolExecutorPort.git.runGit`.
-- `dryRun !== false` returns a plan and never calls the provider.
-- `dryRun:false` requires an affirmative runtime guard.
-- Missing runtime provider returns `PROVIDER_UNAVAILABLE`.
-- Provider failures are mapped to public-safe provider errors.
-- `verificationCommand` is metadata only. The baseTool never runs it.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-## Fixed Argv
+Allowed fixed argv or fixed action:
 
 - `rev-list --bisect-all <knownGoodRef>..<knownBadRef>`
 
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
+
 ## Returns
 
-The output includes `runtimeEntry`, `risk`, `gitArgs`, `commandPreview`, `providerCalled`, `verificationCommandExecuted:false`, and `resultEnvelope`.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-`resultEnvelope` parses candidate commits from `git rev-list --bisect-all` output and reports `bestCandidate`, `candidateCount`, and whether a candidate was located.
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.locateProblemCommit",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "knownGoodRef": "main~3",
+      "knownBadRef": "HEAD",
+      "verificationCommand": "npm test",
+      "maxSteps": 16
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "filesystem:read"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use `shell.commandExecution` to run the verification command.
-- Do not run `git bisect start`, `git bisect run`, or mutate bisect state inside this baseTool.
-- Do not let the model supply arbitrary Git subcommands or flags.
-- Do not add a high-level `executor.git.locateProblemCommit`; runtime stays at `BaseToolExecutorPort.git.runGit`.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.locateProblemCommit")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

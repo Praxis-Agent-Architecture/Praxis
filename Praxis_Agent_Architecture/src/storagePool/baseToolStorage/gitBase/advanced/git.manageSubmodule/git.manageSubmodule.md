@@ -1,10 +1,15 @@
-# git.manageSubmodule
+---
+description: "Inspect or manage submodules through fixed git submodule semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","action":"status","recursive":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","filesystem:read"]}}'
+---
 
-`git.manageSubmodule` manages Git submodules through fixed `git submodule` actions. It is a fine-grained gitBase primitive, not a generic `git.execute` surface.
+# git.manageSubmodule
 
 ## Use This Tool
 
-Use this tool to inspect, add, update, sync, or deinitialize submodules while keeping the real Git process in runtime.
+Use `git.manageSubmodule` to inspect or manage submodules through fixed git submodule semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `read-only-inspection or workspace-mutation or remote-network`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -12,46 +17,98 @@ Use this tool to inspect, add, update, sync, or deinitialize submodules while ke
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "action": "add",
-    "submodulePath": "vendor/toolkit",
-    "remoteUrl": "https://example.test/toolkit.git",
-    "branch": "main",
+    "action": "status",
     "recursive": true
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write", "network:egress"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "filesystem:read"
+    ]
   }
 }
 ```
 
+## Required Inputs
+
+- `target.repositoryPath`.
+- `target.action`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
+
+## Optional Inputs
+
+- `target.submodulePath`.
+- `target.remoteUrl`.
+- `target.branch`.
+- `target.recursive`.
+- `target.force`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
+
 ## Runtime Behavior
 
-- Storage builds the only allowed argv.
-- Runtime executes through `BaseToolExecutorPort.git.runGit`.
-- `dryRun !== false` returns a plan and never calls the provider.
-- Mutating actions require an affirmative guard for `dryRun:false`.
-- `add` and `update` may use network and require `network:egress`.
-- Provider failures are mapped to public-safe provider errors.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-## Fixed Argv
+Allowed fixed argv or fixed action:
 
-- `status`: `submodule status [--recursive] [-- <submodulePath>]`
-- `add`: `submodule add [-b <branch>] <remoteUrl> <submodulePath>`
-- `update`: `submodule update --init [--recursive] [-- <submodulePath>]`
-- `sync`: `submodule sync [--recursive] [-- <submodulePath>]`
-- `deinit`: `submodule deinit -- <submodulePath>`
+- `submodule status [--recursive]`
+- `submodule add [-b <branch>] <remoteUrl> <submodulePath>`
+- `submodule update [--init] [--recursive] <submodulePath>`
+- `submodule sync [--recursive]`
+- `submodule deinit [-f] <submodulePath>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes `runtimeEntry`, `risk`, `gitArgs`, `commandPreview`, `providerCalled`, `mayUseNetwork`, and `resultEnvelope`.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-For `status`, `resultEnvelope.entries` parses status lines into stable entries.
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.manageSubmodule",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "action": "status",
+      "recursive": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "filesystem:read"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use `shell.commandExecution` for submodule operations.
-- Do not let the model supply arbitrary Git subcommands or flags.
-- Do not add a high-level `executor.git.manageSubmodule`; runtime stays at `BaseToolExecutorPort.git.runGit`.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.manageSubmodule")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

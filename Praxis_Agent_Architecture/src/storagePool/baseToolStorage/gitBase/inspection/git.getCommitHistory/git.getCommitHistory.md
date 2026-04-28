@@ -1,13 +1,15 @@
 ---
-description: Read Git commit history through the runtime git executor.
-argument-hint: '{"target":{"repositoryPath":"/repo","maxCount":5},"context":{"dryRun":false,"guard":{"allowed":true}}}'
+description: "Read commit history with a stable parser-friendly format."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","maxCount":1},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","filesystem:read"]}}'
 ---
 
 # git.getCommitHistory
 
 ## Use This Tool
 
-Use `git.getCommitHistory` when a model needs recent commit history, commit subjects, authors, or path-filtered history.
+Use `git.getCommitHistory` to read commit history with a stable parser-friendly format. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `read-only-inspection`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -15,51 +17,91 @@ Use `git.getCommitHistory` when a model needs recent commit history, commit subj
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "maxCount": 5,
-    "ref": "main",
-    "pathFilter": "src/index.ts"
+    "maxCount": 1
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "filesystem:read"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "filesystem:read"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: absolute repository path approved by runtime scope.
+- `target.repositoryPath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.maxCount`: number of commits, default `20`, max `200`.
-- `target.ref`: safe revision or ref.
-- `target.pathFilter`: repository-relative path filter.
-- `timeoutMs`: runtime git executor timeout.
+- `target.maxCount`.
+- `target.ref`.
+- `target.pathFilter`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage constructs fixed argv for one action only: `git log --format=... --max-count N`. Runtime owns the real Git process through `BaseToolExecutorPort.git.runGit`.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-Real execution requires `context.dryRun === false` plus an affirmative guard. Dry-run returns the plan and never calls the provider.
+Allowed fixed argv or fixed action:
+
+- `log --format=%H%x1f%h%x1f%an%x1f%ae%x1f%aI%x1f%s`
+- `append --max-count <n>`
+- `append ref or -- <pathFilter> only after validation`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, provider state, raw stdout/stderr when executed, and parsed commit entries.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
 ```json
 {
-  "target": { "repositoryPath": "/repo/project", "maxCount": 3 },
-  "context": { "dryRun": false, "guard": { "allowed": true } }
+  "tool": "git.getCommitHistory",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "maxCount": 1
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "filesystem:read"
+      ]
+    }
+  }
 }
 ```
 
 ## Avoid
 
-- Do not use this as `git.execute`.
-- Do not pass arbitrary git log options.
-- Do not use shell tools for commit history when this fixed-action gitBase tool is available.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.getCommitHistory")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

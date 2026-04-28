@@ -1,10 +1,15 @@
+---
+description: "Create a stash entry through fixed git stash push semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","message":"checkpoint","includeUntracked":true,"pathspecs":["src/index.ts"]},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.stashChanges
 
 ## Use This Tool
 
-Use `git.stashChanges` when the model needs to save current working-tree changes into a Git stash entry.
+Use `git.stashChanges` to create a stash entry through fixed git stash push semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
+Risk class: `workspace-mutation`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -12,82 +17,102 @@ This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "message": "checkpoint before refactor",
+    "message": "checkpoint",
     "includeUntracked": true,
-    "keepIndex": false,
-    "pathspecs": ["src/index.ts"]
+    "pathspecs": [
+      "src/index.ts"
+    ]
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"],
-    "allowedRepositoryRoots": ["/repo"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: local repository path governed by runtime scope.
+- `target.repositoryPath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.message`: stash message passed with `-m`.
-- `target.includeUntracked`: include untracked files with `--include-untracked`.
-- `target.keepIndex`: keep staged changes in the index with `--keep-index`.
-- `target.pathspecs`: repository-relative pathspecs after `--`.
-- `timeoutMs`: runtime git execution timeout.
-- `context.allowedRepositoryRoots`: optional scope boundary.
-- `context.grantedPermissions`: optional explicit permission check.
+- `target.message`.
+- `target.includeUntracked`.
+- `target.keepIndex`.
+- `target.pathspecs`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage core validates JSON, path scope, message safety, pathspec scope, permissions, governance, risk metadata, and output shape. Runtime owns the host process through:
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-```text
-BaseToolExecutorPort.git.runGit({ repositoryPath, args, timeoutMs })
-```
+Allowed fixed argv or fixed action:
 
-Allowed argv form is fixed:
+- `stash push [--include-untracked] [--keep-index] [-m <message>] -- <pathspecs>`
 
-```text
-git stash push [--include-untracked] [--keep-index] [-m message] [-- pathspec...]
-```
-
-`dryRun !== false` returns only the command plan and never calls the provider. `dryRun:false` requires `context.guard.allowed === true` or `context.guard.accepted === true`.
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes:
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-- `runtimeEntry.port: "BaseToolExecutorPort.git.runGit"`
-- fixed `gitArgs`
-- `commandPreview`
-- `risk` category and mutation flags
-- `providerCalled`
-- `exitCode`, `stdout`, and `stderr` when runtime executes
-- `resultEnvelope` with message, options, pathspecs, line counts, and a public-safe stash hint
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
 ```json
 {
-  "target": {
-    "repositoryPath": "/repo/project",
-    "message": "checkpoint",
-    "includeUntracked": true
-  },
-  "context": {
-    "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+  "tool": "git.stashChanges",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "message": "checkpoint",
+      "includeUntracked": true,
+      "pathspecs": [
+        "src/index.ts"
+      ]
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
   }
 }
 ```
 
 ## Avoid
 
-- Do not route stash requests through `shell.commandExecution`.
-- Do not let the model provide arbitrary Git subcommands.
-- Do not execute stash mutation without an affirmative runtime guard.
-- Do not treat this as stash apply or pop; use dedicated fixed-action tools for those intents.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.stashChanges")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

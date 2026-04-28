@@ -1,106 +1,112 @@
+---
+description: "Apply one commit through fixed git cherry-pick semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","commitRef":"abc123","signoff":true},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.cherryPickCommit
 
-> 对应源码：`Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/commit/git.cherryPickCommit.ts`
+## Use This Tool
 
-## 1. 文件位置
+Use `git.cherryPickCommit` to apply one commit through fixed git cherry-pick semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-- 所属顶层模块：执行引擎（`agent_executionEngine`）。
-- 所属路径：`agent_executionEngine/basic_toolLayer/baseTools/gitBase/commit`。
-- 当前文件：`git.cherryPickCommit.ts`。
-- storage 实现：`src/storagePool/baseToolStorage/gitBase/commit/git.cherryPickCommit/`。
+Risk class: `history-mutation`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
-## 2. 文件职责
+## Call Shape
 
-提供 Git 基础工具 / 提交操作 中的“挑选提交”基础能力原语。
+```json
+{
+  "target": {
+    "repositoryPath": "/repo/project",
+    "commitRef": "abc123",
+    "signoff": true
+  },
+  "context": {
+    "dryRun": false,
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
+  }
+}
+```
 
-它把 cherry-pick 做成固定动作工具：storage 负责 commit ref 校验、固定 argv、风险和结果解析，runtime 只通过 `BaseToolExecutorPort.git.runGit` 执行 `{ repositoryPath, args, timeoutMs }`。这里是基础工具原语，不是 TAP 的最终高级工具库；TAP 仍负责更上层审批、组合和专业工具。
+## Required Inputs
 
-## 2.1 文件名语义拆解
+- `target.repositoryPath`.
+- `target.commitRef`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
-- 原始文件名：`git.cherryPickCommit.ts`。
-- 命名片段：`git` / `cherry` / `Pick` / `Commit`。
-- 工程含义：这是 `gitBase` 下 `commit` 分组里的 `cherryPickCommit` 基础工具原语。
-- 真实动作：固定为 `git cherry-pick`，不提供任意 `git.execute`。
+## Optional Inputs
 
-## 3. 目录语义
+- `target.noCommit`.
+- `target.mainlineParent`.
+- `target.signoff`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
-- 基础工具原语层：提供 Agent 成立所需的底层工具能力，让 TAP 在其上构建更高级工具治理系统。
-- Git 基础工具：仓库、分支、暂存、提交、远端、stash 和历史检查。
-- commit 分组：承接 commit、amend、cherry-pick、revert 等历史写入动作。
+## Runtime Behavior
 
-## 4. 源码头部能力注释
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-- 文件定位：Agent 执行引擎 / 基础工具原语层 / 基础工具集合 / Git 基础工具 / 提交操作。
-- 核心目的：提供 Git 基础工具 / 提交操作 中的“挑选提交”基础能力原语。
-- 能力要求1：需要定义该能力的输入、输出、错误、权限需求和可观测事件。
-- 能力要求2：这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
-- 能力要求3：后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 边界：entry 层只暴露稳定 public surface；真实契约、provider 适配和 runtime git executor 调用在 storagePool。
-- 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+Allowed fixed argv or fixed action:
 
-## 5. 需要提供的能力
+- `cherry-pick [--no-commit] [--mainline <n>] [--signoff] <commitRef>`
 
-- 通过统一 `BaseToolHandler.invoke()` 暴露 `git.cherryPickCommit`。
-- 支持固定 `git cherry-pick [--no-commit] [--signoff] [--mainline <n>] <commitRef>`。
-- 返回 `runtimeEntry`、`risk`、`gitArgs`、`commandPreview`、`providerCalled`、`executionBlocked` 和 `resultEnvelope`。
-- 保留 `planGitCommitCherryPick()` 兼容旧调用方。
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
-## 6. 输入边界
+## Returns
 
-- 输入必须是工具调用 JSON，主要字段是 `target.repositoryPath`、`target.commitRef`、`noCommit`、`mainlineParent`、`signoff`。
-- `context.allowedRepositoryRoots` 控制仓库作用域，不能由模型提供的路径自动扩权。
-- `context.grantedPermissions` 控制 `git:read`、`git:write`、`filesystem:read`、`filesystem:write`。
-- 真实 cherry-pick 必须设置 `dryRun:false` 和 affirmative guard。
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-## 7. 输出边界
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
-- 输出是可给 runtime inspection 和上层模型看的标准工具结果信封。
-- 不泄漏 provider 栈、私有路径或 `.git` 内部细节。
-- `resultEnvelope` 至少描述 commitRef、operation hint、commit hash、branch、subject、files changed 和 cherryPickCompleted 状态。
+## Example
 
-## 8. 错误边界
+```json
+{
+  "tool": "git.cherryPickCommit",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "commitRef": "abc123",
+      "signoff": true
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
+  }
+}
+```
 
-- 参数错误返回 `INVALID_ARGUMENT`、`MISSING_REPOSITORY_PATH` 或 `MISSING_TARGET_REF`。
-- 作用域和权限错误返回 `SCOPE_REJECTED` / `PERMISSION_DENIED`。
-- 缺少 guard 返回 `GOVERNANCE_REJECTED`。
-- 缺少 runtime provider 返回 `PROVIDER_UNAVAILABLE`，provider 失败返回 public-safe `PROVIDER_REJECTED`。
+## Avoid
 
-## 9. 依赖对象
-
-- `BaseToolExecutorPort.git.runGit`：runtime 拥有真实 Git 进程。
-- `runtime.governancePlane.toolInvocationGrant`：真实 history mutation 前的治理许可。
-- Host `git` binary：由 runtime 提供，不在工具层直接调用。
-
-## 10. 被谁调用
-
-- `createBaseToolRegistry().lookupHandler("git.cherryPickCommit")`。
-- `scripts/agentCore_Agent_Test/agentcore_tool_lab.ts` 的 mounted gitBase runner。
-- 后续 TAP 高级工具系统可以把它组合成“选择提交 -> 处理冲突 -> 检查状态”的完整工作流。
-
-## 11. 不应该做什么
-
-- 不要提供任意 `git.execute`。
-- 不要改用 `shell.commandExecution` 执行 cherry-pick。
-- 不要把 commit/amend/revert/reset/merge/rebase/push 等动作塞进本工具。
-- 不要让模型传入路径后自动成为 allowed repository root。
-
-## 12. 最小实现建议
-
-- entry 文件保持薄 re-export。
-- storage `core.ts` 负责 JSON 验证、commit ref 校验、固定 argv、dry-run、governance、provider error mapping 和 parser。
-- `bestPractice.ts` 负责 provider practice 选择、handler 定义和 registry 可挂载形态。
-- lab 只归一化输入并注入 governed context，不自行拼 Git 子命令。
-
-## 13. 最小测试建议
-
-- dry-run 不调用 provider。
-- malformed JSON 不产生 raw `TypeError`。
-- `dryRun:false` 缺 guard 返回 `GOVERNANCE_REJECTED`。
-- 有 guard 但缺 provider 返回 `PROVIDER_UNAVAILABLE`。
-- fake runtime executor 收到固定 argv，例如 `cherry-pick --no-commit --signoff abc123`。
-- registry/lab 走 `createBaseToolRegistry().lookupHandler`，未知 `git.*` 不落到任意 fallback。
-
-## 14. 与系统链路的关系
-
-调用链路是：模型工具调用 JSON -> lab/runtime adapter -> registry handler -> storage bestPractice -> storage core -> `BaseToolExecutorPort.git.runGit` -> host git process -> normalized result。这个工具层更多提供调用方式、入口和 runtime 调用形状规范；真实 Git 进程归 runtime 管理。
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.cherryPickCommit")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

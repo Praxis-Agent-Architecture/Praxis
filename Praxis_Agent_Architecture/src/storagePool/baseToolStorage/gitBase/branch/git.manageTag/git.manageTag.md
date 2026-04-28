@@ -1,17 +1,17 @@
+---
+description: "List, create, annotate, or delete tags through fixed git tag semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","action":"annotate","tagName":"v1.0.0","targetRef":"HEAD","message":"release"},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.manageTag
 
-Use `git.manageTag` when an agent needs to list tags, create a lightweight tag, create an annotated tag, or delete a tag through fixed Git actions.
+## Use This Tool
 
-## Runtime Contract
+Use `git.manageTag` to list, create, annotate, or delete tags through fixed git tag semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-- Fixed action: `git tag`.
-- Runtime entry: `BaseToolExecutorPort.git.runGit`.
-- No generic `git.execute` surface is exposed.
-- `dryRun !== false` returns the command plan and never calls the provider.
-- `dryRun:false` for create, annotate, or delete requires an affirmative runtime guard.
-- The runtime receives only `{ repositoryPath, args, timeoutMs }` after storage has validated and assembled argv.
+Risk class: `read-only-inspection or history-mutation or destructive`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
-## Input Shape
+## Call Shape
 
 ```json
 {
@@ -20,34 +20,101 @@ Use `git.manageTag` when an agent needs to list tags, create a lightweight tag, 
     "action": "annotate",
     "tagName": "v1.0.0",
     "targetRef": "HEAD",
-    "message": "release v1.0.0",
-    "force": false
+    "message": "release"
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
-## Fixed Argv
+## Required Inputs
 
-- List tags: `tag --list`.
-- Create lightweight tag: `tag [--force] <tagName> <targetRef|HEAD>`.
-- Create annotated tag: `tag -a [--force] <tagName> <targetRef|HEAD> -m <message>`.
-- Delete tag: `tag -d <tagName>`.
+- `target.repositoryPath`.
+- `target.action`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
-Refs reject empty values, whitespace, NUL, leading dash, path traversal, `@{`, backslash, `//`, colon, and `.lock` suffix.
+## Optional Inputs
 
-## Output
+- `target.tagName`.
+- `target.targetRef`.
+- `target.message`.
+- `target.force`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
-The output includes `runtimeEntry`, `risk`, `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, and a `resultEnvelope` with action, tag name, parsed listed tags, operation hint, and create/delete status.
+## Runtime Behavior
+
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
+
+Allowed fixed argv or fixed action:
+
+- `tag --list`
+- `tag <tagName> <targetRef>`
+- `tag -a <tagName> <targetRef> -m <message>`
+- `tag -d <tagName>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
+
+## Returns
+
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.manageTag",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "action": "annotate",
+      "tagName": "v1.0.0",
+      "targetRef": "HEAD",
+      "message": "release"
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use `shell.commandExecution` for tag operations.
-- Do not let the model choose arbitrary git subcommands.
-- Do not use this tool for branch, merge, rebase, commit, or push.
-- Do not auto-allow repository roots from model-provided arguments.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.manageTag")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

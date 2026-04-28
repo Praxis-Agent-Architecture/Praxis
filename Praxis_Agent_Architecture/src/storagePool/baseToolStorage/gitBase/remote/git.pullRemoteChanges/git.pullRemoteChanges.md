@@ -1,12 +1,15 @@
+---
+description: "Pull and integrate remote changes through fixed git pull semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","remoteName":"origin","branchName":"main","integrationMode":"ff-only"},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:write","network:egress"]}}'
+---
+
 # git.pullRemoteChanges
-
-`git.pullRemoteChanges` pulls remote changes through a fixed `git pull` action.
-
-The baseTool owns validation, risk metadata, dry-run behavior, fixed argv construction, and result parsing. The runtime owns the actual host Git process and network access through `BaseToolExecutorPort.git.runGit`.
 
 ## Use This Tool
 
-Use this tool when the model needs to pull and integrate remote changes into the current repository.
+Use `git.pullRemoteChanges` to pull and integrate remote changes through fixed git pull semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `remote-network`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -16,32 +19,97 @@ Use this tool when the model needs to pull and integrate remote changes into the
     "repositoryPath": "/repo/project",
     "remoteName": "origin",
     "branchName": "main",
-    "integrationMode": "ff-only",
-    "autostash": false,
-    "prune": true
+    "integrationMode": "ff-only"
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "git:write", "filesystem:write", "network:egress"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:write",
+      "network:egress"
+    ]
   }
 }
 ```
 
+## Required Inputs
+
+- `target.repositoryPath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
+
+## Optional Inputs
+
+- `target.remoteName`.
+- `target.branchName`.
+- `target.integrationMode`: merge, rebase, or ff-only.
+- `target.autostash`.
+- `target.prune`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
+
 ## Runtime Behavior
 
-- Dry-run returns the plan and does not call the provider.
-- Real execution requires `context.dryRun === false` plus an affirmative guard.
-- The only runtime command shape is `git pull ...` built by storage core.
-- Runtime owns the Git binary, process execution, network egress, timeout, and sandbox roots.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
+
+Allowed fixed argv or fixed action:
+
+- `pull [--ff-only|--rebase] [--autostash] [--prune] <remoteName> <branchName>`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The result includes `runtimeEntry`, `gitArgs`, `commandPreview`, `risk`, `providerCalled`, and `resultEnvelope`.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.pullRemoteChanges",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "remoteName": "origin",
+      "branchName": "main",
+      "integrationMode": "ff-only"
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:write",
+        "network:egress"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not use this as a generic `git.execute`.
-- Do not use this tool for fetch-only, push, arbitrary merge, or arbitrary rebase.
-- Do not let the model supply arbitrary flags.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.pullRemoteChanges")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

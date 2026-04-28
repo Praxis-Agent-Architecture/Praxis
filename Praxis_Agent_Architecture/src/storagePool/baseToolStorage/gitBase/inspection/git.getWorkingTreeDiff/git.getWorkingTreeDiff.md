@@ -1,13 +1,15 @@
 ---
-description: Read a fixed Git working-tree diff through the runtime git executor.
-argument-hint: '{"target":{"repositoryPath":"/repo","mode":"unstaged","pathspecs":["src/index.ts"]},"context":{"dryRun":false,"guard":{"allowed":true}}}'
+description: "Read a bounded working tree or staged diff."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","mode":"combined","pathspecs":["src/index.ts"],"contextLines":1},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","filesystem:read"]}}'
 ---
 
 # git.getWorkingTreeDiff
 
 ## Use This Tool
 
-Use `git.getWorkingTreeDiff` when a model needs to inspect repository diff content. It is a read-only gitBase primitive.
+Use `git.getWorkingTreeDiff` to read a bounded working tree or staged diff. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
+
+Risk class: `read-only-inspection`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -15,52 +17,99 @@ Use `git.getWorkingTreeDiff` when a model needs to inspect repository diff conte
 {
   "target": {
     "repositoryPath": "/repo/project",
-    "mode": "unstaged",
-    "pathspecs": ["src/index.ts"],
-    "contextLines": 3
+    "mode": "combined",
+    "pathspecs": [
+      "src/index.ts"
+    ],
+    "contextLines": 1
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "allowedRepositoryRoots": ["/repo"],
-    "grantedPermissions": ["git:read", "filesystem:read"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "filesystem:read"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: absolute repository path approved by runtime scope.
+- `target.repositoryPath`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.mode`: `unstaged`, `staged`, or `combined`; default is `unstaged`.
-- `target.compareRef`: safe revision/ref for a read-only diff.
+- `target.mode`: unstaged, staged, or combined.
 - `target.pathspecs`: repository-relative paths.
-- `target.contextLines`: unified diff context line count from `0` to `1000`.
-- `timeoutMs`: runtime git executor timeout.
+- `target.contextLines`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage constructs fixed argv for one action only: `git diff`. Runtime owns the actual Git process through `BaseToolExecutorPort.git.runGit`.
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-Real execution requires `context.dryRun === false` plus an affirmative guard. Dry-run returns the plan and never calls the provider.
+Allowed fixed argv or fixed action:
+
+- `diff --unified=<contextLines> HEAD -- <pathspecs>`
+- `diff --cached --unified=<contextLines> -- <pathspecs> for staged mode`
+- `diff --unified=<contextLines> -- <pathspecs> for unstaged mode`
+
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, provider state, raw stdout/stderr when executed, and a parsed diff envelope with files and hunk count.
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
+
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
 
 ## Example
 
 ```json
 {
-  "target": { "repositoryPath": "/repo/project", "mode": "combined", "pathspecs": ["src"] },
-  "context": { "dryRun": false, "guard": { "allowed": true } }
+  "tool": "git.getWorkingTreeDiff",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "mode": "combined",
+      "pathspecs": [
+        "src/index.ts"
+      ],
+      "contextLines": 1
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "filesystem:read"
+      ]
+    }
+  }
 }
 ```
 
 ## Avoid
 
-- Do not use this as `git.execute`.
-- Do not pass arbitrary git options.
-- Do not use shell tools for Git diff when this fixed-action gitBase tool is available.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.getWorkingTreeDiff")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.

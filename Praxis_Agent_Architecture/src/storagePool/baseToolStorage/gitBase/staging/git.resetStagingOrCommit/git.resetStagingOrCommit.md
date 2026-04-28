@@ -1,14 +1,15 @@
+---
+description: "Reset index paths or move HEAD through fixed git reset semantics."
+argument-hint: '{"target":{"repositoryPath":"/repo/project","action":"staging","pathspecs":["src/index.ts"]},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"allowedRepositoryRoots":["/repo"],"grantedPermissions":["git:read","git:write","filesystem:read","filesystem:write"]}}'
+---
+
 # git.resetStagingOrCommit
 
 ## Use This Tool
 
-Use `git.resetStagingOrCommit` when the model needs one of these fixed Git reset actions:
+Use `git.resetStagingOrCommit` to reset index paths or move HEAD through fixed git reset semantics. It is a fixed-action gitBase tool exposed through the unified `BaseToolHandler.invoke()` surface. The model must call this narrow tool rather than `shell.commandExecution`, `git.execute`, or a made-up `gitBase.*` tool id.
 
-- unstage repository-relative paths from the index
-- unstage all staged changes
-- move `HEAD` with a governed `soft`, `mixed`, `hard`, `merge`, or `keep` reset
-
-This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
+Risk class: `workspace-mutation or history-mutation or destructive`. Runtime contact is owned by `BaseToolExecutorPort.git.runGit`; storage owns validation, fixed-action planning, result parsing, and public-safe errors.
 
 ## Call Shape
 
@@ -17,81 +18,99 @@ This is a fixed-action gitBase tool. It is not a generic `git.execute` surface.
   "target": {
     "repositoryPath": "/repo/project",
     "action": "staging",
-    "pathspecs": ["src/index.ts"]
+    "pathspecs": [
+      "src/index.ts"
+    ]
   },
   "context": {
     "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"],
-    "allowedRepositoryRoots": ["/repo"]
-  }
-}
-```
-
-For commit reset:
-
-```json
-{
-  "target": {
-    "repositoryPath": "/repo/project",
-    "action": "commit",
-    "targetRef": "HEAD~1",
-    "mode": "soft"
-  },
-  "context": {
-    "dryRun": false,
-    "guard": { "allowed": true, "accepted": true },
-    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+    "guard": {
+      "allowed": true,
+      "accepted": true
+    },
+    "allowedRepositoryRoots": [
+      "/repo"
+    ],
+    "grantedPermissions": [
+      "git:read",
+      "git:write",
+      "filesystem:read",
+      "filesystem:write"
+    ]
   }
 }
 ```
 
 ## Required Inputs
 
-- `target.repositoryPath`: local repository path governed by runtime scope.
-- `target.action`: `staging` or `commit`.
-- `target.targetRef`: required when `action` is `commit`.
+- `target.repositoryPath`.
+- `target.action`.
+- `context.dryRun`: use `false` only when the runtime/TAP layer has approved real execution.
+- `context.guard`: real execution requires `allowed === true` or `accepted === true`.
+- `context.allowedRepositoryRoots`: runtime-approved repository roots; never widen this from model-provided paths.
 
 ## Optional Inputs
 
-- `target.pathspecs`: repository-relative pathspecs for `action:"staging"`. Empty means reset the whole index.
-- `target.mode`: commit reset mode. Defaults to `mixed`.
-- `timeoutMs`: runtime git execution timeout.
-- `context.allowedRepositoryRoots`: optional scope boundary.
-- `context.grantedPermissions`: optional explicit permission check.
+- `target.pathspecs for staging reset`.
+- `target.targetRef and target.mode for commit reset`.
+- `timeoutMs`.
+- `context.grantedPermissions`: permission hints such as `git:read`, `git:write`, `filesystem:read`, `filesystem:write`, or `network:egress` according to the action.
 
 ## Runtime Behavior
 
-Storage core validates JSON, path scope, revision safety, permissions, governance, risk metadata, and output shape. Runtime owns the host process through:
+Storage validates unknown JSON before reading nested fields, trims and validates refs or paths, checks repository scope and permissions, and then builds only the fixed action for this tool.
 
-```text
-BaseToolExecutorPort.git.runGit({ repositoryPath, args, timeoutMs })
-```
+Allowed fixed argv or fixed action:
 
-Allowed argv forms are fixed:
+- `reset -- <pathspecs> for action staging`
+- `reset --soft|--mixed|--hard <targetRef> for action commit`
 
-```text
-git reset [-- pathspec...]
-git reset --soft|--mixed|--hard|--merge|--keep <targetRef>
-```
-
-`dryRun !== false` returns only the command plan and never calls the provider. `dryRun:false` requires `context.guard.allowed === true` or `context.guard.accepted === true`.
+If `context.dryRun !== false`, the tool returns a command plan and does not call a provider. If `context.dryRun === false`, storage requires an affirmative guard before dispatch. Missing runtime support returns `PROVIDER_UNAVAILABLE`; provider failures are mapped to public-safe errors such as `PROVIDER_REJECTED`. Runtime/TAP owns process execution, sandboxing, timeout, cancellation, host Git availability, and user-facing approval.
 
 ## Returns
 
-The output includes:
+Returns a normalized `BaseToolInvokeResult`. The public output includes `runtimeEntry`, `risk`, fixed `gitArgs`, `commandPreview`, `providerCalled`, `executionBlocked`, raw public-safe provider fields when executed, and a parsed `resultEnvelope`.
 
-- `runtimeEntry.port: "BaseToolExecutorPort.git.runGit"`
-- fixed `gitArgs`
-- `commandPreview`
-- `risk` category and mutation flags
-- `providerCalled`
-- `exitCode`, `stdout`, and `stderr` when runtime executes
-- `resultEnvelope` with action, pathspecs, reset mode, target ref, and safe line counts
+The result is safe for runtime inspection: no raw stack traces, hidden shell commands, credentials, or private provider internals should be exposed.
+
+## Example
+
+```json
+{
+  "tool": "git.resetStagingOrCommit",
+  "arguments": {
+    "target": {
+      "repositoryPath": "/repo/project",
+      "action": "staging",
+      "pathspecs": [
+        "src/index.ts"
+      ]
+    },
+    "context": {
+      "dryRun": false,
+      "guard": {
+        "allowed": true,
+        "accepted": true
+      },
+      "allowedRepositoryRoots": [
+        "/repo"
+      ],
+      "grantedPermissions": [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write"
+      ]
+    }
+  }
+}
+```
 
 ## Avoid
 
-- Do not route reset requests through `shell.commandExecution`.
-- Do not let the model provide arbitrary Git subcommands.
-- Do not execute commit reset without an affirmative runtime guard.
-- Treat `mode:"hard"` as destructive and require product-level approval before real execution.
+- Do not expose or simulate a generic `git.execute`.
+- Do not let the model provide arbitrary git subcommands or flags.
+- Do not bypass `createBaseToolRegistry().lookupHandler("git.resetStagingOrCommit")` and `handler.invoke(...)` in integration tests.
+- Do not call shell tools for this Git intent when the fixed-action gitBase tool exists.
+- Do not auto-allow repository roots, destructive actions, network access, or history mutation from model text alone.
+- Do not move approval, sandbox, or live process ownership into storage; runtime and TAP own those boundaries.
