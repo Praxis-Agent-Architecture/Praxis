@@ -170,6 +170,16 @@ test("tool lab mounts gitBase tools through registry handler and BaseToolExecuto
             },
           };
         }
+        if (request.args[0] === "commit" && request.args.includes("--amend")) {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "[main def5678] Refined\n 2 files changed, 3 insertions(+), 1 deletion(-)\n",
+              stderr: "",
+            },
+          };
+        }
         if (request.args[0] === "commit") {
           return {
             ok: true,
@@ -177,6 +187,156 @@ test("tool lab mounts gitBase tools through registry handler and BaseToolExecuto
               exitCode: 0,
               stdout: "[main abc1234] Ship it\n 1 file changed, 1 insertion(+)\n",
               stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "cherry-pick") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "[main cafe123] Pick feature\n 1 file changed, 2 insertions(+)\n",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "revert") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "[main beef456] Revert \"Pick feature\"\n 1 file changed, 1 deletion(-)\n",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "init") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "Initialized empty Git repository in /repo/new-project/.git/\n",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "clone") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "",
+              stderr: "Cloning into '/repo/project-copy'...\n",
+            },
+          };
+        }
+        if (request.args[0] === "archive") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "worktree") {
+          if (request.args[1] === "list") {
+            return {
+              ok: true,
+              output: {
+                exitCode: 0,
+                stdout: "worktree /repo/project\nHEAD abcdef123456\nbranch refs/heads/main\n\nworktree /repo/worktrees/feature\nHEAD 111111\nbranch refs/heads/feature/a\n",
+                stderr: "",
+              },
+            };
+          }
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "submodule") {
+          if (request.args[1] === "status") {
+            return {
+              ok: true,
+              output: {
+                exitCode: 0,
+                stdout: " abcdef1234567890 vendor/toolkit (heads/main)\n",
+                stderr: "",
+              },
+            };
+          }
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "rev-list") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "abcdef1234567890 (dist=1)\n1111111111111111 (dist=2)\n",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "remote") {
+          if (request.args[1] === "-v") {
+            return {
+              ok: true,
+              output: {
+                exitCode: 0,
+                stdout: "origin\thttps://example.com/project.git (fetch)\norigin\thttps://example.com/project.git (push)\n",
+                stderr: "",
+              },
+            };
+          }
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "",
+              stderr: "",
+            },
+          };
+        }
+        if (request.args[0] === "fetch") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "",
+              stderr: "From https://example.com/project.git\n * [new branch] main -> origin/main\n",
+            },
+          };
+        }
+        if (request.args[0] === "pull") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "Already up to date.\n",
+              stderr: "From https://example.com/project.git\n",
+            },
+          };
+        }
+        if (request.args[0] === "push") {
+          return {
+            ok: true,
+            output: {
+              exitCode: 0,
+              stdout: "branch 'feature/a' set up to track 'origin/feature/a'.\n",
+              stderr: "To https://example.com/project.git\n * [new branch] feature/a -> feature/a\n",
             },
           };
         }
@@ -690,6 +850,459 @@ test("tool lab mounts gitBase tools through registry handler and BaseToolExecuto
     assert.equal(output.resultEnvelope.branchName, "main");
     assert.equal(output.resultEnvelope.subject, "Ship it");
     assert.equal(output.resultEnvelope.commitCreated, true);
+  }
+
+  const amendCommit = await runMountedGitBaseTool(
+    "git.amendLastCommit",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        commitMessage: "Refined",
+        includeAllTracked: true,
+        resetAuthor: true,
+      },
+      context,
+    },
+    "把 tracked 改动修订进最后一次提交，并更新提交信息",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(amendCommit?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:commit --amend --all --reset-author -m Refined");
+  if (amendCommit?.ok) {
+    const output = amendCommit.output as {
+      amendsCommit: boolean;
+      rewritesHistory: boolean;
+      resultEnvelope: { commitHash?: string; branchName?: string; subject?: string; commitAmended: boolean };
+      runtimeEntry: { port: string };
+      risk: { category: string; amendsCommit: boolean; rewritesHistory: boolean; mutatesRepository: boolean; mutatesIndex: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "history-mutation");
+    assert.equal(output.risk.amendsCommit, true);
+    assert.equal(output.risk.rewritesHistory, true);
+    assert.equal(output.risk.mutatesRepository, true);
+    assert.equal(output.risk.mutatesIndex, true);
+    assert.equal(output.amendsCommit, true);
+    assert.equal(output.rewritesHistory, true);
+    assert.equal(output.resultEnvelope.commitHash, "def5678");
+    assert.equal(output.resultEnvelope.branchName, "main");
+    assert.equal(output.resultEnvelope.subject, "Refined");
+    assert.equal(output.resultEnvelope.commitAmended, true);
+  }
+
+  const cherryPick = await runMountedGitBaseTool(
+    "git.cherryPickCommit",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        commitRef: "abc123",
+        signoff: true,
+      },
+      context,
+    },
+    "把 abc123 cherry-pick 到当前分支",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(cherryPick?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:cherry-pick --signoff abc123");
+  if (cherryPick?.ok) {
+    const output = cherryPick.output as {
+      appliesCommit: boolean;
+      resultEnvelope: { commitHash?: string; branchName?: string; subject?: string; cherryPickCompleted: boolean };
+      runtimeEntry: { port: string };
+      risk: { category: string; appliesCommit: boolean; mutatesRepository: boolean; mutatesIndex: boolean; mayCreateConflicts: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "history-mutation");
+    assert.equal(output.risk.appliesCommit, true);
+    assert.equal(output.risk.mutatesRepository, true);
+    assert.equal(output.risk.mutatesIndex, true);
+    assert.equal(output.risk.mayCreateConflicts, true);
+    assert.equal(output.appliesCommit, true);
+    assert.equal(output.resultEnvelope.commitHash, "cafe123");
+    assert.equal(output.resultEnvelope.branchName, "main");
+    assert.equal(output.resultEnvelope.subject, "Pick feature");
+    assert.equal(output.resultEnvelope.cherryPickCompleted, true);
+  }
+
+  const revert = await runMountedGitBaseTool(
+    "git.revertCommit",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        commitRef: "deadbeef",
+      },
+      context,
+    },
+    "反向回滚 deadbeef",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(revert?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:revert deadbeef");
+  if (revert?.ok) {
+    const output = revert.output as {
+      revertsCommit: boolean;
+      resultEnvelope: { commitHash?: string; branchName?: string; subject?: string; revertCompleted: boolean };
+      runtimeEntry: { port: string };
+      risk: { category: string; revertsCommit: boolean; mutatesRepository: boolean; mutatesIndex: boolean; mayCreateConflicts: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "history-mutation");
+    assert.equal(output.risk.revertsCommit, true);
+    assert.equal(output.risk.mutatesRepository, true);
+    assert.equal(output.risk.mutatesIndex, true);
+    assert.equal(output.risk.mayCreateConflicts, true);
+    assert.equal(output.revertsCommit, true);
+    assert.equal(output.resultEnvelope.commitHash, "beef456");
+    assert.equal(output.resultEnvelope.branchName, "main");
+    assert.equal(output.resultEnvelope.subject, 'Revert "Pick feature"');
+    assert.equal(output.resultEnvelope.revertCompleted, true);
+  }
+
+  const initRepository = await runMountedGitBaseTool(
+    "git.initializeRepository",
+    {
+      target: {
+        repositoryPath: "/repo/new-project",
+        initialBranch: "main",
+      },
+      context,
+    },
+    "初始化 /repo/new-project 为 Git 仓库",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(initRepository?.ok, true);
+  assert.equal(calls.at(-1), "/repo/new-project:init --initial-branch main");
+  if (initRepository?.ok) {
+    const output = initRepository.output as {
+      resultEnvelope: { initialized: boolean; initialBranch?: string };
+      runtimeEntry: { port: string };
+      risk: { category: string; createsRepositoryMetadata: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "workspace-mutation");
+    assert.equal(output.risk.createsRepositoryMetadata, true);
+    assert.equal(output.resultEnvelope.initialized, true);
+    assert.equal(output.resultEnvelope.initialBranch, "main");
+  }
+
+  const cloneRepository = await runMountedGitBaseTool(
+    "git.cloneRepository",
+    {
+      target: {
+        repositoryPath: "/repo",
+        remoteUrl: "https://example.com/project.git",
+        destinationPath: "/repo/project-copy",
+        branch: "main",
+        depth: 1,
+        singleBranch: true,
+      },
+      context,
+    },
+    "克隆 project.git 到 /repo/project-copy",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(cloneRepository?.ok, true);
+  assert.equal(calls.at(-1), "/repo:clone --branch main --depth 1 --single-branch https://example.com/project.git /repo/project-copy");
+  if (cloneRepository?.ok) {
+    const output = cloneRepository.output as {
+      mayUseNetwork: boolean;
+      resultEnvelope: { cloned: boolean; destinationPath: string };
+      runtimeEntry: { port: string };
+      risk: { category: string; mayUseNetwork: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "remote-network");
+    assert.equal(output.risk.mayUseNetwork, true);
+    assert.equal(output.mayUseNetwork, true);
+    assert.equal(output.resultEnvelope.cloned, true);
+    assert.equal(output.resultEnvelope.destinationPath, "/repo/project-copy");
+  }
+
+  const archiveRepository = await runMountedGitBaseTool(
+    "git.archiveRepository",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        outputPath: "/repo/project.tar",
+        ref: "HEAD",
+        format: "tar",
+        pathspecs: ["src"],
+      },
+      context,
+    },
+    "把 /repo/project 的 src 导出成 tar",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(archiveRepository?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:archive --format=tar --output /repo/project.tar HEAD src");
+  if (archiveRepository?.ok) {
+    const output = archiveRepository.output as {
+      resultEnvelope: { archiveCreated: boolean; outputPath: string; pathspecCount: number };
+      runtimeEntry: { port: string };
+      risk: { category: string; writesArchiveFile: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "workspace-mutation");
+    assert.equal(output.risk.writesArchiveFile, true);
+    assert.equal(output.resultEnvelope.archiveCreated, true);
+    assert.equal(output.resultEnvelope.outputPath, "/repo/project.tar");
+    assert.equal(output.resultEnvelope.pathspecCount, 1);
+  }
+
+  const worktreeList = await runMountedGitBaseTool(
+    "git.manageWorktree",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        action: "list",
+      },
+      context,
+    },
+    "列出当前仓库 worktree",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(worktreeList?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:worktree list --porcelain");
+  if (worktreeList?.ok) {
+    const output = worktreeList.output as {
+      resultEnvelope: { worktrees: readonly { path: string; branch?: string }[] };
+      runtimeEntry: { port: string };
+      risk: { category: string; managesWorktree: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "read-only-inspection");
+    assert.equal(output.risk.managesWorktree, true);
+    assert.equal(output.resultEnvelope.worktrees.length, 2);
+    assert.equal(output.resultEnvelope.worktrees[1]?.branch, "refs/heads/feature/a");
+  }
+
+  const submoduleStatus = await runMountedGitBaseTool(
+    "git.manageSubmodule",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        action: "status",
+        recursive: true,
+      },
+      context,
+    },
+    "查看当前仓库 submodule 状态",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(submoduleStatus?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:submodule status --recursive");
+  if (submoduleStatus?.ok) {
+    const output = submoduleStatus.output as {
+      resultEnvelope: { entries: readonly { path?: string; status?: string }[] };
+      runtimeEntry: { port: string };
+      risk: { category: string; mayUseNetwork: boolean; mutatesGitMetadata: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "read-only-inspection");
+    assert.equal(output.risk.mayUseNetwork, false);
+    assert.equal(output.risk.mutatesGitMetadata, false);
+    assert.equal(output.resultEnvelope.entries[0]?.path, "vendor/toolkit");
+    assert.equal(output.resultEnvelope.entries[0]?.status, "initialized");
+  }
+
+  const locateProblemCommit = await runMountedGitBaseTool(
+    "git.locateProblemCommit",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        knownGoodRef: "main~3",
+        knownBadRef: "HEAD",
+        verificationCommand: "npm test",
+        maxSteps: 16,
+      },
+      context,
+    },
+    "定位 main~3 到 HEAD 之间的问题提交候选",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(locateProblemCommit?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:rev-list --bisect-all main~3..HEAD");
+  if (locateProblemCommit?.ok) {
+    const output = locateProblemCommit.output as {
+      resultEnvelope: { bestCandidate?: string; candidateCount: number; verificationCommandExecuted: boolean };
+      runtimeEntry: { port: string };
+      risk: { category: string; mutatesGitMetadata: boolean };
+      verificationCommandExecuted: boolean;
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "read-only-inspection");
+    assert.equal(output.risk.mutatesGitMetadata, false);
+    assert.equal(output.verificationCommandExecuted, false);
+    assert.equal(output.resultEnvelope.verificationCommandExecuted, false);
+    assert.equal(output.resultEnvelope.bestCandidate, "abcdef1234567890");
+    assert.equal(output.resultEnvelope.candidateCount, 2);
+  }
+
+  const remoteList = await runMountedGitBaseTool(
+    "git.manageRemote",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        action: "list",
+      },
+      context,
+    },
+    "列出当前仓库 remotes",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(remoteList?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:remote -v");
+  if (remoteList?.ok) {
+    const output = remoteList.output as {
+      resultEnvelope: { remotes: readonly { name: string; mode?: string }[] };
+      runtimeEntry: { port: string };
+      risk: { category: string; mayUseNetwork: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "read-only-inspection");
+    assert.equal(output.risk.mayUseNetwork, false);
+    assert.equal(output.resultEnvelope.remotes.length, 2);
+    assert.equal(output.resultEnvelope.remotes[0]?.name, "origin");
+    assert.equal(output.resultEnvelope.remotes[0]?.mode, "fetch");
+  }
+
+  const remoteSetUrl = await runMountedGitBaseTool(
+    "git.manageRemote",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        action: "set-url",
+        remoteName: "origin",
+        remoteUrl: "git@example.com:org/project.git",
+        urlMode: "push",
+      },
+      context,
+    },
+    "把 origin 的 push URL 改成 git@example.com:org/project.git",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(remoteSetUrl?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:remote set-url --push origin git@example.com:org/project.git");
+  if (remoteSetUrl?.ok) {
+    const output = remoteSetUrl.output as {
+      resultEnvelope: { remoteChanged: boolean; remoteName?: string; urlMode: string };
+      runtimeEntry: { port: string };
+      risk: { category: string; mutatesRemoteConfig: boolean; mayUseNetwork: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "workspace-mutation");
+    assert.equal(output.risk.mutatesRemoteConfig, true);
+    assert.equal(output.risk.mayUseNetwork, false);
+    assert.equal(output.resultEnvelope.remoteChanged, true);
+    assert.equal(output.resultEnvelope.remoteName, "origin");
+    assert.equal(output.resultEnvelope.urlMode, "push");
+  }
+
+  const fetchRemote = await runMountedGitBaseTool(
+    "git.fetchRemoteUpdates",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        remoteName: "origin",
+        refspecs: ["main"],
+        prune: true,
+        tagsMode: "no-tags",
+      },
+      context,
+    },
+    "抓取 origin main 的远端更新",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(fetchRemote?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:fetch --prune --no-tags origin main");
+  if (fetchRemote?.ok) {
+    const output = fetchRemote.output as {
+      resultEnvelope: { fetched: boolean; updateLines: readonly { destination?: string }[] };
+      runtimeEntry: { port: string };
+      risk: { category: string; mayUseNetwork: boolean; updatesRemoteTrackingRefs: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "remote-network");
+    assert.equal(output.risk.mayUseNetwork, true);
+    assert.equal(output.risk.updatesRemoteTrackingRefs, true);
+    assert.equal(output.resultEnvelope.fetched, true);
+    assert.equal(output.resultEnvelope.updateLines[0]?.destination, "origin/main");
+  }
+
+  const pullRemote = await runMountedGitBaseTool(
+    "git.pullRemoteChanges",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        remoteName: "origin",
+        branchName: "main",
+        integrationMode: "ff-only",
+      },
+      context,
+    },
+    "拉取 origin main 并只允许 fast-forward",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(pullRemote?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:pull --ff-only origin main");
+  if (pullRemote?.ok) {
+    const output = pullRemote.output as {
+      resultEnvelope: { pulled: boolean; integrationMode: string };
+      runtimeEntry: { port: string };
+      risk: { category: string; mayUseNetwork: boolean; mutatesWorkingTree: boolean; mayCreateConflicts: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "remote-network");
+    assert.equal(output.risk.mayUseNetwork, true);
+    assert.equal(output.risk.mutatesWorkingTree, true);
+    assert.equal(output.risk.mayCreateConflicts, true);
+    assert.equal(output.resultEnvelope.pulled, true);
+    assert.equal(output.resultEnvelope.integrationMode, "ff-only");
+  }
+
+  const pushRemote = await runMountedGitBaseTool(
+    "git.pushLocalChanges",
+    {
+      target: {
+        repositoryPath: "/repo/project",
+        remoteName: "origin",
+        branchName: "feature/a",
+        setUpstream: true,
+      },
+      context,
+    },
+    "推送 feature/a 到 origin 并设置 upstream",
+    executor,
+    { trustedAllowedRepositoryRoots: ["/repo"] },
+  );
+  assert.equal(pushRemote?.ok, true);
+  assert.equal(calls.at(-1), "/repo/project:push --set-upstream origin feature/a");
+  if (pushRemote?.ok) {
+    const output = pushRemote.output as {
+      resultEnvelope: { pushed: boolean; pushLines: readonly { operation?: string }[] };
+      runtimeEntry: { port: string };
+      risk: { category: string; mayUseNetwork: boolean; mutatesRemote: boolean };
+    };
+    assert.equal(output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+    assert.equal(output.risk.category, "remote-network");
+    assert.equal(output.risk.mayUseNetwork, true);
+    assert.equal(output.risk.mutatesRemote, true);
+    assert.equal(output.resultEnvelope.pushed, true);
+    assert.equal(output.resultEnvelope.pushLines.some((line) => line.operation === "new"), true);
   }
 
   const branch = await runMountedGitBaseTool(

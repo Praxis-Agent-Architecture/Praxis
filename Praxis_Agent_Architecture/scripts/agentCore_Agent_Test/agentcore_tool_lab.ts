@@ -2512,7 +2512,20 @@ type MountedGitBaseTool =
   | "git.applyStashChanges"
   | "git.popStashChanges"
   | "git.cleanUntrackedFiles"
-  | "git.createCommit";
+  | "git.amendLastCommit"
+  | "git.cherryPickCommit"
+  | "git.revertCommit"
+  | "git.createCommit"
+  | "git.initializeRepository"
+  | "git.cloneRepository"
+  | "git.archiveRepository"
+  | "git.locateProblemCommit"
+  | "git.manageSubmodule"
+  | "git.manageWorktree"
+  | "git.fetchRemoteUpdates"
+  | "git.pullRemoteChanges"
+  | "git.pushLocalChanges"
+  | "git.manageRemote";
 
 function normalizeMountedGitBaseTool(tool: string): MountedGitBaseTool | undefined {
   const normalized = tool.trim();
@@ -2538,7 +2551,20 @@ function normalizeMountedGitBaseTool(tool: string): MountedGitBaseTool | undefin
     normalized === "git.applyStashChanges" ||
     normalized === "git.popStashChanges" ||
     normalized === "git.cleanUntrackedFiles" ||
-    normalized === "git.createCommit"
+    normalized === "git.amendLastCommit" ||
+    normalized === "git.cherryPickCommit" ||
+    normalized === "git.revertCommit" ||
+    normalized === "git.createCommit" ||
+    normalized === "git.initializeRepository" ||
+    normalized === "git.cloneRepository" ||
+    normalized === "git.archiveRepository" ||
+    normalized === "git.locateProblemCommit" ||
+    normalized === "git.manageSubmodule" ||
+    normalized === "git.manageWorktree" ||
+    normalized === "git.fetchRemoteUpdates" ||
+    normalized === "git.pullRemoteChanges" ||
+    normalized === "git.pushLocalChanges" ||
+    normalized === "git.manageRemote"
   ) {
     return normalized;
   }
@@ -3172,6 +3198,381 @@ function normalizeMountedGitBaseInput(
         "git:write",
         "filesystem:read",
         "filesystem:write",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.amendLastCommit") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.commitMessage = firstNonBlankString(
+      explicitTarget.commitMessage,
+      explicitTarget.message,
+      args.commitMessage,
+      args.message,
+      args.newMessage,
+    );
+    explicitTarget.noEdit =
+      explicitTarget.noEdit === true || args.noEdit === true || explicitTarget.commitMessage === undefined;
+    explicitTarget.includeAllTracked =
+      explicitTarget.includeAllTracked === true || explicitTarget.all === true || args.includeAllTracked === true || args.all === true;
+    explicitTarget.resetAuthor = explicitTarget.resetAuthor === true || args.resetAuthor === true;
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.cherryPickCommit") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.commitRef = firstNonBlankString(explicitTarget.commitRef, explicitTarget.ref, explicitTarget.revision, args.commitRef, args.ref, args.revision) ?? "HEAD";
+    explicitTarget.noCommit = explicitTarget.noCommit === true || args.noCommit === true;
+    explicitTarget.signoff = explicitTarget.signoff === true || args.signoff === true;
+    if (explicitTarget.mainlineParent === undefined && typeof args.mainlineParent === "number") {
+      explicitTarget.mainlineParent = args.mainlineParent;
+    }
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.revertCommit") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.commitRef = firstNonBlankString(explicitTarget.commitRef, explicitTarget.ref, explicitTarget.revision, args.commitRef, args.ref, args.revision) ?? "HEAD";
+    explicitTarget.noCommit = explicitTarget.noCommit === true || args.noCommit === true;
+    if (explicitTarget.mainlineParent === undefined && typeof args.mainlineParent === "number") {
+      explicitTarget.mainlineParent = args.mainlineParent;
+    }
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "filesystem:write",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.initializeRepository") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.initialBranch = firstNonBlankString(explicitTarget.initialBranch, args.initialBranch, args.branch);
+    explicitTarget.bare = explicitTarget.bare === true || args.bare === true;
+    explicitTarget.separateGitDir = firstNonBlankString(explicitTarget.separateGitDir, args.separateGitDir);
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:write",
+        "filesystem:write",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.cloneRepository") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const destinationPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.destinationPath, args.destinationPath, args.path, args.targetPath),
+      path.join(architectureRoot, "tool-lab-clone"),
+    );
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      path.dirname(destinationPath),
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.remoteUrl = firstNonBlankString(explicitTarget.remoteUrl, explicitTarget.url, args.remoteUrl, args.url) ?? architectureRoot;
+    explicitTarget.destinationPath = destinationPath;
+    explicitTarget.branch = firstNonBlankString(explicitTarget.branch, args.branch);
+    if (explicitTarget.depth === undefined && typeof args.depth === "number") {
+      explicitTarget.depth = args.depth;
+    }
+    explicitTarget.singleBranch = explicitTarget.singleBranch === true || args.singleBranch === true;
+    explicitTarget.bare = explicitTarget.bare === true || args.bare === true;
+    explicitTarget.mirror = explicitTarget.mirror === true || args.mirror === true;
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "filesystem:write",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.archiveRepository") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.outputPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.outputPath, args.outputPath, args.path, args.targetPath),
+      path.join(repositoryPath, "tool-lab-archive.tar"),
+    );
+    explicitTarget.ref = firstNonBlankString(explicitTarget.ref, args.ref, args.revision) ?? "HEAD";
+    explicitTarget.format = explicitTarget.format === "zip" || args.format === "zip" ? "zip" : "tar";
+    explicitTarget.pathspecs = normalizeSearchStringArray(explicitTarget.pathspecs) ?? normalizeSearchStringArray(args.pathspecs) ?? [];
+    explicitTarget.prefix = firstNonBlankString(explicitTarget.prefix, args.prefix);
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "filesystem:write",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.manageWorktree") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.action =
+      explicitTarget.action === "add" ||
+      explicitTarget.action === "remove" ||
+      explicitTarget.action === "prune" ||
+      explicitTarget.action === "list"
+        ? explicitTarget.action
+        : args.action === "add" || args.action === "remove" || args.action === "prune" || args.action === "list"
+          ? args.action
+          : "list";
+    if (explicitTarget.worktreePath === undefined) {
+      const worktreePath = firstNonBlankString(args.worktreePath, args.targetPath, args.path);
+      if (worktreePath !== undefined) explicitTarget.worktreePath = resolveAnyPath(worktreePath, architectureRoot);
+    }
+    explicitTarget.targetRef = firstNonBlankString(explicitTarget.targetRef, explicitTarget.ref, args.targetRef, args.ref, args.revision);
+    explicitTarget.branchName = firstNonBlankString(explicitTarget.branchName, explicitTarget.branch, args.branchName, args.branch);
+    explicitTarget.detach = explicitTarget.detach === true || args.detach === true;
+    explicitTarget.force = explicitTarget.force === true || args.force === true;
+    const mutation = explicitTarget.action !== "list";
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, mutation
+        ? ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+        : ["git:read", "filesystem:read"], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.manageSubmodule") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.action =
+      explicitTarget.action === "add" ||
+      explicitTarget.action === "update" ||
+      explicitTarget.action === "sync" ||
+      explicitTarget.action === "deinit" ||
+      explicitTarget.action === "status"
+        ? explicitTarget.action
+        : args.action === "add" || args.action === "update" || args.action === "sync" || args.action === "deinit" || args.action === "status"
+          ? args.action
+          : "status";
+    explicitTarget.submodulePath = firstNonBlankString(explicitTarget.submodulePath, explicitTarget.path, args.submodulePath, args.path);
+    explicitTarget.remoteUrl = firstNonBlankString(explicitTarget.remoteUrl, explicitTarget.url, args.remoteUrl, args.url);
+    explicitTarget.branch = firstNonBlankString(explicitTarget.branch, args.branch, args.branchName);
+    explicitTarget.recursive = explicitTarget.recursive === false || args.recursive === false ? false : true;
+    const mutation = explicitTarget.action !== "status";
+    const network = explicitTarget.action === "add" || explicitTarget.action === "update";
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, mutation
+        ? [
+            "git:read",
+            "git:write",
+            "filesystem:read",
+            "filesystem:write",
+            ...(network ? ["network:egress"] : []),
+          ]
+        : ["git:read", "filesystem:read"], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.locateProblemCommit") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.knownGoodRef =
+      firstNonBlankString(explicitTarget.knownGoodRef, explicitTarget.goodRef, args.knownGoodRef, args.goodRef, args.baseRef) ?? "HEAD~1";
+    explicitTarget.knownBadRef =
+      firstNonBlankString(explicitTarget.knownBadRef, explicitTarget.badRef, args.knownBadRef, args.badRef, args.headRef) ?? "HEAD";
+    explicitTarget.verificationCommand = firstNonBlankString(explicitTarget.verificationCommand, args.verificationCommand, args.command);
+    explicitTarget.maxSteps = typeof explicitTarget.maxSteps === "number"
+      ? explicitTarget.maxSteps
+      : typeof args.maxSteps === "number"
+        ? args.maxSteps
+        : 64;
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, ["git:read", "filesystem:read"], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.manageRemote") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.action =
+      explicitTarget.action === "show" ||
+      explicitTarget.action === "add" ||
+      explicitTarget.action === "remove" ||
+      explicitTarget.action === "rename" ||
+      explicitTarget.action === "set-url" ||
+      explicitTarget.action === "list"
+        ? explicitTarget.action
+        : args.action === "show" ||
+            args.action === "add" ||
+            args.action === "remove" ||
+            args.action === "rename" ||
+            args.action === "set-url" ||
+            args.action === "list"
+          ? args.action
+          : "list";
+    explicitTarget.remoteName = firstNonBlankString(explicitTarget.remoteName, args.remoteName, args.remote) ?? explicitTarget.remoteName;
+    explicitTarget.newRemoteName = firstNonBlankString(explicitTarget.newRemoteName, args.newRemoteName, args.newRemote);
+    explicitTarget.remoteUrl = firstNonBlankString(explicitTarget.remoteUrl, args.remoteUrl, args.url);
+    explicitTarget.urlMode = explicitTarget.urlMode === "push" || args.urlMode === "push" ? "push" : "fetch";
+    const mutation = explicitTarget.action !== "list" && explicitTarget.action !== "show";
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, mutation
+        ? ["git:read", "git:write", "filesystem:read", "filesystem:write"]
+        : ["git:read", "filesystem:read"], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.fetchRemoteUpdates") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.remoteName = firstNonBlankString(explicitTarget.remoteName, explicitTarget.remote, args.remoteName, args.remote);
+    const refspecs = normalizeSearchStringArray(explicitTarget.refspecs) ?? normalizeSearchStringArray(args.refspecs);
+    if (refspecs !== undefined) explicitTarget.refspecs = refspecs;
+    explicitTarget.prune = explicitTarget.prune === true || args.prune === true;
+    explicitTarget.tagsMode =
+      explicitTarget.tagsMode === "tags" ||
+      explicitTarget.tagsMode === "no-tags" ||
+      explicitTarget.tagsMode === "default"
+        ? explicitTarget.tagsMode
+        : args.tagsMode === "tags" || args.tagsMode === "no-tags" || args.tagsMode === "default"
+          ? args.tagsMode
+          : "default";
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "git:write",
+        "filesystem:write",
+        "network:egress",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.pullRemoteChanges") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.remoteName = firstNonBlankString(explicitTarget.remoteName, explicitTarget.remote, args.remoteName, args.remote);
+    explicitTarget.branchName = firstNonBlankString(explicitTarget.branchName, explicitTarget.branch, args.branchName, args.branch);
+    explicitTarget.integrationMode =
+      explicitTarget.integrationMode === "rebase" ||
+      explicitTarget.integrationMode === "ff-only" ||
+      explicitTarget.integrationMode === "merge"
+        ? explicitTarget.integrationMode
+        : args.integrationMode === "rebase" || args.integrationMode === "ff-only" || args.integrationMode === "merge"
+          ? args.integrationMode
+          : "merge";
+    explicitTarget.autostash = explicitTarget.autostash === true || args.autostash === true;
+    explicitTarget.prune = explicitTarget.prune === true || args.prune === true;
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "git:write",
+        "filesystem:write",
+        "network:egress",
+      ], trustedAllowedRepositoryRoots),
+    };
+  }
+
+  if (tool === "git.pushLocalChanges") {
+    const explicitTarget = isRecord(args.target) ? { ...args.target } : {};
+    const repositoryPath = resolveAnyPath(
+      firstNonBlankString(explicitTarget.repositoryPath, args.repositoryPath, args.cwd, args.workspaceRoot),
+      architectureRoot,
+    );
+    explicitTarget.repositoryPath = repositoryPath;
+    explicitTarget.remoteName = firstNonBlankString(explicitTarget.remoteName, explicitTarget.remote, args.remoteName, args.remote) ?? "origin";
+    explicitTarget.branchName = firstNonBlankString(explicitTarget.branchName, explicitTarget.branch, args.branchName, args.branch);
+    explicitTarget.setUpstream = explicitTarget.setUpstream === true || args.setUpstream === true;
+    explicitTarget.forceWithLease = explicitTarget.forceWithLease === true || args.forceWithLease === true;
+    explicitTarget.pushTags = explicitTarget.pushTags === true || args.pushTags === true;
+    explicitTarget.deleteRemoteBranch = explicitTarget.deleteRemoteBranch === true || args.deleteRemoteBranch === true;
+    return {
+      ...args,
+      target: explicitTarget,
+      context: toolLabGitGovernedContext(args, repositoryPath, [
+        "git:read",
+        "git:write",
+        "filesystem:read",
+        "network:egress",
       ], trustedAllowedRepositoryRoots),
     };
   }
@@ -3948,11 +4349,27 @@ export async function runTool(tool: string, args: Record<string, unknown> = {}, 
             "git.applyStashChanges",
             "git.popStashChanges",
             "git.cleanUntrackedFiles",
+            "git.amendLastCommit",
+            "git.cherryPickCommit",
             "git.createCommit",
+            "git.revertCommit",
+            "git.initializeRepository",
+            "git.cloneRepository",
+            "git.archiveRepository",
+            "git.locateProblemCommit",
+            "git.manageSubmodule",
+            "git.manageWorktree",
+            "git.fetchRemoteUpdates",
+            "git.pullRemoteChanges",
+            "git.pushLocalChanges",
+            "git.manageRemote",
           ],
           mountedInspectionTools: ["git.showGitObjectDetails", "git.traceLineOwnership"],
           mountedBranchTools: ["git.checkoutTarget", "git.manageBranch", "git.manageTag", "git.mergeBranch", "git.rebaseBranch", "git.switchBranch"],
-          mountedCommitTools: ["git.createCommit"],
+          mountedCommitTools: ["git.createCommit", "git.amendLastCommit", "git.cherryPickCommit", "git.revertCommit"],
+          mountedRepositoryTools: ["git.initializeRepository", "git.cloneRepository", "git.archiveRepository"],
+          mountedAdvancedTools: ["git.locateProblemCommit", "git.manageSubmodule", "git.manageWorktree"],
+          mountedRemoteTools: ["git.manageRemote", "git.fetchRemoteUpdates", "git.pullRemoteChanges", "git.pushLocalChanges"],
           legacyReadOnlyDirectTools: [],
         },
       };
@@ -4221,6 +4638,19 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
     "当用户要弹出 stash、应用 stash 内容并在成功后删除 stash entry 时，必须使用 git.popStashChanges。调用形状必须是 {target:{repositoryPath, stashRef?:\"stash@{0}\", reinstateIndex?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:read\",\"filesystem:write\"]}}；禁止改用 shell 或任意 git 子命令。",
     "当用户要清理未跟踪文件、删除 untracked 文件或执行 git clean 时，必须使用 git.cleanUntrackedFiles。调用形状必须是 {target:{repositoryPath, paths?:string[], includeDirectories?:boolean, ignoredMode?:\"none\"|\"tracked-ignored\"|\"ignored-only\"}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:read\",\"filesystem:write\"]}}；这是 destructive 风险，禁止改用 shell 或任意 git 子命令。",
     "当用户要创建 Git 提交、提交当前 index 或提交 tracked 改动时，必须使用 git.createCommit。调用形状必须是 {target:{repositoryPath, commitMessage:string, includeAllTracked?:boolean, allowEmpty?:boolean, signoff?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:read\",\"filesystem:write\"]}}；禁止改用 shell、任意 git 子命令或把 amend/cherry-pick/revert 混进 createCommit。",
+    "当用户要修订最后一次提交、amend last commit、修改最后一次提交信息或把 tracked 改动合入最后一次提交时，必须使用 git.amendLastCommit。调用形状必须是 {target:{repositoryPath, commitMessage?:string, noEdit?:boolean, includeAllTracked?:boolean, resetAuthor?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:read\",\"filesystem:write\"]}}；如果用户没有给新 message 且语义是保留原提交信息，使用 noEdit:true；禁止改用 shell、任意 git 子命令或把 create/cherry-pick/revert 混进 amendLastCommit。",
+    "当用户要挑选某个提交、cherry-pick commit 或把某个 commit 应用到当前分支时，必须使用 git.cherryPickCommit。调用形状必须是 {target:{repositoryPath, commitRef:\"安全 ref\", noCommit?:boolean, mainlineParent?:number, signoff?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:read\",\"filesystem:write\"]}}；禁止改用 shell、任意 git 子命令或把 revert/merge/rebase 混进 cherryPickCommit。",
+    "当用户要反向回滚某个提交、revert commit 或生成反向补丁时，必须使用 git.revertCommit。调用形状必须是 {target:{repositoryPath, commitRef:\"安全 ref\", noCommit?:boolean, mainlineParent?:number}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:read\",\"filesystem:write\"]}}；禁止改用 shell、任意 git 子命令或把 cherry-pick/reset 混进 revertCommit。",
+    "当用户要初始化仓库、git init 或创建新的 Git metadata 时，必须使用 git.initializeRepository。调用形状必须是 {target:{repositoryPath, initialBranch?:\"安全分支名\", bare?:boolean, separateGitDir?:string}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:write\",\"filesystem:write\"]}}；禁止改用 shell 或任意 git 子命令。",
+    "当用户要克隆仓库、git clone、本地或远程 clone 时，必须使用 git.cloneRepository。调用形状必须是 {target:{repositoryPath:\"clone 的 runtime 工作目录\", remoteUrl:string, destinationPath:string, branch?:\"安全 ref\", depth?:number, singleBranch?:boolean, bare?:boolean, mirror?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"filesystem:write\"]}}；禁止改用 shell 或任意 git 子命令。",
+    "当用户要导出仓库归档、git archive、生成 tar/zip 时，必须使用 git.archiveRepository。调用形状必须是 {target:{repositoryPath, outputPath, ref?:\"安全 ref\", format?:\"tar\"|\"zip\", pathspecs?:string[], prefix?:string}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"filesystem:write\"]}}；禁止改用 shell 或任意 git 子命令。",
+    "当用户要定位问题提交、查找已知 good/bad 范围里的可疑 commit 或做 bisect 候选读取时，必须使用 git.locateProblemCommit。调用形状必须是 {target:{repositoryPath, knownGoodRef:\"安全 ref\", knownBadRef:\"安全 ref\", verificationCommand?:string, maxSteps?:number}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"filesystem:read\"]}}；该工具只运行固定 git rev-list --bisect-all，不执行 verificationCommand，不改用 shell、git bisect run 或任意 git 子命令。",
+    "当用户要列出、新增、删除或清理 Git worktree 时，必须使用 git.manageWorktree。调用形状必须是 {target:{repositoryPath, action:\"list\"|\"add\"|\"remove\"|\"prune\", worktreePath?:string, targetRef?:\"安全 ref\", branchName?:\"安全分支名\", detach?:boolean, force?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}；list 可只需 git:read/filesystem:read，mutation 需要 git:read/git:write/filesystem:read/filesystem:write；禁止改用 shell 或任意 git 子命令。",
+    "当用户要查看、新增、更新、同步或 deinit Git submodule 时，必须使用 git.manageSubmodule。调用形状必须是 {target:{repositoryPath, action:\"status\"|\"add\"|\"update\"|\"sync\"|\"deinit\", submodulePath?:\"仓库相对路径\", remoteUrl?:string, branch?:\"安全 ref\", recursive?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}；status 可只需 git:read/filesystem:read，add/update 需要 network:egress，mutation 需要 git:read/git:write/filesystem:read/filesystem:write；禁止改用 shell 或任意 git 子命令。",
+    "当用户要列出、查看、新增、删除、重命名远端或修改 remote url 时，必须使用 git.manageRemote。调用形状必须是 {target:{repositoryPath, action:\"list\"|\"show\"|\"add\"|\"remove\"|\"rename\"|\"set-url\", remoteName?:string, newRemoteName?:string, remoteUrl?:string, urlMode?:\"fetch\"|\"push\"}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}；list/show 可只需 git:read/filesystem:read，mutation 需要 git:read/git:write/filesystem:read/filesystem:write；禁止改用 shell 或任意 git 子命令。",
+    "当用户要 fetch、抓取远端更新、更新 remote-tracking refs 时，必须使用 git.fetchRemoteUpdates。调用形状必须是 {target:{repositoryPath, remoteName?:\"origin\", refspecs?:string[], prune?:boolean, tagsMode?:\"default\"|\"tags\"|\"no-tags\"}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:write\",\"network:egress\"]}}；这是 remote-network 风险，禁止改用 shell、pull、push 或任意 git 子命令。",
+    "当用户要 pull、拉取并整合远端变更时，必须使用 git.pullRemoteChanges。调用形状必须是 {target:{repositoryPath, remoteName?:\"origin\", branchName?:\"main\", integrationMode?:\"merge\"|\"rebase\"|\"ff-only\", autostash?:boolean, prune?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:write\",\"network:egress\"]}}；这是 remote-network 且可能改工作树的风险，禁止改用 shell、fetch、push 或任意 git 子命令。",
+    "当用户要 push、推送本地分支/标签、设置 upstream、delete remote branch 或 force-with-lease 时，必须使用 git.pushLocalChanges。调用形状必须是 {target:{repositoryPath, remoteName:\"origin\", branchName?:\"main\", setUpstream?:boolean, forceWithLease?:boolean, pushTags?:boolean, deleteRemoteBranch?:boolean}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"git:read\",\"git:write\",\"filesystem:read\",\"network:egress\"]}}；这是 remote-network 风险，forceWithLease/deleteRemoteBranch 是 destructive 风险，禁止改用 shell、fetch、pull 或任意 git 子命令。",
     "Git 三家实践认知：Claude Code 常通过 shell/tool permission pattern 包住 git；Codex 更强调 sandbox/runtime executor；Gemini CLI 有 shell policy 与 GitService/checkpoint 经验；Praxis 在 lab 中统一为 fixed-action gitBase + BaseToolExecutorPort.git.runGit。",
     "当用户要联网搜索、查最新资料、查官方文档或要求 provider 原生 web search 时，必须优先使用 search.nativeSearch。",
     "search.nativeSearch 是 OpenAI / Anthropic / DeepMind 官方 provider-native 网络搜索，不是本地文件搜索，也不是普通搜索引擎。必须提供 target: { provider, query }；provider 只能是 openai、anthropic、deepmind。",
@@ -4237,7 +4667,7 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
     '{"answer":"你的回答"}',
     "可用工具很多，样例工具如下：",
     sampleTools,
-    "当前已有真实执行器的工具包括：tool.catalog, code.read, code.scan, code.search_Ripgrep, code.replaceFile, code.overwrite, code.modify, code.delete, code.format, code.testCode, code.benchmark, code.debugCollectLogs, code.debugCaptureState, code.debugRun, code.lsp_scanDocumentSymbols, code.lsp_searchWorkspaceSymbols, code.lsp_locateDefinition, code.lsp_locateTypeDefinition, code.lsp_traceReferences, code.lsp_traceImplementations, code.lsp_completeCode, code.lsp_assistSignature, code.lsp_explainSymbol, code.lsp_inspectSymbol, code.lsp_inspectDiagnostics, code.lsp_suggestCodeActions, code.lsp_applyCodeAction, code.lsp_renameSymbol, code.lsp_formatDocument, code.lsp_formatRange, code.write, code.append, shell.commandExecution, shell.scriptExecution, git.getRepositoryStatus, git.getWorkingTreeDiff, git.getCommitHistory, git.showGitObjectDetails, git.traceLineOwnership, git.checkoutTarget, git.manageBranch, git.manageTag, git.mergeBranch, git.rebaseBranch, git.switchBranch, git.manageIgnoreRules, git.moveOrRenameFile, git.removeTrackedFile, git.addToStaging, git.resetStagingOrCommit, git.restoreWorkingTree, git.stashChanges, git.applyStashChanges, git.popStashChanges, git.cleanUntrackedFiles, git.createCommit, search.nativeSearch, search.fetch, search.searchEngine, search.ground, mcp.authenticate, mcp.authorize, mcp.cache, mcp.invalidateCache, mcp.connect, mcp.disconnect, mcp.subscribe, mcp.unsubscribe, mcp.call, mcp.stream, mcp.cancel, mcp.nativeExecute, mcp.listTools, mcp.registerTool, mcp.updateTool, mcp.unregisterTool, mcp.listResources, mcp.readResource, mcp.createResource, mcp.updateResource, mcp.deleteResource, mcp.ping, mcp.healthCheck。",
+    "当前已有真实执行器的工具包括：tool.catalog, code.read, code.scan, code.search_Ripgrep, code.replaceFile, code.overwrite, code.modify, code.delete, code.format, code.testCode, code.benchmark, code.debugCollectLogs, code.debugCaptureState, code.debugRun, code.lsp_scanDocumentSymbols, code.lsp_searchWorkspaceSymbols, code.lsp_locateDefinition, code.lsp_locateTypeDefinition, code.lsp_traceReferences, code.lsp_traceImplementations, code.lsp_completeCode, code.lsp_assistSignature, code.lsp_explainSymbol, code.lsp_inspectSymbol, code.lsp_inspectDiagnostics, code.lsp_suggestCodeActions, code.lsp_applyCodeAction, code.lsp_renameSymbol, code.lsp_formatDocument, code.lsp_formatRange, code.write, code.append, shell.commandExecution, shell.scriptExecution, git.getRepositoryStatus, git.getWorkingTreeDiff, git.getCommitHistory, git.showGitObjectDetails, git.traceLineOwnership, git.checkoutTarget, git.manageBranch, git.manageTag, git.mergeBranch, git.rebaseBranch, git.switchBranch, git.manageIgnoreRules, git.moveOrRenameFile, git.removeTrackedFile, git.addToStaging, git.resetStagingOrCommit, git.restoreWorkingTree, git.stashChanges, git.applyStashChanges, git.popStashChanges, git.cleanUntrackedFiles, git.createCommit, git.amendLastCommit, git.cherryPickCommit, git.revertCommit, git.initializeRepository, git.cloneRepository, git.archiveRepository, git.locateProblemCommit, git.manageSubmodule, git.manageWorktree, git.manageRemote, git.fetchRemoteUpdates, git.pullRemoteChanges, git.pushLocalChanges, search.nativeSearch, search.fetch, search.searchEngine, search.ground, mcp.authenticate, mcp.authorize, mcp.cache, mcp.invalidateCache, mcp.connect, mcp.disconnect, mcp.subscribe, mcp.unsubscribe, mcp.call, mcp.stream, mcp.cancel, mcp.nativeExecute, mcp.listTools, mcp.registerTool, mcp.updateTool, mcp.unregisterTool, mcp.listResources, mcp.readResource, mcp.createResource, mcp.updateResource, mcp.deleteResource, mcp.ping, mcp.healthCheck。",
     "注意：shell 工具只用于明确的 shell/命令执行测试，不用于代码阅读、目录扫描或文本搜索。",
     `当前 agent: ${agent.id}, runtimeId=${agent.runtimeId}, sessionId=${agent.sessionId}`,
     transcript.length > 0 ? `对话历史：\n${transcript}` : "",

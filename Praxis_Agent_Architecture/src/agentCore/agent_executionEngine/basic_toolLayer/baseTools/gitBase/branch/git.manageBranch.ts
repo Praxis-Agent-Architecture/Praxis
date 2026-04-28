@@ -10,29 +10,6 @@
  */
 
 export type {
-  GitToolAuditEvent,
-  GitToolBoundary,
-  GitToolContext,
-  GitToolError,
-  GitToolErrorCode,
-  GitToolPermission,
-  GitToolResult,
-} from "../../../../../../storagePool/baseToolStorage/gitBase/branch/git.manageBranch.js";
-
-export {
-  blockRealGitExecution,
-  cleanGitList,
-  createGitAuditEvent,
-  createGitToolFailure,
-  ensureGitToolPermissions,
-  ensureGitToolScope,
-  gitDryRunEnabled,
-  gitInvocationId,
-  isBlankGitValue,
-  normalizeGitRepositoryPath,
-} from "../../../../../../storagePool/baseToolStorage/gitBase/branch/git.manageBranch.js";
-
-export type {
   GitManageBranchAction,
   GitManageBranchAuditEvent,
   GitManageBranchBestPracticeRequest,

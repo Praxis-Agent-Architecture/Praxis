@@ -66,6 +66,9 @@ import { gitGetRepositoryStatusHandler } from "../../../../storagePool/baseToolS
 import { gitGetWorkingTreeDiffHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.getWorkingTreeDiff/bestPractice.js";
 import { gitShowObjectDetailsHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.showGitObjectDetails/bestPractice.js";
 import { gitTraceLineOwnershipHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.traceLineOwnership/bestPractice.js";
+import { gitLocateProblemCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/advanced/git.locateProblemCommit/bestPractice.js";
+import { gitManageSubmoduleHandler } from "../../../../storagePool/baseToolStorage/gitBase/advanced/git.manageSubmodule/bestPractice.js";
+import { gitManageWorktreeHandler } from "../../../../storagePool/baseToolStorage/gitBase/advanced/git.manageWorktree/bestPractice.js";
 import { gitCheckoutTargetHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.checkoutTarget/bestPractice.js";
 import { gitManageBranchHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.manageBranch/bestPractice.js";
 import { gitManageTagHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.manageTag/bestPractice.js";
@@ -83,7 +86,16 @@ import { gitCleanUntrackedFilesHandler } from "../../../../storagePool/baseToolS
 import { gitPopStashChangesHandler } from "../../../../storagePool/baseToolStorage/gitBase/stash/git.popStashChanges/bestPractice.js";
 import { gitStashChangesHandler } from "../../../../storagePool/baseToolStorage/gitBase/stash/git.stashChanges/bestPractice.js";
 import { gitAmendLastCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/commit/git.amendLastCommit/bestPractice.js";
+import { gitCherryPickCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/commit/git.cherryPickCommit/bestPractice.js";
 import { gitCreateCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/commit/git.createCommit/bestPractice.js";
+import { gitRevertCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/commit/git.revertCommit/bestPractice.js";
+import { gitArchiveRepositoryHandler } from "../../../../storagePool/baseToolStorage/gitBase/repository/git.archiveRepository/bestPractice.js";
+import { gitCloneRepositoryHandler } from "../../../../storagePool/baseToolStorage/gitBase/repository/git.cloneRepository/bestPractice.js";
+import { gitInitializeRepositoryHandler } from "../../../../storagePool/baseToolStorage/gitBase/repository/git.initializeRepository/bestPractice.js";
+import { gitFetchRemoteUpdatesHandler } from "../../../../storagePool/baseToolStorage/gitBase/remote/git.fetchRemoteUpdates/bestPractice.js";
+import { gitManageRemoteHandler } from "../../../../storagePool/baseToolStorage/gitBase/remote/git.manageRemote/bestPractice.js";
+import { gitPullRemoteChangesHandler } from "../../../../storagePool/baseToolStorage/gitBase/remote/git.pullRemoteChanges/bestPractice.js";
+import { gitPushLocalChangesHandler } from "../../../../storagePool/baseToolStorage/gitBase/remote/git.pushLocalChanges/bestPractice.js";
 import { mcpCacheHandler } from "../../../../storagePool/baseToolStorage/mcpBase/cache/mcp.cache/bestPractice.js";
 import { mcpInvalidateCacheHandler } from "../../../../storagePool/baseToolStorage/mcpBase/cache/mcp.invalidateCache/bestPractice.js";
 import { mcpConnectHandler } from "../../../../storagePool/baseToolStorage/mcpBase/connection/mcp.connect/bestPractice.js";
@@ -179,6 +191,9 @@ export const builtinBaseToolHandlers = [
   gitGetWorkingTreeDiffHandler,
   gitShowObjectDetailsHandler,
   gitTraceLineOwnershipHandler,
+  gitLocateProblemCommitHandler,
+  gitManageSubmoduleHandler,
+  gitManageWorktreeHandler,
   gitCheckoutTargetHandler,
   gitManageBranchHandler,
   gitManageTagHandler,
@@ -196,7 +211,16 @@ export const builtinBaseToolHandlers = [
   gitPopStashChangesHandler,
   gitCleanUntrackedFilesHandler,
   gitAmendLastCommitHandler,
+  gitCherryPickCommitHandler,
   gitCreateCommitHandler,
+  gitRevertCommitHandler,
+  gitInitializeRepositoryHandler,
+  gitCloneRepositoryHandler,
+  gitArchiveRepositoryHandler,
+  gitFetchRemoteUpdatesHandler,
+  gitManageRemoteHandler,
+  gitPullRemoteChangesHandler,
+  gitPushLocalChangesHandler,
   mcpCacheHandler,
   mcpInvalidateCacheHandler,
   mcpConnectHandler,
