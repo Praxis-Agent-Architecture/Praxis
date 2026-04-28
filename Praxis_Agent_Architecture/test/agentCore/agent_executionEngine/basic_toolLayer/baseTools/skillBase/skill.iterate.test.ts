@@ -38,3 +38,19 @@ test("skill.iterate handler uses filesystem read/write provider", async () => {
   assert.equal(result.ok, true);
   assert.equal(wrote, "hello!");
 });
+
+test("skill.iterate accepts natural model operation aliases", async () => {
+  const result = await planSkillIteration({
+    target: {
+      skillPath: "/workspace/.agents/skills/repo-auditor",
+      changeIntent: "Add coverage guidance",
+      operations: [{ type: "append", path: "repo-auditor/SKILL.md", content: "\ncoverage" }],
+    },
+    context: { allowedRoots: ["/workspace/.agents/skills"] },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.output.target.operations[0]?.kind, "append");
+  assert.equal(result.output.target.operations[0]?.relativePath, "SKILL.md");
+  assert.equal(result.output.target.operations[0]?.summary, "Add coverage guidance");
+});

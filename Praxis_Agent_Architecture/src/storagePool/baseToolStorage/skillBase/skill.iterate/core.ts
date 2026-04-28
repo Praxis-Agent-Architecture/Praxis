@@ -80,16 +80,34 @@ export const skillIterateDescriptor = {
 
 const supportedKinds = new Set(["replace-file", "append", "prepend", "replace-text"]);
 
-function normalizeOperation(value: unknown): SkillIterationOperation | undefined {
+function normalizeOperationKind(value: unknown): SkillIterationOperationKind | undefined {
+  const kind = stringValue(value);
+  if (kind === undefined) return undefined;
+  if (kind === "replace" || kind === "replaceText") return "replace-text";
+  if (kind === "overwrite" || kind === "write" || kind === "replaceFile") return "replace-file";
+  return supportedKinds.has(kind) ? kind as SkillIterationOperationKind : undefined;
+}
+
+function normalizeOperationPath(value: unknown, skillPath: string): string | undefined {
+  const rawPath = stringValue(value) ?? "SKILL.md";
+  const skillDirName = skillPath.split("/").filter((segment) => segment.length > 0).at(-1);
+  const withoutDotPrefix = rawPath.startsWith("./") ? rawPath.slice(2) : rawPath;
+  if (skillDirName !== undefined && withoutDotPrefix.startsWith(`${skillDirName}/`)) {
+    return withoutDotPrefix.slice(skillDirName.length + 1);
+  }
+  return withoutDotPrefix;
+}
+
+function normalizeOperation(value: unknown, defaultSummary: string, skillPath: string): SkillIterationOperation | undefined {
   if (!isRecord(value)) return undefined;
-  const kind = stringValue(value.kind);
-  const relativePath = stringValue(value.relativePath);
-  const summary = stringValue(value.summary);
-  if (kind === undefined || !supportedKinds.has(kind) || relativePath === undefined || !relativeSkillPath(relativePath) || summary === undefined) {
+  const kind = normalizeOperationKind(value.kind ?? value.type ?? value.action);
+  const relativePath = normalizeOperationPath(value.relativePath ?? value.path ?? value.file, skillPath);
+  const summary = stringValue(value.summary) ?? defaultSummary;
+  if (kind === undefined || relativePath === undefined || !relativeSkillPath(relativePath)) {
     return undefined;
   }
   return {
-    kind: kind as SkillIterationOperationKind,
+    kind,
     relativePath,
     summary,
     content: typeof value.content === "string" ? value.content : undefined,
@@ -115,7 +133,7 @@ function normalizeTarget(target: unknown, context: SkillBaseContext | undefined)
   if (rawOperations.length > skillIterateDescriptor.maxOperations) {
     return failure("skill.iterate", "TOO_MANY_OPERATIONS", "skill.iterate requested too many operations", "resource", context, skillPath);
   }
-  const operations = rawOperations.map(normalizeOperation);
+  const operations = rawOperations.map((operation) => normalizeOperation(operation, changeIntent, skillPath));
   if (operations.some((operation) => operation === undefined)) {
     return failure("skill.iterate", "INVALID_OPERATION", "skill.iterate operations must use supported kind, safe relativePath, and summary", "input", context, skillPath);
   }
