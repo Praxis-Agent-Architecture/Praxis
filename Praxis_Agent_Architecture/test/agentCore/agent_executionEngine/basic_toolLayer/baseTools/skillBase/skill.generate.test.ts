@@ -1,95 +1,64 @@
-import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSkillGeneration } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.generate.js";
+import { planSkillGeneration, skillGenerateHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.generate.js";
 
-defineAgentCoreContractTest({
-  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.generate.ts",
-  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.generate.md",
-  testFileUrl: import.meta.url,
-});
-
-test("planSkillGeneration creates a guarded dry-run skill scaffold plan", () => {
-  const result = planSkillGeneration({
-    target: {
-      skillName: "repo-auditor",
-      purpose: "Inspect repository health signals before implementation work.",
-      destinationRoot: "/workspace/.codex/skills",
-      files: [
-        { path: "SKILL.md", kind: "instruction", purpose: "entrypoint" },
-        { path: "examples/report.md", kind: "example" },
-      ],
-      tags: ["agentCore", "review"],
-    },
-    context: {
-      invocationId: "skill-generate-1",
-      allowedSkillRoots: ["/workspace/.codex/skills"],
-      grantedPermissions: ["skill:generate", "filesystem:write"],
-    },
+test("skill.generate returns dry-run plan without provider", async () => {
+  const result = await planSkillGeneration({
+    target: { skillName: "repo-auditor", purpose: "Inspect repositories.", destinationRoot: "/workspace/.agents/skills" },
+    context: { invocationId: "skill-generate-1", allowedRoots: ["/workspace/.agents/skills"] },
   });
 
   assert.equal(result.ok, true);
-  if (!result.ok) {
-    assert.fail("expected skill generation dry-run plan");
-  }
-
-  assert.equal(result.output.kind, "agentCore.basicTool.skill.generate");
-  assert.equal(result.output.generationEnvelope.skillDirectory, "/workspace/.codex/skills/repo-auditor");
-  assert.equal(result.output.generationEnvelope.fileCount, 2);
-  assert.equal(result.output.unsafeSideEffects, true);
-  assert.equal(result.audit[0]?.invocationId, "skill-generate-1");
+  assert.equal(result.output.generationEnvelope.skillDirectory, "/workspace/.agents/skills/repo-auditor");
+  assert.equal(result.output.executionBlocked, true);
 });
 
-test("planSkillGeneration rejects malformed skill plans, scope escapes, and real execution", () => {
-  const missingName = planSkillGeneration({
-    target: { purpose: "Generate a skill", destinationRoot: "/workspace/.codex/skills" },
+test("skill.generate validates malformed JSON and scope", async () => {
+  assert.equal((await planSkillGeneration({ target: { skillName: 1 } })).ok, false);
+  const scoped = await planSkillGeneration({
+    target: { skillName: "repo-auditor", purpose: "Generate", destinationRoot: "/tmp/skills" },
+    context: { allowedRoots: ["/workspace/.agents/skills"] },
   });
-
-  assert.equal(missingName.ok, false);
-  if (!missingName.ok) {
-    assert.equal(missingName.error.code, "MISSING_SKILL_NAME");
-  }
-
-  const invalidFile = planSkillGeneration({
-    target: {
-      skillName: "repo-auditor",
-      purpose: "Generate a skill",
-      destinationRoot: "/workspace/.codex/skills",
-      files: [{ path: "../escape.md", kind: "instruction" }],
-    },
-  });
-
-  assert.equal(invalidFile.ok, false);
-  if (!invalidFile.ok) {
-    assert.equal(invalidFile.error.code, "INVALID_REQUESTED_FILE");
-  }
-
-  const scoped = planSkillGeneration({
-    target: {
-      skillName: "repo-auditor",
-      purpose: "Generate a skill",
-      destinationRoot: "/tmp/skills",
-    },
-    context: { allowedSkillRoots: ["/workspace/.codex/skills"] },
-  });
-
   assert.equal(scoped.ok, false);
-  if (!scoped.ok) {
-    assert.equal(scoped.error.code, "SKILL_ROOT_OUTSIDE_SCOPE");
-  }
+  assert.equal(scoped.error.code, "SKILL_ROOT_OUTSIDE_SCOPE");
+});
 
-  const real = planSkillGeneration({
-    target: {
-      skillName: "repo-auditor",
-      purpose: "Generate a skill",
-      destinationRoot: "/workspace/.codex/skills",
-    },
-    context: { dryRun: false },
+test("skill.generate requires guard and provider for real execution", async () => {
+  const denied = await planSkillGeneration({
+    target: { skillName: "repo-auditor", purpose: "Generate", destinationRoot: "/workspace/.agents/skills" },
+    context: { dryRun: false, grantedPermissions: ["skill:write", "filesystem:write"] },
   });
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error.code, "GOVERNANCE_REJECTED");
 
-  assert.equal(real.ok, false);
-  if (!real.ok) {
-    assert.equal(real.error.code, "REAL_EXECUTION_BLOCKED");
-  }
+  const unavailable = await planSkillGeneration({
+    target: { skillName: "repo-auditor", purpose: "Generate", destinationRoot: "/workspace/.agents/skills" },
+    context: { dryRun: false, guard: { accepted: true }, grantedPermissions: ["skill:write", "filesystem:write"] },
+  });
+  assert.equal(unavailable.ok, false);
+  assert.equal(unavailable.error.code, "PROVIDER_UNAVAILABLE");
+});
+
+test("skill.generate handler writes through runtime provider when guarded", async () => {
+  const writes: string[] = [];
+  const result = await skillGenerateHandler.invoke({
+    toolCallId: "tool-1",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    input: {
+      target: { skillName: "repo-auditor", purpose: "Generate", destinationRoot: "/workspace/.agents/skills" },
+      context: { dryRun: false, guard: { accepted: true }, grantedPermissions: ["skill:write", "filesystem:write"] },
+    },
+    executor: {
+      filesystem: {
+        async writeText(request) {
+          writes.push(request.path);
+          return { ok: true, output: { bytesWritten: request.content.length } };
+        },
+      },
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(writes, ["/workspace/.agents/skills/repo-auditor/SKILL.md"]);
 });

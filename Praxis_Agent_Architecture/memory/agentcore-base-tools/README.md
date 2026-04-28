@@ -9,7 +9,7 @@ This folder records the current target and constraints for building `src/agentCo
 - `src/storagePool/baseToolStorage/` is where real tool practice implementations are accumulated.
 - `src/storagePool/baseToolStorage/` should mirror the active baseTool structure, then replace placeholder tool files with provider practice modules and shared dependencies.
 - `officeBase` is no longer a forward baseTool completion target. Document, spreadsheet, presentation, and PDF capabilities have moved to TAP as higher-level governed tools rather than being completed under `basic_toolLayer/baseTools`.
-- The remaining forward baseTool completion targets are `computeruseBase`, `omniBase`, and `skillBase`.
+- The remaining forward baseTool completion targets are `computeruseBase` and `omniBase`.
 - `toolDependency/`, `storageLogic.ts`, and `baseTool_storagePlane.ts` keep their separate responsibilities:
   - `toolDependency/`: dependency declarations and dependency status management.
   - `storageLogic.ts`: storage write/reuse/expiry/isolation logic for tool materials and results.
@@ -91,8 +91,8 @@ This keeps provider routing meaningful: the model-facing practice can follow Cod
 ## Current Implementation Status
 
 - `baseToolRegistry.ts` now discovers the active 175 builtin baseTool files after the `officeBase` migration out of `basic_toolLayer/baseTools`.
-- Active completed baseTool families are `shellBase`, `gitBase`, `mcpBase`, `codeBase`, and `searchBase`.
-- The forward baseTool backlog excludes `officeBase` and now contains only `computeruseBase`, `omniBase`, and `skillBase`.
+- Active completed baseTool families are `shellBase`, `gitBase`, `mcpBase`, `codeBase`, `searchBase`, and `skillBase`.
+- The forward baseTool backlog excludes `officeBase` and now contains only `computeruseBase` and `omniBase`.
 - Every discovered builtin tool points at a matching markdown toolSkill document.
 - Every discovered builtin tool currently has a coarse risk level and dependency declaration.
 - `inputSchema` and `outputSchema` are still `pending-schema` placeholders. Real schemas should be filled while implementing each tool.

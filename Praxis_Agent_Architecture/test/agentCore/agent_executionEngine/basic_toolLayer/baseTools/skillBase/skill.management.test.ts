@@ -1,62 +1,41 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
-import {
-  planSkillManagement,
-  skillManagementDescriptor,
-} from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.management.js";
+import { planSkillManagement, skillManagementHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.management.js";
 
-defineAgentCoreContractTest({
-  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.management.ts",
-  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.management.md",
-  testFileUrl: import.meta.url,
-});
-
-test("skill.management returns a dry-run management envelope", () => {
-  const result = planSkillManagement({
-    target: {
-      action: "enable",
-      skillId: "lint-check",
-      registryRoot: "/workspace/skills",
-      metadataPatch: { owner: "tap" },
-    },
-    context: {
-      invocationId: "invoke-management",
-      grantedPermissions: ["skill:read", "skill:write"],
-      allowedSkillIds: ["lint-check"],
-      allowedRoots: ["/workspace"],
-    },
+test("skill.management supports activate/load in dry-run shape", async () => {
+  const result = await planSkillManagement({
+    target: { action: "activate", skillId: "repo-auditor", registryRoot: "/workspace/.agents/skills" },
+    context: { allowedRoots: ["/workspace/.agents/skills"], allowedSkillIds: ["repo-auditor"] },
   });
-
   assert.equal(result.ok, true);
-  assert.equal(result.toolId, skillManagementDescriptor.toolId);
-  assert.equal(result.output.executionBlocked, true);
-  assert.equal(result.output.managementPlan.action, "enable");
-  assert.deepEqual(result.output.managementPlan.affectedSkillIds, ["lint-check"]);
-  assert.deepEqual(result.output.permissionsRequired, ["skill:read", "skill:write"]);
-  assert.equal(result.audit[0]?.invocationId, "invoke-management");
+  assert.equal(result.output.managementEnvelope.action, "activate");
+  assert.equal(result.output.managementEnvelope.skillRoot, "/workspace/.agents/skills/repo-auditor");
 });
 
-test("skill.management reports missing action as a public input error", () => {
-  const result = planSkillManagement();
-
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, "MISSING_ACTION");
-  assert.equal(result.error.boundary, "input");
-  assert.equal(result.error.publicSafe, true);
+test("skill.management rejects missing action and invalid ids", async () => {
+  const missing = await planSkillManagement();
+  assert.equal(missing.ok, false);
+  assert.equal(missing.error.code, "MISSING_ACTION");
+  const invalid = await planSkillManagement({ target: { action: "activate", skillId: "../x", registryRoot: "/workspace/skills" } });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error.code, "INVALID_SKILL_ID");
 });
 
-test("skill.management keeps real execution behind the first implementation guard", () => {
-  const result = planSkillManagement({
-    target: { action: "disable", skillId: "lint-check" },
-    context: {
-      dryRun: false,
-      grantedPermissions: ["skill:read", "skill:write"],
+test("skill.management activate/load reads full SKILL.md and resource index", async () => {
+  const result = await skillManagementHandler.invoke({
+    toolCallId: "tool-1",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    input: { target: { action: "load", skillId: "repo-auditor", registryRoot: "/workspace/.agents/skills" }, context: { dryRun: false, guard: { accepted: true }, grantedPermissions: ["skill:read", "filesystem:read"] } },
+    executor: {
+      filesystem: {
+        async readText() { return { ok: true, output: { content: "---\nname: repo-auditor\ndescription: Audit repos\n---\n# Body", truncated: false } }; },
+        async list() { return { ok: true, output: { entries: ["SKILL.md", "references/a.md"] } }; },
+      },
     },
   });
-
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, "REAL_EXECUTION_BLOCKED");
-  assert.equal(result.error.boundary, "contract");
+  assert.equal(result.ok, true);
+  assert.equal(result.output.managementEnvelope.skill?.name, "repo-auditor");
+  assert.match(result.output.managementEnvelope.skill?.modelInstructionEnvelope ?? "", /<activated_skill>/u);
 });

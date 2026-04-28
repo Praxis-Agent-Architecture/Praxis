@@ -1,68 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
-import {
-  planSkillRemove,
-  skillRemoveDescriptor,
-} from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.remove.js";
+import { planSkillRemove, skillRemoveHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.remove.js";
 
-defineAgentCoreContractTest({
-  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.remove.ts",
-  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.remove.md",
-  testFileUrl: import.meta.url,
-});
-
-test("skill.remove returns a guarded dry-run removal plan", () => {
-  const result = planSkillRemove({
-    target: {
-      skillId: "lint-check",
-      registryRoot: "/workspace/skills",
-      mode: "purge",
-      keepBackup: true,
-    },
-    context: {
-      invocationId: "invoke-remove",
-      grantedPermissions: ["skill:write", "filesystem:write"],
-      allowedSkillIds: ["lint-check"],
-      allowedRoots: ["/workspace"],
-    },
-  });
-
+test("skill.remove returns guarded dry-run removal plan", async () => {
+  const result = await planSkillRemove({ target: { skillId: "repo-auditor", registryRoot: "/workspace/.agents/skills", mode: "purge" }, context: { allowedRoots: ["/workspace/.agents/skills"] } });
   assert.equal(result.ok, true);
-  assert.equal(result.toolId, skillRemoveDescriptor.toolId);
-  assert.equal(result.output.executionBlocked, true);
-  assert.equal(result.output.unsafeSideEffects, true);
-  assert.equal(result.output.removePlan.mode, "purge");
-  assert.ok(result.output.removePlan.commandPreview.includes("--dry-run"));
-  assert.equal(result.audit[0]?.targetRef, "lint-check");
+  assert.equal(result.output.removalEnvelope.plannedPath, "/workspace/.agents/skills/repo-auditor");
 });
 
-test("skill.remove rejects unsafe skill identifiers before building a command plan", () => {
-  const result = planSkillRemove({
-    target: {
-      skillId: "../outside",
-      registryRoot: "/workspace/skills",
-    },
-  });
-
+test("skill.remove requires guard for real execution", async () => {
+  const result = await planSkillRemove({ target: { skillId: "repo-auditor", registryRoot: "/workspace/.agents/skills", mode: "purge" }, context: { dryRun: false, grantedPermissions: ["skill:write", "filesystem:write"] } });
   assert.equal(result.ok, false);
-  assert.equal(result.error.code, "INVALID_SKILL_ID");
-  assert.equal(result.error.boundary, "input");
+  assert.equal(result.error.code, "GOVERNANCE_REJECTED");
 });
 
-test("skill.remove reports permission failures without touching the filesystem", () => {
-  const result = planSkillRemove({
-    target: {
-      skillId: "lint-check",
-      registryRoot: "/workspace/skills",
-    },
-    context: {
-      grantedPermissions: ["skill:write"],
-    },
+test("skill.remove handler calls deletePath for purge", async () => {
+  let deleted = "";
+  const result = await skillRemoveHandler.invoke({
+    toolCallId: "tool-1",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    input: { target: { skillId: "repo-auditor", registryRoot: "/workspace/.agents/skills", mode: "purge" }, context: { dryRun: false, guard: { accepted: true }, grantedPermissions: ["skill:write", "filesystem:write"] } },
+    executor: { filesystem: { async deletePath(request) { deleted = request.path; return { ok: true, output: { deleted: true } }; } } },
   });
-
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, "PERMISSION_DENIED");
-  assert.equal(result.error.boundary, "permission");
+  assert.equal(result.ok, true);
+  assert.equal(deleted, "/workspace/.agents/skills/repo-auditor");
 });

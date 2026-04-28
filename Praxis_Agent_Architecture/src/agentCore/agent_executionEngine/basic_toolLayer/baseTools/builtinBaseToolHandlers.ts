@@ -123,6 +123,12 @@ import { searchFetchHandler } from "../../../../storagePool/baseToolStorage/sear
 import { searchGroundHandler } from "../../../../storagePool/baseToolStorage/searchBase/search.ground/bestPractice.js";
 import { nativeSearchHandler } from "../../../../storagePool/baseToolStorage/searchBase/search.nativeSearch/bestPractice.js";
 import { searchEngineHandler } from "../../../../storagePool/baseToolStorage/searchBase/search.searchEngine/bestPractice.js";
+import { skillGenerateHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.generate/bestPractice.js";
+import { skillIterateHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.iterate/bestPractice.js";
+import { skillManagementHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.management/bestPractice.js";
+import { skillRemoveHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.remove/bestPractice.js";
+import { skillRipgrepHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.ripgrep/bestPractice.js";
+import { skillSummarizeHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.summarize/bestPractice.js";
 
 export const builtinBaseToolHandlers = [
   shellCapabilityDetectionHandler,
@@ -248,6 +254,12 @@ export const builtinBaseToolHandlers = [
   searchGroundHandler,
   nativeSearchHandler,
   searchEngineHandler,
+  skillGenerateHandler,
+  skillIterateHandler,
+  skillManagementHandler,
+  skillRemoveHandler,
+  skillRipgrepHandler,
+  skillSummarizeHandler,
 ] as const satisfies readonly BaseToolHandler[];
 
 export function builtinBaseToolHandlersById(): ReadonlyMap<string, BaseToolHandler> {

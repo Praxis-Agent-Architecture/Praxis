@@ -1,79 +1,40 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
-import {
-  planSkillRipgrep,
-  skillRipgrepDescriptor,
-} from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.ripgrep.js";
+import { planSkillRipgrep, skillRipgrepHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.ripgrep.js";
 
-defineAgentCoreContractTest({
-  sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.ripgrep.ts",
-  docPath: "Praxis_Agent_Architecture/docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.ripgrep.md",
-  testFileUrl: import.meta.url,
-});
-
-test("skill.ripgrep builds a dry-run rg command preview for a skill registry", () => {
-  const result = planSkillRipgrep({
-    target: {
-      query: "frontmatter",
-      registryRoot: "/workspace/skills",
-      skillId: "doc-builder",
-      includeHidden: true,
-      maxResults: 10,
-      fileGlobs: ["*.md"],
-    },
-    context: {
-      invocationId: "invoke-ripgrep",
-      grantedPermissions: ["skill:read", "filesystem:read"],
-      allowedSkillIds: ["doc-builder"],
-      allowedRoots: ["/workspace"],
-    },
-  });
-
+test("skill.ripgrep returns dry-run command preview", async () => {
+  const result = await planSkillRipgrep({ target: { query: "allowed-tools", registryRoot: "/workspace/.agents/skills", maxResults: 5 }, context: { allowedRoots: ["/workspace/.agents/skills"] } });
   assert.equal(result.ok, true);
-  assert.equal(result.toolId, skillRipgrepDescriptor.toolId);
-  assert.equal(result.output.executionBlocked, true);
-  assert.deepEqual(result.output.commandPreview, [
-    "rg",
-    "--line-number",
-    "--max-count",
-    "10",
-    "--hidden",
-    "--glob",
-    "*.md",
-    "frontmatter",
-    "/workspace/skills/doc-builder",
-  ]);
-  assert.deepEqual(result.output.resultEnvelope.matches, []);
+  assert.equal(result.output.ripgrepEnvelope.searchRoot, "/workspace/.agents/skills");
+  assert.equal(result.output.runtimeEntry.port, "BaseToolExecutorPort.search.ripgrep");
 });
 
-test("skill.ripgrep rejects searches outside allowed registry roots", () => {
-  const result = planSkillRipgrep({
-    target: {
-      query: "frontmatter",
-      registryRoot: "/tmp/skills",
-    },
-    context: {
-      allowedRoots: ["/workspace"],
-    },
-  });
-
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, "SCOPE_REJECTED");
-  assert.equal(result.error.boundary, "scope");
+test("skill.ripgrep validates scope and max results", async () => {
+  const scoped = await planSkillRipgrep({ target: { query: "x", registryRoot: "/tmp/skills" }, context: { allowedRoots: ["/workspace/.agents/skills"] } });
+  assert.equal(scoped.ok, false);
+  assert.equal(scoped.error.code, "SCOPE_REJECTED");
+  const badMax = await planSkillRipgrep({ target: { query: "x", registryRoot: "/workspace/.agents/skills", maxResults: 1000 } });
+  assert.equal(badMax.ok, false);
+  assert.equal(badMax.error.code, "INVALID_MAX_RESULTS");
 });
 
-test("skill.ripgrep validates maxResults before returning a plan", () => {
-  const result = planSkillRipgrep({
-    target: {
-      query: "frontmatter",
-      registryRoot: "/workspace/skills",
-      maxResults: 0,
+test("skill.ripgrep handler calls runtime search.ripgrep", async () => {
+  let calledRoot = "";
+  const result = await skillRipgrepHandler.invoke({
+    toolCallId: "tool-1",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    input: { target: { query: "skill", registryRoot: "/workspace/.agents/skills", skillId: "repo-auditor" }, context: { dryRun: false, grantedPermissions: ["skill:read", "filesystem:read"] } },
+    executor: {
+      search: {
+        async ripgrep(request) {
+          calledRoot = request.directoryPath;
+          return { ok: true, output: { exitCode: 0, matches: [{ path: "SKILL.md", line: 1, text: "skill" }] } };
+        },
+      },
     },
   });
-
-  assert.equal(result.ok, false);
-  assert.equal(result.error.code, "INVALID_MAX_RESULTS");
-  assert.equal(result.error.boundary, "resource");
+  assert.equal(result.ok, true);
+  assert.equal(calledRoot, "/workspace/.agents/skills/repo-auditor");
 });

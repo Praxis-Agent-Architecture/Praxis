@@ -23,6 +23,7 @@ test("baseTool registry discovers the active builtin tool files with markdown to
   assert.equal(snapshot.byFamily.shell, 32);
   assert.equal(snapshot.byFamily.git, 35);
   assert.equal(snapshot.byFamily.office, 0);
+  assert.equal(snapshot.byFamily.skill, 6);
   assert.equal(snapshot.byFamily.custom, 0);
 
   for (const definition of definitions) {
@@ -171,5 +172,15 @@ test("baseTool registry can resolve executable handlers for directoryized storag
       continue;
     }
     assert.equal(handler.handler.definition.toolSkill.docPath, docPath);
+  }
+
+  for (const toolId of ["skill.generate", "skill.iterate", "skill.management", "skill.remove", "skill.ripgrep", "skill.summarize"] as const) {
+    const handler = registry.lookupHandler(toolId);
+    assert.equal(handler.ok, true, `${toolId} handler should be mounted`);
+    if (!handler.ok) continue;
+    assert.equal(
+      handler.handler.definition.toolSkill.docPath,
+      `/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/skillBase/${toolId}/${toolId}.md`,
+    );
   }
 });
