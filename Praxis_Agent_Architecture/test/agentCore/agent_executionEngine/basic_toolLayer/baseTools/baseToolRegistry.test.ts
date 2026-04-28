@@ -9,19 +9,20 @@ import {
   loadBuiltinBaseToolDefinitions,
 } from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
-test("baseTool registry discovers the 203 builtin tool files with markdown toolSkill references", () => {
+test("baseTool registry discovers the active builtin tool files with markdown toolSkill references", () => {
   const definitions = loadBuiltinBaseToolDefinitions();
   const registry = createBaseToolRegistry();
   const snapshot = registry.snapshot();
 
-  assert.equal(baseToolRegistryDescriptor.builtinToolCountTarget, 203);
-  assert.equal(definitions.length, 203);
-  assert.equal(snapshot.builtins, 203);
+  assert.equal(baseToolRegistryDescriptor.builtinToolCountTarget, 175);
+  assert.equal(definitions.length, 175);
+  assert.equal(snapshot.builtins, 175);
   assert.equal(snapshot.customs, 0);
-  assert.equal(snapshot.total, 203);
+  assert.equal(snapshot.total, 175);
   assert.equal(snapshot.byFamily.code, 29);
   assert.equal(snapshot.byFamily.shell, 32);
   assert.equal(snapshot.byFamily.git, 35);
+  assert.equal(snapshot.byFamily.office, 0);
   assert.equal(snapshot.byFamily.custom, 0);
 
   for (const definition of definitions) {

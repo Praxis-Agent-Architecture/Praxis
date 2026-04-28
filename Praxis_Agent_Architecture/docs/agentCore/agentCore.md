@@ -232,10 +232,13 @@ CMP 的上下文管理应该围绕 promptPack 展开。CMP 负责更高级的上
 - gitBase：仓库、分支、文件、暂存区、提交、远端、stash、检查和高级操作。
 - mcpBase：连接、鉴权、工具、资源、调用、订阅、缓存和监控。
 - computeruseBase：截图、录屏、鼠标、键盘、摄像头、麦克风。
-- officeBase：文档、表格、演示、PDF。
 - omniBase：图像、音频、视频生成和转换。
 - searchBase：搜索、抓取、事实锚定。
 - skillBase：skill 生成、迭代、管理、删除、搜索、总结。
+
+`officeBase` 不再作为后续 baseTool 完成目标推进。文档、表格、演示和 PDF 这类 Office 能力应迁移到 TAP 的高级工具系统中承接；baseTools 只保留 Agent 成立所需的底层原语。
+
+当前已按 baseTool 厚度推进完成的家族是 `shellBase`、`gitBase`、`mcpBase`、`codeBase` 和 `searchBase`。后续 baseTool 完成目标只剩 `computeruseBase`、`omniBase` 和 `skillBase`。
 
 TAP 应基于这些基础原语继续构建更高级的工具治理、审批、选择、替换、组合和专业能力库。比如未来替代 CAD 画手的能力库应属于 TAP 的高级能力系统，但它仍然需要底层工具原语支持。
 

@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 执行引擎 / 基础工具原语层 / 基础工具总注册表。
- * 核心目的：把 203 个内置 baseTools 和后续 customTool 收束到同一套 registry。
+ * 核心目的：把内置 baseTools 和后续 customTool 收束到同一套 registry。
  * 边界：注册表只负责发现、登记、查询和暴露工具定义，不直接执行工具。
  */
 
@@ -73,7 +73,7 @@ export type BaseToolHandlerLookupResult =
 
 export const baseToolRegistryDescriptor = {
   registry: "agentCore.basicTool.registry",
-  builtinToolCountTarget: 203,
+  builtinToolCountTarget: 175,
   supportsCustomTools: true,
   derivesToolSkillFromMarkdownDocs: true,
   agentCoreOwnsRealExecution: false,
