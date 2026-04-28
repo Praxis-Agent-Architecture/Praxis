@@ -357,9 +357,10 @@ function toolCallFromCase(testCase: OmniLiveCase): OmniToolCall {
   return { tool: testCase.toolId, arguments: testCase.input };
 }
 
-function withRuntimeGovernance(tool: string, toolArguments: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+function withRuntimeGovernance(tool: string, toolArguments: Readonly<Record<string, unknown>>, userPrompt?: string): Readonly<Record<string, unknown>> {
   const input: Record<string, unknown> = { ...toolArguments };
   const targetText = typeof input.target === "string" && input.target.trim().length > 0 ? input.target.trim() : undefined;
+  const targetTextLooksOutput = targetText?.startsWith("/workspace/output/") === true;
   const target = typeof input.target === "object" && input.target !== null && !Array.isArray(input.target)
     ? { ...(input.target as Record<string, unknown>) }
     : {};
@@ -368,23 +369,24 @@ function withRuntimeGovernance(tool: string, toolArguments: Readonly<Record<stri
     : {};
 
   if (tool === "omni.viewImage") {
-    target.imagePath ??= target.inputPath ?? input.imagePath ?? input.path ?? targetText ?? "/workspace/media/source.png";
+    target.imagePath ??= target.inputPath ?? target.imagePath ?? target.input ?? target.source ?? input.imagePath ?? input.input ?? input.source ?? input.path ?? targetText ?? "/workspace/media/source.png";
     target.mediaType ??= input.mediaType ?? "image/png";
     target.detail ??= input.detail ?? context.detail ?? "high";
   } else if (tool.startsWith("omni.generate")) {
-    target.prompt ??= input.prompt ?? "Tool matrix generated media.";
-    target.outputPath ??= input.outputPath ?? input.output ?? targetText ?? (tool.endsWith("Image") ? "/workspace/output/result.png" : tool.endsWith("Audio") ? "/workspace/output/result.wav" : "/workspace/output/result.mp4");
-    target.targetFormat ??= input.targetFormat ?? input.format ?? (tool.endsWith("Image") ? "png" : tool.endsWith("Audio") ? "wav" : "mp4");
+    target.prompt ??= input.prompt ?? target.prompt ?? userPrompt ?? "Tool matrix generated media.";
+    target.outputPath ??= target.output ?? target.path ?? input.outputPath ?? input.output ?? targetText ?? (tool.endsWith("Image") ? "/workspace/output/result.png" : tool.endsWith("Audio") ? "/workspace/output/result.wav" : "/workspace/output/result.mp4");
+    target.targetFormat ??= target.format ?? target.outputFormat ?? input.targetFormat ?? input.format ?? input.outputFormat ?? (tool.endsWith("Image") ? "png" : tool.endsWith("Audio") ? "wav" : "mp4");
+    target.durationSeconds ??= target.duration ?? input.durationSeconds ?? input.duration;
   } else {
     const mediaHint = tool.includes("Audio") || tool.startsWith("omni.audio") || tool === "omni.listenAudio"
       ? "audio"
       : tool.includes("Image") || tool.startsWith("omni.image")
         ? "image"
         : "video";
-    target.inputPath ??= input.inputPath ?? input.path ?? targetText ?? (mediaHint === "audio" ? "/workspace/media/source.wav" : mediaHint === "image" ? "/workspace/media/source.png" : "/workspace/media/source.mp4");
-    target.targetFormat ??= input.targetFormat ?? input.format ?? (mediaHint === "audio" ? "wav" : mediaHint === "image" ? "png" : "mp4");
+    target.inputPath ??= target.input ?? target.source ?? target.path ?? input.inputPath ?? input.input ?? input.source ?? input.path ?? (targetTextLooksOutput ? undefined : targetText) ?? (mediaHint === "audio" ? "/workspace/media/source.wav" : mediaHint === "image" ? "/workspace/media/source.png" : "/workspace/media/source.mp4");
+    target.targetFormat ??= target.format ?? target.outputFormat ?? input.targetFormat ?? input.format ?? input.outputFormat ?? (mediaHint === "audio" ? "wav" : mediaHint === "image" ? "png" : "mp4");
     if (tool.includes("Compressor") || tool.includes("FormatConversion")) {
-      target.outputPath ??= input.outputPath ?? input.output ?? (mediaHint === "audio" ? "/workspace/output/result.wav" : mediaHint === "image" ? "/workspace/output/result.png" : "/workspace/output/result.mp4");
+      target.outputPath ??= target.output ?? input.outputPath ?? input.output ?? (targetTextLooksOutput ? targetText : undefined) ?? (mediaHint === "audio" ? "/workspace/output/result.wav" : mediaHint === "image" ? "/workspace/output/result.png" : "/workspace/output/result.mp4");
     }
   }
 
@@ -429,7 +431,7 @@ function expectedCallSeen(expectedOperation: string, calls: readonly string[]): 
 }
 
 function truncateText(value: unknown, maxChars = 500): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value);
   return text.length > maxChars ? `${text.slice(0, maxChars)}...<truncated>` : text;
 }
 
@@ -498,9 +500,9 @@ async function main(): Promise<void> {
         } else if (parsedToolCall.tool !== testCase.toolId) {
           modelOk = false;
           modelError = `MODEL_TOOL_MISMATCH:${parsedToolCall.tool}`;
-          toolCall = { tool: parsedToolCall.tool, arguments: withRuntimeGovernance(parsedToolCall.tool, parsedToolCall.arguments) };
+          toolCall = { tool: parsedToolCall.tool, arguments: withRuntimeGovernance(parsedToolCall.tool, parsedToolCall.arguments, testCase.userPrompt) };
         } else {
-          toolCall = { tool: parsedToolCall.tool, arguments: withRuntimeGovernance(parsedToolCall.tool, parsedToolCall.arguments) };
+          toolCall = { tool: parsedToolCall.tool, arguments: withRuntimeGovernance(parsedToolCall.tool, parsedToolCall.arguments, testCase.userPrompt) };
         }
       } catch (error) {
         modelOk = false;

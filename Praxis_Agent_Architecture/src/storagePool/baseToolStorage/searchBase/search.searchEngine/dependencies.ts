@@ -18,12 +18,14 @@ export type SearchEngineProviderPractice = {
   createProvider(dependencies: SearchEngineDependencies): SearchEngineExecutor | undefined;
 };
 
+export const searchEngineRuntimePort = "BaseToolExecutorPort.network.search" as const;
+
 export const searchEngineDependencyDeclarations = [
   {
-    dependencyId: "runtime.execEngine.network.search",
+    dependencyId: "runtime.executor.network.search",
     kind: "runtime",
     required: true,
-    description: "Runtime-provided generic search exposed through BaseToolExecutorPort.network.search",
+    description: "Runtime-provided generic search exposed through BaseToolExecutorPort.network.search.",
   },
   {
     dependencyId: "runtime.governancePlane.searchEngineGuard",
@@ -33,8 +35,9 @@ export const searchEngineDependencyDeclarations = [
   },
 ] satisfies readonly BaseToolDependencyDeclaration[];
 
-export function createHostExecutorSearchEngineProvider(executor: BaseToolExecutorPort | undefined): SearchEngineExecutor | undefined {
-  const search = executor?.network?.search;
+export function createRuntimeSearchEngineProvider(dependencies: SearchEngineDependencies = {}): SearchEngineExecutor | undefined {
+  if (dependencies.provider !== undefined) return dependencies.provider;
+  const search = dependencies.executor?.network?.search;
   if (search === undefined) return undefined;
   return async (request) => {
     const result = await search({
@@ -50,9 +53,9 @@ export function createHostExecutorSearchEngineProvider(executor: BaseToolExecuto
       throw new Error(result.error.message);
     }
     return {
-      results: result.output.results.map((item) => ({ title: item.title, url: item.url, snippet: item.snippet })),
+      results: result.output.results.map((item) => ({ title: item.title, url: item.url, snippet: item.snippet, ...(item.raw !== undefined ? { raw: item.raw } : {}) })),
       providerMetadata: {
-        runtimeEntry: "BaseToolExecutorPort.network.search",
+        runtimeEntry: searchEngineRuntimePort,
         provider: request.provider,
         safeSearch: request.safeSearch,
         ...(result.output.providerMetadata ?? {}),
@@ -60,4 +63,8 @@ export function createHostExecutorSearchEngineProvider(executor: BaseToolExecuto
       ...(result.output.raw !== undefined ? { raw: result.output.raw } : {}),
     };
   };
+}
+
+export function createHostExecutorSearchEngineProvider(executor: BaseToolExecutorPort | undefined): SearchEngineExecutor | undefined {
+  return createRuntimeSearchEngineProvider({ executor });
 }

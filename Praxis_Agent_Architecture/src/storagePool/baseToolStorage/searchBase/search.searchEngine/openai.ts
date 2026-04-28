@@ -1,4 +1,4 @@
-import { createHostExecutorSearchEngineProvider, type SearchEngineProviderPractice } from "./dependencies.js";
+import { createRuntimeSearchEngineProvider, type SearchEngineProviderPractice } from "./dependencies.js";
 
 export const openaiSearchEnginePractice: SearchEngineProviderPractice = {
   providerName: "openai",
@@ -9,5 +9,5 @@ export const openaiSearchEnginePractice: SearchEngineProviderPractice = {
     "search.searchEngine is intentionally not OpenAI provider-native web_search; that belongs to search.nativeSearch.",
     "OpenAI-family routes can still carry a generic search backend through runtime.network.search.",
   ],
-  createProvider: ({ executor, provider }) => provider ?? createHostExecutorSearchEngineProvider(executor),
+  createProvider: (dependencies) => createRuntimeSearchEngineProvider(dependencies),
 };

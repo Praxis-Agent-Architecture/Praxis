@@ -1,4 +1,4 @@
-import { createHostExecutorSearchEngineProvider, type SearchEngineProviderPractice } from "./dependencies.js";
+import { createRuntimeSearchEngineProvider, type SearchEngineProviderPractice } from "./dependencies.js";
 
 export const deepmindSearchEnginePractice: SearchEngineProviderPractice = {
   providerName: "deepmind",
@@ -9,5 +9,5 @@ export const deepmindSearchEnginePractice: SearchEngineProviderPractice = {
     "Gemini google_search grounding belongs to search.nativeSearch/search.ground, not this generic search engine primitive.",
     "This tool keeps ordinary search result collection behind runtime.network.search.",
   ],
-  createProvider: ({ executor, provider }) => provider ?? createHostExecutorSearchEngineProvider(executor),
+  createProvider: (dependencies) => createRuntimeSearchEngineProvider(dependencies),
 };

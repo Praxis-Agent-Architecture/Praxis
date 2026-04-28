@@ -966,6 +966,124 @@ export type BaseToolDeviceExecutor = {
   }): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType: string }>>;
 };
 
+export type BaseToolComputerUseExecutor = {
+  captureScreenshot?(request: {
+    target: "fullscreen" | "window" | "region" | "freeform";
+    displayId?: string;
+    windowId?: string;
+    region?: {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      coordinateSpace?: "screen" | "window" | "normalized";
+    };
+    purpose: string;
+    outputFormat?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>>;
+  pointerAction?(request: {
+    action: "move" | "click" | "scroll" | "confirm";
+    target?: Readonly<Record<string, unknown>>;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>>;
+  keyboardAction?(request: {
+    action: "press" | "type" | "submit" | "shortcut" | "confirm";
+    text?: string;
+    keys?: readonly string[];
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>>;
+  locateCursor?(request: {
+    coordinateSpace?: "screen" | "window" | "normalized";
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ x: number; y: number; coordinateSpace: "screen" | "window" | "normalized" }>>;
+  requestPermission?(request: {
+    resource: "screen" | "camera" | "microphone" | "keyboard" | "pointer";
+    purpose: string;
+    deviceId?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ leaseId?: string; granted: boolean; metadata?: Readonly<Record<string, unknown>> }>>;
+  releasePermission?(request: {
+    resource: "screen" | "camera" | "microphone" | "keyboard" | "pointer";
+    leaseId?: string;
+    deviceId?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ released: boolean; metadata?: Readonly<Record<string, unknown>> }>>;
+  selectDevice?(request: {
+    resource: "camera" | "microphone" | "display";
+    deviceId: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ selected: boolean; deviceId: string; metadata?: Readonly<Record<string, unknown>> }>>;
+  captureCameraPhoto?(request: {
+    cameraId: string;
+    purpose: string;
+    outputFormat?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>>;
+  analyzeCameraFrame?(request: {
+    frameRef: string;
+    operation: "detect-faces" | "verify-consented-face" | "identify-consented-face";
+    deviceId?: string;
+    maxFaces: number;
+    subjectRef?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<
+    BaseToolExecutorResult<{
+      faceCount?: number;
+      faces?: readonly Readonly<Record<string, unknown>>[];
+      identityResolved?: boolean;
+      metadata?: Readonly<Record<string, unknown>>;
+    }>
+  >;
+  startRecording?(request: {
+    resource: "screen" | "camera" | "microphone";
+    target?: Readonly<Record<string, unknown>>;
+    outputFormat?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ recordingId: string; metadata?: Readonly<Record<string, unknown>> }>>;
+  stopRecording?(request: {
+    resource?: "screen" | "camera" | "microphone";
+    recordingId: string;
+    storageTarget?: string;
+    retentionPolicy?: BaseToolArtifactRetentionPolicy;
+    purpose?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<
+    BaseToolExecutorResult<{
+      artifactId: string;
+      mimeType: string;
+      storageUri?: string;
+      retentionPolicy?: BaseToolArtifactRetentionPolicy;
+      metadata?: Readonly<Record<string, unknown>>;
+    }>
+  >;
+  recordAudio?(request: {
+    microphoneId: string;
+    durationMs?: number;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>>;
+};
+
+export type BaseToolArtifactRetentionPolicy = "ephemeral" | "session-only" | "session-scoped" | "persistent";
+
+export type BaseToolArtifactExecutor = {
+  store?(request: {
+    artifactRef: string;
+    artifactKind?: "screenshot" | "camera-photo" | "audio" | "video" | "generic";
+    storageTarget: string;
+    retentionPolicy: BaseToolArtifactRetentionPolicy;
+    purpose: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): Promise<
+    BaseToolExecutorResult<{
+      artifactId: string;
+      storageUri?: string;
+      retentionPolicy?: BaseToolArtifactRetentionPolicy;
+      metadata?: Readonly<Record<string, unknown>>;
+    }>
+  >;
+};
+
 export type BaseToolOfficeExecutor = {
   decodeDocument?(request: {
     documentPath: string;
@@ -1008,6 +1126,8 @@ export type BaseToolExecutorPort = {
   network?: BaseToolNetworkExecutor;
   mcp?: BaseToolMcpExecutor;
   device?: BaseToolDeviceExecutor;
+  computeruse?: BaseToolComputerUseExecutor;
+  artifact?: BaseToolArtifactExecutor;
   office?: BaseToolOfficeExecutor;
   omni?: BaseToolOmniExecutor;
   skill?: BaseToolSkillExecutor;

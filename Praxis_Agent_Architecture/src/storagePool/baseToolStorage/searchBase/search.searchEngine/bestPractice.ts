@@ -22,6 +22,7 @@ import {
 } from "./core.js";
 import {
   searchEngineDependencyDeclarations,
+  searchEngineRuntimePort,
   type SearchEngineDependencies,
   type SearchEnginePracticeProviderName,
   type SearchEngineProviderPractice,
@@ -170,10 +171,12 @@ export const searchEngineBaseToolDefinition: BaseToolDefinition<SearchEngineHand
   outputSchema: jsonSchema("search.searchEngine.output", {
     type: "object",
     additionalProperties: true,
-    required: ["kind", "target", "requestPreview", "dispatch", "dryRun", "executionBlocked", "resultEnvelope"],
+    required: ["kind", "target", "requestPreview", "dispatch", "dryRun", "providerCalled", "runtimeEntry", "executionBlocked", "resultEnvelope"],
     properties: {
       kind: { const: "agentCore.basicTool.search.searchEngine" },
       dispatch: { type: "string", enum: ["dry-run", "runtime-search"] },
+      providerCalled: { type: "boolean" },
+      runtimeEntry: { type: "object" },
       resultEnvelope: { type: "object" },
     },
   }),
@@ -182,7 +185,7 @@ export const searchEngineBaseToolDefinition: BaseToolDefinition<SearchEngineHand
   dependencies: searchEngineDependencyDeclarations,
   storagePolicy: { storesMaterial: true, storesResult: true, storesAudit: true, reusable: true },
   sourcePath: entrySourcePath(),
-  metadata: { storagePracticePath: path.join(storageRoot, "bestPractice.ts").split(path.sep).join("/") },
+  metadata: { storagePracticePath: path.join(storageRoot, "bestPractice.ts").split(path.sep).join("/"), searchRuntimePort: searchEngineRuntimePort },
 };
 
 export const searchEngineHandler: BaseToolHandler<SearchEngineHandlerInput, SearchEngineOutput> = {

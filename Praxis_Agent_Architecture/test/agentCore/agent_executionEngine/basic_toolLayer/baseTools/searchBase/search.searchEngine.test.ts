@@ -6,10 +6,17 @@ import type { BaseToolExecutorPort } from "../../../../../../src/agentCore/agent
 import { createBaseToolRegistry } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   planSearchEngineQuery,
+  searchEngineBaseToolDefinition,
   searchEngineDescriptor,
   type SearchEngineExecutor,
+  type SearchEngineOutput,
 } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.js";
-import { createHostExecutorSearchEngineProvider } from "../../../../../../src/storagePool/baseToolStorage/searchBase/search.searchEngine/dependencies.js";
+import {
+  createHostExecutorSearchEngineProvider,
+  createRuntimeSearchEngineProvider,
+  searchEngineDependencyDeclarations,
+  searchEngineRuntimePort,
+} from "../../../../../../src/storagePool/baseToolStorage/searchBase/search.searchEngine/dependencies.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.ts",
@@ -33,8 +40,22 @@ test("planSearchEngineQuery creates a dry-run provider request envelope", async 
   assert.equal(searchEngineDescriptor.defaultDryRun, true);
   if (!result.ok) throw new Error("expected dry-run");
   assert.equal(result.output.dispatch, "dry-run");
+  assert.equal(result.output.providerCalled, false);
+  assert.equal(result.output.runtimeEntry.port, searchEngineRuntimePort);
+  assert.equal(result.output.runtimeEntry.provider, "generic");
+  assert.equal(result.output.runtimeEntry.runtimeOwnsNetwork, true);
+  assert.equal(result.output.runtimeEntry.baseToolOwnsProviderClient, false);
   assert.equal(result.output.resultEnvelope.results.length, 0);
   assert.deepEqual(result.output.permissionsRequired, ["network:search"]);
+});
+
+test("search.searchEngine definition and dependencies expose the runtime search port", () => {
+  assert.equal(searchEngineDescriptor.runtimeEntryPort, searchEngineRuntimePort);
+  assert.equal(searchEngineDependencyDeclarations[0]?.dependencyId, "runtime.executor.network.search");
+  assert.equal(searchEngineBaseToolDefinition.metadata?.searchRuntimePort, searchEngineRuntimePort);
+  const outputSchema = searchEngineBaseToolDefinition.outputSchema.schema as { required?: readonly string[] };
+  assert.ok(outputSchema.required?.includes("providerCalled"));
+  assert.ok(outputSchema.required?.includes("runtimeEntry"));
 });
 
 test("planSearchEngineQuery rejects malformed input, invalid fields, and provider scope", async () => {
@@ -112,6 +133,9 @@ test("planSearchEngineQuery executes through injected provider and maps failures
   assert.equal(executed.ok, true);
   if (!executed.ok) throw new Error("expected execution");
   assert.equal(executed.output.dispatch, "runtime-search");
+  assert.equal(executed.output.providerCalled, true);
+  assert.equal(executed.output.runtimeEntry.port, searchEngineRuntimePort);
+  assert.equal(executed.output.runtimeEntry.provider, "generic");
   assert.equal(executed.output.resultEnvelope.results.length, 1);
   assert.equal(executed.output.resultEnvelope.results[0]?.title, "Praxis");
 
@@ -137,12 +161,17 @@ test("search.searchEngine dependency adapter and registry handler invoke runtime
     },
   });
   assert.notEqual(provider, undefined);
+  assert.equal(createRuntimeSearchEngineProvider({}), undefined);
   const result = await planSearchEngineQuery({
     target: { query: "Praxis", maxResults: 2 },
     context: { dryRun: false, guard: { accepted: true }, grantedPermissions: ["network:search"] },
     executor: provider,
   });
   assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected runtime search result");
+  assert.equal(result.output.providerCalled, true);
+  assert.equal(result.output.runtimeEntry.port, searchEngineRuntimePort);
+  assert.equal(result.output.resultEnvelope.providerMetadata?.runtimeEntry, searchEngineRuntimePort);
   assert.equal(received?.query, "Praxis");
 
   const lookup = createBaseToolRegistry().lookupHandler("search.searchEngine");
@@ -165,4 +194,26 @@ test("search.searchEngine dependency adapter and registry handler invoke runtime
   });
   assert.equal(runtimeCalled, true);
   assert.equal(handlerResult.ok, true);
+  if (handlerResult.ok) {
+    const output = handlerResult.output as SearchEngineOutput;
+    assert.equal(output.providerCalled, true);
+    assert.equal(output.runtimeEntry.port, searchEngineRuntimePort);
+  }
+});
+
+test("search.searchEngine does not fallback when runtime network.search is absent", async () => {
+  const missingProvider = createRuntimeSearchEngineProvider({ executor: { network: {} } });
+  assert.equal(missingProvider, undefined);
+
+  const result = await planSearchEngineQuery({
+    target: { query: "Praxis" },
+    context: { dryRun: false, guard: { accepted: true }, grantedPermissions: ["network:search"] },
+    executor: missingProvider,
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "PROVIDER_UNAVAILABLE");
+    assert.equal(result.error.safeForRuntimeInspection, true);
+    assert.equal(result.error.internalDetailExposed, false);
+  }
 });

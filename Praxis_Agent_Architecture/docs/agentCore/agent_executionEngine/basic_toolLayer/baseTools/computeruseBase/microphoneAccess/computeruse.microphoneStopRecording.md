@@ -1,122 +1,129 @@
 # computeruse.microphoneStopRecording
 
-> 对应源码：`Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording.ts`
+对应源码：`Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording.ts`
 
 ## 1. 文件位置
 
-- 所属顶层模块：执行引擎（`agent_executionEngine`）。
-- 所属路径：`agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess`。
-- 当前文件：`computeruse.microphoneStopRecording.ts`。
-- 角色概括：Agent 的执行身体，负责输入输出、PromptPack、主循环、状态机、基础工具原语和执行事件暴露。
+- 所属模块：`agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess`。
+- 当前 entry：`computeruse.microphoneStopRecording.ts`。
+- storage 实现：`src/storagePool/baseToolStorage/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording/`。
+- 运行时入口：`BaseToolExecutorPort.computeruse.stopRecording`。
 
 ## 2. 文件职责
 
-提供 计算机使用基础工具 / 麦克风访问 中的“停止麦克风录制”基础能力原语。
+`computeruse.microphoneStopRecording` 把“停止麦克风录制”做成可调用、可审计、可治理的 baseTool 原语。
 
-这个文件的核心不是“占一个目录位置”，而是要在当前路径上形成一个可实现、可测试、可被 runtime 或相邻模块调用的窄能力点。它应该围绕“提供 计算机使用基础工具 / 麦克风访问 中的“停止麦克风录制”基础能力原语”建立清晰的输入、输出、错误和治理边界。
+它只定义工具契约、JSON 边界、dry-run、guard、scope、provider missing/failure、runtime entry 和结果信封。真实停止录音、音频 artifact 创建、设备清理和权限生命周期由 runtime port 承担。
 
 ## 2.1 文件名语义拆解
 
-- 原始文件名：`computeruse.microphoneStopRecording.ts`。
-- 命名片段：`computeruse` / `microphone` / `Stop` / `Recording`。
-- 工程含义：这是 `computeruseBase` 下 `microphoneAccess` 分组里的 `microphoneStopRecording` 基础工具原语，重点是把一个底层动作做成可治理、可审计、可测试的最小工具能力。
-- 第一实现重点：先定义工具调用参数、权限需求、dry-run/guard/audit 结果，再决定是否接真实系统动作。
-- 与 TAP 的关系：这里只提供底层原语；审批、组合、专业工具库和替换策略应交给 TAP 高级系统。
+- `computeruse`：桌面/设备层原子能力。
+- `microphone`：麦克风资源。
+- `StopRecording`：让 runtime 停止一个麦克风录音 session 并返回音频 artifact handle。
 
 ## 3. 目录语义
 
-- 基础工具原语层：提供 Agent 成立所需的底层工具能力，让 TAP 在其上构建更高级工具治理系统。
-- Computer Use 基础工具：屏幕、鼠标、键盘、麦克风、摄像头和录屏等桌面控制原语
+`microphoneAccess` 承载麦克风权限、设备选择和录音 session 相关原子能力。它不是 TAP 高级工具，也不决定录完后是否交给 `omniBase` 分析、是否释放权限、或是否改用 shell/MCP/browser。
 
 ## 4. 源码头部能力注释
 
-- 文件定位：Agent 执行引擎 / 基础工具原语层 / 基础工具集合 / 计算机使用基础工具 / 麦克风访问。
-- 核心目的：提供 计算机使用基础工具 / 麦克风访问 中的“停止麦克风录制”基础能力原语。
-- 能力要求1：需要定义该能力的输入、输出、错误、权限需求和可观测事件。
-- 能力要求2：这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
-- 能力要求3：后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
-- 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 文件定位：Agent 执行引擎 / 基础工具原语层 / computeruseBase / microphoneAccess / microphoneStopRecording entry。
+- 核心目的：公开麦克风录制停止基础工具的 canonical storage 实现、handler、definition 和类型。
+- 边界：entry 层只做薄导出，不持有麦克风设备流、录音 session、媒体编码器、artifact 存储、TAP 策略或 runtime 副作用。
+- 对接：通过 builtin baseTool registry、BaseToolHandler.invoke 和 BaseToolExecutorPort.computeruse.stopRecording 接入 runtime。
+- 实现提示：保持显式导出，真实实现继续放在 storagePool/baseToolStorage/computeruseBase。
 
 ## 5. 需要提供的能力
 
-- 提供 计算机使用基础工具 / 麦克风访问 中的“停止麦克风录制”基础能力原语
-- 需要定义该能力的输入、输出、错误、权限需求和可观测事件。
-- 这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
-- 后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
-- 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
-- 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。
+- 生成停止麦克风录音的 dry-run 计划。
+- `dryRun:false` 时，在 affirmative guard 后调用 runtime-owned `stopRecording`。
+- 返回音频 artifact handle、runtime entry、audit metadata。
+- 缺 provider 返回 `PROVIDER_UNAVAILABLE`。
+- provider 异常返回 public-safe `PROVIDER_FAILURE`。
 
 ## 6. 输入边界
 
-- runtime/toolInvocationEntrypoint 下发的工具调用请求。
-- TAP 治理、执行上下文、资源限制、工作目录、目标对象和审计上下文。
-
-输入边界必须窄：只接收完成本文件职责所需的材料，不把相邻模块的大对象整包吞进来。
+- `target.recordingId`：`computeruse.microphoneStartRecording` 返回的 runtime recording session handle。
+- `purpose`：停止录音的公开原因。
+- `target.deviceId`：可选麦克风 id，供 runtime audit 和 cleanup 使用。
+- `target.persistHint`：可选 runtime/artifact 目标提示。
+- `target.releaseDevice`：可选设备清理提示，默认 `true`。
+- `context.runtimeId`、`context.guard`、`context.requestedScopes`、`context.allowedScopes`。
 
 ## 7. 输出边界
 
-- 工具执行结果、工具事件、审计材料和可交给 TAP 继续治理的状态。
-- 不泄漏底层实现细节的标准工具结果信封。
-
-输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
+- `kind: agentCore.basicTool.computeruse.microphoneStopRecording`。
+- `dispatch: dry-run | runtime-computeruse`。
+- `runtimeEntry.port: BaseToolExecutorPort.computeruse.stopRecording`。
+- `recordingEnvelope`：包含 resource、recordingId、stopped、artifactCreated、artifactId、mimeType。
+- `providerMetadata`：只接收 runtime 返回的 public-safe metadata。
 
 ## 8. 错误边界
 
-- 参数缺失、契约不满足、权限不足、作用域越界时必须返回可解释错误。
-- 工具执行失败、环境缺失、危险操作、资源越界和审批未通过要区分处理。
-
-错误处理要服务工程构建：第一版可以简单，但必须可分类、可测试、可被 runtime inspection/debug/selfRepair 继续消费。
+- malformed JSON：`INVALID_REQUEST`、`INVALID_CONTEXT`、`INVALID_TARGET`。
+- 缺字段：`MISSING_RUNTIME_ID`、`MISSING_PURPOSE`、`MISSING_RECORDING_ID`。
+- 非法字段：`INVALID_RECORDING_ID`、`INVALID_DEVICE_ID`、`INVALID_PERSIST_HINT`、`INVALID_RELEASE_DEVICE`。
+- 治理：`GOVERNANCE_REJECTED`、`SCOPE_DENIED`、`CONTRACT_REJECTED`。
+- 依赖：`PROVIDER_UNAVAILABLE`、`PROVIDER_FAILURE`。
 
 ## 9. 依赖对象
 
-- runtime.execEngine
-- runtime.governancePlane
-- runtime.contractSurface
-- runtime.invocationMethod/toolInvocationEntrypoint
-- TAP approval/governance bridge
-- 基础环境与资源限制
+- `runtime.execEngine.computeruse.stopRecording`。
+- `runtime.governancePlane.toolInvocationGrant`。
+- `runtime.recordingSession.microphone`。
 
-依赖关系应该通过显式参数、接口或 runtime context 进入，不要在文件内部形成隐式全局耦合。
+这些依赖只能通过 `dependencies.ts` 和 `BaseToolExecutorPort` 注入。`dependencies.ts` 调用 runtime port 时使用顶层 `resource: "microphone"`、`recordingId`、`storageTarget` 和 `purpose` 字段；baseTool 不导入音频库、不打开麦克风流、不启动 ffmpeg/PipeWire/portal、不写 artifact、不直接释放 OS 权限。
 
 ## 10. 被谁调用
 
-- runtime.invocationMethod/toolInvocationEntrypoint
-- runtime.execEngine
-- TAP 高级工具系统
-
-调用方只能依赖本文件公开的窄接口；如果需要更多能力，应新增相邻能力点或上移到 runtime surface，而不是把本文件写胖。
+- `createBaseToolRegistry().lookupHandler("computeruse.microphoneStopRecording")`。
+- runtime tool invocation bridge。
+- TAP/agent 编排层。
 
 ## 11. 不应该做什么
 
-- 不要在这里写上层产品逻辑，也不要让它直接绑定某一家 provider 的请求格式。
-- 不要提前冻结最终 schema、协议、目录树或字段枚举，除非用户明确进入冻结阶段。
-- 不要把基础工具原语写成 TAP 的完整高级工具系统；TAP 负责更上层的审批、治理和专业工具组合。
-
-越界判断标准很简单：如果实现开始替别的模块做策略、产品逻辑、最终协议冻结或大而全编排，就应该停下来拆文件。
+- 不请求或释放麦克风权限。
+- 不开始录音。
+- 不调用 `omniBase` 分析音频。
+- 不 fallback 到 shell、MCP、browser-use、本地音频 API、ffmpeg、PipeWire 或 portal。
+- 不决定 artifact 后续如何分析或保存；这些策略属于 TAP/agent。
 
 ## 12. 最小实现建议
 
-- 先定义 TypeScript 类型契约：输入、输出、错误、上下文和最小配置。
-- 实现一个最小纯函数或薄类壳，能完成“提供 计算机使用基础工具 / 麦克风访问 中的“停止麦克风录制”基础能力原语”的可测路径。
-- 所有副作用先通过明确依赖注入进入，避免在文件内部偷偷读全局状态。
-- 危险动作先只实现 dry-run / guard / audit path，再逐步打开真实执行。
+保持 storage 七件套：
 
-第一版实现应该追求“能被调用、能被测、边界清楚”，不要追求一次性完整。
+- `core.ts`：JSON 校验、dry-run、guard、scope、provider mapping、输出 envelope。
+- `dependencies.ts`：只包装 `executor.computeruse.stopRecording`。
+- `bestPractice.ts`：handler、definition、practice selection、runtime metadata 注入。
+- `anthropic.ts`、`openai.ts`、`deepmind.ts`：记录 provider practice 证据。
+- `computeruse.microphoneStopRecording.md`：操作手册。
 
 ## 13. 最小测试建议
 
-- 空输入、最小合法输入、非法输入各至少一组。
-- 验证该文件确实只完成“提供 计算机使用基础工具 / 麦克风访问 中的“停止麦克风录制”基础能力原语”，没有越界承担相邻模块职责。
-- 验证错误结果可解释、可分类、不会泄漏不该暴露的内部细节。
-- 验证 guard/dry-run/audit path，避免测试误触真实危险操作。
-
-测试优先证明边界正确，而不是证明未来完整能力已经全部实现。
+- dry-run 不调用 provider。
+- malformed JSON 不抛 raw TypeError。
+- 缺 runtimeId、purpose、recordingId。
+- 非法 recordingId、deviceId、persistHint、releaseDevice。
+- missing/denied guard 返回 `GOVERNANCE_REJECTED`。
+- missing provider 返回 `PROVIDER_UNAVAILABLE`。
+- provider throw 映射 public-safe `PROVIDER_FAILURE`。
+- handler 通过 `BaseToolInvokeRequest.invoke(...)` 调用。
+- registry 通过 `createBaseToolRegistry().lookupHandler("computeruse.microphoneStopRecording")` 调用。
 
 ## 14. 与系统链路的关系
 
-它处在工具调用链的底层：runtime 和 TAP 经过治理后调用这些基础工具原语。
+工具链路应为：
 
-这份文档服务后续编码：当实现该文件时，应先回看本文件说明，再决定类型、函数、类和测试如何落位。
+```text
+model tool_call JSON
+  -> invocation adapter
+  -> execEngine bridge
+  -> createBaseToolRegistry().lookupHandler("computeruse.microphoneStopRecording")
+  -> BaseToolHandler.invoke
+  -> storage bestPractice.ts
+  -> storage core.ts
+  -> BaseToolExecutorPort.computeruse.stopRecording
+  -> normalized BaseToolInvokeResult
+```
+
+TAP/agent 可以在上层把它和 `computeruse.microphoneStartRecording`、`computeruse.microphonePermissionRelease`、`omniBase` 或其他 baseTool 组合；本工具自身只承载停止麦克风录音并接收 artifact handle 的原子能力。

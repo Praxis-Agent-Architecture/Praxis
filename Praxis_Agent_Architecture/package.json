@@ -21,6 +21,8 @@
     "test:agentCore:skill-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_skill_live_matrix.ts",
     "test:agentCore:omni-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_omni_live_matrix.ts --dialogue",
     "test:agentCore:omni-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_omni_live_matrix.ts",
+    "test:agentCore:computeruse-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_computeruse_live_matrix.ts --dialogue",
+    "test:agentCore:computeruse-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_computeruse_live_matrix.ts",
     "lab:agentCore:tools": "node --import tsx scripts/agentCore_Agent_Test/agentcore_tool_lab.ts",
     "smoke:agentCore": "node --import tsx scripts/agentCore_Agent_Test/agentcore_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",

@@ -143,6 +143,38 @@ import { omniVideoCompressorHandler } from "../../../../storagePool/baseToolStor
 import { omniVideoFormatConversionHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.videoFormatConversion/bestPractice.js";
 import { omniVideoSubtitleGenerationHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.videoSubtitleGeneration/bestPractice.js";
 import { omniViewVideoHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.viewVideo/bestPractice.js";
+import { cameraCapturePhotoHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraCapturePhoto/bestPractice.js";
+import { cameraContentStorageHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraContentStorage/bestPractice.js";
+import { cameraFaceRecognitionHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraFaceRecognition/bestPractice.js";
+import { cameraPermissionReleaseHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraPermissionRelease/bestPractice.js";
+import { cameraPermissionRequestHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraPermissionRequest/bestPractice.js";
+import { cameraSelectHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraSelect/bestPractice.js";
+import { cameraStartRecordingHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraStartRecording/bestPractice.js";
+import { cameraStopRecordingHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraStopRecording/bestPractice.js";
+import { freeformScreenshotHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenshot/computeruse.freeformScreenshot/bestPractice.js";
+import { fullscreenScreenRecordingHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording/bestPractice.js";
+import { fullscreenScreenshotHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenshot/computeruse.fullscreenScreenshot/bestPractice.js";
+import { inputCheckboxConfirmHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/keyboardEmulation/computeruse.inputCheckboxConfirm/bestPractice.js";
+import { keyboardEmulationHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/keyboardEmulation/computeruse.keyboardEmulation/bestPractice.js";
+import { keyboardInputEmulationHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/keyboardEmulation/computeruse.keyboardInputEmulation/bestPractice.js";
+import { keyboardSubmitInputHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/keyboardEmulation/computeruse.keyboardSubmitInput/bestPractice.js";
+import { rectangularSelectionScreenRecordingHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording/bestPractice.js";
+import { rectangularSelectionScreenshotHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenshot/computeruse.rectangularSelectionScreenshot/bestPractice.js";
+import { screenRecordingStorageHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenRecording/computeruse.screenRecordingStorage/bestPractice.js";
+import { screenshotStorageHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenshot/computeruse.screenshotStorage/bestPractice.js";
+import { windowScreenRecordingHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenRecording/computeruse.windowScreenRecording/bestPractice.js";
+import { windowScreenshotHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/screenshot/computeruse.windowScreenshot/bestPractice.js";
+import { microphonePermissionReleaseHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/microphoneAccess/computeruse.microphonePermissionRelease/bestPractice.js";
+import { microphonePermissionRequestHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/microphoneAccess/computeruse.microphonePermissionRequest/bestPractice.js";
+import { microphoneSelectHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/microphoneAccess/computeruse.microphoneSelect/bestPractice.js";
+import { microphoneStartRecordingHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/microphoneAccess/computeruse.microphoneStartRecording/bestPractice.js";
+import { microphoneStopRecordingHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording/bestPractice.js";
+import { checkboxConfirmHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/mouseEmulation/computeruse.checkboxConfirm/bestPractice.js";
+import { cursorLocateHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/mouseEmulation/computeruse.cursorLocate/bestPractice.js";
+import { mouseClickHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/mouseEmulation/computeruse.mouseClick/bestPractice.js";
+import { mouseEmulationHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/mouseEmulation/computeruse.mouseEmulation/bestPractice.js";
+import { mouseMoveHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/mouseEmulation/computeruse.mouseMove/bestPractice.js";
+import { mouseScrollHandler } from "../../../../storagePool/baseToolStorage/computeruseBase/mouseEmulation/computeruse.mouseScroll/bestPractice.js";
 
 export const builtinBaseToolHandlers = [
   shellCapabilityDetectionHandler,
@@ -288,6 +320,38 @@ export const builtinBaseToolHandlers = [
   omniVideoFormatConversionHandler,
   omniVideoSubtitleGenerationHandler,
   omniViewVideoHandler,
+  cameraCapturePhotoHandler,
+  cameraContentStorageHandler,
+  cameraFaceRecognitionHandler,
+  cameraPermissionReleaseHandler,
+  cameraPermissionRequestHandler,
+  cameraSelectHandler,
+  cameraStartRecordingHandler,
+  cameraStopRecordingHandler,
+  freeformScreenshotHandler,
+  fullscreenScreenRecordingHandler,
+  fullscreenScreenshotHandler,
+  inputCheckboxConfirmHandler,
+  keyboardEmulationHandler,
+  keyboardInputEmulationHandler,
+  keyboardSubmitInputHandler,
+  rectangularSelectionScreenRecordingHandler,
+  rectangularSelectionScreenshotHandler,
+  screenRecordingStorageHandler,
+  screenshotStorageHandler,
+  windowScreenRecordingHandler,
+  windowScreenshotHandler,
+  microphonePermissionReleaseHandler,
+  microphonePermissionRequestHandler,
+  microphoneSelectHandler,
+  microphoneStartRecordingHandler,
+  microphoneStopRecordingHandler,
+  checkboxConfirmHandler,
+  cursorLocateHandler,
+  mouseClickHandler,
+  mouseEmulationHandler,
+  mouseMoveHandler,
+  mouseScrollHandler,
 ] as const satisfies readonly BaseToolHandler[];
 
 export function builtinBaseToolHandlersById(): ReadonlyMap<string, BaseToolHandler> {

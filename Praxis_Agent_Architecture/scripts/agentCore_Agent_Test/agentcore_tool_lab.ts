@@ -3832,6 +3832,8 @@ function normalizeMountedOmniBaseInput(
 ): Record<string, unknown> {
   const mediaKind = omniMediaKind(tool);
   const extension = omniDefaultExtension(mediaKind);
+  const targetText = typeof args.target === "string" && args.target.trim().length > 0 ? args.target.trim() : undefined;
+  const targetTextLooksOutput = targetText?.startsWith("/workspace/output/") === true;
   const target = isRecord(args.target) ? { ...args.target } : {};
   const prompt = firstNonBlankString(target.prompt, args.prompt, userText) ?? "Tool lab omni request.";
   const inputPath = firstNonBlankString(
@@ -3839,13 +3841,25 @@ function normalizeMountedOmniBaseInput(
     target.audioPath,
     target.imagePath,
     target.videoPath,
+    target.input,
+    target.source,
     args.inputPath,
+    args.input,
+    args.source,
     args.path,
+    targetTextLooksOutput ? undefined : targetText,
   ) ?? `/workspace/media/source.${extension}`;
-  const outputPath = firstNonBlankString(target.outputPath, args.outputPath) ?? `/workspace/output/result.${extension}`;
+  const outputPath = firstNonBlankString(
+    target.outputPath,
+    target.output,
+    target.path,
+    args.outputPath,
+    args.output,
+    targetTextLooksOutput ? targetText : undefined,
+  ) ?? `/workspace/output/result.${extension}`;
 
   if (tool === "omni.viewImage") {
-    target.imagePath = firstNonBlankString(target.imagePath, target.inputPath, args.imagePath, args.path) ?? "/workspace/media/source.png";
+    target.imagePath = firstNonBlankString(target.imagePath, target.inputPath, target.input, target.source, args.imagePath, args.input, args.source, args.path, targetText) ?? "/workspace/media/source.png";
     target.mediaType ??= args.mediaType ?? "image/png";
     target.detail ??= args.detail ?? "high";
   } else {
@@ -3864,7 +3878,8 @@ function normalizeMountedOmniBaseInput(
     if (tool.startsWith("omni.generate")) {
       target.prompt = prompt;
     }
-    target.targetFormat ??= args.targetFormat ?? extension;
+    target.targetFormat ??= target.format ?? target.outputFormat ?? args.targetFormat ?? args.format ?? args.outputFormat ?? extension;
+    target.durationSeconds ??= target.duration ?? args.durationSeconds ?? args.duration;
   }
 
   return {

@@ -109,9 +109,16 @@ export type SearchEngineOutput = {
   requestPreview: SearchEngineTarget;
   dispatch: "dry-run" | "runtime-search";
   dryRun: boolean;
+  providerCalled: boolean;
   executionBlocked: boolean;
   permissionsRequired: readonly SearchEnginePermission[];
   unsafeSideEffects: false;
+  runtimeEntry: {
+    port: "BaseToolExecutorPort.network.search";
+    provider: SearchEngineProvider;
+    runtimeOwnsNetwork: true;
+    baseToolOwnsProviderClient: false;
+  };
   resultEnvelope: {
     query: string;
     results: readonly SearchEngineResultItem[];
@@ -132,6 +139,7 @@ export const searchEngineDescriptor = {
   permissionsRequired: ["network:search"],
   tapOwnsApproval: true,
   unsafeSideEffects: false,
+  runtimeEntryPort: "BaseToolExecutorPort.network.search",
 } as const;
 
 const providers = ["generic", "browser", "custom"] as const;
@@ -330,9 +338,16 @@ function dryRunResult(request: NormalizedRequest): SearchEngineResult {
       requestPreview: request.target,
       dispatch: "dry-run",
       dryRun: true,
+      providerCalled: false,
       executionBlocked: true,
       permissionsRequired: searchEngineDescriptor.permissionsRequired,
       unsafeSideEffects: false,
+      runtimeEntry: {
+        port: searchEngineDescriptor.runtimeEntryPort,
+        provider: request.target.provider,
+        runtimeOwnsNetwork: true,
+        baseToolOwnsProviderClient: false,
+      },
       resultEnvelope: { query: request.target.query, results: [] },
     },
     audit: [auditEvent("agentCore.basicTool.search.searchEngine.dryRun", request.context, request.target.provider, request.metadata)],
@@ -363,9 +378,16 @@ function normalizeExecutionOutput(request: NormalizedRequest, execution: SearchE
       requestPreview: request.target,
       dispatch: "runtime-search",
       dryRun: false,
+      providerCalled: true,
       executionBlocked: false,
       permissionsRequired: searchEngineDescriptor.permissionsRequired,
       unsafeSideEffects: false,
+      runtimeEntry: {
+        port: searchEngineDescriptor.runtimeEntryPort,
+        provider: request.target.provider,
+        runtimeOwnsNetwork: true,
+        baseToolOwnsProviderClient: false,
+      },
       resultEnvelope: {
         query: request.target.query,
         results,

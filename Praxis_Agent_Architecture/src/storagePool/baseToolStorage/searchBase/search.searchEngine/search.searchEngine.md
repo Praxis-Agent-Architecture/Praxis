@@ -53,9 +53,11 @@ Dry-run returns a request preview and never calls the provider.
 
 Real execution requires `context.dryRun === false`, an affirmative guard, explicit `context.grantedPermissions`, and `BaseToolExecutorPort.network.search`. Runtime owns the actual search engine, network access, rate limits, and credentials.
 
+`search.searchEngine` does not create a search client, open network connections, hold credentials, or fall back to `search.fetch`, browser automation, shell commands, MCP, or local HTTP clients when the runtime provider is absent. The baseTool only validates the request, enforces the guard/permission boundary, selects an injected practice, calls the runtime port, and normalizes the public-safe result. The runtime may back `BaseToolExecutorPort.network.search` with a browser search adapter, custom search service, third-party API, or deterministic test backend.
+
 ## Returns
 
-Returns normalized search `results` with titles, URLs, snippets, provider metadata, audit, and public-safe errors.
+Returns normalized search `results` with titles, URLs, snippets, provider metadata, audit, and public-safe errors. Successful outputs expose `providerCalled` and `runtimeEntry.port === "BaseToolExecutorPort.network.search"` so runtime-chain tests can prove no hidden fallback was used.
 
 ## Example
 
@@ -71,3 +73,4 @@ await planSearchEngineQuery({
 - Do not use this for OpenAI/Anthropic/Gemini native web search; use `search.nativeSearch`.
 - Do not fetch full pages here; use `search.fetch`.
 - Do not synthesize final cited answers here; use `search.ground`.
+- Do not implement search-engine SDK clients, browser sessions, local fetches, or shell fallbacks inside this baseTool.
