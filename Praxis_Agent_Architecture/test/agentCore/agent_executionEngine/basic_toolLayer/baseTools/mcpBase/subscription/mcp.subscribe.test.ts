@@ -37,7 +37,8 @@ test("planMcpSubscribe creates a guarded dry-run subscription envelope", () => {
 
   assert.equal(result.output.kind, "agentCore.basicTool.mcp.subscribe");
   assert.equal(result.output.executionBlocked, true);
-  assert.equal(result.output.unsafeSideEffects, false);
+  assert.equal(result.output.providerCalled, false);
+  assert.equal(result.output.unsafeSideEffects, true);
   assert.deepEqual(result.output.target.eventKinds, ["changed", "deleted"]);
   assert.equal(result.output.subscriptionEnvelope.state, "planned");
   assert.equal(result.output.subscriptionEnvelope.replayPolicy, "latest");
@@ -108,5 +109,15 @@ test("planMcpSubscribe blocks denied scope, missing permission, and real executi
   if (!real.ok) {
     assert.equal(real.error.code, "REAL_EXECUTION_BLOCKED");
     assert.equal(real.error.boundary, "contract");
+  }
+});
+
+test("planMcpSubscribe rejects malformed JSON without raw TypeError", () => {
+  for (const input of [null, [], 1, { target: null }, { target: { serverId: 1 } }, { target: { serverId: "events", subjectType: "resource", subject: [] } }, { target: { serverId: "events", subjectType: "resource", subject: "file:///repo/README.md", eventKinds: [null] } }]) {
+    const result = planMcpSubscribe(input);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.publicSafe, true);
+    }
   }
 });

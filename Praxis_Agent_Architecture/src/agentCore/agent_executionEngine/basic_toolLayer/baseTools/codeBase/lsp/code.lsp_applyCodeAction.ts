@@ -9,4 +9,26 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/bestPractice.js";
+export {
+  lspApplyCodeActionBaseToolDefinition,
+  lspApplyCodeActionBestPracticeDescriptor,
+  lspApplyCodeActionHandler,
+  lspApplyCodeActionProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/bestPractice.js";
+export type {
+  LspApplyCodeActionBestPracticeOutput,
+  LspApplyCodeActionBestPracticeRequest,
+  LspApplyCodeActionPreviewOutput,
+  LspApplyCodeActionRuntimeOutput,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/bestPractice.js";
+export { lspApplyCodeActionDescriptor, planLspApplyCodeAction } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/core.js";
+export type {
+  LspApplyCodeActionBoundary,
+  LspApplyCodeActionError,
+  LspApplyCodeActionErrorCode,
+  LspApplyCodeActionGate,
+  LspApplyCodeActionPlan,
+  LspApplyCodeActionRequest,
+  LspApplyCodeActionResult,
+  LspCodeActionEditPreview,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/core.js";

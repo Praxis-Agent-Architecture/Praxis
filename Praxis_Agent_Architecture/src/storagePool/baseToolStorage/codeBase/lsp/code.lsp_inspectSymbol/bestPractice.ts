@@ -188,7 +188,7 @@ export const lspInspectSymbolHandler: BaseToolHandler<
         { audit: buildPracticeAuditMetadata(selection) },
       );
     } catch (error) {
-      return baseToolInvokeFailure("code.lsp_inspectSymbol", "PROVIDER_REJECTED", error instanceof Error ? error.message : "LSP symbol inspection provider rejected the invocation", ["basicTool.lsp.inspectSymbol.rejected"]);
+      return baseToolInvokeFailure("code.lsp_inspectSymbol", "PROVIDER_REJECTED", "code.lsp_inspectSymbol provider rejected the invocation", ["basicTool.lsp.inspectSymbol.rejected"]);
     }
   },
 };

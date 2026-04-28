@@ -1,32 +1,39 @@
 # git.removeTrackedFile
 
 > 对应源码：`Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.removeTrackedFile.ts`
+> 对应实现：`Praxis_Agent_Architecture/src/storagePool/baseToolStorage/gitBase/file/git.removeTrackedFile/`
 
 ## 1. 文件位置
 
 - 所属顶层模块：执行引擎（`agent_executionEngine`）。
 - 所属路径：`agent_executionEngine/basic_toolLayer/baseTools/gitBase/file`。
-- 当前文件：`git.removeTrackedFile.ts`。
-- 角色概括：Agent 的执行身体，负责输入输出、PromptPack、主循环、状态机、基础工具原语和执行事件暴露。
+- 当前入口文件：`git.removeTrackedFile.ts`。
+- storage 实现目录：`src/storagePool/baseToolStorage/gitBase/file/git.removeTrackedFile/`。
+- runtime 入口：`BaseToolExecutorPort.git.runGit`。
 
 ## 2. 文件职责
 
-提供 Git 基础工具 / Git 文件操作 中的“移除已跟踪文件”基础能力原语。
+`git.removeTrackedFile` 提供 Git 基础工具 / Git 文件操作 中的“移除已跟踪文件”基础能力原语。
 
-这个文件的核心不是“占一个目录位置”，而是要在当前路径上形成一个可实现、可测试、可被 runtime 或相邻模块调用的窄能力点。它应该围绕“提供 Git 基础工具 / Git 文件操作 中的“移除已跟踪文件”基础能力原语”建立清晰的输入、输出、错误和治理边界。
+它的职责是把“从 Git index 和可选工作树中移除一个 tracked file”做成 fixed-action baseTool：入口层只暴露稳定类型、planner、handler 和 definition；storage core 负责 JSON 校验、固定 argv、scope/permission/governance 检查、risk metadata、provider 调用和结果解析；runtime 负责真实本机 Git 进程。
+
+该工具不是 `git.execute`。模型不能提供任意 Git 子命令，也不能把文件移除请求改走 `shell.commandExecution`。TAP 仍然可以在上层继续包装审批、风险提示和高级工具编排。
 
 ## 2.1 文件名语义拆解
 
-- 原始文件名：`git.removeTrackedFile.ts`。
-- 命名片段：`git` / `remove` / `Tracked` / `File`。
-- 工程含义：这是 `gitBase` 下 `file` 分组里的 `removeTrackedFile` 基础工具原语，重点是把一个底层动作做成可治理、可审计、可测试的最小工具能力。
-- 第一实现重点：先定义工具调用参数、权限需求、dry-run/guard/audit 结果，再决定是否接真实系统动作。
-- 与 TAP 的关系：这里只提供底层原语；审批、组合、专业工具库和替换策略应交给 TAP 高级系统。
+- `git`：所属 baseTool family。
+- `file`：Git 文件操作分组。
+- `RemoveTrackedFile`：通过固定 `git rm` 动作移除已跟踪文件。
+- 工程含义：上层通过统一 `BaseToolHandler.invoke()` 调用，底层只允许 `git rm [--cached] [--force] -- <filePath>` 的固定动作。
 
 ## 3. 目录语义
 
-- 基础工具原语层：提供 Agent 成立所需的底层工具能力，让 TAP 在其上构建更高级工具治理系统。
-- Git 基础工具：仓库、分支、暂存、提交、远端、stash 和历史检查
+- `baseTools/gitBase/file/git.removeTrackedFile.ts`：稳定公开入口，保持薄 re-export。
+- `storagePool/baseToolStorage/gitBase/file/git.removeTrackedFile/core.ts`：契约、校验、固定 argv、治理、provider dispatch 和解析。
+- `bestPractice.ts`：把 `BaseToolInvokeRequest` 适配到 storage core。
+- `dependencies.ts`：声明并创建 runtime git provider。
+- `anthropic.ts`、`openai.ts`、`deepmind.ts`：记录三家实践映射，统一落到 fixed-action gitBase。
+- `git.removeTrackedFile.md`：operational toolSkill 文档。
 
 ## 4. 源码头部能力注释
 
@@ -41,82 +48,111 @@
 
 ## 5. 需要提供的能力
 
-- 提供 Git 基础工具 / Git 文件操作 中的“移除已跟踪文件”基础能力原语
-- 需要定义该能力的输入、输出、错误、权限需求和可观测事件。
-- 这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
-- 后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
-- 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
-- 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。
+- 支持移除一个已跟踪文件。
+- 固定真实 Git argv：`git rm [--cached] [--force] -- <filePath>`。
+- 支持 `keepWorkingTree`，即 `--cached`，只从 index 移除并保留工作树文件。
+- 支持 `force`，即 `--force`。
+- 返回 `runtimeEntry`、`gitArgs`、`commandPreview`、`risk`、`permissionsRequired`、`providerCalled`、`removesTrackedFile` 和 `resultEnvelope`。
+- 保留 TAP 可继续包装的审批、审计、权限和风险字段。
 
 ## 6. 输入边界
 
-- runtime/toolInvocationEntrypoint 下发的工具调用请求。
-- TAP 治理、执行上下文、资源限制、工作目录、目标对象和审计上下文。
+调用形状：
 
-输入边界必须窄：只接收完成本文件职责所需的材料，不把相邻模块的大对象整包吞进来。
+```json
+{
+  "target": {
+    "repositoryPath": "/repo/project",
+    "filePath": "src/obsolete.ts",
+    "keepWorkingTree": false,
+    "force": false
+  },
+  "context": {
+    "dryRun": false,
+    "guard": { "allowed": true, "accepted": true },
+    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"],
+    "allowedRepositoryRoots": ["/repo"]
+  }
+}
+```
+
+- `target.repositoryPath` 必填，并受 `allowedRepositoryRoots` 限制。
+- `target.filePath` 必填，必须是仓库相对路径，禁止绝对路径、`..` 和 NUL。
+- `target.keepWorkingTree` 为 `true` 时只需 `filesystem:read`，否则还需要 `filesystem:write`。
+- `dryRun:false` 必须带 affirmative guard。
 
 ## 7. 输出边界
 
-- 工具执行结果、工具事件、审计材料和可交给 TAP 继续治理的状态。
-- 不泄漏底层实现细节的标准工具结果信封。
-
-输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
+- `kind` 固定为 `agentCore.basicTool.git.removeTrackedFile`。
+- `runtimeEntry.port` 固定为 `BaseToolExecutorPort.git.runGit`。
+- `runtimeEntry.allowedSubcommand` 固定为 `rm`。
+- `gitArgs` 是 storage core 生成的固定参数，不接收模型拼接。
+- `risk` 标明 index mutation、working-tree mutation、是否保留工作树文件。
+- `resultEnvelope` 包含 file path、cached-only mode、line counts、removed paths、cached-only paths 和 fallback 计数。
 
 ## 8. 错误边界
 
-- 参数缺失、契约不满足、权限不足、作用域越界时必须返回可解释错误。
-- 工具执行失败、环境缺失、危险操作、资源越界和审批未通过要区分处理。
-
-错误处理要服务工程构建：第一版可以简单，但必须可分类、可测试、可被 runtime inspection/debug/selfRepair 继续消费。
+- `MISSING_REPOSITORY_PATH`：缺少仓库路径。
+- `MISSING_FILE_PATH`：缺少目标文件路径。
+- `INVALID_CONTEXT`：context、guard、permissions 或 audit metadata 形状不合法。
+- `UNSAFE_FILE_PATH`：file path 不是仓库相对路径，或包含路径逃逸。
+- `SCOPE_REJECTED`：仓库不在允许 root 中。
+- `PERMISSION_DENIED`：缺少 Git 或 filesystem 权限。
+- `GOVERNANCE_REJECTED`：真实执行缺少 affirmative guard。
+- `PROVIDER_UNAVAILABLE`：runtime 没有挂载 `executor.git.runGit`。
+- `PROVIDER_REJECTED`：runtime provider 失败，错误信息保持 public-safe。
 
 ## 9. 依赖对象
 
-- runtime.execEngine
-- runtime.governancePlane
-- runtime.contractSurface
-- runtime.invocationMethod/toolInvocationEntrypoint
-- TAP approval/governance bridge
-- 基础环境与资源限制
-
-依赖关系应该通过显式参数、接口或 runtime context 进入，不要在文件内部形成隐式全局耦合。
+- `BaseToolExecutorPort.git.runGit`：runtime 拥有真实 Git 进程执行。
+- `runtime.governancePlane.toolInvocationGrant`：真实 mutation 执行前的治理授权。
+- `git` host binary：由 runtime 解析和执行，storage 不直接 spawn。
+- `BaseToolHandler.invoke()`：上层统一调用入口。
 
 ## 10. 被谁调用
 
-- runtime.invocationMethod/toolInvocationEntrypoint
-- runtime.execEngine
-- TAP 高级工具系统
-
-调用方只能依赖本文件公开的窄接口；如果需要更多能力，应新增相邻能力点或上移到 runtime surface，而不是把本文件写胖。
+- `createBaseToolRegistry().lookupHandler("git.removeTrackedFile")`。
+- `scripts/agentCore_Agent_Test/agentcore_tool_lab.ts` 的 mounted gitBase runner。
+- 未来 TAP 高级工具、mainLoop、stateEngine 和事件暴露层。
 
 ## 11. 不应该做什么
 
-- 不要在这里写上层产品逻辑，也不要让它直接绑定某一家 provider 的请求格式。
-- 不要提前冻结最终 schema、协议、目录树或字段枚举，除非用户明确进入冻结阶段。
-- 不要把基础工具原语写成 TAP 的完整高级工具系统；TAP 负责更上层的审批、治理和专业工具组合。
-
-越界判断标准很简单：如果实现开始替别的模块做策略、产品逻辑、最终协议冻结或大而全编排，就应该停下来拆文件。
+- 不应该暴露 `git.execute` 或让模型拼任意子命令。
+- 不应该通过 `shell.commandExecution` 代替该工具。
+- 不应该在 storage core 中直接 spawn Git。
+- 不应该在缺少 guard 时执行 mutation。
+- 不应该接受绝对路径、`..` 路径逃逸或 NUL。
 
 ## 12. 最小实现建议
 
-- 先定义 TypeScript 类型契约：输入、输出、错误、上下文和最小配置。
-- 实现一个最小纯函数或薄类壳，能完成“提供 Git 基础工具 / Git 文件操作 中的“移除已跟踪文件”基础能力原语”的可测路径。
-- 所有副作用先通过明确依赖注入进入，避免在文件内部偷偷读全局状态。
-- 危险动作先只实现 dry-run / guard / audit path，再逐步打开真实执行。
-
-第一版实现应该追求“能被调用、能被测、边界清楚”，不要追求一次性完整。
+- 入口文件保持薄 re-export。
+- storage core 先做 JSON、scope、permission、governance 校验。
+- dry-run 只返回 fixed argv plan，不调用 provider。
+- 真实执行只调用 `BaseToolExecutorPort.git.runGit`，argv 固定为 `rm [--cached] [--force] -- <filePath>`。
+- provider failure 只返回 public-safe error，不泄漏 raw path、命令或堆栈。
 
 ## 13. 最小测试建议
 
-- 空输入、最小合法输入、非法输入各至少一组。
-- 验证该文件确实只完成“提供 Git 基础工具 / Git 文件操作 中的“移除已跟踪文件”基础能力原语”，没有越界承担相邻模块职责。
-- 验证错误结果可解释、可分类、不会泄漏不该暴露的内部细节。
-- 验证 guard/dry-run/audit path，避免测试误触真实危险操作。
-
-测试优先证明边界正确，而不是证明未来完整能力已经全部实现。
+- dry-run 不调用 provider，并返回固定 argv。
+- malformed JSON 不泄漏 `TypeError`。
+- unsafe path、scope、permission 都有稳定错误码。
+- `dryRun:false` 无 guard 返回 `GOVERNANCE_REJECTED`。
+- 有 guard 但无 provider 返回 `PROVIDER_UNAVAILABLE`。
+- fake provider 收到精确真实 argv，并解析 stdout。
+- lab/runtime-chain 走 registry handler，不落入任意 Git fallback。
 
 ## 14. 与系统链路的关系
 
-它处在工具调用链的底层：runtime 和 TAP 经过治理后调用这些基础工具原语。
+```text
+model tool_call JSON
+  -> lab/runtime adapter
+  -> createBaseToolRegistry().lookupHandler("git.removeTrackedFile")
+  -> BaseToolHandler.invoke()
+  -> storage bestPractice.ts
+  -> storage core.ts
+  -> BaseToolExecutorPort.git.runGit
+  -> host git process
+  -> BaseToolInvokeResult
+```
 
-这份文档服务后续编码：当实现该文件时，应先回看本文件说明，再决定类型、函数、类和测试如何落位。
+真实调用本质上在 runtime。工具层提供词典、固定动作入口、输入输出契约、风险元数据和 provider 调用形状；runtime 才拥有本机 Git 进程。

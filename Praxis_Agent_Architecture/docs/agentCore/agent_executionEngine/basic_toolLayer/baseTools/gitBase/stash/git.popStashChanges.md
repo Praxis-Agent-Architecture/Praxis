@@ -1,32 +1,39 @@
 # git.popStashChanges
 
 > 对应源码：`Praxis_Agent_Architecture/src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.ts`
+> 对应实现：`Praxis_Agent_Architecture/src/storagePool/baseToolStorage/gitBase/stash/git.popStashChanges/`
 
 ## 1. 文件位置
 
 - 所属顶层模块：执行引擎（`agent_executionEngine`）。
 - 所属路径：`agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash`。
-- 当前文件：`git.popStashChanges.ts`。
-- 角色概括：Agent 的执行身体，负责输入输出、PromptPack、主循环、状态机、基础工具原语和执行事件暴露。
+- 当前入口文件：`git.popStashChanges.ts`。
+- storage 实现目录：`src/storagePool/baseToolStorage/gitBase/stash/git.popStashChanges/`。
+- runtime 入口：`BaseToolExecutorPort.git.runGit`。
 
 ## 2. 文件职责
 
-提供 Git 基础工具 / stash 操作 中的“弹出 stash”基础能力原语。
+`git.popStashChanges` 提供 Git 基础工具 / stash 操作 中的“弹出 stash”基础能力原语。
 
-这个文件的核心不是“占一个目录位置”，而是要在当前路径上形成一个可实现、可测试、可被 runtime 或相邻模块调用的窄能力点。它应该围绕“提供 Git 基础工具 / stash 操作 中的“弹出 stash”基础能力原语”建立清晰的输入、输出、错误和治理边界。
+它的职责是把“把已有 stash 应用回工作区，并在成功后删除该 stash entry”做成 fixed-action baseTool：入口层只暴露稳定类型、planner、handler 和 definition；storage core 负责 JSON 校验、固定 argv、scope/permission/governance 检查、risk metadata、provider 调用和结果解析；runtime 负责真实本机 Git 进程。
+
+该工具不是 `git.execute`。模型不能提供任意 Git 子命令，也不能把 stash pop 请求改走 `shell.commandExecution`。
 
 ## 2.1 文件名语义拆解
 
-- 原始文件名：`git.popStashChanges.ts`。
-- 命名片段：`git` / `pop` / `Stash` / `Changes`。
-- 工程含义：这是 `gitBase` 下 `stash` 分组里的 `popStashChanges` 基础工具原语，重点是把一个底层动作做成可治理、可审计、可测试的最小工具能力。
-- 第一实现重点：先定义工具调用参数、权限需求、dry-run/guard/audit 结果，再决定是否接真实系统动作。
-- 与 TAP 的关系：这里只提供底层原语；审批、组合、专业工具库和替换策略应交给 TAP 高级系统。
+- `git`：所属 baseTool family。
+- `stash`：Git stash 能力分组。
+- `Changes`：弹出指定 stash entry 到工作区。
+- 工程含义：上层通过统一 `BaseToolHandler.invoke()` 调用，底层只允许 `git stash pop` 的固定动作。
 
 ## 3. 目录语义
 
-- 基础工具原语层：提供 Agent 成立所需的底层工具能力，让 TAP 在其上构建更高级工具治理系统。
-- Git 基础工具：仓库、分支、暂存、提交、远端、stash 和历史检查
+- `baseTools/gitBase/stash/git.popStashChanges.ts`：稳定公开入口，保持薄 re-export。
+- `storagePool/baseToolStorage/gitBase/stash/git.popStashChanges/core.ts`：契约、校验、固定 argv、治理、provider dispatch 和解析。
+- `bestPractice.ts`：把 `BaseToolInvokeRequest` 适配到 storage core。
+- `dependencies.ts`：声明并创建 runtime git provider。
+- `anthropic.ts`、`openai.ts`、`deepmind.ts`：记录三家实践映射，统一落到 fixed-action gitBase。
+- `git.popStashChanges.md`：operational toolSkill 文档。
 
 ## 4. 源码头部能力注释
 
@@ -41,82 +48,113 @@
 
 ## 5. 需要提供的能力
 
-- 提供 Git 基础工具 / stash 操作 中的“弹出 stash”基础能力原语
-- 需要定义该能力的输入、输出、错误、权限需求和可观测事件。
-- 这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
-- 后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
-- 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
-- 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。
+- 支持把已有 stash entry 应用到当前工作区。
+- 成功执行后删除对应 stash entry，明确暴露 `dropsStashOnSuccess:true`。
+- 固定真实 Git argv：`git stash pop [--index] <stashRef>`。
+- 支持默认 `stash@{0}`，也支持安全的显式 `stashRef`。
+- 支持 `reinstateIndex`，通过 `--index` 恢复 index 状态。
+- 返回 `runtimeEntry`、`gitArgs`、`commandPreview`、`risk`、`permissionsRequired`、`providerCalled` 和 `resultEnvelope`。
+- 保留 TAP 可继续包装的审批、审计、权限和风险字段。
 
 ## 6. 输入边界
 
-- runtime/toolInvocationEntrypoint 下发的工具调用请求。
-- TAP 治理、执行上下文、资源限制、工作目录、目标对象和审计上下文。
+调用形状：
 
-输入边界必须窄：只接收完成本文件职责所需的材料，不把相邻模块的大对象整包吞进来。
+```json
+{
+  "target": {
+    "repositoryPath": "/repo/project",
+    "stashRef": "stash@{0}",
+    "reinstateIndex": false
+  },
+  "context": {
+    "dryRun": false,
+    "guard": { "allowed": true, "accepted": true },
+    "grantedPermissions": ["git:read", "git:write", "filesystem:read", "filesystem:write"],
+    "allowedRepositoryRoots": ["/repo"]
+  }
+}
+```
+
+- `target.repositoryPath` 必填，并受 `allowedRepositoryRoots` 限制。
+- `target.stashRef` 默认为 `stash@{0}`，禁止空白、NUL 和 leading dash。
+- `target.reinstateIndex` 为 true 时追加 `--index`。
+- `context.grantedPermissions` 如存在，必须覆盖 `git:read`、`git:write`、`filesystem:read`、`filesystem:write`。
+- `dryRun:false` 必须同时带 affirmative guard。
 
 ## 7. 输出边界
 
-- 工具执行结果、工具事件、审计材料和可交给 TAP 继续治理的状态。
-- 不泄漏底层实现细节的标准工具结果信封。
-
-输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
+- 成功 dry-run：只返回命令计划，`providerCalled:false`，`executionBlocked:true`。
+- 成功真实执行：返回 `dryRun:false`、`providerCalled:true`、`exitCode`、`stdout`、`stderr`。
+- `resultEnvelope` 至少包含 stashRef、reinstateIndex、stdout/stderr 行数和 `poppedHint`。
+- `risk.dropsStashOnSuccess` 和输出顶层 `dropsStashOnSuccess` 必须为 true。
+- 输出只暴露 public-safe 字段，不要求上层读取 provider 原始结构。
 
 ## 8. 错误边界
 
-- 参数缺失、契约不满足、权限不足、作用域越界时必须返回可解释错误。
-- 工具执行失败、环境缺失、危险操作、资源越界和审批未通过要区分处理。
-
-错误处理要服务工程构建：第一版可以简单，但必须可分类、可测试、可被 runtime inspection/debug/selfRepair 继续消费。
+- `MISSING_REPOSITORY_PATH`：缺少仓库路径。
+- `INVALID_CONTEXT` / `INVALID_STASH_REF` / `INVALID_TIMEOUT`：输入形状错误。
+- `SCOPE_REJECTED`：仓库 scope 越界。
+- `PERMISSION_DENIED`：权限不足。
+- `GOVERNANCE_REJECTED`：真实执行缺少 guard。
+- `PROVIDER_UNAVAILABLE`：runtime 没有提供 `BaseToolExecutorPort.git.runGit`。
+- `PROVIDER_REJECTED`：provider 失败并被映射为 public-safe error。
 
 ## 9. 依赖对象
 
-- runtime.execEngine
-- runtime.governancePlane
-- runtime.contractSurface
-- runtime.invocationMethod/toolInvocationEntrypoint
-- TAP approval/governance bridge
-- 基础环境与资源限制
-
-依赖关系应该通过显式参数、接口或 runtime context 进入，不要在文件内部形成隐式全局耦合。
+- `runtime.execEngine.git.runGit`：真实 Git 进程执行端口。
+- `runtime.governancePlane`：guard、权限、scope 和审计上下文。
+- `runtime.contractSurface`：稳定 `BaseToolInvokeRequest -> BaseToolInvokeResult` 契约。
+- TAP approval/governance bridge：更上层用户审批和风险呈现。
 
 ## 10. 被谁调用
 
-- runtime.invocationMethod/toolInvocationEntrypoint
-- runtime.execEngine
-- TAP 高级工具系统
-
-调用方只能依赖本文件公开的窄接口；如果需要更多能力，应新增相邻能力点或上移到 runtime surface，而不是把本文件写胖。
+- `createBaseToolRegistry().lookupHandler("git.popStashChanges")`。
+- `BaseToolHandler.invoke()`。
+- `scripts/agentCore_Agent_Test/agentcore_tool_lab.ts` 的 `runMountedGitBaseTool(...)`。
+- 后续 TAP 高级工具系统可基于该原语组合 stash 保存/应用/弹出工作流。
 
 ## 11. 不应该做什么
 
-- 不要在这里写上层产品逻辑，也不要让它直接绑定某一家 provider 的请求格式。
-- 不要提前冻结最终 schema、协议、目录树或字段枚举，除非用户明确进入冻结阶段。
-- 不要把基础工具原语写成 TAP 的完整高级工具系统；TAP 负责更上层的审批、治理和专业工具组合。
-
-越界判断标准很简单：如果实现开始替别的模块做策略、产品逻辑、最终协议冻结或大而全编排，就应该停下来拆文件。
+- 不要新增大而全 `git.execute`。
+- 不要在 lab/runtime 根据模型输入自行拼 `git stash pop`。
+- 不要绕开 `BaseToolExecutorPort.git.runGit` 直接启动 host process。
+- 不要无 guard 执行真实 workspace mutation。
+- 不要用本工具执行“应用但保留 stash entry”的需求；那应使用 `git.applyStashChanges`。
 
 ## 12. 最小实现建议
 
-- 先定义 TypeScript 类型契约：输入、输出、错误、上下文和最小配置。
-- 实现一个最小纯函数或薄类壳，能完成“提供 Git 基础工具 / stash 操作 中的“弹出 stash”基础能力原语”的可测路径。
-- 所有副作用先通过明确依赖注入进入，避免在文件内部偷偷读全局状态。
-- 危险动作先只实现 dry-run / guard / audit path，再逐步打开真实执行。
-
-第一版实现应该追求“能被调用、能被测、边界清楚”，不要追求一次性完整。
+- 入口文件保持显式 re-export。
+- storage `core.ts` 负责 unknown JSON 校验、固定 argv、权限、治理、scope、parser 和 public-safe error。
+- `dependencies.ts` 只做 `BaseToolExecutorPort.git.runGit` 适配，不引入高层 `executor.git.popStashChanges`。
+- `bestPractice.ts` 负责 handler 适配、practice audit metadata 和 tool definition。
+- lab 挂载必须走 registry handler，不能退化成 direct `runProcess("git", ...)`。
 
 ## 13. 最小测试建议
 
-- 空输入、最小合法输入、非法输入各至少一组。
-- 验证该文件确实只完成“提供 Git 基础工具 / stash 操作 中的“弹出 stash”基础能力原语”，没有越界承担相邻模块职责。
-- 验证错误结果可解释、可分类、不会泄漏不该暴露的内部细节。
-- 验证 guard/dry-run/audit path，避免测试误触真实危险操作。
-
-测试优先证明边界正确，而不是证明未来完整能力已经全部实现。
+- dry-run 不调用 provider。
+- malformed JSON 不泄漏 raw `TypeError`。
+- `dryRun:false` 无 guard 返回 `GOVERNANCE_REJECTED`。
+- 有 guard 但无 provider 返回 `PROVIDER_UNAVAILABLE`。
+- fake provider 收到精确 argv 并能解析 stdout/stderr。
+- provider failure 不泄漏内部路径/命令细节。
+- lab/runtime-chain 断言通过 registry handler 调到 `BaseToolExecutorPort.git.runGit`。
+- `npm run lab:agentCore:tools` 用户视角 smoke 应能真实弹出 stash 内容，并看到 stash entry 被删除。
 
 ## 14. 与系统链路的关系
 
-它处在工具调用链的底层：runtime 和 TAP 经过治理后调用这些基础工具原语。
+完整链路：
 
-这份文档服务后续编码：当实现该文件时，应先回看本文件说明，再决定类型、函数、类和测试如何落位。
+```text
+用户自然语言或 /tool
+  -> lab/tool runner
+  -> createBaseToolRegistry().lookupHandler("git.popStashChanges")
+  -> handler.invoke(...)
+  -> storage bestPractice.ts
+  -> storage core.ts
+  -> BaseToolExecutorPort.git.runGit
+  -> host git process
+  -> BaseToolInvokeResult
+```
+
+这个工具层提供词典和入口，并对 runtime 调用形态做出严格规范；真实本机 Git 执行归 runtime 管理。

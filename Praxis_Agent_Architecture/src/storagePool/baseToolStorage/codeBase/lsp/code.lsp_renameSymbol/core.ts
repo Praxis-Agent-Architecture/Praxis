@@ -255,7 +255,7 @@ export async function renameLspSymbol(
     return createLspToolFailure(
       toolId,
       "PROVIDER_REJECTED",
-      error instanceof Error ? error.message : "rename symbol provider rejected the invocation",
+      "code.lsp_renameSymbol provider rejected the invocation",
       "provider",
       request.context,
       target.filePath,

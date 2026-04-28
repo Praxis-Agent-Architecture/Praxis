@@ -9,4 +9,26 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/bestPractice.js";
+export {
+  lspAssistSignatureBaseToolDefinition,
+  lspAssistSignatureBestPracticeDescriptor,
+  lspAssistSignatureHandler,
+  lspAssistSignatureProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/bestPractice.js";
+export type {
+  LspAssistSignatureBestPracticeOutput,
+  LspAssistSignatureBestPracticeRequest,
+  LspAssistSignaturePreviewOutput,
+  LspAssistSignatureRuntimeOutput,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/bestPractice.js";
+export { lspAssistSignatureDescriptor, planLspSignatureAssistance } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/core.js";
+export type {
+  LspAssistSignatureBoundary,
+  LspAssistSignatureError,
+  LspAssistSignatureErrorCode,
+  LspAssistSignatureGate,
+  LspAssistSignatureRequest,
+  LspAssistSignatureResult,
+  LspDocumentPosition,
+  LspSignatureAssistPlan,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/core.js";

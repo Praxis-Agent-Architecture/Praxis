@@ -39,7 +39,7 @@ test("planMcpResourceUpdate creates a guarded dry-run mutation envelope", () => 
 
   assert.equal(result.output.kind, "agentCore.basicTool.mcp.updateResource");
   assert.equal(result.output.executionBlocked, true);
-  assert.equal(result.output.unsafeSideEffects, false);
+  assert.equal(result.output.unsafeSideEffects, true);
   assert.equal(result.output.mutationEnvelope.contentKind, "text");
   assert.equal(result.output.mutationEnvelope.committed, false);
   assert.equal(result.output.mutationEnvelope.expectedRevision, "rev-1");

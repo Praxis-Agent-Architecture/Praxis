@@ -153,7 +153,7 @@ export const lspFormatDocumentHandler: BaseToolHandler<
         { audit: buildPracticeAuditMetadata(selection) },
       );
     } catch (error) {
-      return baseToolInvokeFailure("code.lsp_formatDocument", "PROVIDER_REJECTED", error instanceof Error ? error.message : "LSP format document provider rejected the invocation", ["basicTool.lsp.formatDocument.rejected"]);
+      return baseToolInvokeFailure("code.lsp_formatDocument", "PROVIDER_REJECTED", "code.lsp_formatDocument provider rejected the invocation", ["basicTool.lsp.formatDocument.rejected"]);
     }
   },
 };

@@ -194,7 +194,7 @@ export async function searchLspWorkspaceSymbols(
     return createLspToolFailure(
       toolId,
       "PROVIDER_REJECTED",
-      error instanceof Error ? error.message : "search workspace symbols provider rejected the invocation",
+      "code.lsp_searchWorkspaceSymbols provider rejected the invocation",
       "provider",
       request.context,
     );

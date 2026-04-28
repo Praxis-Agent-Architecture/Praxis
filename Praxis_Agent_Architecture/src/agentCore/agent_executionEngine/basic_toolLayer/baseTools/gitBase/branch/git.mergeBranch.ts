@@ -4,161 +4,45 @@
  * 能力要求1：需要定义该能力的输入、输出、错误、权限需求和可观测事件。
  * 能力要求2：这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
  * 能力要求3：后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
- * 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
+ * 边界：entry 层只暴露稳定 public surface；真实契约、provider 适配和 runtime git executor 调用在 storagePool。
  * 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-import {
-  blockRealGitExecution,
-  createGitAuditEvent,
-  createGitToolFailure,
-  ensureGitToolPermissions,
-  ensureGitToolScope,
-  isBlankGitValue,
-  normalizeGitRepositoryPath,
-  type GitToolContext,
-  type GitToolPermission,
-  type GitToolResult,
-} from "./git.manageBranch.js";
+export type {
+  GitMergeBranchAuditEvent,
+  GitMergeBranchBestPracticeRequest,
+  GitMergeBranchContext,
+  GitMergeBranchEnvelope,
+  GitMergeBranchError,
+  GitMergeBranchErrorBoundary,
+  GitMergeBranchErrorCode,
+  GitMergeBranchGuard,
+  GitMergeBranchHandlerInput,
+  GitMergeBranchMode,
+  GitMergeBranchOutput,
+  GitMergeBranchPermission,
+  GitMergeBranchPlan,
+  GitMergeBranchPracticeSelection,
+  GitMergeBranchProvider,
+  GitMergeBranchProviderRequest,
+  GitMergeBranchProviderResult,
+  GitMergeBranchRequest,
+  GitMergeBranchResult,
+  GitMergeBranchRisk,
+  GitMergeBranchRuntimeEntry,
+  GitMergeBranchTarget,
+} from "../../../../../../storagePool/baseToolStorage/gitBase/branch/git.mergeBranch/bestPractice.js";
 
-export type GitMergeBranchMode = "default" | "ff-only" | "no-ff" | "squash";
-
-export type GitMergeBranchTarget = {
-  repositoryPath: string;
-  sourceBranch: string;
-  mode?: GitMergeBranchMode;
-  commitMessage?: string;
-  noCommit?: boolean;
-  allowUnrelatedHistories?: boolean;
-};
-
-export type GitMergeBranchRequest = {
-  target?: Partial<GitMergeBranchTarget>;
-  context?: GitToolContext;
-};
-
-export type GitMergeBranchOutput = {
-  kind: "agentCore.basicTool.git.mergeBranch";
-  target: GitMergeBranchTarget;
-  commandPreview: readonly string[];
-  dryRun: true;
-  executionBlocked: true;
-  permissionsRequired: readonly GitToolPermission[];
-  unsafeSideEffects: true;
-};
-
-export const gitMergeBranchDescriptor = {
-  toolId: "git.mergeBranch",
-  capability: "merge-branch",
-  route: "agent_executionEngine.basic_toolLayer.baseTools.gitBase.branch",
-  permissionsRequired: ["git:read", "git:write", "filesystem:write"],
-  defaultDryRun: true,
-  unsafeSideEffects: true,
-  tapOwnsApproval: true,
-} as const;
-
-function normalizeMergeMode(mode: GitMergeBranchMode | undefined): GitMergeBranchMode {
-  return mode === "ff-only" || mode === "no-ff" || mode === "squash" ? mode : "default";
-}
-
-function normalizeMergeTarget(
-  target: Partial<GitMergeBranchTarget> | undefined,
-  context: GitToolContext | undefined,
-): GitMergeBranchTarget | GitToolResult<GitMergeBranchOutput> {
-  const toolId = gitMergeBranchDescriptor.toolId;
-  const repositoryPath = normalizeGitRepositoryPath(toolId, target?.repositoryPath, context);
-  if (typeof repositoryPath !== "string") {
-    return repositoryPath;
-  }
-
-  const sourceBranch = target?.sourceBranch?.trim() ?? "";
-  if (isBlankGitValue(sourceBranch)) {
-    return createGitToolFailure(
-      toolId,
-      "MISSING_BRANCH_NAME",
-      "git.mergeBranch requires target.sourceBranch",
-      "input",
-      context,
-      repositoryPath,
-    );
-  }
-
-  return {
-    repositoryPath,
-    sourceBranch,
-    mode: normalizeMergeMode(target?.mode),
-    commitMessage: target?.commitMessage?.trim() || undefined,
-    noCommit: target?.noCommit === true,
-    allowUnrelatedHistories: target?.allowUnrelatedHistories === true,
-  };
-}
-
-function mergeCommandPreview(target: GitMergeBranchTarget): readonly string[] {
-  return [
-    "git",
-    "-C",
-    target.repositoryPath,
-    "merge",
-    ...(target.mode === "ff-only" ? ["--ff-only"] : []),
-    ...(target.mode === "no-ff" ? ["--no-ff"] : []),
-    ...(target.mode === "squash" ? ["--squash"] : []),
-    ...(target.noCommit ? ["--no-commit"] : []),
-    ...(target.allowUnrelatedHistories ? ["--allow-unrelated-histories"] : []),
-    ...(target.commitMessage === undefined ? [] : ["-m", target.commitMessage]),
-    target.sourceBranch,
-  ];
-}
-
-export function planGitBranchMerge(request: GitMergeBranchRequest = {}): GitToolResult<GitMergeBranchOutput> {
-  const toolId = gitMergeBranchDescriptor.toolId;
-  const target = normalizeMergeTarget(request.target, request.context);
-  if ("ok" in target) {
-    return target;
-  }
-
-  const scopeFailure = ensureGitToolScope<GitMergeBranchOutput>(toolId, target.repositoryPath, request.context);
-  if (scopeFailure !== undefined) {
-    return scopeFailure;
-  }
-
-  const permissionFailure = ensureGitToolPermissions<GitMergeBranchOutput>(
-    toolId,
-    gitMergeBranchDescriptor.permissionsRequired,
-    request.context,
-    target.repositoryPath,
-  );
-  if (permissionFailure !== undefined) {
-    return permissionFailure;
-  }
-
-  const realExecutionFailure = blockRealGitExecution<GitMergeBranchOutput>(
-    toolId,
-    request.context,
-    target.repositoryPath,
-  );
-  if (realExecutionFailure !== undefined) {
-    return realExecutionFailure;
-  }
-
-  return {
-    ok: true,
-    toolId,
-    output: {
-      kind: "agentCore.basicTool.git.mergeBranch",
-      target,
-      commandPreview: mergeCommandPreview(target),
-      dryRun: true,
-      executionBlocked: true,
-      permissionsRequired: gitMergeBranchDescriptor.permissionsRequired,
-      unsafeSideEffects: true,
-    },
-    audit: [
-      createGitAuditEvent(toolId, "agentCore.basicTool.git.mergeBranch.dryRun", request.context, target.repositoryPath, {
-        sourceBranch: target.sourceBranch,
-        mode: target.mode,
-      }),
-    ],
-    events: ["basicTool.git.mergeBranch.dryRun"],
-  };
-}
+export {
+  executeGitMergeBranch,
+  gitMergeBranchBaseToolDefinition,
+  gitMergeBranchBestPracticeDescriptor,
+  gitMergeBranchDescriptor,
+  gitMergeBranchHandler,
+  gitMergeBranchProviderPractices,
+  parseGitMergeBranchResult,
+  planGitBranchMerge,
+  planGitMergeBranch,
+  selectGitMergeBranchPractice,
+} from "../../../../../../storagePool/baseToolStorage/gitBase/branch/git.mergeBranch/bestPractice.js";

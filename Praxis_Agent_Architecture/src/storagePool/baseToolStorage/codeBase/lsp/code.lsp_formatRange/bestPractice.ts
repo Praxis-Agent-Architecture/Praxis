@@ -154,7 +154,7 @@ export const lspFormatRangeHandler: BaseToolHandler<
         { audit: buildPracticeAuditMetadata(selection) },
       );
     } catch (error) {
-      return baseToolInvokeFailure("code.lsp_formatRange", "PROVIDER_REJECTED", error instanceof Error ? error.message : "LSP format range provider rejected the invocation", ["basicTool.lsp.formatRange.rejected"]);
+      return baseToolInvokeFailure("code.lsp_formatRange", "PROVIDER_REJECTED", "code.lsp_formatRange provider rejected the invocation", ["basicTool.lsp.formatRange.rejected"]);
     }
   },
 };

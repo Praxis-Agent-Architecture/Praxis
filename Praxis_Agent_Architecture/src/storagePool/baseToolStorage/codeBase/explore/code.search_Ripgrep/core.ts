@@ -184,6 +184,16 @@ function cleanList(values: unknown): readonly string[] {
   return [...new Set(values.map((value) => (typeof value === "string" ? value.trim() : "")).filter(Boolean))];
 }
 
+function containsRegexEscape(value: string): boolean {
+  const escapedRegexChars = ".^$*+?()[]{}|dDsSwWbB";
+  for (let index = 0; index < value.length - 1; index += 1) {
+    if (value[index] === "\\" && escapedRegexChars.includes(value[index + 1] ?? "")) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function failure(
   code: CodeSearchRipgrepErrorCode,
   message: string,
@@ -323,7 +333,7 @@ function normalizeRequest(value: unknown): NormalizedSearchRequest | CodeSearchR
   if (request.fileGlob !== undefined && (fileGlob === undefined || fileGlob.includes("\0") || fileGlob.length === 0)) {
     return failure("INVALID_GLOB", "code.search_Ripgrep fileGlob must be a safe string", "input");
   }
-  const literal = request.literal ?? true;
+  const literal = request.literal ?? !containsRegexEscape(query);
   const caseSensitive = request.caseSensitive ?? true;
   const includeHidden = request.includeHidden ?? false;
   const multiline = request.multiline ?? false;

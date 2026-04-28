@@ -1,0 +1,2 @@
+import { createHostExecutorCodeDebugCollectLogsProvider, type CodeDebugCollectLogsProviderPractice } from "./dependencies.js";
+export const openaiCodeDebugCollectLogsPractice: CodeDebugCollectLogsProviderPractice = { providerName: "openai", source: { kind: "cli", label: "Codex structured debug log tool practice" }, directCliSupport: true, sideEffectPolicy: "runtime-governed", notes: ["Use stable schema and redaction controls for debug logs."], createProvider: ({ provider, executor }) => provider ?? createHostExecutorCodeDebugCollectLogsProvider(executor) };

@@ -9,4 +9,18 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_scanDocumentSymbols/bestPractice.js";
+export {
+  lspScanDocumentSymbolsBaseToolDefinition,
+  lspScanDocumentSymbolsBestPracticeDescriptor,
+  lspScanDocumentSymbolsHandler,
+  lspScanDocumentSymbolsProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_scanDocumentSymbols/bestPractice.js";
+export type { LspScanDocumentSymbolsBestPracticeRequest } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_scanDocumentSymbols/bestPractice.js";
+export { lspScanDocumentSymbolsDescriptor, scanLspDocumentSymbols } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_scanDocumentSymbols/core.js";
+export type {
+  LspDocumentSymbol,
+  LspDocumentTarget,
+  LspScanDocumentSymbolsOutput,
+  LspScanDocumentSymbolsProvider,
+  LspScanDocumentSymbolsRequest,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_scanDocumentSymbols/core.js";

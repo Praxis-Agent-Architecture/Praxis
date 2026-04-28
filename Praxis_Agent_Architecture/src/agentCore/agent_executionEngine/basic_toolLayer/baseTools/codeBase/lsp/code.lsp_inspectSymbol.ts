@@ -9,4 +9,30 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectSymbol/bestPractice.js";
+export {
+  lspInspectSymbolBaseToolDefinition,
+  lspInspectSymbolBestPracticeDescriptor,
+  lspInspectSymbolHandler,
+  lspInspectSymbolProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectSymbol/bestPractice.js";
+export type {
+  LspInspectSymbolBestPracticeOutput,
+  LspInspectSymbolBestPracticeRequest,
+  LspInspectSymbolPreviewOutput,
+  LspInspectSymbolRuntimeOutput,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectSymbol/bestPractice.js";
+export { inspectLspSymbol, lspInspectSymbolDescriptor } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectSymbol/core.js";
+export type {
+  LspInspectSymbolBoundary,
+  LspInspectSymbolError,
+  LspInspectSymbolErrorCode,
+  LspInspectSymbolGate,
+  LspInspectSymbolRequest,
+  LspInspectSymbolResult,
+  LspInspectSymbolSnapshot,
+  LspInspectSymbolTarget,
+  LspSymbolInfo,
+  LspSymbolKind,
+  LspSymbolPosition,
+  LspSymbolRange,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectSymbol/core.js";

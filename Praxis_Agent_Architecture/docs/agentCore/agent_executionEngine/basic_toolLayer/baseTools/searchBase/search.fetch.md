@@ -7,26 +7,33 @@
 - 所属顶层模块：执行引擎（`agent_executionEngine`）。
 - 所属路径：`agent_executionEngine/basic_toolLayer/baseTools/searchBase`。
 - 当前文件：`search.fetch.ts`。
-- 角色概括：Agent 的执行身体，负责输入输出、PromptPack、主循环、状态机、基础工具原语和执行事件暴露。
+- storage 实现：`src/storagePool/baseToolStorage/searchBase/search.fetch/`。
 
 ## 2. 文件职责
 
-提供 基础工具集合 / 搜索基础工具 中的“抓取网页或远端内容”基础能力原语。
+`search.fetch` 是 searchBase 里的定向 URL 抓取原语：当上层已经有明确 URL 时，它负责把“抓取网页或远端内容”规范成可治理、可审计、可测试的基础工具调用。
 
-这个文件的核心不是“占一个目录位置”，而是要在当前路径上形成一个可实现、可测试、可被 runtime 或相邻模块调用的窄能力点。它应该围绕“提供 基础工具集合 / 搜索基础工具 中的“抓取网页或远端内容”基础能力原语”建立清晰的输入、输出、错误和治理边界。
+它不是搜索发现工具，也不是证据综合工具：
+
+- 广泛检索用 `search.nativeSearch` 或 `search.searchEngine`。
+- 事实锚定和引用整理用 `search.ground`。
+- 真实网络抓取只允许通过 runtime 注入的 `BaseToolExecutorPort.network.fetch` 完成。
 
 ## 2.1 文件名语义拆解
 
-- 原始文件名：`search.fetch.ts`。
-- 命名片段：`search` / `fetch`。
-- 工程含义：这是 `searchBase` 下 `search.fetch.ts` 分组里的 `fetch` 基础工具原语，重点是把一个底层动作做成可治理、可审计、可测试的最小工具能力。
-- 第一实现重点：先定义工具调用参数、权限需求、dry-run/guard/audit 结果，再决定是否接真实系统动作。
-- 与 TAP 的关系：这里只提供底层原语；审批、组合、专业工具库和替换策略应交给 TAP 高级系统。
+- `search`：属于检索与来源处理基础工具家族。
+- `fetch`：面向一个明确 URL 做受限读取。
+- entry 文件保持薄导出；参数校验、dry-run、guard、provider 映射和结果归一化都在 storage 目录完成。
 
 ## 3. 目录语义
 
-- 基础工具原语层：提供 Agent 成立所需的底层工具能力，让 TAP 在其上构建更高级工具治理系统。
-- 搜索基础工具：检索、搜索和结果整理原语
+`src/storagePool/baseToolStorage/searchBase/search.fetch/` 是 canonical storage 目录，包含：
+
+- `core.ts`：校验 URL、method、maxBytes、timeout、治理上下文，并调用 runtime provider。
+- `bestPractice.ts`：把 `BaseToolInvokeRequest` 接到 core，暴露 registry handler。
+- `dependencies.ts`：把 `BaseToolExecutorPort.network.fetch` 适配成工具 provider。
+- `anthropic.ts` / `openai.ts` / `deepmind.ts`：记录三家 provider 对 URL context / web fetch 的实践边界。
+- `search.fetch.md`：storage 侧操作手册。
 
 ## 4. 源码头部能力注释
 
@@ -38,85 +45,89 @@
 - 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
 - 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
 - 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- runtime 定位：searchBase / URL fetch。
+- 核心目的：为已知 URL 提供受治理的网络读取入口。
+- 对接：registry -> handler -> storage bestPractice -> core -> `BaseToolExecutorPort.network.fetch`。
+- 边界：不在 baseTool 内创建 SDK client、不绕过 runtime 直接发网络请求。
 
 ## 5. 需要提供的能力
 
-- 提供 基础工具集合 / 搜索基础工具 中的“抓取网页或远端内容”基础能力原语
-- 需要定义该能力的输入、输出、错误、权限需求和可观测事件。
-- 这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
-- 后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
-- 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
-- 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。
+- 接收 `target.url`、`method`、`expectedContentType`、`maxBytes`、`timeoutMs`。
+- 支持 `context.dryRun` 预览，不触发 provider。
+- `dryRun:false` 时要求 affirmative guard，并要求 runtime 提供 `network.fetch`。
+- 支持 `allowedDomains` 这类 runtime 治理边界。
+- 输出 status、headers、finalUrl、bodyPreview、bytesRead、truncated、contentType 与 audit metadata。
+- provider 错误必须映射成 public-safe error，不泄漏堆栈、token、私有路径。
 
 ## 6. 输入边界
 
-- runtime/toolInvocationEntrypoint 下发的工具调用请求。
-- TAP 治理、执行上下文、资源限制、工作目录、目标对象和审计上下文。
+输入是工具调用 JSON 与治理上下文：
 
-输入边界必须窄：只接收完成本文件职责所需的材料，不把相邻模块的大对象整包吞进来。
+- `target.url` 必须是 `http` 或 `https` 绝对 URL。
+- `method` 只允许 `GET` 或 `HEAD`。
+- `maxBytes` 和 `timeoutMs` 必须在资源上限内。
+- `context.grantedPermissions` 至少包含 `network:read` 和 `search:fetch`。
+- `context.guard` 或 `context.networkAccess` 必须显式允许真实执行。
 
 ## 7. 输出边界
 
-- 工具执行结果、工具事件、审计材料和可交给 TAP 继续治理的状态。
-- 不泄漏底层实现细节的标准工具结果信封。
+输出固定为 `agentCore.basicTool.search.fetch` 信封：
 
-输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
+- `dispatch: "dry-run"` 表示只生成计划。
+- `dispatch: "runtime-fetch"` 表示已通过 runtime provider 执行。
+- `resultEnvelope` 只放可展示摘要和标准字段，不暴露底层 provider 原始异常。
 
 ## 8. 错误边界
 
-- 参数缺失、契约不满足、权限不足、作用域越界时必须返回可解释错误。
-- 工具执行失败、环境缺失、危险操作、资源越界和审批未通过要区分处理。
+需要稳定区分：
 
-错误处理要服务工程构建：第一版可以简单，但必须可分类、可测试、可被 runtime inspection/debug/selfRepair 继续消费。
+- 输入错误：缺 URL、非法 method、非法 content type。
+- 作用域错误：协议不支持、domain 不在允许范围。
+- 治理错误：权限不足、无 guard。
+- runtime 错误：缺 provider、provider 返回无效、provider 拒绝。
 
 ## 9. 依赖对象
 
-- runtime.execEngine
-- runtime.governancePlane
-- runtime.contractSurface
-- runtime.invocationMethod/toolInvocationEntrypoint
-- TAP approval/governance bridge
-- 基础环境与资源限制
+- `BaseToolExecutorPort.network.fetch`
+- `BaseToolInvokeRequest.runtime.executor`
+- TAP / runtime governance context
+- storage provider practice 文件
 
-依赖关系应该通过显式参数、接口或 runtime context 进入，不要在文件内部形成隐式全局耦合。
+依赖必须显式注入；baseTool 不持有隐藏网络 client。
 
 ## 10. 被谁调用
 
-- runtime.invocationMethod/toolInvocationEntrypoint
-- runtime.execEngine
-- TAP 高级工具系统
-
-调用方只能依赖本文件公开的窄接口；如果需要更多能力，应新增相邻能力点或上移到 runtime surface，而不是把本文件写胖。
+- `createBaseToolRegistry().lookupHandler("search.fetch")`
+- runtime tool invocation bridge
+- `npm run lab:agentCore:tools` 的 searchBase 挂载路径
+- 后续 TAP 高级工具编排
 
 ## 11. 不应该做什么
 
-- 不要在这里写上层产品逻辑，也不要让它直接绑定某一家 provider 的请求格式。
-- 不要提前冻结最终 schema、协议、目录树或字段枚举，除非用户明确进入冻结阶段。
-- 不要把基础工具原语写成 TAP 的完整高级工具系统；TAP 负责更上层的审批、治理和专业工具组合。
-
-越界判断标准很简单：如果实现开始替别的模块做策略、产品逻辑、最终协议冻结或大而全编排，就应该停下来拆文件。
+- 不要把它当搜索引擎调用。
+- 不要在这里综合事实、生成最终引用答案。
+- 不要直接调用 SDK、curl、fetch 或浏览器。
+- 不要吞入大对象或把 provider 原始响应直接暴露给上层。
 
 ## 12. 最小实现建议
 
-- 先定义 TypeScript 类型契约：输入、输出、错误、上下文和最小配置。
-- 实现一个最小纯函数或薄类壳，能完成“提供 基础工具集合 / 搜索基础工具 中的“抓取网页或远端内容”基础能力原语”的可测路径。
-- 所有副作用先通过明确依赖注入进入，避免在文件内部偷偷读全局状态。
-- 危险动作先只实现 dry-run / guard / audit path，再逐步打开真实执行。
-
-第一版实现应该追求“能被调用、能被测、边界清楚”，不要追求一次性完整。
+当前实现已经不是 dry-run 壳，而是完整 runtime-port-backed 工具。后续增强应优先扩展 runtime port 或 provider adapter，例如内容类型解析、正文抽取、缓存策略，而不是把网络执行逻辑塞回 `core.ts`。
 
 ## 13. 最小测试建议
 
-- 空输入、最小合法输入、非法输入各至少一组。
-- 验证该文件确实只完成“提供 基础工具集合 / 搜索基础工具 中的“抓取网页或远端内容”基础能力原语”，没有越界承担相邻模块职责。
-- 验证错误结果可解释、可分类、不会泄漏不该暴露的内部细节。
-- 验证 guard/dry-run/audit path，避免测试误触真实危险操作。
+必须覆盖：
 
-测试优先证明边界正确，而不是证明未来完整能力已经全部实现。
+- malformed JSON、空 URL、非法协议、越权 domain。
+- dry-run 不调用 provider。
+- `dryRun:false` 无 guard 拒绝。
+- 缺少 `network.fetch` 返回 `PROVIDER_UNAVAILABLE`。
+- provider success / failure 归一化。
+- registry handler 能通过 `lookupHandler("search.fetch")` 调到 injected runtime provider。
 
 ## 14. 与系统链路的关系
 
-它处在工具调用链的底层：runtime 和 TAP 经过治理后调用这些基础工具原语。
+标准调用链是：
 
-这份文档服务后续编码：当实现该文件时，应先回看本文件说明，再决定类型、函数、类和测试如何落位。
+`model tool_call JSON -> invocation bridge -> registry -> searchFetchHandler -> storage bestPractice -> core -> BaseToolExecutorPort.network.fetch -> normalized result`
+
+这保证工具层提供词典、schema、治理形状和归一化结果，真实网络资源仍由 runtime 持有。

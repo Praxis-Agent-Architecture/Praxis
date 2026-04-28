@@ -9,152 +9,38 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-import {
-  blockRealGitExecution,
-  cleanGitList,
-  createGitAuditEvent,
-  createGitToolFailure,
-  ensureGitToolPermissions,
-  ensureGitToolScope,
-  normalizeGitRepositoryPath,
-  type GitToolContext,
-  type GitToolPermission,
-  type GitToolResult,
-} from "../branch/git.manageBranch.js";
+export type {
+  GitAddToStagingAuditEvent,
+  GitAddToStagingBestPracticeRequest,
+  GitAddToStagingContext,
+  GitAddToStagingEnvelope,
+  GitAddToStagingError,
+  GitAddToStagingErrorBoundary,
+  GitAddToStagingErrorCode,
+  GitAddToStagingGuard,
+  GitAddToStagingHandlerInput,
+  GitAddToStagingOutput,
+  GitAddToStagingPermission,
+  GitAddToStagingPlan,
+  GitAddToStagingPracticeSelection,
+  GitAddToStagingProvider,
+  GitAddToStagingProviderRequest,
+  GitAddToStagingProviderResult,
+  GitAddToStagingRequest,
+  GitAddToStagingResult,
+  GitAddToStagingRisk,
+  GitAddToStagingRuntimeEntry,
+  GitAddToStagingTarget,
+} from "../../../../../../storagePool/baseToolStorage/gitBase/staging/git.addToStaging/bestPractice.js";
 
-export type GitAddToStagingTarget = {
-  repositoryPath: string;
-  pathspecs: readonly string[];
-  all?: boolean;
-  update?: boolean;
-  intentToAdd?: boolean;
-  patch?: boolean;
-  force?: boolean;
-};
-
-export type GitAddToStagingRequest = {
-  target?: Partial<GitAddToStagingTarget>;
-  context?: GitToolContext;
-};
-
-export type GitAddToStagingOutput = {
-  kind: "agentCore.basicTool.git.addToStaging";
-  target: GitAddToStagingTarget;
-  commandPreview: readonly string[];
-  dryRun: true;
-  executionBlocked: true;
-  permissionsRequired: readonly GitToolPermission[];
-  unsafeSideEffects: true;
-};
-
-export const gitAddToStagingDescriptor = {
-  toolId: "git.addToStaging",
-  capability: "add-to-staging",
-  route: "agent_executionEngine.basic_toolLayer.baseTools.gitBase.staging",
-  permissionsRequired: ["git:read", "git:write", "filesystem:read", "filesystem:write"],
-  defaultDryRun: true,
-  unsafeSideEffects: true,
-  tapOwnsApproval: true,
-} as const;
-
-function normalizeAddToStagingTarget(
-  target: Partial<GitAddToStagingTarget> | undefined,
-  context: GitToolContext | undefined,
-): GitAddToStagingTarget | GitToolResult<GitAddToStagingOutput> {
-  const toolId = gitAddToStagingDescriptor.toolId;
-  const repositoryPath = normalizeGitRepositoryPath(toolId, target?.repositoryPath, context);
-  if (typeof repositoryPath !== "string") {
-    return repositoryPath;
-  }
-
-  const pathspecs = cleanGitList(target?.pathspecs);
-  if (pathspecs.length === 0 && target?.all !== true && target?.update !== true) {
-    return createGitToolFailure(
-      toolId,
-      "MISSING_TARGET_PATH",
-      "git.addToStaging requires target.pathspecs unless target.all or target.update is true",
-      "input",
-      context,
-      repositoryPath,
-    );
-  }
-
-  return {
-    repositoryPath,
-    pathspecs,
-    all: target?.all === true,
-    update: target?.update === true,
-    intentToAdd: target?.intentToAdd === true,
-    patch: target?.patch === true,
-    force: target?.force === true,
-  };
-}
-
-function addToStagingCommandPreview(target: GitAddToStagingTarget): readonly string[] {
-  return [
-    "git",
-    "-C",
-    target.repositoryPath,
-    "add",
-    ...(target.all ? ["--all"] : []),
-    ...(target.update ? ["--update"] : []),
-    ...(target.intentToAdd ? ["--intent-to-add"] : []),
-    ...(target.patch ? ["--patch"] : []),
-    ...(target.force ? ["--force"] : []),
-    ...(target.pathspecs.length === 0 ? [] : ["--", ...target.pathspecs]),
-  ];
-}
-
-export function planGitAddToStaging(request: GitAddToStagingRequest = {}): GitToolResult<GitAddToStagingOutput> {
-  const toolId = gitAddToStagingDescriptor.toolId;
-  const target = normalizeAddToStagingTarget(request.target, request.context);
-  if ("ok" in target) {
-    return target;
-  }
-
-  const scopeFailure = ensureGitToolScope<GitAddToStagingOutput>(toolId, target.repositoryPath, request.context);
-  if (scopeFailure !== undefined) {
-    return scopeFailure;
-  }
-
-  const permissionFailure = ensureGitToolPermissions<GitAddToStagingOutput>(
-    toolId,
-    gitAddToStagingDescriptor.permissionsRequired,
-    request.context,
-    target.repositoryPath,
-  );
-  if (permissionFailure !== undefined) {
-    return permissionFailure;
-  }
-
-  const realExecutionFailure = blockRealGitExecution<GitAddToStagingOutput>(
-    toolId,
-    request.context,
-    target.repositoryPath,
-  );
-  if (realExecutionFailure !== undefined) {
-    return realExecutionFailure;
-  }
-
-  return {
-    ok: true,
-    toolId,
-    output: {
-      kind: "agentCore.basicTool.git.addToStaging",
-      target,
-      commandPreview: addToStagingCommandPreview(target),
-      dryRun: true,
-      executionBlocked: true,
-      permissionsRequired: gitAddToStagingDescriptor.permissionsRequired,
-      unsafeSideEffects: true,
-    },
-    audit: [
-      createGitAuditEvent(toolId, "agentCore.basicTool.git.addToStaging.dryRun", request.context, target.repositoryPath, {
-        pathspecCount: target.pathspecs.length,
-        all: target.all,
-        update: target.update,
-      }),
-    ],
-    events: ["basicTool.git.addToStaging.dryRun"],
-  };
-}
+export {
+  executeGitAddToStaging,
+  gitAddToStagingBaseToolDefinition,
+  gitAddToStagingBestPracticeDescriptor,
+  gitAddToStagingDescriptor,
+  gitAddToStagingHandler,
+  gitAddToStagingProviderPractices,
+  parseGitAddToStagingResult,
+  planGitAddToStaging,
+  selectGitAddToStagingPractice,
+} from "../../../../../../storagePool/baseToolStorage/gitBase/staging/git.addToStaging/bestPractice.js";

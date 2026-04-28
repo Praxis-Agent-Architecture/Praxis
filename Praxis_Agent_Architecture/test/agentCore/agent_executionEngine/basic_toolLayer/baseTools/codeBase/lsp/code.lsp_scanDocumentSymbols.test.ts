@@ -77,6 +77,24 @@ test("scanLspDocumentSymbols uses a mockable provider when dryRun is disabled", 
   assert.equal(result.audit[0]?.invocationId, "symbols-1");
 });
 
+test("scanLspDocumentSymbols maps provider failures to a public-safe stable message", async () => {
+  const result = await scanLspDocumentSymbols({
+    target: { filePath: "src/controller.ts" },
+    context: { dryRun: false, invocationId: "symbols-failure" },
+    provider: () => {
+      throw new Error("secret /home/proview/private/path");
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "PROVIDER_REJECTED");
+    assert.equal(result.error.message, "code.lsp_scanDocumentSymbols provider rejected the invocation");
+    assert.equal(result.error.safeForRuntimeInspection, true);
+    assert.doesNotMatch(result.error.message, /secret|\/home\/proview/u);
+  }
+});
+
 test("scanLspDocumentSymbols can use the built-in stdio LSP runtime", async () => {
   const workspaceRoot = await mkdtemp(path.join(tmpdir(), "praxis-lsp-symbols-"));
   const targetPath = path.join(workspaceRoot, "controller.fake");

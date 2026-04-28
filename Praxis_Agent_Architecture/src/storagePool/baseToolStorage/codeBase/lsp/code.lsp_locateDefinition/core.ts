@@ -335,7 +335,7 @@ export async function locateLspDefinition(
     return failure(
       toolId,
       "PROVIDER_REJECTED",
-      error instanceof Error ? error.message : "locate definition provider rejected the invocation",
+      "code.lsp_locateDefinition provider rejected the invocation",
       "provider",
       request.context,
       target.filePath,

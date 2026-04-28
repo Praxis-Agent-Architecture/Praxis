@@ -32,12 +32,9 @@
 
 - 文件定位：Agent 执行引擎 / 基础工具原语层 / 基础工具集合 / MCP 基础工具 / MCP 订阅。
 - 核心目的：提供 MCP 基础工具 / MCP 订阅 中的“订阅事件或资源”基础能力原语。
-- 能力要求1：需要定义该能力的输入、输出、错误、权限需求和可观测事件。
-- 能力要求2：这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
-- 能力要求3：后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
-- 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
+- 边界：入口层只做薄导出；真实 MCP client/session/subscription/event buffer 由 runtime 拥有。
 - 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 实现提示：稳定类型契约、最小可测行为和清晰错误边界在 storagePool 中实现。
 
 ## 5. 需要提供的能力
 
@@ -46,6 +43,8 @@
 - 这些基础工具是 Agent 成立的底层能力，不是 TAP 的最终高级工具库。
 - 后续 TAP 可以基于这些原语构建更强的工具编排、审批、替换和专业能力库。
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
+- 入口文件只显式导出 storagePool 中的 descriptor、planner、executor、definition 和 handler。
+- 真实 MCP 订阅句柄、通知监听、事件缓存和清理由 runtime 通过 `BaseToolExecutorPort.mcp.subscribe` 拥有。
 - 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
 - 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。
 
@@ -73,6 +72,7 @@
 ## 9. 依赖对象
 
 - runtime.execEngine
+- BaseToolExecutorPort.mcp.subscribe
 - runtime.governancePlane
 - runtime.contractSurface
 - runtime.invocationMethod/toolInvocationEntrypoint

@@ -197,7 +197,7 @@ export const lspExplainSymbolHandler: BaseToolHandler<
         { audit: buildPracticeAuditMetadata(selection) },
       );
     } catch (error) {
-      return baseToolInvokeFailure("code.lsp_explainSymbol", "PROVIDER_REJECTED", error instanceof Error ? error.message : "LSP symbol explanation provider rejected the invocation", ["basicTool.lsp.explainSymbol.rejected"]);
+      return baseToolInvokeFailure("code.lsp_explainSymbol", "PROVIDER_REJECTED", "code.lsp_explainSymbol provider rejected the invocation", ["basicTool.lsp.explainSymbol.rejected"]);
     }
   },
 };

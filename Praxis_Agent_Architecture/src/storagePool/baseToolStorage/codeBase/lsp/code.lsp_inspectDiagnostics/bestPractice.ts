@@ -151,7 +151,7 @@ export const lspInspectDiagnosticsHandler: BaseToolHandler<
         { audit: buildPracticeAuditMetadata(selection) },
       );
     } catch (error) {
-      return baseToolInvokeFailure("code.lsp_inspectDiagnostics", "PROVIDER_REJECTED", error instanceof Error ? error.message : "LSP diagnostics provider rejected the invocation", ["basicTool.lsp.inspectDiagnostics.rejected"]);
+      return baseToolInvokeFailure("code.lsp_inspectDiagnostics", "PROVIDER_REJECTED", "code.lsp_inspectDiagnostics provider rejected the invocation", ["basicTool.lsp.inspectDiagnostics.rejected"]);
     }
   },
 };

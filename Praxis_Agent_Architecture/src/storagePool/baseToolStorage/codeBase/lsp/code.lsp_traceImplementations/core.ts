@@ -147,7 +147,7 @@ export async function traceLspImplementations(
     return createLspToolFailure(
       toolId,
       "PROVIDER_REJECTED",
-      error instanceof Error ? error.message : "trace implementations provider rejected the invocation",
+      "code.lsp_traceImplementations provider rejected the invocation",
       "provider",
       request.context,
       target.filePath,

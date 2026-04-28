@@ -309,7 +309,7 @@ export async function suggestLspCodeActions(
     return createLspToolFailure(
       toolId,
       "PROVIDER_REJECTED",
-      error instanceof Error ? error.message : "suggest code actions provider rejected the invocation",
+      "code.lsp_suggestCodeActions provider rejected the invocation",
       "provider",
       request.context,
       target.filePath,

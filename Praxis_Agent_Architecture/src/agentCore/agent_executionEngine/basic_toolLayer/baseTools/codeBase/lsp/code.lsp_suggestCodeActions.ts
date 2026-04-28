@@ -9,4 +9,21 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_suggestCodeActions/bestPractice.js";
+export {
+  lspSuggestCodeActionsBaseToolDefinition,
+  lspSuggestCodeActionsBestPracticeDescriptor,
+  lspSuggestCodeActionsHandler,
+  lspSuggestCodeActionsProviderPractices,
+  suggestLspCodeActions,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_suggestCodeActions/bestPractice.js";
+export type { LspSuggestCodeActionsBestPracticeRequest } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_suggestCodeActions/bestPractice.js";
+export { lspSuggestCodeActionsDescriptor } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_suggestCodeActions/core.js";
+export type {
+  LspCodeActionDiagnostic,
+  LspCodeActionSuggestion,
+  LspCodeActionSuggestionProviderResult,
+  LspSuggestCodeActionsOutput,
+  LspSuggestCodeActionsProvider,
+  LspSuggestCodeActionsRequest,
+  LspSuggestCodeActionsTarget,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_suggestCodeActions/core.js";

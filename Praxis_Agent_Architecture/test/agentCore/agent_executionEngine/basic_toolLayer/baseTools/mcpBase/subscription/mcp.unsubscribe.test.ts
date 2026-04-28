@@ -35,7 +35,8 @@ test("planMcpUnsubscribe creates a guarded dry-run unsubscribe envelope", () => 
 
   assert.equal(result.output.kind, "agentCore.basicTool.mcp.unsubscribe");
   assert.equal(result.output.executionBlocked, true);
-  assert.equal(result.output.unsafeSideEffects, false);
+  assert.equal(result.output.providerCalled, false);
+  assert.equal(result.output.unsafeSideEffects, true);
   assert.equal(result.output.unsubscribeEnvelope.subscriptionId, "sub-123");
   assert.equal(result.output.unsubscribeEnvelope.state, "cancel-planned");
   assert.equal(result.output.unsubscribeEnvelope.reason, "caller stopped watching");
@@ -60,6 +61,16 @@ test("planMcpUnsubscribe rejects missing target fields", () => {
   if (!missingSubscription.ok) {
     assert.equal(missingSubscription.error.code, "MISSING_SUBSCRIPTION_ID");
     assert.equal(missingSubscription.error.boundary, "input");
+  }
+});
+
+test("planMcpUnsubscribe rejects malformed JSON without raw TypeError", () => {
+  for (const input of [null, [], 1, { target: null }, { target: { serverId: 1 } }, { target: { serverId: "events", subscriptionId: 1 } }, { target: { serverId: "events", subscriptionId: "sub-123", reason: "x".repeat(257) } }]) {
+    const result = planMcpUnsubscribe(input);
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.publicSafe, true);
+    }
   }
 });
 

@@ -9,4 +9,18 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_renameSymbol/bestPractice.js";
+export {
+  lspRenameSymbolBaseToolDefinition,
+  lspRenameSymbolBestPracticeDescriptor,
+  lspRenameSymbolHandler,
+  lspRenameSymbolProviderPractices,
+  renameLspSymbol,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_renameSymbol/bestPractice.js";
+export type { LspRenameSymbolBestPracticeRequest } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_renameSymbol/bestPractice.js";
+export { lspRenameSymbolDescriptor } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_renameSymbol/core.js";
+export type {
+  LspRenameSymbolOutput,
+  LspRenameSymbolProvider,
+  LspRenameSymbolRequest,
+  LspRenameWorkspaceEdit,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_renameSymbol/core.js";

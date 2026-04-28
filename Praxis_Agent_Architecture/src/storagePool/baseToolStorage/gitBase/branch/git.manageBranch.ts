@@ -66,41 +66,6 @@ export type GitToolResult<Output> =
       events: readonly string[];
     };
 
-export type GitManageBranchAction = "list" | "create" | "delete" | "rename" | "set-upstream";
-
-export type GitManageBranchTarget = {
-  repositoryPath: string;
-  action: GitManageBranchAction;
-  branchName?: string;
-  newBranchName?: string;
-  startPoint?: string;
-  upstream?: string;
-  force?: boolean;
-};
-
-export type GitManageBranchRequest = {
-  target?: Partial<GitManageBranchTarget>;
-  context?: GitToolContext;
-};
-
-export type GitManageBranchOutput = {
-  kind: "agentCore.basicTool.git.manageBranch";
-  target: GitManageBranchTarget;
-  commandPreview: readonly string[];
-  dryRun: true;
-  executionBlocked: true;
-  permissionsRequired: readonly GitToolPermission[];
-  unsafeSideEffects: boolean;
-};
-
-export const gitManageBranchDescriptor = {
-  toolId: "git.manageBranch",
-  capability: "manage-branch",
-  route: "agent_executionEngine.basic_toolLayer.baseTools.gitBase.branch",
-  defaultDryRun: true,
-  tapOwnsApproval: true,
-} as const;
-
 export function cleanGitList<T extends string>(values: readonly T[] | undefined): readonly T[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean) as T[])];
 }
@@ -244,155 +209,41 @@ export function blockRealGitExecution<Output>(
   );
 }
 
-function normalizeBranchAction(action: string | undefined): GitManageBranchAction {
-  if (action === "create" || action === "delete" || action === "rename" || action === "set-upstream") {
-    return action;
-  }
+export type {
+  GitManageBranchAction,
+  GitManageBranchAuditEvent,
+  GitManageBranchBestPracticeRequest,
+  GitManageBranchContext,
+  GitManageBranchEnvelope,
+  GitManageBranchError,
+  GitManageBranchErrorBoundary,
+  GitManageBranchErrorCode,
+  GitManageBranchGuard,
+  GitManageBranchHandlerInput,
+  GitManageBranchOutput,
+  GitManageBranchPermission,
+  GitManageBranchPlan,
+  GitManageBranchPracticeSelection,
+  GitManageBranchProvider,
+  GitManageBranchProviderRequest,
+  GitManageBranchProviderResult,
+  GitManageBranchRequest,
+  GitManageBranchResult,
+  GitManageBranchRisk,
+  GitManageBranchRiskCategory,
+  GitManageBranchRuntimeEntry,
+  GitManageBranchTarget,
+} from "./git.manageBranch/bestPractice.js";
 
-  return "list";
-}
-
-function branchPermissions(action: GitManageBranchAction): readonly GitToolPermission[] {
-  return action === "list" ? ["git:read"] : ["git:read", "git:write"];
-}
-
-function normalizeBranchTarget(
-  target: Partial<GitManageBranchTarget> | undefined,
-  context: GitToolContext | undefined,
-): GitManageBranchTarget | GitToolResult<GitManageBranchOutput> {
-  const toolId = gitManageBranchDescriptor.toolId;
-  const repositoryPath = normalizeGitRepositoryPath(toolId, target?.repositoryPath, context);
-  if (typeof repositoryPath !== "string") {
-    return repositoryPath;
-  }
-
-  const action = normalizeBranchAction(target?.action);
-  const branchName = target?.branchName?.trim() || undefined;
-  const newBranchName = target?.newBranchName?.trim() || undefined;
-  const upstream = target?.upstream?.trim() || undefined;
-
-  if (action !== "list" && branchName === undefined) {
-    return createGitToolFailure(
-      toolId,
-      "MISSING_BRANCH_NAME",
-      `${toolId} action ${action} requires target.branchName`,
-      "input",
-      context,
-      repositoryPath,
-    );
-  }
-
-  if (action === "rename" && newBranchName === undefined) {
-    return createGitToolFailure(
-      toolId,
-      "MISSING_REQUIRED_FIELD",
-      `${toolId} action rename requires target.newBranchName`,
-      "input",
-      context,
-      repositoryPath,
-    );
-  }
-
-  if (action === "set-upstream" && upstream === undefined) {
-    return createGitToolFailure(
-      toolId,
-      "MISSING_REQUIRED_FIELD",
-      `${toolId} action set-upstream requires target.upstream`,
-      "input",
-      context,
-      repositoryPath,
-    );
-  }
-
-  return {
-    repositoryPath,
-    action,
-    branchName,
-    newBranchName,
-    startPoint: target?.startPoint?.trim() || undefined,
-    upstream,
-    force: target?.force === true,
-  };
-}
-
-function branchCommandPreview(target: GitManageBranchTarget): readonly string[] {
-  if (target.action === "list") {
-    return ["git", "-C", target.repositoryPath, "branch", "--list"];
-  }
-
-  if (target.action === "create") {
-    return [
-      "git",
-      "-C",
-      target.repositoryPath,
-      "branch",
-      target.branchName ?? "",
-      ...(target.startPoint === undefined ? [] : [target.startPoint]),
-    ];
-  }
-
-  if (target.action === "delete") {
-    return ["git", "-C", target.repositoryPath, "branch", target.force ? "-D" : "-d", target.branchName ?? ""];
-  }
-
-  if (target.action === "rename") {
-    return ["git", "-C", target.repositoryPath, "branch", "-m", target.branchName ?? "", target.newBranchName ?? ""];
-  }
-
-  return ["git", "-C", target.repositoryPath, "branch", "--set-upstream-to", target.upstream ?? "", target.branchName ?? ""];
-}
-
-export function planGitBranchManagement(
-  request: GitManageBranchRequest = {},
-): GitToolResult<GitManageBranchOutput> {
-  const toolId = gitManageBranchDescriptor.toolId;
-  const target = normalizeBranchTarget(request.target, request.context);
-  if ("ok" in target) {
-    return target;
-  }
-
-  const scopeFailure = ensureGitToolScope<GitManageBranchOutput>(toolId, target.repositoryPath, request.context);
-  if (scopeFailure !== undefined) {
-    return scopeFailure;
-  }
-
-  const permissionsRequired = branchPermissions(target.action);
-  const permissionFailure = ensureGitToolPermissions<GitManageBranchOutput>(
-    toolId,
-    permissionsRequired,
-    request.context,
-    target.repositoryPath,
-  );
-  if (permissionFailure !== undefined) {
-    return permissionFailure;
-  }
-
-  const realExecutionFailure = blockRealGitExecution<GitManageBranchOutput>(
-    toolId,
-    request.context,
-    target.repositoryPath,
-  );
-  if (realExecutionFailure !== undefined) {
-    return realExecutionFailure;
-  }
-
-  return {
-    ok: true,
-    toolId,
-    output: {
-      kind: "agentCore.basicTool.git.manageBranch",
-      target,
-      commandPreview: branchCommandPreview(target),
-      dryRun: true,
-      executionBlocked: true,
-      permissionsRequired,
-      unsafeSideEffects: target.action !== "list",
-    },
-    audit: [
-      createGitAuditEvent(toolId, "agentCore.basicTool.git.manageBranch.dryRun", request.context, target.repositoryPath, {
-        action: target.action,
-      }),
-    ],
-    events: ["basicTool.git.manageBranch.dryRun"],
-  };
-}
+export {
+  executeGitManageBranch,
+  gitManageBranchBaseToolDefinition,
+  gitManageBranchBestPracticeDescriptor,
+  gitManageBranchDescriptor,
+  gitManageBranchHandler,
+  gitManageBranchProviderPractices,
+  parseGitManageBranchResult,
+  planGitBranchManagement,
+  planGitManageBranch,
+  selectGitManageBranchPractice,
+} from "./git.manageBranch/bestPractice.js";

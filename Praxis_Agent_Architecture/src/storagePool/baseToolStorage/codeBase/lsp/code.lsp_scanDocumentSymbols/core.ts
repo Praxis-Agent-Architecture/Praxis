@@ -190,7 +190,7 @@ export async function scanLspDocumentSymbols(
     return createLspToolFailure(
       toolId,
       "PROVIDER_REJECTED",
-      error instanceof Error ? error.message : "scan document symbols provider rejected the invocation",
+      "code.lsp_scanDocumentSymbols provider rejected the invocation",
       "provider",
       request.context,
       target.filePath,

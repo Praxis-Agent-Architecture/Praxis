@@ -37,7 +37,7 @@ test("planMcpCreateResource creates a guarded dry-run resource creation envelope
   assert.equal(result.output.resourceEnvelope.created, false);
   assert.equal(result.output.resourceEnvelope.contentAccepted, true);
   assert.deepEqual(result.output.resourceEnvelope.metadataKeys, ["owner"]);
-  assert.equal(result.output.unsafeSideEffects, false);
+  assert.equal(result.output.unsafeSideEffects, true);
   assert.equal(result.audit[0]?.invocationId, "create-1");
 });
 

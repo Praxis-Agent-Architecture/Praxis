@@ -9,4 +9,26 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_explainSymbol/bestPractice.js";
+export {
+  lspExplainSymbolBaseToolDefinition,
+  lspExplainSymbolBestPracticeDescriptor,
+  lspExplainSymbolHandler,
+  lspExplainSymbolProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_explainSymbol/bestPractice.js";
+export type {
+  LspExplainSymbolBestPracticeOutput,
+  LspExplainSymbolBestPracticeRequest,
+  LspExplainSymbolPreviewOutput,
+  LspExplainSymbolRuntimeOutput,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_explainSymbol/bestPractice.js";
+export { lspExplainSymbolDescriptor, planLspSymbolExplanation } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_explainSymbol/core.js";
+export type {
+  LspExplainSymbolBoundary,
+  LspExplainSymbolError,
+  LspExplainSymbolErrorCode,
+  LspExplainSymbolGate,
+  LspExplainSymbolPlan,
+  LspExplainSymbolRequest,
+  LspExplainSymbolResult,
+  LspSymbolPosition,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_explainSymbol/core.js";

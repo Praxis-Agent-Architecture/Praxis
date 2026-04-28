@@ -179,7 +179,7 @@ export const lspAssistSignatureHandler: BaseToolHandler<
       return baseToolInvokeFailure(
         "code.lsp_assistSignature",
         "PROVIDER_REJECTED",
-        error instanceof Error ? error.message : "LSP signature provider rejected the invocation",
+        "code.lsp_assistSignature provider rejected the invocation",
         ["basicTool.lsp.assistSignature.rejected"],
       );
     }

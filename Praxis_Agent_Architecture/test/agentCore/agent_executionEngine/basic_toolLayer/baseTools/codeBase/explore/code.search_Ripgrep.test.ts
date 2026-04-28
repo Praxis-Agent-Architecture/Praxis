@@ -51,6 +51,35 @@ test("planCodeSearchRipgrep builds a dry-run rg command envelope", async () => {
   ]);
 });
 
+test("planCodeSearchRipgrep treats model-style escaped patterns as regex unless literal is explicit", async () => {
+  const inferredRegex = await planCodeSearchRipgrep({
+    pattern: "code\\.testCode",
+    directoryPath: "src",
+  });
+
+  assert.equal(inferredRegex.ok, true);
+  if (!inferredRegex.ok) {
+    throw new Error("expected escaped pattern plan");
+  }
+
+  assert.equal(inferredRegex.plan.literal, false);
+  assert.deepEqual(inferredRegex.plan.command, ["rg", "--json", "--max-count", "50", "--", "code\\.testCode", "src"]);
+
+  const explicitLiteral = await planCodeSearchRipgrep({
+    query: "code\\.testCode",
+    directoryPath: "src",
+    literal: true,
+  });
+
+  assert.equal(explicitLiteral.ok, true);
+  if (!explicitLiteral.ok) {
+    throw new Error("expected explicit literal plan");
+  }
+
+  assert.equal(explicitLiteral.plan.literal, true);
+  assert.deepEqual(explicitLiteral.plan.command, ["rg", "--json", "--max-count", "50", "--fixed-strings", "--", "code\\.testCode", "src"]);
+});
+
 test("planCodeSearchRipgrep can use an injected executor envelope", async () => {
   const result = await planCodeSearchRipgrep({
     query: "needle",

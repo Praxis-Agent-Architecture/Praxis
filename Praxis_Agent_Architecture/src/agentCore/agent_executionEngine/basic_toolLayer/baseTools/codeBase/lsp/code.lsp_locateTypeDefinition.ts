@@ -9,4 +9,17 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateTypeDefinition/bestPractice.js";
+export {
+  locateLspTypeDefinition,
+  lspLocateTypeDefinitionBaseToolDefinition,
+  lspLocateTypeDefinitionBestPracticeDescriptor,
+  lspLocateTypeDefinitionHandler,
+  lspLocateTypeDefinitionProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateTypeDefinition/bestPractice.js";
+export type { LspLocateTypeDefinitionBestPracticeRequest } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateTypeDefinition/bestPractice.js";
+export { lspLocateTypeDefinitionDescriptor } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateTypeDefinition/core.js";
+export type {
+  LspLocateTypeDefinitionOutput,
+  LspLocateTypeDefinitionProvider,
+  LspLocateTypeDefinitionRequest,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_locateTypeDefinition/core.js";

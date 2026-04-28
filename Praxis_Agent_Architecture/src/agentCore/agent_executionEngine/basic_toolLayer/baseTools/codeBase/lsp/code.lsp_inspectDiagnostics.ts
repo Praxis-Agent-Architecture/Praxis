@@ -9,4 +9,30 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectDiagnostics/bestPractice.js";
+export {
+  lspInspectDiagnosticsBaseToolDefinition,
+  lspInspectDiagnosticsBestPracticeDescriptor,
+  lspInspectDiagnosticsHandler,
+  lspInspectDiagnosticsProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectDiagnostics/bestPractice.js";
+export type {
+  LspInspectDiagnosticsBestPracticeOutput,
+  LspInspectDiagnosticsBestPracticeRequest,
+  LspInspectDiagnosticsPreviewOutput,
+  LspInspectDiagnosticsRuntimeOutput,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectDiagnostics/bestPractice.js";
+export { inspectLspDiagnostics, lspInspectDiagnosticsDescriptor } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectDiagnostics/core.js";
+export type {
+  LspDiagnostic,
+  LspDiagnosticPosition,
+  LspDiagnosticRange,
+  LspDiagnosticSeverity,
+  LspInspectDiagnosticsBoundary,
+  LspInspectDiagnosticsError,
+  LspInspectDiagnosticsErrorCode,
+  LspInspectDiagnosticsGate,
+  LspInspectDiagnosticsRequest,
+  LspInspectDiagnosticsResult,
+  LspInspectDiagnosticsSnapshot,
+  LspInspectDiagnosticsSummary,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_inspectDiagnostics/core.js";

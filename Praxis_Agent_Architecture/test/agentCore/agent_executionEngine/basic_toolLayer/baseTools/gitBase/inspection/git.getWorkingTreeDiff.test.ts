@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  executeGitWorkingTreeDiff,
   getWorkingTreeDiffDescriptor,
+  parseGitWorkingTreeDiff,
   planGetWorkingTreeDiff,
 } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.js";
 
@@ -24,8 +26,8 @@ test("planGetWorkingTreeDiff creates a guarded dry-run diff plan", () => {
     allowedScopes: ["tool:git:diff"],
   });
 
-  assert.equal(getWorkingTreeDiffDescriptor.defaultDispatch, "dry-run");
-  assert.equal(getWorkingTreeDiffDescriptor.unsafeSideEffects, false);
+  assert.equal(getWorkingTreeDiffDescriptor.defaultDryRun, true);
+  assert.equal(getWorkingTreeDiffDescriptor.operationRisk, "read-only-inspection");
   assert.equal(result.ok, true);
   if (!result.ok) {
     assert.fail("expected working tree diff dry-run plan");
@@ -35,10 +37,12 @@ test("planGetWorkingTreeDiff creates a guarded dry-run diff plan", () => {
   assert.equal(result.plan.mode, "combined");
   assert.equal(result.plan.dispatch, "dry-run");
   assert.equal(result.plan.wouldReadWorkingTree, true);
+  assert.equal(result.output.runtimeEntry.port, "BaseToolExecutorPort.git.runGit");
+  assert.equal(result.output.providerCalled, false);
   assert.deepEqual(result.plan.commandPreview, [
     "git",
     "-C",
-    "repo",
+    "./repo",
     "diff",
     "--unified=4",
     "HEAD",
@@ -52,7 +56,7 @@ test("planGetWorkingTreeDiff rejects empty input, escaped pathspecs, denied scop
 
   assert.equal(empty.ok, false);
   if (!empty.ok) {
-    assert.equal(empty.error.code, "MISSING_RUNTIME_ID");
+    assert.equal(empty.error.code, "MISSING_REPOSITORY_PATH");
     assert.equal(empty.error.boundary, "input");
   }
 
@@ -68,17 +72,6 @@ test("planGetWorkingTreeDiff rejects empty input, escaped pathspecs, denied scop
     assert.equal(escaped.error.boundary, "scope");
   }
 
-  const escapedRepository = planGetWorkingTreeDiff({
-    runtimeId: "runtime-1",
-    repositoryPath: "../repo",
-  });
-
-  assert.equal(escapedRepository.ok, false);
-  if (!escapedRepository.ok) {
-    assert.equal(escapedRepository.error.code, "REPOSITORY_PATH_OUTSIDE_SCOPE");
-    assert.equal(escapedRepository.error.boundary, "scope");
-  }
-
   const optionLikeRef = planGetWorkingTreeDiff({
     runtimeId: "runtime-1",
     repositoryPath: ".",
@@ -90,27 +83,71 @@ test("planGetWorkingTreeDiff rejects empty input, escaped pathspecs, denied scop
     assert.equal(optionLikeRef.error.code, "INVALID_COMPARE_REF");
   }
 
-  const denied = planGetWorkingTreeDiff({
-    runtimeId: "runtime-1",
-    repositoryPath: ".",
-    requestedScopes: ["tool:git:diff"],
-    allowedScopes: ["tool:git:status"],
+  const scoped = planGetWorkingTreeDiff({
+    repositoryPath: "/other/project",
+    context: { allowedRepositoryRoots: ["/repo"] },
   });
 
-  assert.equal(denied.ok, false);
-  if (!denied.ok) {
-    assert.equal(denied.error.code, "SCOPE_DENIED");
+  assert.equal(scoped.ok, false);
+  if (!scoped.ok) {
+    assert.equal(scoped.error.code, "SCOPE_REJECTED");
   }
+});
 
-  const realExecution = planGetWorkingTreeDiff({
-    runtimeId: "runtime-1",
-    repositoryPath: ".",
-    dryRun: false,
+test("executeGitWorkingTreeDiff gates provider dispatch and parses fake runtime output", async () => {
+  let called = 0;
+  const dryRun = await executeGitWorkingTreeDiff({
+    target: { repositoryPath: "/repo/project", mode: "staged" },
+    provider: async () => {
+      called += 1;
+      return { exitCode: 0, stdout: "", stderr: "" };
+    },
   });
+  assert.equal(dryRun.ok, true);
+  assert.equal(called, 0);
 
-  assert.equal(realExecution.ok, false);
-  if (!realExecution.ok) {
-    assert.equal(realExecution.error.code, "REAL_SIDE_EFFECT_NOT_ALLOWED");
-    assert.equal(realExecution.error.boundary, "governance");
+  const rejected = await executeGitWorkingTreeDiff({
+    target: { repositoryPath: "/repo/project" },
+    context: { dryRun: false },
+  });
+  assert.equal(rejected.ok, false);
+  if (!rejected.ok) {
+    assert.equal(rejected.error.code, "GOVERNANCE_REJECTED");
   }
+
+  const missingProvider = await executeGitWorkingTreeDiff({
+    target: { repositoryPath: "/repo/project" },
+    context: { dryRun: false, guard: { allowed: true } },
+  });
+  assert.equal(missingProvider.ok, false);
+  if (!missingProvider.ok) {
+    assert.equal(missingProvider.error.code, "PROVIDER_UNAVAILABLE");
+  }
+
+  const executed = await executeGitWorkingTreeDiff({
+    target: { repositoryPath: "/repo/project", mode: "combined", pathspecs: ["src/index.ts"], contextLines: 2 },
+    context: { dryRun: false, guard: { accepted: true } },
+    provider: async (request) => {
+      called += 1;
+      assert.deepEqual(request.args, ["diff", "--unified=2", "HEAD", "--", "src/index.ts"]);
+      return {
+        exitCode: 0,
+        stdout: "diff --git a/src/index.ts b/src/index.ts\n@@ -1 +1 @@\n-old\n+new\n",
+        stderr: "",
+      };
+    },
+  });
+  assert.equal(executed.ok, true);
+  assert.equal(called, 1);
+  if (executed.ok) {
+    assert.equal(executed.output.providerCalled, true);
+    assert.equal(executed.output.resultEnvelope.files.length, 1);
+    assert.equal(executed.output.resultEnvelope.hunkCount, 1);
+  }
+});
+
+test("parseGitWorkingTreeDiff safely extracts files and hunks", () => {
+  const parsed = parseGitWorkingTreeDiff("diff --git a/a.ts b/a.ts\nnew file mode 100644\n@@ -0,0 +1 @@\n+x\n");
+  assert.equal(parsed.files[0]?.status, "added");
+  assert.equal(parsed.hunkCount, 1);
 });

@@ -156,4 +156,19 @@ test("baseTool registry can resolve executable handlers for directoryized storag
     codeSearchRipgrepHandler.handler.definition.toolSkill.docPath,
     "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/explore/code.search_Ripgrep/code.search_Ripgrep.md",
   );
+
+  for (const [toolId, docPath] of [
+    ["code.testCode", "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/testCode/code.testCode/code.testCode.md"],
+    ["code.benchmark", "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/testCode/code.benchmark/code.benchmark.md"],
+    ["code.debugCollectLogs", "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/debugCode/code.debugCollectLogs/code.debugCollectLogs.md"],
+    ["code.debugCaptureState", "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/debugCode/code.debugCaptureState/code.debugCaptureState.md"],
+    ["code.debugRun", "/home/proview/Desktop/Praxis_series/Praxis_org/Praxis_Agent_Architecture/src/storagePool/baseToolStorage/codeBase/debugCode/code.debugRun/code.debugRun.md"],
+  ] as const) {
+    const handler = registry.lookupHandler(toolId);
+    assert.equal(handler.ok, true, `${toolId} handler should be mounted`);
+    if (!handler.ok) {
+      continue;
+    }
+    assert.equal(handler.handler.definition.toolSkill.docPath, docPath);
+  }
 });

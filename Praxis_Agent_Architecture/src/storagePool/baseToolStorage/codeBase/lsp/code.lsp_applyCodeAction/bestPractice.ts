@@ -171,7 +171,7 @@ export const lspApplyCodeActionHandler: BaseToolHandler<
         { audit: buildPracticeAuditMetadata(selection) },
       );
     } catch (error) {
-      return baseToolInvokeFailure("code.lsp_applyCodeAction", "PROVIDER_REJECTED", error instanceof Error ? error.message : "LSP code action provider rejected the invocation", ["basicTool.lsp.applyCodeAction.rejected"]);
+      return baseToolInvokeFailure("code.lsp_applyCodeAction", "PROVIDER_REJECTED", "code.lsp_applyCodeAction provider rejected the invocation", ["basicTool.lsp.applyCodeAction.rejected"]);
     }
   },
 };

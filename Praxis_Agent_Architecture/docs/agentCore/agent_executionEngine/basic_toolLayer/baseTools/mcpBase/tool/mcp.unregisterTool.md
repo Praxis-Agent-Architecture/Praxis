@@ -119,4 +119,12 @@
 
 它处在工具调用链的底层：runtime 和 TAP 经过治理后调用这些基础工具原语。
 
+## 15. 当前实现状态
+
+- 入口文件保持薄导出，真实实现位于 `src/storagePool/baseToolStorage/mcpBase/tool/mcp.unregisterTool/`。
+- `planMcpToolUnregistration` 只保留 dry-run 兼容，不触碰 runtime provider。
+- `executeMcpToolUnregistration` 在 `context.dryRun:false` 且 guard accepted 后调用 `BaseToolExecutorPort.mcp.unregisterTool`。
+- baseTool 不删除 runtime registry 状态；它只负责输入校验、权限/guard、public-safe error 和结果归一化。
+- registry 已挂载 `mcpUnregisterToolHandler`，lab 使用 fake runtime 验证 `createBaseToolRegistry().lookupHandler("mcp.unregisterTool").handler.invoke(...)`。
+
 这份文档服务后续编码：当实现该文件时，应先回看本文件说明，再决定类型、函数、类和测试如何落位。

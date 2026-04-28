@@ -9,4 +9,26 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export * from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_formatDocument/bestPractice.js";
+export {
+  lspFormatDocumentBaseToolDefinition,
+  lspFormatDocumentBestPracticeDescriptor,
+  lspFormatDocumentHandler,
+  lspFormatDocumentProviderPractices,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_formatDocument/bestPractice.js";
+export type {
+  LspFormatDocumentBestPracticeOutput,
+  LspFormatDocumentBestPracticeRequest,
+  LspFormatDocumentPreviewOutput,
+  LspFormatDocumentRuntimeOutput,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_formatDocument/bestPractice.js";
+export { createLspFormatDocumentPlan, lspFormatDocumentDescriptor } from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_formatDocument/core.js";
+export type {
+  LspFormatDocumentBoundary,
+  LspFormatDocumentError,
+  LspFormatDocumentErrorCode,
+  LspFormatDocumentGate,
+  LspFormatDocumentOptions,
+  LspFormatDocumentPlan,
+  LspFormatDocumentRequest,
+  LspFormatDocumentResult,
+} from "../../../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_formatDocument/core.js";

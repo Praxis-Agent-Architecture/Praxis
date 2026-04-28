@@ -35,6 +35,16 @@ import { shellSessionManagementHandler } from "../../../../storagePool/baseToolS
 import { codeReadHandler } from "../../../../storagePool/baseToolStorage/codeBase/explore/code.read/bestPractice.js";
 import { codeScanHandler } from "../../../../storagePool/baseToolStorage/codeBase/explore/code.scan/bestPractice.js";
 import { codeSearchRipgrepHandler } from "../../../../storagePool/baseToolStorage/codeBase/explore/code.search_Ripgrep/bestPractice.js";
+import { codeDeleteHandler } from "../../../../storagePool/baseToolStorage/codeBase/edit/code.delete/bestPractice.js";
+import { codeFormatHandler } from "../../../../storagePool/baseToolStorage/codeBase/edit/code.format/bestPractice.js";
+import { codeModifyHandler } from "../../../../storagePool/baseToolStorage/codeBase/edit/code.modify/bestPractice.js";
+import { codeOverwriteHandler } from "../../../../storagePool/baseToolStorage/codeBase/edit/code.overwrite/bestPractice.js";
+import { codeReplaceFileHandler } from "../../../../storagePool/baseToolStorage/codeBase/edit/code.replaceFile/bestPractice.js";
+import { codeDebugCaptureStateHandler } from "../../../../storagePool/baseToolStorage/codeBase/debugCode/code.debugCaptureState/bestPractice.js";
+import { codeDebugCollectLogsHandler } from "../../../../storagePool/baseToolStorage/codeBase/debugCode/code.debugCollectLogs/bestPractice.js";
+import { codeDebugRunHandler } from "../../../../storagePool/baseToolStorage/codeBase/debugCode/code.debugRun/bestPractice.js";
+import { codeBenchmarkHandler } from "../../../../storagePool/baseToolStorage/codeBase/testCode/code.benchmark/bestPractice.js";
+import { codeTestHandler } from "../../../../storagePool/baseToolStorage/codeBase/testCode/code.testCode/bestPractice.js";
 import { lspApplyCodeActionHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_applyCodeAction/bestPractice.js";
 import { lspAssistSignatureHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_assistSignature/bestPractice.js";
 import { lspCompleteCodeHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_completeCode/bestPractice.js";
@@ -51,6 +61,56 @@ import { lspSearchWorkspaceSymbolsHandler } from "../../../../storagePool/baseTo
 import { lspSuggestCodeActionsHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_suggestCodeActions/bestPractice.js";
 import { lspTraceImplementationsHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_traceImplementations/bestPractice.js";
 import { lspTraceReferencesHandler } from "../../../../storagePool/baseToolStorage/codeBase/lsp/code.lsp_traceReferences/bestPractice.js";
+import { gitGetCommitHistoryHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.getCommitHistory/bestPractice.js";
+import { gitGetRepositoryStatusHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.getRepositoryStatus/bestPractice.js";
+import { gitGetWorkingTreeDiffHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.getWorkingTreeDiff/bestPractice.js";
+import { gitShowObjectDetailsHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.showGitObjectDetails/bestPractice.js";
+import { gitTraceLineOwnershipHandler } from "../../../../storagePool/baseToolStorage/gitBase/inspection/git.traceLineOwnership/bestPractice.js";
+import { gitCheckoutTargetHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.checkoutTarget/bestPractice.js";
+import { gitManageBranchHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.manageBranch/bestPractice.js";
+import { gitManageTagHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.manageTag/bestPractice.js";
+import { gitMergeBranchHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.mergeBranch/bestPractice.js";
+import { gitRebaseBranchHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.rebaseBranch/bestPractice.js";
+import { gitSwitchBranchHandler } from "../../../../storagePool/baseToolStorage/gitBase/branch/git.switchBranch/bestPractice.js";
+import { gitManageIgnoreRulesHandler } from "../../../../storagePool/baseToolStorage/gitBase/file/git.manageIgnoreRules/bestPractice.js";
+import { gitMoveOrRenameFileHandler } from "../../../../storagePool/baseToolStorage/gitBase/file/git.moveOrRenameFile/bestPractice.js";
+import { gitRemoveTrackedFileHandler } from "../../../../storagePool/baseToolStorage/gitBase/file/git.removeTrackedFile/bestPractice.js";
+import { gitAddToStagingHandler } from "../../../../storagePool/baseToolStorage/gitBase/staging/git.addToStaging/bestPractice.js";
+import { gitResetStagingOrCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/staging/git.resetStagingOrCommit/bestPractice.js";
+import { gitRestoreWorkingTreeHandler } from "../../../../storagePool/baseToolStorage/gitBase/staging/git.restoreWorkingTree/bestPractice.js";
+import { gitApplyStashChangesHandler } from "../../../../storagePool/baseToolStorage/gitBase/stash/git.applyStashChanges/bestPractice.js";
+import { gitCleanUntrackedFilesHandler } from "../../../../storagePool/baseToolStorage/gitBase/stash/git.cleanUntrackedFiles/bestPractice.js";
+import { gitPopStashChangesHandler } from "../../../../storagePool/baseToolStorage/gitBase/stash/git.popStashChanges/bestPractice.js";
+import { gitStashChangesHandler } from "../../../../storagePool/baseToolStorage/gitBase/stash/git.stashChanges/bestPractice.js";
+import { gitAmendLastCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/commit/git.amendLastCommit/bestPractice.js";
+import { gitCreateCommitHandler } from "../../../../storagePool/baseToolStorage/gitBase/commit/git.createCommit/bestPractice.js";
+import { mcpCacheHandler } from "../../../../storagePool/baseToolStorage/mcpBase/cache/mcp.cache/bestPractice.js";
+import { mcpInvalidateCacheHandler } from "../../../../storagePool/baseToolStorage/mcpBase/cache/mcp.invalidateCache/bestPractice.js";
+import { mcpConnectHandler } from "../../../../storagePool/baseToolStorage/mcpBase/connection/mcp.connect/bestPractice.js";
+import { mcpDisconnectHandler } from "../../../../storagePool/baseToolStorage/mcpBase/connection/mcp.disconnect/bestPractice.js";
+import { mcpPingHandler } from "../../../../storagePool/baseToolStorage/mcpBase/connection/mcp.ping/bestPractice.js";
+import { mcpAuthenticateHandler } from "../../../../storagePool/baseToolStorage/mcpBase/auth/mcp.authenticate/bestPractice.js";
+import { mcpAuthorizeHandler } from "../../../../storagePool/baseToolStorage/mcpBase/auth/mcp.authorize/bestPractice.js";
+import { mcpCallHandler } from "../../../../storagePool/baseToolStorage/mcpBase/execution/mcp.call/bestPractice.js";
+import { mcpCancelHandler } from "../../../../storagePool/baseToolStorage/mcpBase/execution/mcp.cancel/bestPractice.js";
+import { mcpNativeExecuteHandler } from "../../../../storagePool/baseToolStorage/mcpBase/execution/mcp.nativeExecute/bestPractice.js";
+import { mcpStreamHandler } from "../../../../storagePool/baseToolStorage/mcpBase/execution/mcp.stream/bestPractice.js";
+import { mcpHealthCheckHandler } from "../../../../storagePool/baseToolStorage/mcpBase/monitoring/mcp.healthCheck/bestPractice.js";
+import { mcpListResourcesHandler } from "../../../../storagePool/baseToolStorage/mcpBase/resource/mcp.listResources/bestPractice.js";
+import { mcpCreateResourceHandler } from "../../../../storagePool/baseToolStorage/mcpBase/resource/mcp.createResource/bestPractice.js";
+import { mcpDeleteResourceHandler } from "../../../../storagePool/baseToolStorage/mcpBase/resource/mcp.deleteResource/bestPractice.js";
+import { mcpReadResourceHandler } from "../../../../storagePool/baseToolStorage/mcpBase/resource/mcp.readResource/bestPractice.js";
+import { mcpUpdateResourceHandler } from "../../../../storagePool/baseToolStorage/mcpBase/resource/mcp.updateResource/bestPractice.js";
+import { mcpSubscribeHandler } from "../../../../storagePool/baseToolStorage/mcpBase/subscription/mcp.subscribe/bestPractice.js";
+import { mcpUnsubscribeHandler } from "../../../../storagePool/baseToolStorage/mcpBase/subscription/mcp.unsubscribe/bestPractice.js";
+import { mcpListToolsHandler } from "../../../../storagePool/baseToolStorage/mcpBase/tool/mcp.listTools/bestPractice.js";
+import { mcpRegisterToolHandler } from "../../../../storagePool/baseToolStorage/mcpBase/tool/mcp.registerTool/bestPractice.js";
+import { mcpUpdateToolHandler } from "../../../../storagePool/baseToolStorage/mcpBase/tool/mcp.updateTool/bestPractice.js";
+import { mcpUnregisterToolHandler } from "../../../../storagePool/baseToolStorage/mcpBase/tool/mcp.unregisterTool/bestPractice.js";
+import { searchFetchHandler } from "../../../../storagePool/baseToolStorage/searchBase/search.fetch/bestPractice.js";
+import { searchGroundHandler } from "../../../../storagePool/baseToolStorage/searchBase/search.ground/bestPractice.js";
+import { nativeSearchHandler } from "../../../../storagePool/baseToolStorage/searchBase/search.nativeSearch/bestPractice.js";
+import { searchEngineHandler } from "../../../../storagePool/baseToolStorage/searchBase/search.searchEngine/bestPractice.js";
 
 export const builtinBaseToolHandlers = [
   shellCapabilityDetectionHandler,
@@ -88,6 +148,16 @@ export const builtinBaseToolHandlers = [
   codeReadHandler,
   codeScanHandler,
   codeSearchRipgrepHandler,
+  codeReplaceFileHandler,
+  codeModifyHandler,
+  codeOverwriteHandler,
+  codeDeleteHandler,
+  codeFormatHandler,
+  codeTestHandler,
+  codeBenchmarkHandler,
+  codeDebugCollectLogsHandler,
+  codeDebugCaptureStateHandler,
+  codeDebugRunHandler,
   lspApplyCodeActionHandler,
   lspAssistSignatureHandler,
   lspCompleteCodeHandler,
@@ -104,6 +174,56 @@ export const builtinBaseToolHandlers = [
   lspSuggestCodeActionsHandler,
   lspTraceImplementationsHandler,
   lspTraceReferencesHandler,
+  gitGetCommitHistoryHandler,
+  gitGetRepositoryStatusHandler,
+  gitGetWorkingTreeDiffHandler,
+  gitShowObjectDetailsHandler,
+  gitTraceLineOwnershipHandler,
+  gitCheckoutTargetHandler,
+  gitManageBranchHandler,
+  gitManageTagHandler,
+  gitMergeBranchHandler,
+  gitRebaseBranchHandler,
+  gitSwitchBranchHandler,
+  gitManageIgnoreRulesHandler,
+  gitMoveOrRenameFileHandler,
+  gitRemoveTrackedFileHandler,
+  gitAddToStagingHandler,
+  gitResetStagingOrCommitHandler,
+  gitRestoreWorkingTreeHandler,
+  gitStashChangesHandler,
+  gitApplyStashChangesHandler,
+  gitPopStashChangesHandler,
+  gitCleanUntrackedFilesHandler,
+  gitAmendLastCommitHandler,
+  gitCreateCommitHandler,
+  mcpCacheHandler,
+  mcpInvalidateCacheHandler,
+  mcpConnectHandler,
+  mcpDisconnectHandler,
+  mcpPingHandler,
+  mcpAuthenticateHandler,
+  mcpAuthorizeHandler,
+  mcpCallHandler,
+  mcpStreamHandler,
+  mcpCancelHandler,
+  mcpNativeExecuteHandler,
+  mcpHealthCheckHandler,
+  mcpListResourcesHandler,
+  mcpReadResourceHandler,
+  mcpCreateResourceHandler,
+  mcpUpdateResourceHandler,
+  mcpDeleteResourceHandler,
+  mcpSubscribeHandler,
+  mcpUnsubscribeHandler,
+  mcpListToolsHandler,
+  mcpRegisterToolHandler,
+  mcpUpdateToolHandler,
+  mcpUnregisterToolHandler,
+  searchFetchHandler,
+  searchGroundHandler,
+  nativeSearchHandler,
+  searchEngineHandler,
 ] as const satisfies readonly BaseToolHandler[];
 
 export function builtinBaseToolHandlersById(): ReadonlyMap<string, BaseToolHandler> {

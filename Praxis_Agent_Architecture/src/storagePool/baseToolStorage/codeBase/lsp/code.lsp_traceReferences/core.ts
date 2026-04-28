@@ -158,7 +158,7 @@ export async function traceLspReferences(
     return createLspToolFailure(
       toolId,
       "PROVIDER_REJECTED",
-      error instanceof Error ? error.message : "trace references provider rejected the invocation",
+      "code.lsp_traceReferences provider rejected the invocation",
       "provider",
       request.context,
       target.filePath,

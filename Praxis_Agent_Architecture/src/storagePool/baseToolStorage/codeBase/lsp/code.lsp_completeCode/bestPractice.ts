@@ -255,7 +255,7 @@ export const lspCompleteCodeHandler: BaseToolHandler<
       return baseToolInvokeFailure(
         "code.lsp_completeCode",
         "PROVIDER_REJECTED",
-        error instanceof Error ? error.message : "LSP completion provider rejected the invocation",
+        "code.lsp_completeCode provider rejected the invocation",
         ["basicTool.lsp.completeCode.rejected"],
       );
     }

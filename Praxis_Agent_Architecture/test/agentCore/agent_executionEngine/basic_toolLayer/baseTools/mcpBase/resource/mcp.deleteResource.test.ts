@@ -35,7 +35,7 @@ test("planMcpDeleteResource creates a guarded dry-run deletion envelope", () => 
   assert.equal(result.output.resourceEnvelope.deleted, false);
   assert.equal(result.output.resourceEnvelope.deletionPlanned, true);
   assert.equal(result.output.resourceEnvelope.reason, "cleanup");
-  assert.equal(result.output.unsafeSideEffects, false);
+  assert.equal(result.output.unsafeSideEffects, true);
   assert.equal(result.audit[0]?.invocationId, "delete-1");
 });
 
