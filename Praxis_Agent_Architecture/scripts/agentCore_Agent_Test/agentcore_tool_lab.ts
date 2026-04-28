@@ -1857,6 +1857,29 @@ function createToolLabBaseToolExecutor(): BaseToolExecutorPort {
         };
       },
     },
+    omni: {
+      async transformMedia(request) {
+        const mimeType =
+          typeof request.parameters?.mediaType === "string"
+            ? request.parameters.mediaType
+            : typeof request.parameters?.targetFormat === "string"
+              ? `application/x-${request.parameters.targetFormat}`
+              : "application/octet-stream";
+        return {
+          ok: true,
+          output: {
+            artifactId: `artifact:tool-lab:${request.operation}:${Date.now()}`,
+            mimeType,
+          },
+          metadata: {
+            runtimeEntry: "BaseToolExecutorPort.omni.transformMedia",
+            labMode: "deterministic-omni-transform",
+            operation: request.operation,
+            inputArtifactId: request.inputArtifactId,
+          },
+        };
+      },
+    },
   };
 }
 
@@ -3711,6 +3734,187 @@ function normalizeMountedSearchBaseInput(
   return { ...args, context: inputContext };
 }
 
+type MountedOmniBaseTool =
+  | "omni.audioCompressor"
+  | "omni.audioFormatConversion"
+  | "omni.audioLyricsGeneration"
+  | "omni.generateAudio"
+  | "omni.listenAudio"
+  | "omni.generateImage"
+  | "omni.imageCompressor"
+  | "omni.imageFormatConversion"
+  | "omni.viewImage"
+  | "omni.generateVideo"
+  | "omni.videoCompressor"
+  | "omni.videoFormatConversion"
+  | "omni.videoSubtitleGeneration"
+  | "omni.viewVideo";
+
+const mountedOmniBaseTools = new Set<MountedOmniBaseTool>([
+  "omni.audioCompressor",
+  "omni.audioFormatConversion",
+  "omni.audioLyricsGeneration",
+  "omni.generateAudio",
+  "omni.listenAudio",
+  "omni.generateImage",
+  "omni.imageCompressor",
+  "omni.imageFormatConversion",
+  "omni.viewImage",
+  "omni.generateVideo",
+  "omni.videoCompressor",
+  "omni.videoFormatConversion",
+  "omni.videoSubtitleGeneration",
+  "omni.viewVideo",
+]);
+
+function normalizeMountedOmniBaseTool(tool: string): MountedOmniBaseTool | undefined {
+  const normalized = tool.trim();
+  return mountedOmniBaseTools.has(normalized as MountedOmniBaseTool) ? (normalized as MountedOmniBaseTool) : undefined;
+}
+
+function omniMediaKind(tool: MountedOmniBaseTool): "audio" | "image" | "video" {
+  if (tool.includes("Audio") || tool.startsWith("omni.audio") || tool === "omni.listenAudio") return "audio";
+  if (tool.includes("Image") || tool.startsWith("omni.image") || tool === "omni.viewImage") return "image";
+  return "video";
+}
+
+function omniDefaultExtension(mediaKind: "audio" | "image" | "video"): string {
+  if (mediaKind === "audio") return "wav";
+  if (mediaKind === "image") return "png";
+  return "mp4";
+}
+
+function omniPermissions(): readonly string[] {
+  return [
+    "filesystem:read",
+    "omni:image:view",
+    "provider:invoke",
+    "provider:audio:invoke",
+    "omni:audio:read",
+    "omni:audio:write",
+    "omni:audio:generate",
+    "omni:image:read",
+    "omni:image:write",
+    "omni:image:generate",
+    "omni:video:read",
+    "omni:video:write",
+    "omni:video:generate",
+  ];
+}
+
+function toolLabOmniGovernedContext(args: Record<string, unknown>): Record<string, unknown> {
+  const inputContext = isRecord(args.context) ? args.context : {};
+  const toolId = typeof args.toolId === "string" ? args.toolId : "omni";
+  const defaultPermissions = toolId === "omni.viewImage" ? ["filesystem:read", "omni:image:view"] : omniPermissions();
+  return {
+    ...inputContext,
+    dryRun: inputContext.dryRun === true ? true : false,
+    guard: { ...(isRecord(inputContext.guard) ? inputContext.guard : {}), allowed: true, accepted: true },
+    allowedImageRoots: Array.isArray(inputContext.allowedImageRoots) ? inputContext.allowedImageRoots : [repoRoot, architectureRoot, "/workspace/media"],
+    allowedInputRoots: Array.isArray(inputContext.allowedInputRoots) ? inputContext.allowedInputRoots : [repoRoot, architectureRoot, "/workspace/media"],
+    allowedOutputRoots: Array.isArray(inputContext.allowedOutputRoots) ? inputContext.allowedOutputRoots : [repoRoot, architectureRoot, "/workspace/output"],
+    grantedPermissions: Array.isArray(inputContext.grantedPermissions) ? inputContext.grantedPermissions : defaultPermissions,
+    requestedScopes: Array.isArray(inputContext.requestedScopes) ? inputContext.requestedScopes : [`tool.${toolId}`],
+    allowedScopes: Array.isArray(inputContext.allowedScopes) ? inputContext.allowedScopes : [`tool.${toolId}`],
+    auditMetadata: {
+      ...(isRecord(inputContext.auditMetadata) ? inputContext.auditMetadata : {}),
+      labRunId: runId,
+      activeAgentId: activeAgent.id,
+      surface: "agentcore_tool_lab",
+    },
+  };
+}
+
+function normalizeMountedOmniBaseInput(
+  tool: MountedOmniBaseTool,
+  args: Record<string, unknown>,
+  userText?: string,
+): Record<string, unknown> {
+  const mediaKind = omniMediaKind(tool);
+  const extension = omniDefaultExtension(mediaKind);
+  const target = isRecord(args.target) ? { ...args.target } : {};
+  const prompt = firstNonBlankString(target.prompt, args.prompt, userText) ?? "Tool lab omni request.";
+  const inputPath = firstNonBlankString(
+    target.inputPath,
+    target.audioPath,
+    target.imagePath,
+    target.videoPath,
+    args.inputPath,
+    args.path,
+  ) ?? `/workspace/media/source.${extension}`;
+  const outputPath = firstNonBlankString(target.outputPath, args.outputPath) ?? `/workspace/output/result.${extension}`;
+
+  if (tool === "omni.viewImage") {
+    target.imagePath = firstNonBlankString(target.imagePath, target.inputPath, args.imagePath, args.path) ?? "/workspace/media/source.png";
+    target.mediaType ??= args.mediaType ?? "image/png";
+    target.detail ??= args.detail ?? "high";
+  } else {
+    if (!tool.startsWith("omni.generate")) {
+      target.inputPath = inputPath;
+    }
+    if (
+      tool.includes("Compressor") ||
+      tool.includes("FormatConversion") ||
+      tool === "omni.generateAudio" ||
+      tool === "omni.generateImage" ||
+      tool === "omni.generateVideo"
+    ) {
+      target.outputPath = outputPath;
+    }
+    if (tool.startsWith("omni.generate")) {
+      target.prompt = prompt;
+    }
+    target.targetFormat ??= args.targetFormat ?? extension;
+  }
+
+  return {
+    ...args,
+    target,
+    context: toolLabOmniGovernedContext({ ...args, toolId: tool }),
+  };
+}
+
+async function runMountedOmniBaseTool(tool: string, args: Record<string, unknown>, userText?: string): Promise<ToolResult | undefined> {
+  const mountedTool = normalizeMountedOmniBaseTool(tool);
+  if (mountedTool === undefined) {
+    return undefined;
+  }
+
+  const input = normalizeMountedOmniBaseInput(mountedTool, args, userText);
+  const lookup = createBaseToolRegistry().lookupHandler(mountedTool);
+  if (!lookup.ok) {
+    return { tool, ok: false, error: `baseTool registry did not mount ${mountedTool}: ${lookup.error.code}` };
+  }
+
+  const result = await lookup.handler.invoke({
+    toolCallId: `${activeAgent.runtimeId}:handler:${mountedTool}:${Date.now()}`,
+    runtimeId: activeAgent.runtimeId,
+    sessionId: activeAgent.sessionId,
+    input,
+    executor: createToolLabBaseToolExecutor(),
+    metadata: {
+      labRunId: runId,
+      activeAgentId: activeAgent.id,
+      mountedVia: "createBaseToolRegistry.lookupHandler",
+      runtimeEntry: "BaseToolExecutorPort.omni.transformMedia",
+    },
+  });
+  logEvent("baseTool.handler.invoked", {
+    requestedTool: tool,
+    mountedTool,
+    input,
+    result,
+    mountedVia: "createBaseToolRegistry.lookupHandler",
+    runtimeEntry: "BaseToolExecutorPort.omni.transformMedia",
+  });
+
+  if (!result.ok) {
+    return { tool, ok: false, error: `${result.error.code}: ${result.error.message}` };
+  }
+
+  return { tool, ok: true, output: result.output };
+}
+
 type MountedMcpTool =
   | "mcp.authenticate"
   | "mcp.authorize"
@@ -4268,6 +4472,12 @@ export async function runTool(tool: string, args: Record<string, unknown> = {}, 
       return mountedSearchBaseResult;
     }
 
+    const mountedOmniBaseResult = await runMountedOmniBaseTool(normalized, args, userText);
+    if (mountedOmniBaseResult !== undefined) {
+      logEvent("tool.finished", { ...mountedOmniBaseResult, durationMs: Date.now() - startedAt });
+      return mountedOmniBaseResult;
+    }
+
     if (normalized === "tool.catalog" || normalized === "tools.list") {
       const query = typeof args.query === "string" ? args.query : "";
       const tools = query.length > 0
@@ -4661,6 +4871,14 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
     "search.fetch 真实执行必须设置 context: { dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"network:read\",\"search:fetch\"] }。",
     "search.searchEngine 真实执行必须设置 context: { dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"network:search\"] }。",
     "search.ground 真实执行必须设置 context: { dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"search:read\",\"grounding:audit\"] }。",
+    "当用户要把图片交给模型看、查看图片、传入图片或 view image 时，必须使用 omni.viewImage。调用形状必须是 {target:{imagePath或imageRef, mediaType?, detail?}, context:{dryRun:false, guard:{allowed:true, accepted:true}, grantedPermissions:[\"filesystem:read\",\"omni:image:view\"]}}。",
+    "当用户要生成图片/音频/视频时，分别使用 omni.generateImage、omni.generateAudio、omni.generateVideo。必须提供 target.prompt 和 target.outputPath 或 outputRef；真实执行必须设置 dryRun:false、affirmative guard、provider:invoke 与对应 omni:*:generate/write 权限。",
+    "当用户要压缩或转换图片/音频/视频格式时，分别使用 omni.imageCompressor、omni.audioCompressor、omni.videoCompressor 或 omni.imageFormatConversion、omni.audioFormatConversion、omni.videoFormatConversion。必须提供输入 path/ref 和输出 path/ref；不要改用 shell、ffmpeg 命令或 code 工具。",
+    "当用户要听音频、转写音频或生成歌词时，使用 omni.listenAudio 或 omni.audioLyricsGeneration。必须提供输入 path/ref；runtime/modelAdapter 才负责解码、ASR、上传和 provider body lowering。",
+    "当用户要看视频、理解视频或生成字幕时，使用 omni.viewVideo 或 omni.videoSubtitleGeneration。必须提供输入 path/ref；runtime 负责视频抽帧、字幕、上传、模型能力和 provider 兼容性判断。",
+    "omniBase 只做 agent 可调用承托面：校验 target/context、dry-run、guard、public-safe error、registry handler 和 BaseToolExecutorPort.omni.transformMedia 转交。不要让 omni 工具自己读取文件、base64 编码、调用 ffmpeg、选择模型 endpoint、自动调用 shell/code 或串联其他 omni 工具。",
+    "omni.viewImage 工具调用示例：",
+    '{"tool_calls":[{"tool":"omni.viewImage","arguments":{"target":{"imagePath":"/workspace/media/source.png","mediaType":"image/png","detail":"high"},"context":{"dryRun":false,"guard":{"allowed":true,"accepted":true},"grantedPermissions":["filesystem:read","omni:image:view"]}}}]}',
     "如果你需要工具，请只输出 JSON，不要加解释：",
     '{"tool_calls":[{"tool":"code.read","arguments":{"path":"Praxis_Agent_Architecture/package.json"}}]}',
     "网络搜索工具调用示例：",
@@ -4669,7 +4887,7 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
     '{"answer":"你的回答"}',
     "可用工具很多，样例工具如下：",
     sampleTools,
-    "当前已有真实执行器的工具包括：tool.catalog, code.read, code.scan, code.search_Ripgrep, code.replaceFile, code.overwrite, code.modify, code.delete, code.format, code.testCode, code.benchmark, code.debugCollectLogs, code.debugCaptureState, code.debugRun, code.lsp_scanDocumentSymbols, code.lsp_searchWorkspaceSymbols, code.lsp_locateDefinition, code.lsp_locateTypeDefinition, code.lsp_traceReferences, code.lsp_traceImplementations, code.lsp_completeCode, code.lsp_assistSignature, code.lsp_explainSymbol, code.lsp_inspectSymbol, code.lsp_inspectDiagnostics, code.lsp_suggestCodeActions, code.lsp_applyCodeAction, code.lsp_renameSymbol, code.lsp_formatDocument, code.lsp_formatRange, code.write, code.append, shell.commandExecution, shell.scriptExecution, git.getRepositoryStatus, git.getWorkingTreeDiff, git.getCommitHistory, git.showGitObjectDetails, git.traceLineOwnership, git.checkoutTarget, git.manageBranch, git.manageTag, git.mergeBranch, git.rebaseBranch, git.switchBranch, git.manageIgnoreRules, git.moveOrRenameFile, git.removeTrackedFile, git.addToStaging, git.resetStagingOrCommit, git.restoreWorkingTree, git.stashChanges, git.applyStashChanges, git.popStashChanges, git.cleanUntrackedFiles, git.createCommit, git.amendLastCommit, git.cherryPickCommit, git.revertCommit, git.initializeRepository, git.cloneRepository, git.archiveRepository, git.locateProblemCommit, git.manageSubmodule, git.manageWorktree, git.manageRemote, git.fetchRemoteUpdates, git.pullRemoteChanges, git.pushLocalChanges, search.nativeSearch, search.fetch, search.searchEngine, search.ground, mcp.authenticate, mcp.authorize, mcp.cache, mcp.invalidateCache, mcp.connect, mcp.disconnect, mcp.subscribe, mcp.unsubscribe, mcp.call, mcp.stream, mcp.cancel, mcp.nativeExecute, mcp.listTools, mcp.registerTool, mcp.updateTool, mcp.unregisterTool, mcp.listResources, mcp.readResource, mcp.createResource, mcp.updateResource, mcp.deleteResource, mcp.ping, mcp.healthCheck。",
+    "当前已有真实执行器的工具包括：tool.catalog, code.read, code.scan, code.search_Ripgrep, code.replaceFile, code.overwrite, code.modify, code.delete, code.format, code.testCode, code.benchmark, code.debugCollectLogs, code.debugCaptureState, code.debugRun, code.lsp_scanDocumentSymbols, code.lsp_searchWorkspaceSymbols, code.lsp_locateDefinition, code.lsp_locateTypeDefinition, code.lsp_traceReferences, code.lsp_traceImplementations, code.lsp_completeCode, code.lsp_assistSignature, code.lsp_explainSymbol, code.lsp_inspectSymbol, code.lsp_inspectDiagnostics, code.lsp_suggestCodeActions, code.lsp_applyCodeAction, code.lsp_renameSymbol, code.lsp_formatDocument, code.lsp_formatRange, code.write, code.append, shell.commandExecution, shell.scriptExecution, git.getRepositoryStatus, git.getWorkingTreeDiff, git.getCommitHistory, git.showGitObjectDetails, git.traceLineOwnership, git.checkoutTarget, git.manageBranch, git.manageTag, git.mergeBranch, git.rebaseBranch, git.switchBranch, git.manageIgnoreRules, git.moveOrRenameFile, git.removeTrackedFile, git.addToStaging, git.resetStagingOrCommit, git.restoreWorkingTree, git.stashChanges, git.applyStashChanges, git.popStashChanges, git.cleanUntrackedFiles, git.createCommit, git.amendLastCommit, git.cherryPickCommit, git.revertCommit, git.initializeRepository, git.cloneRepository, git.archiveRepository, git.locateProblemCommit, git.manageSubmodule, git.manageWorktree, git.manageRemote, git.fetchRemoteUpdates, git.pullRemoteChanges, git.pushLocalChanges, search.nativeSearch, search.fetch, search.searchEngine, search.ground, mcp.authenticate, mcp.authorize, mcp.cache, mcp.invalidateCache, mcp.connect, mcp.disconnect, mcp.subscribe, mcp.unsubscribe, mcp.call, mcp.stream, mcp.cancel, mcp.nativeExecute, mcp.listTools, mcp.registerTool, mcp.updateTool, mcp.unregisterTool, mcp.listResources, mcp.readResource, mcp.createResource, mcp.updateResource, mcp.deleteResource, mcp.ping, mcp.healthCheck, omni.viewImage, omni.generateImage, omni.imageCompressor, omni.imageFormatConversion, omni.listenAudio, omni.generateAudio, omni.audioCompressor, omni.audioFormatConversion, omni.audioLyricsGeneration, omni.viewVideo, omni.generateVideo, omni.videoCompressor, omni.videoFormatConversion, omni.videoSubtitleGeneration。",
     "注意：shell 工具只用于明确的 shell/命令执行测试，不用于代码阅读、目录扫描或文本搜索。",
     `当前 agent: ${agent.id}, runtimeId=${agent.runtimeId}, sessionId=${agent.sessionId}`,
     transcript.length > 0 ? `对话历史：\n${transcript}` : "",

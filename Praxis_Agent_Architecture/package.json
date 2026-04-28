@@ -19,6 +19,8 @@
     "test:agentCore:git-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_git_live_matrix.ts",
     "test:agentCore:skill-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_skill_live_matrix.ts --dialogue",
     "test:agentCore:skill-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_skill_live_matrix.ts",
+    "test:agentCore:omni-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_omni_live_matrix.ts --dialogue",
+    "test:agentCore:omni-live": "AGENTCORE_LIVE_TEST=1 node --import tsx scripts/agentCore_Agent_Test/agentcore_omni_live_matrix.ts",
     "lab:agentCore:tools": "node --import tsx scripts/agentCore_Agent_Test/agentcore_tool_lab.ts",
     "smoke:agentCore": "node --import tsx scripts/agentCore_Agent_Test/agentcore_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
@@ -29,5 +31,11 @@
     "@types/node": "^24.12.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
+    "@huggingface/transformers": "^4.2.0"
   }
 }

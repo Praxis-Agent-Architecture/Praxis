@@ -129,6 +129,20 @@ import { skillManagementHandler } from "../../../../storagePool/baseToolStorage/
 import { skillRemoveHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.remove/bestPractice.js";
 import { skillRipgrepHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.ripgrep/bestPractice.js";
 import { skillSummarizeHandler } from "../../../../storagePool/baseToolStorage/skillBase/skill.summarize/bestPractice.js";
+import { omniViewImageHandler } from "../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.viewImage/bestPractice.js";
+import { omniAudioCompressionHandler } from "../../../../storagePool/baseToolStorage/omniBase/audioTransformer/omni.audioCompressor/bestPractice.js";
+import { omniAudioFormatConversionHandler } from "../../../../storagePool/baseToolStorage/omniBase/audioTransformer/omni.audioFormatConversion/bestPractice.js";
+import { omniAudioLyricsGenerationHandler } from "../../../../storagePool/baseToolStorage/omniBase/audioTransformer/omni.audioLyricsGeneration/bestPractice.js";
+import { omniGenerateAudioHandler } from "../../../../storagePool/baseToolStorage/omniBase/audioTransformer/omni.generateAudio/bestPractice.js";
+import { omniListenAudioHandler } from "../../../../storagePool/baseToolStorage/omniBase/audioTransformer/omni.listenAudio/bestPractice.js";
+import { omniGenerateImageHandler } from "../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.generateImage/bestPractice.js";
+import { omniImageCompressorHandler } from "../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.imageCompressor/bestPractice.js";
+import { omniImageFormatConversionHandler } from "../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.imageFormatConversion/bestPractice.js";
+import { omniGenerateVideoHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.generateVideo/bestPractice.js";
+import { omniVideoCompressorHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.videoCompressor/bestPractice.js";
+import { omniVideoFormatConversionHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.videoFormatConversion/bestPractice.js";
+import { omniVideoSubtitleGenerationHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.videoSubtitleGeneration/bestPractice.js";
+import { omniViewVideoHandler } from "../../../../storagePool/baseToolStorage/omniBase/videoTransformer/omni.viewVideo/bestPractice.js";
 
 export const builtinBaseToolHandlers = [
   shellCapabilityDetectionHandler,
@@ -260,6 +274,20 @@ export const builtinBaseToolHandlers = [
   skillRemoveHandler,
   skillRipgrepHandler,
   skillSummarizeHandler,
+  omniViewImageHandler,
+  omniAudioCompressionHandler,
+  omniAudioFormatConversionHandler,
+  omniAudioLyricsGenerationHandler,
+  omniGenerateAudioHandler,
+  omniListenAudioHandler,
+  omniGenerateImageHandler,
+  omniImageCompressorHandler,
+  omniImageFormatConversionHandler,
+  omniGenerateVideoHandler,
+  omniVideoCompressorHandler,
+  omniVideoFormatConversionHandler,
+  omniVideoSubtitleGenerationHandler,
+  omniViewVideoHandler,
 ] as const satisfies readonly BaseToolHandler[];
 
 export function builtinBaseToolHandlersById(): ReadonlyMap<string, BaseToolHandler> {

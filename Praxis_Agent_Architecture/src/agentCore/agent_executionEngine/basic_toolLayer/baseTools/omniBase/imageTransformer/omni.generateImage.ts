@@ -9,216 +9,33 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export type GenerateImageBoundary = "input" | "contract" | "governance" | "scope" | "resource";
-
-export type GenerateImageGate = {
-  accepted: boolean;
-  reason?: string;
-};
-
-export type GenerateImageOutputFormat = "png" | "jpeg" | "webp";
-
-export type GenerateImageRequest = {
-  runtimeId?: string;
-  sessionId?: string;
-  invocationId?: string;
-  prompt?: string;
-  negativePrompt?: string;
-  outputFormat?: GenerateImageOutputFormat;
-  imageCount?: number;
-  maxImages?: number;
-  providerHint?: string;
-  requestedScopes?: readonly string[];
-  allowedScopes?: readonly string[];
-  dryRun?: boolean;
-  contract?: GenerateImageGate;
-  governance?: GenerateImageGate;
-  metadata?: Readonly<Record<string, unknown>>;
-};
-
-export type GenerateImageErrorCode =
-  | "MISSING_PROMPT"
-  | "INVALID_IMAGE_COUNT"
-  | "IMAGE_COUNT_LIMIT_EXCEEDED"
-  | "CONTRACT_REJECTED"
-  | "GOVERNANCE_REJECTED"
-  | "SCOPE_DENIED"
-  | "REAL_SIDE_EFFECT_NOT_ALLOWED";
-
-export type GenerateImageError = {
-  code: GenerateImageErrorCode;
-  message: string;
-  boundary: GenerateImageBoundary;
-  safeForRuntimeInspection: true;
-  internalDetailExposed: false;
-};
-
-export type GenerateImagePlan = {
-  tool: "omni.generateImage";
-  capability: "generate-image";
-  runtimeId?: string;
-  sessionId?: string;
-  invocationId?: string;
-  promptCharacters: number;
-  negativePromptCharacters: number;
-  outputFormat: GenerateImageOutputFormat;
-  imageCount: number;
-  providerHint?: string;
-  requiredPermission: "omni:image:generate";
-  requiresTapApproval: true;
-  dispatch: "dry-run";
-  dryRun: true;
-  wouldRequestGeneration: true;
-  unsafeSideEffects: false;
-  acceptedScopes: readonly string[];
-  audit: {
-    guard: "image-generation-prompt-governance-and-dry-run";
-    event: "basicTool.omni.generateImage.planned";
-    metadata: Readonly<Record<string, unknown>>;
-  };
-};
-
-export type GenerateImageResult =
-  | {
-      ok: true;
-      plan: GenerateImagePlan;
-      events: readonly string[];
-    }
-  | {
-      ok: false;
-      error: GenerateImageError;
-      events: readonly string[];
-    };
-
-export const generateImageDescriptor = {
-  tool: "omni.generateImage",
-  capability: "generate-image",
-  layer: "agent_executionEngine.basic_toolLayer.baseTools.omniBase.imageTransformer",
-  defaultDispatch: "dry-run",
-  requiresTapApproval: true,
-  unsafeSideEffects: false,
-} as const;
-
-const defaultMaxImages = 4;
-
-function isBlank(value: string | undefined): boolean {
-  return typeof value !== "string" || value.trim().length === 0;
-}
-
-function cleanList(values: readonly string[] | undefined): string[] {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
-}
-
-function failure(
-  code: GenerateImageErrorCode,
-  message: string,
-  boundary: GenerateImageBoundary,
-): GenerateImageResult {
-  return {
-    ok: false,
-    error: {
-      code,
-      message,
-      boundary,
-      safeForRuntimeInspection: true,
-      internalDetailExposed: false,
-    },
-    events: ["basicTool.omni.generateImage.rejected"],
-  };
-}
-
-function resolveScopes(
-  requestedScopes: readonly string[] | undefined,
-  allowedScopes: readonly string[] | undefined,
-): string[] | GenerateImageResult {
-  const requested = cleanList(requestedScopes);
-  const allowed = cleanList(allowedScopes);
-
-  if (requested.length === 0) {
-    return [];
-  }
-
-  const denied = requested.filter((scope) => !allowed.includes(scope));
-  if (denied.length > 0) {
-    return failure("SCOPE_DENIED", `omni.generateImage scope ${denied[0]} is outside runtime governance`, "scope");
-  }
-
-  return requested;
-}
-
-export function planGenerateImage(request: GenerateImageRequest = {}): GenerateImageResult {
-  if (isBlank(request.prompt)) {
-    return failure("MISSING_PROMPT", "omni.generateImage requires a non-empty prompt", "input");
-  }
-
-  const imageCount = request.imageCount ?? 1;
-  if (!Number.isInteger(imageCount) || imageCount < 1) {
-    return failure("INVALID_IMAGE_COUNT", "omni.generateImage imageCount must be a positive integer", "input");
-  }
-
-  const maxImages = request.maxImages ?? defaultMaxImages;
-  if (!Number.isInteger(maxImages) || maxImages < 1 || imageCount > maxImages) {
-    return failure("IMAGE_COUNT_LIMIT_EXCEEDED", "omni.generateImage imageCount exceeds the resource boundary", "resource");
-  }
-
-  if (request.dryRun === false) {
-    return failure(
-      "REAL_SIDE_EFFECT_NOT_ALLOWED",
-      "first-round omni.generateImage only returns a dry-run generation plan",
-      "governance",
-    );
-  }
-
-  if (request.contract?.accepted === false) {
-    return failure(
-      "CONTRACT_REJECTED",
-      request.contract.reason ?? "omni.generateImage was rejected by runtime contract surface",
-      "contract",
-    );
-  }
-
-  if (request.governance?.accepted === false) {
-    return failure(
-      "GOVERNANCE_REJECTED",
-      request.governance.reason ?? "omni.generateImage was rejected by runtime governance",
-      "governance",
-    );
-  }
-
-  const acceptedScopes = resolveScopes(request.requestedScopes, request.allowedScopes);
-  if (!Array.isArray(acceptedScopes)) {
-    return acceptedScopes;
-  }
-
-  const prompt = request.prompt ?? "";
-  const negativePrompt = request.negativePrompt ?? "";
-
-  return {
-    ok: true,
-    plan: {
-      tool: "omni.generateImage",
-      capability: "generate-image",
-      runtimeId: request.runtimeId?.trim() || undefined,
-      sessionId: request.sessionId?.trim() || undefined,
-      invocationId: request.invocationId?.trim() || undefined,
-      promptCharacters: prompt.trim().length,
-      negativePromptCharacters: negativePrompt.trim().length,
-      outputFormat: request.outputFormat ?? "png",
-      imageCount,
-      providerHint: request.providerHint?.trim() || undefined,
-      requiredPermission: "omni:image:generate",
-      requiresTapApproval: true,
-      dispatch: "dry-run",
-      dryRun: true,
-      wouldRequestGeneration: true,
-      unsafeSideEffects: false,
-      acceptedScopes,
-      audit: {
-        guard: "image-generation-prompt-governance-and-dry-run",
-        event: "basicTool.omni.generateImage.planned",
-        metadata: request.metadata ?? {},
-      },
-    },
-    events: ["basicTool.omni.generateImage.planned"],
-  };
-}
+export {
+  omniGenerateImageDescriptor,
+  omniGenerateImageConfig,
+  executeOmniGenerateImageCore,
+  planGenerateImage,
+} from '../../../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.generateImage/core.js';
+export type {
+  OmniGenerateImageContext,
+  OmniGenerateImageOutput,
+  OmniGenerateImageProvider,
+  OmniGenerateImageProviderRequest,
+  OmniGenerateImageProviderResult,
+  OmniGenerateImageRequest,
+  OmniGenerateImageResult,
+} from '../../../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.generateImage/core.js';
+export {
+  createOmniGenerateImageRuntimeProvider,
+  omniGenerateImageDependencyDeclarations,
+} from '../../../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.generateImage/dependencies.js';
+export type {
+  OmniGenerateImageDependencies,
+  OmniGenerateImagePracticeProviderName,
+} from '../../../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.generateImage/dependencies.js';
+export {
+  omniGenerateImageDefinition,
+  omniGenerateImageHandler,
+  executeOmniGenerateImage,
+  omniGenerateImagePractices,
+  selectOmniGenerateImagePractice,
+} from '../../../../../../storagePool/baseToolStorage/omniBase/imageTransformer/omni.generateImage/bestPractice.js';
