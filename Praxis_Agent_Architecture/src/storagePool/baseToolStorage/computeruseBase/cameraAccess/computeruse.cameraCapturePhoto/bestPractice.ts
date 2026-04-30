@@ -122,7 +122,7 @@ export const cameraCapturePhotoBaseToolDefinition = createComputerUseBaseToolDef
   description: "Capture a camera photo artifact through governed runtime computer-use support.",
   summary: "Use computeruse.cameraCapturePhoto to ask runtime to capture a camera photo artifact.",
   storageGroup: "cameraAccess",
-  riskLevel: "risky",
+  riskLevel: "dangerous",
   permissionHints: ["device:camera", "camera:capture-photo"],
   dependencies: cameraCapturePhotoDependencyDeclarations,
   inputSchema: jsonSchema("computeruse.cameraCapturePhoto.input", {
