@@ -12,6 +12,14 @@ import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
 } from "./modelAdapterRuntime.js";
+import type { AuthEnvelope } from "../../agent_modelAdapter/authProfileLayer/authEnvelope.js";
+import {
+  invokeChatGPTCodexResponses,
+} from "../../agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+import type {
+  OpenAIV1ResponsesProviderCaller,
+  OpenAIV1ResponsesResult,
+} from "../../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 
 export type ModelInvocationRuntimeMode = "single" | "stream" | "batch" | (string & {});
 
@@ -37,7 +45,10 @@ export type ModelInvocationRuntimeErrorCode =
   | "RUNTIME_NOT_READY"
   | "CONTRACT_REJECTED"
   | "GOVERNANCE_REJECTED"
-  | "UNSAFE_INVOCATION_DISABLED";
+  | "UNSAFE_INVOCATION_DISABLED"
+  | "PROVIDER_CALLER_REQUIRED"
+  | "UNSUPPORTED_PROVIDER_ROUTE"
+  | "PROVIDER_INVOCATION_FAILED";
 
 export type ModelInvocationRuntimeError = {
   code: ModelInvocationRuntimeErrorCode;
@@ -77,6 +88,18 @@ export type ModelInvocationRuntimeRequest = {
   metadata?: Readonly<Record<string, unknown>>;
 };
 
+export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & {
+  providerBody?: unknown;
+  auth?: AuthEnvelope;
+  providerCaller?: OpenAIV1ResponsesProviderCaller;
+  dryRun?: boolean;
+  requiredScopes?: readonly string[];
+  allowedScopes?: readonly string[];
+  chatgptAccountId?: string;
+  clientName?: string;
+  clientVersion?: string;
+};
+
 export type ModelInvocationMockableEnvelope = {
   loweringId: string;
   promptPackId?: string;
@@ -94,12 +117,12 @@ export type ModelInvocationPlan = {
   caller: ModelAdapterRuntimeCaller;
   route: "runtime.modelAdapter.modelInvocationRuntime";
   envelope: ModelInvocationMockableEnvelope;
-  providerCallPermitted: false;
-  transport: "mockable-envelope";
+  providerCallPermitted: boolean;
+  transport: "mockable-envelope" | "provider";
   metadata: Readonly<Record<string, unknown>>;
   contractChecked: true;
   governanceChecked: true;
-  dryRun: true;
+  dryRun: boolean;
   unsafeSideEffects: false;
 };
 
@@ -112,6 +135,21 @@ export type ModelInvocationRuntimeResult =
   | {
       ok: false;
       error: ModelInvocationRuntimeError;
+      events: readonly string[];
+    };
+
+export type RuntimeModelInvocationResult =
+  | {
+      ok: true;
+      plan: ModelInvocationPlan;
+      providerResult?: OpenAIV1ResponsesResult;
+      raw: unknown;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: ModelInvocationRuntimeError;
+      providerResult?: OpenAIV1ResponsesResult;
       events: readonly string[];
     };
 
@@ -267,5 +305,118 @@ export function planModelInvocation(
       unsafeSideEffects: false,
     },
     events: ["runtime.modelAdapter.modelInvocationRuntime.planned"],
+  };
+}
+
+function liveFailure(
+  code: Extract<
+    ModelInvocationRuntimeErrorCode,
+    "PROVIDER_CALLER_REQUIRED" | "UNSUPPORTED_PROVIDER_ROUTE" | "PROVIDER_INVOCATION_FAILED"
+  >,
+  message: string,
+  boundary: ModelInvocationRuntimeBoundary,
+  providerResult?: OpenAIV1ResponsesResult,
+): RuntimeModelInvocationResult {
+  return {
+    ok: false,
+    error: { code, message, boundary, publicSafe: true },
+    providerResult,
+    events: ["runtime.modelAdapter.modelInvocationRuntime.rejected"],
+  };
+}
+
+export async function invokeModelThroughRuntime(
+  request: RuntimeModelInvocationLiveRequest = {},
+): Promise<RuntimeModelInvocationResult> {
+  const planResult = planModelInvocation({
+    ...request,
+    allowProviderCall: false,
+  });
+
+  if (!planResult.ok) {
+    return planResult;
+  }
+
+  if (request.dryRun !== false) {
+    return {
+      ok: true,
+      plan: planResult.plan,
+      raw: null,
+      events: ["runtime.modelAdapter.modelInvocationRuntime.dryRun", ...planResult.events],
+    };
+  }
+
+  if (request.allowProviderCall !== true) {
+    return {
+      ok: false,
+      error: {
+        code: "UNSAFE_INVOCATION_DISABLED",
+        message: "model invocation live call requires allowProviderCall: true",
+        boundary: "side-effect",
+        publicSafe: true,
+      },
+      events: ["runtime.modelAdapter.modelInvocationRuntime.rejected"],
+    };
+  }
+
+  if (request.providerCaller === undefined) {
+    return liveFailure(
+      "PROVIDER_CALLER_REQUIRED",
+      "model invocation live call requires an injected provider caller",
+      "carrier",
+    );
+  }
+
+  const provider = request.carrier?.provider?.trim() ?? planResult.plan.envelope.provider;
+  const endpointIsResponses = request.capability?.kind?.trim() === "responses" || request.mode === "single" || request.mode === undefined;
+  if (provider !== "openai" || !endpointIsResponses) {
+    return liveFailure(
+      "UNSUPPORTED_PROVIDER_ROUTE",
+      "model invocation v1 only supports OpenAI/ChatGPT Codex responses route",
+      "carrier",
+    );
+  }
+
+  const providerResult = await invokeChatGPTCodexResponses({
+    operation: "create",
+    runtime: {
+      runtimeId: planResult.plan.runtimeId,
+      invocationId: planResult.plan.invocationId,
+      callerId: planResult.plan.caller.id,
+    },
+    dryRun: false,
+    governance: request.governance,
+    contract: request.contract,
+    auth: request.auth,
+    body: request.providerBody,
+    caller: request.providerCaller,
+    requiredScopes: request.requiredScopes ?? ["model.invoke", "chatgpt.codex.responses"],
+    allowedScopes: request.allowedScopes,
+    chatgptAccountId: request.chatgptAccountId,
+    clientName: request.clientName,
+    clientVersion: request.clientVersion,
+    expectResponseObject: false,
+  });
+
+  if (!providerResult.ok) {
+    return liveFailure(
+      "PROVIDER_INVOCATION_FAILED",
+      providerResult.error.message,
+      providerResult.error.boundary === "auth" ? "carrier" : "runtime-state",
+      providerResult,
+    );
+  }
+
+  return {
+    ok: true,
+    plan: {
+      ...planResult.plan,
+      providerCallPermitted: true,
+      transport: "provider",
+      dryRun: false,
+    },
+    providerResult,
+    raw: providerResult.response.raw,
+    events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
   };
 }

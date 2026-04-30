@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { planModelInvocation } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
+import { createChatGPTCodexAuthEnvelope } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/codexAuth.js";
+import { createCredentialRef } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+import {
+  invokeModelThroughRuntime,
+  planModelInvocation,
+} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
 
 defineAgentCoreContractTest({
   sourcePath: "Praxis_Agent_Architecture/src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.ts",
@@ -76,4 +81,53 @@ test("modelInvocationRuntime rejects missing envelopes and real provider calls i
 
   assert.equal(unsafe.error.code, "UNSAFE_INVOCATION_DISABLED");
   assert.equal(unsafe.error.boundary, "side-effect");
+});
+
+test("invokeModelThroughRuntime can call the codex responses provider path when governance allows it", async () => {
+  const ref = createCredentialRef({
+    id: "chatgpt",
+    provider: "openai",
+    credentialType: "chatgpt_codex_oauth",
+    source: { kind: "test", label: "unit" },
+  });
+  assert.equal(ref.ok, true);
+  if (!ref.ok) return;
+
+  const auth = createChatGPTCodexAuthEnvelope({
+    credentialRef: ref.credentialRef,
+    snapshot: {
+      sourceShape: "chatgpt-auth-tokens",
+      authMode: "chatgpt",
+      accessToken: "codex-access-token-secret",
+      refreshTokenPresent: false,
+      idTokenPresent: false,
+      accountId: "workspace-secret-id",
+      accountIsFedramp: false,
+      publicSafe: false,
+    },
+  });
+
+  const result = await invokeModelThroughRuntime({
+    runtimeId: "runtime-1",
+    caller: { kind: "application", id: "app-1" },
+    loweredPrompt: { loweringId: "lowering-1" },
+    capability: { capabilityId: "codex-responses", kind: "responses" },
+    carrier: { carrierId: "carrier-1", provider: "openai" },
+    dryRun: false,
+    allowProviderCall: true,
+    governance: { accepted: true },
+    auth: auth.envelope,
+    providerBody: { model: "gpt-5.4", input: "hello" },
+    providerCaller: async (request) => {
+      assert.equal(request.url.endsWith("/responses"), true);
+      assert.equal(request.headers.authorization, "[redacted:32]");
+      return { output_text: "hello from codex responses" };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.plan.providerCallPermitted, true);
+  assert.equal(result.plan.transport, "provider");
+  assert.deepEqual(result.raw, { output_text: "hello from codex responses" });
 });
