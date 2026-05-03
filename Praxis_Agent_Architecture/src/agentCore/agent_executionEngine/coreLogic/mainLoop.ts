@@ -17,6 +17,78 @@ import {
 
 export type AgentMainLoopNextHop = "prompt-pack" | "model-adapter" | "tool-layer" | "event-exposure" | "none";
 
+export type MainLoopActionPrimitive =
+  | "receiveInput"
+  | "advanceState"
+  | "assemblePromptPack"
+  | "lowerPrompt"
+  | "invokeModel"
+  | "interpretModelDecision"
+  | "invokeBaseTool"
+  | "executeEphemeralProcedure"
+  | "integrateObservation"
+  | "requestApproval"
+  | "requestTapCapability"
+  | "exposeOutput"
+  | "fail";
+
+export type MainLoopStepStatus =
+  | "planned"
+  | "running"
+  | "completed"
+  | "failed"
+  | "interrupted"
+  | "waitingApproval";
+
+export type MainLoopStepGateResult = {
+  accepted: boolean;
+  reason?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type MainLoopPublicSafeFailure = {
+  code: string;
+  message: string;
+  boundary: "input" | "runtime-state" | "contract" | "governance" | "prompt" | "model" | "tool" | "procedure" | "output";
+  publicSafe: true;
+};
+
+export type MainLoopStepTrace = AgentExecutionStateTrace & {
+  traceId?: string;
+};
+
+export type MainLoopStepRecord = {
+  stepId: string;
+  sessionId: string;
+  turnIndex: number;
+  stepIndex: number;
+  actionPrimitive: MainLoopActionPrimitive;
+  status: MainLoopStepStatus;
+  inputRefs: readonly string[];
+  outputRefs: readonly string[];
+  modelCallId?: string;
+  toolCallId?: string;
+  procedureId?: string;
+  stateBeforeRef?: string;
+  stateAfterRef?: string;
+  promptPackRef?: string;
+  loweredPromptRef?: string;
+  observationRefs: readonly string[];
+  governance: MainLoopStepGateResult;
+  contract: MainLoopStepGateResult;
+  error?: MainLoopPublicSafeFailure;
+  timestamps: {
+    plannedAt: string;
+    startedAt?: string;
+    completedAt?: string;
+    failedAt?: string;
+    interruptedAt?: string;
+    waitingApprovalAt?: string;
+  };
+  trace: MainLoopStepTrace;
+  metadata: Readonly<Record<string, unknown>>;
+};
+
 export type AgentMainLoopBoundary = "input" | "runtime-state" | "contract" | "governance";
 
 export type AgentMainLoopRequest = {
@@ -51,6 +123,7 @@ export type AgentMainLoopTick = {
   state: AgentExecutionStateSnapshot;
   nextHop: AgentMainLoopNextHop;
   plannedSteps: readonly string[];
+  stepRecords: readonly MainLoopStepRecord[];
   dryRun: true;
   unsafeSideEffects: false;
 };
@@ -76,6 +149,81 @@ function failure(code: AgentMainLoopErrorCode, message: string, boundary: AgentM
     ok: false,
     error: { code, message, boundary, stateSafe: true },
     events: ["agentCore.execution.mainLoop.rejected"],
+  };
+}
+
+function defaultTimestamp(): string {
+  return new Date(0).toISOString();
+}
+
+function cleanRefs(refs: readonly string[] | undefined): readonly string[] {
+  return [...new Set((refs ?? []).map((ref) => ref.trim()).filter(Boolean))];
+}
+
+function gateResult(gate: AgentExecutionStateGate | undefined): MainLoopStepGateResult {
+  if (gate === undefined) {
+    return { accepted: true };
+  }
+  return gate.reason === undefined
+    ? { accepted: gate.accepted }
+    : { accepted: gate.accepted, reason: gate.reason };
+}
+
+export function createMainLoopStepRecord(input: {
+  sessionId: string;
+  turnIndex: number;
+  stepIndex: number;
+  actionPrimitive: MainLoopActionPrimitive;
+  status?: MainLoopStepStatus;
+  inputRefs?: readonly string[];
+  outputRefs?: readonly string[];
+  modelCallId?: string;
+  toolCallId?: string;
+  procedureId?: string;
+  stateBeforeRef?: string;
+  stateAfterRef?: string;
+  promptPackRef?: string;
+  loweredPromptRef?: string;
+  observationRefs?: readonly string[];
+  governance?: MainLoopStepGateResult;
+  contract?: MainLoopStepGateResult;
+  error?: MainLoopPublicSafeFailure;
+  now?: string;
+  trace?: MainLoopStepTrace;
+  metadata?: Readonly<Record<string, unknown>>;
+}): MainLoopStepRecord {
+  const status = input.status ?? "planned";
+  const timestamp = input.now ?? defaultTimestamp();
+  return {
+    stepId: `${input.sessionId}:turn:${input.turnIndex}:step:${input.stepIndex}:${input.actionPrimitive}`,
+    sessionId: input.sessionId,
+    turnIndex: input.turnIndex,
+    stepIndex: input.stepIndex,
+    actionPrimitive: input.actionPrimitive,
+    status,
+    inputRefs: cleanRefs(input.inputRefs),
+    outputRefs: cleanRefs(input.outputRefs),
+    modelCallId: input.modelCallId?.trim() || undefined,
+    toolCallId: input.toolCallId?.trim() || undefined,
+    procedureId: input.procedureId?.trim() || undefined,
+    stateBeforeRef: input.stateBeforeRef?.trim() || undefined,
+    stateAfterRef: input.stateAfterRef?.trim() || undefined,
+    promptPackRef: input.promptPackRef?.trim() || undefined,
+    loweredPromptRef: input.loweredPromptRef?.trim() || undefined,
+    observationRefs: cleanRefs(input.observationRefs),
+    governance: input.governance ?? { accepted: true },
+    contract: input.contract ?? { accepted: true },
+    error: input.error,
+    timestamps: {
+      plannedAt: timestamp,
+      ...(status === "running" ? { startedAt: timestamp } : {}),
+      ...(status === "completed" ? { completedAt: timestamp } : {}),
+      ...(status === "failed" ? { failedAt: timestamp } : {}),
+      ...(status === "interrupted" ? { interruptedAt: timestamp } : {}),
+      ...(status === "waitingApproval" ? { waitingApprovalAt: timestamp } : {}),
+    },
+    trace: input.trace ?? {},
+    metadata: input.metadata ?? {},
   };
 }
 
@@ -115,15 +263,45 @@ export function planAgentMainLoopTick(request: AgentMainLoopRequest): AgentMainL
   }
 
   const nextHop = request.requestedNextHop ?? "prompt-pack";
+  const sessionId = (request.sessionId ?? "").trim();
 
   return {
     ok: true,
     tick: {
-      sessionId: (request.sessionId ?? "").trim(),
+      sessionId,
       input: request.input,
       state: stateResult.state,
       nextHop,
       plannedSteps: ["receive-input", "advance-state", `handoff:${nextHop}`],
+      stepRecords: [
+        createMainLoopStepRecord({
+          sessionId,
+          turnIndex: 0,
+          stepIndex: 0,
+          actionPrimitive: "receiveInput",
+          status: "completed",
+          inputRefs: ["runtime.input"],
+          outputRefs: ["runtime.input.normalized"],
+          stateAfterRef: `${sessionId}:state:${stateResult.state.revision}`,
+          governance: gateResult(request.governance),
+          contract: gateResult(request.contract),
+          trace: request.trace,
+          now: "1970-01-01T00:00:00.000Z",
+        }),
+        createMainLoopStepRecord({
+          sessionId,
+          turnIndex: 0,
+          stepIndex: 1,
+          actionPrimitive: "assemblePromptPack",
+          status: "planned",
+          inputRefs: ["runtime.input.normalized"],
+          stateBeforeRef: `${sessionId}:state:${stateResult.state.revision}`,
+          governance: gateResult(request.governance),
+          contract: gateResult(request.contract),
+          trace: request.trace,
+          now: "1970-01-01T00:00:00.000Z",
+        }),
+      ],
       dryRun: true,
       unsafeSideEffects: false,
     },

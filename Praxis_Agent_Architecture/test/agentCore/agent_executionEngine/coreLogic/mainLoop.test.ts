@@ -24,6 +24,11 @@ test("planAgentMainLoopTick creates one dry-run execution tick and next-hop hand
   assert.equal(result.tick.state.revision, 1);
   assert.equal(result.tick.nextHop, "prompt-pack");
   assert.deepEqual(result.tick.plannedSteps, ["receive-input", "advance-state", "handoff:prompt-pack"]);
+  assert.equal(result.tick.stepRecords.length, 2);
+  assert.equal(result.tick.stepRecords[0]?.actionPrimitive, "receiveInput");
+  assert.equal(result.tick.stepRecords[0]?.status, "completed");
+  assert.equal(result.tick.stepRecords[1]?.actionPrimitive, "assemblePromptPack");
+  assert.equal(result.tick.stepRecords[1]?.status, "planned");
   assert.equal(result.tick.dryRun, true);
   assert.equal(result.tick.unsafeSideEffects, false);
 });

@@ -388,6 +388,7 @@ export async function invokeModelThroughRuntime(
     governance: request.governance,
     contract: request.contract,
     auth: request.auth,
+    headers: { "content-type": "application/json" },
     body: request.providerBody,
     caller: request.providerCaller,
     requiredScopes: request.requiredScopes ?? ["model.invoke", "chatgpt.codex.responses"],
