@@ -143,6 +143,7 @@ export const searchGroundBaseToolDefinition: BaseToolDefinition<SearchGroundHand
   toolId: "search.ground",
   source: "builtin",
   family: "search",
+  group: "(flat)",
   title: "Search Ground",
   description: "Ground a factual claim against evidence and citations through a governed runtime provider.",
   toolSkill: { docPath: storageDocPath(), summary: "Use search.ground for evidence-backed grounding and citation normalization.", riskLevel: "normal" },

@@ -85,3 +85,33 @@ export {
   type FrameworkPromptPackPreviewInput,
   type FrameworkToolReadinessInput,
 } from "./agent_runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
+
+export {
+  baseToolDeveloperCatalogDescriptor,
+  baseTools,
+  listBaseToolDeveloperCatalog,
+  toolSets,
+  tryBaseToolById,
+  type BaseToolDeveloperCatalogEntry,
+  type BaseToolDeveloperLookupResult,
+  type BaseToolSpecInput,
+  type CodingToolSetOptions,
+} from "./agent_runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+
+export {
+  baseToolRealityLedgerDescriptor,
+  createBaseToolRealityLedger,
+  inspectBaseToolReality,
+  snapshotBaseToolRealityLedger,
+  type BaseToolDependencyRealityStatus,
+  type BaseToolDeveloperReadiness,
+  type BaseToolExecutorSupportRealityStatus,
+  type BaseToolLiveRealityStatus,
+  type BaseToolRealityLedgerEntry,
+  type BaseToolRealityLedgerOptions,
+  type BaseToolRealityStages,
+  type BaseToolRealityStageStatus,
+  type BaseToolRealityLedgerSnapshot,
+  type BaseToolRegistryMountStatus,
+  type BaseToolStorageRealityStatus,
+} from "./agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";

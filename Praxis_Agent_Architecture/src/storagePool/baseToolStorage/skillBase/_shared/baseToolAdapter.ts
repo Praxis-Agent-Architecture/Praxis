@@ -123,6 +123,7 @@ export function createSkillBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "skill",
+    group: "(flat)",
     title: options.title,
     description: options.description,
     toolSkill: {

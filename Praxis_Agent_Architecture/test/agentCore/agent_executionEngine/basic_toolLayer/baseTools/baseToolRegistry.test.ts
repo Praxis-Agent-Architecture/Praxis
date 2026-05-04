@@ -62,6 +62,7 @@ test("baseTool registry keeps custom tools on the same registration path", () =>
     toolId: "custom.issueSummarizer",
     source: "custom",
     family: "custom",
+    group: "custom",
     title: "Custom issue summarizer",
     description: "Summarize issue text through a custom host implementation.",
     toolSkill: {

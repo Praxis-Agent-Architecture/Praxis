@@ -164,10 +164,11 @@ function pathSegmentsAfter(pathValue: string | undefined, marker: string): reado
 
 function storageCoordinates(definition: BaseToolDefinition): { storageFamily: string; group: string; storageDocPath: string } {
   const storageSegments = pathSegmentsAfter(definition.toolSkill.docPath, "/baseToolStorage/");
+  const declaredGroup = definition.group.trim() || "(flat)";
   if (storageSegments.length >= 4) {
     return {
       storageFamily: storageSegments[0] ?? familyDirectoryByFamily[definition.family],
-      group: storageSegments[1] ?? "(flat)",
+      group: declaredGroup,
       storageDocPath: definition.toolSkill.docPath,
     };
   }
@@ -175,7 +176,7 @@ function storageCoordinates(definition: BaseToolDefinition): { storageFamily: st
   if (storageSegments.length >= 3) {
     return {
       storageFamily: storageSegments[0] ?? familyDirectoryByFamily[definition.family],
-      group: "(flat)",
+      group: declaredGroup,
       storageDocPath: definition.toolSkill.docPath,
     };
   }
@@ -184,14 +185,14 @@ function storageCoordinates(definition: BaseToolDefinition): { storageFamily: st
   if (sourceSegments.length >= 3) {
     return {
       storageFamily: sourceSegments[0] ?? familyDirectoryByFamily[definition.family],
-      group: sourceSegments[1] ?? "(flat)",
+      group: declaredGroup,
       storageDocPath: definition.toolSkill.docPath,
     };
   }
 
   return {
     storageFamily: familyDirectoryByFamily[definition.family],
-    group: "(flat)",
+    group: declaredGroup,
     storageDocPath: definition.toolSkill.docPath,
   };
 }

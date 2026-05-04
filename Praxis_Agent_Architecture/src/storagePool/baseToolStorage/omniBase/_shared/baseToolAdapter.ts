@@ -116,6 +116,7 @@ export function createOmniBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "omni",
+    group: options.storageGroup,
     title: options.title,
     description: options.description,
     toolSkill: {

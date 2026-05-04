@@ -161,6 +161,7 @@ export function createMcpBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "mcp",
+    group: options.storageGroup,
     title: options.title,
     description: options.description,
     toolSkill: {

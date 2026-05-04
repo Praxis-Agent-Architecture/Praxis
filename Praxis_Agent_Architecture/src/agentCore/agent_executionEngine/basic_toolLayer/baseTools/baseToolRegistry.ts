@@ -303,8 +303,10 @@ function definitionFromToolFile(
 ): BaseToolDefinition {
   const relative = path.relative(root, filePath).split(path.sep).join("/");
   const [directory] = relative.split("/");
+  const segments = relative.split("/");
   const family = familyByDirectory[directory ?? ""] ?? "custom";
   const toolId = path.basename(relative, ".ts");
+  const group = segments.length >= 3 ? (segments[1] ?? "(flat)") : "(flat)";
   const builtinHandler = handlerById.get(toolId);
   if (builtinHandler !== undefined) {
     return builtinHandler.definition;
@@ -324,6 +326,7 @@ function definitionFromToolFile(
     toolId,
     source: "builtin",
     family,
+    group,
     title: titleFromToolId(toolId),
     description: `Builtin ${family} baseTool: ${toolId}`,
     toolSkill: {

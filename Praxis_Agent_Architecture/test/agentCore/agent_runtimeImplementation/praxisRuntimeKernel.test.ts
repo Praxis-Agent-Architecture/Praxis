@@ -10,6 +10,7 @@ import { createCredentialRef } from "../../../src/agentCore/agent_modelAdapter/a
 import { createRuntimeBaseToolExecutorPort } from "../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   PraxisAgent,
+  compileAgent,
   harness,
   loop,
   model,
@@ -262,22 +263,35 @@ test("PraxisRuntimeKernel.run deduplicates streamed tool calls by call id", asyn
   assert.equal(result.finalOutput, "read deduped sse tool once");
 });
 
-test("PraxisRuntimeKernel.run gives colliding tool ids unique provider names", async () => {
+test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider names", async () => {
   class ToolAgent extends PraxisAgent {
     identity = "agent.tool-name-collision";
     model = model("gpt-5.4", { carrierId: "carrier.tool-name-collision" });
     harness = harness({
       tools: tools([
         tool("code.read"),
-        tool("code_read"),
       ]),
       policy: policy({ allowProviderCall: true }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
     });
   }
 
+  const compiled = compileAgent(new ToolAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const manifestWithLegacyCollision = {
+    ...compiled.manifest,
+    harness: {
+      ...compiled.manifest.harness,
+      tools: [
+        ...compiled.manifest.harness.tools,
+        tool("code_read", { family: "codeBase", group: "explore" }),
+      ],
+    },
+  };
+
   let capturedBody: unknown;
-  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-tool-name-collision" }).run(new ToolAgent(), "list tools", {
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-tool-name-collision" }).runManifest(manifestWithLegacyCollision, "list tools", {
     sessionId: "session-tool-name-collision",
     dryRun: false,
     allowProviderCall: true,
@@ -375,6 +389,7 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "invokeBaseTool"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.timestamps.plannedAt.startsWith("1970-")), false);
   assert.equal(result.state.invocations.some((record) => record.kind === "tool" && record.ok), true);
+  assert.equal(result.state.events.some((record) => record.type === "runtime.baseTool.dependencies.preflight"), true);
 });
 
 test("PraxisRuntimeKernel.runManifest exposes model approval requests to application surface", async () => {

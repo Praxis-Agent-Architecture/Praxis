@@ -131,6 +131,7 @@ export function createCodeBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "code",
+    group: options.storageGroup,
     title: options.title,
     description: options.description,
     toolSkill: {

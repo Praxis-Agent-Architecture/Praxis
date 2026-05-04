@@ -114,6 +114,7 @@ export function createShellBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "shell",
+    group: storageGroup,
     title: options.title,
     description: options.description,
     toolSkill: {

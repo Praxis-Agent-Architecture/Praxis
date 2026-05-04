@@ -44,6 +44,10 @@ import {
   type RuntimeBaseToolExecutorResourceLimits,
 } from "./runtime.execEngine/baseToolExecutorPortFactory.js";
 import { evaluateBaseToolRuntimeGovernance, type BaseToolRuntimeGovernanceDecision } from "./runtime.execEngine/baseToolRuntimeGovernance.js";
+import {
+  preflightBaseToolDependencies,
+  type BaseToolDependencyRuntimeMode,
+} from "./runtime.execEngine/baseToolDependencyRuntime.js";
 import { invokeMountedBaseTool } from "./runtime.execEngine/baseToolRuntimeMount.js";
 import { evaluateBaseToolRuntimeReadiness } from "./runtime.execEngine/baseToolSupportCatalog.js";
 import { invokeModelThroughRuntime } from "./runtime.modelAdapter/modelInvocationRuntime.js";
@@ -57,6 +61,7 @@ import {
   type PraxisAgent,
   type PraxisAgentInput,
 } from "./runtimeAgentManifest.js";
+import type { ToolDependencyProbe } from "../agent_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
 import {
   createInMemorySessionStateEventStore,
   type RuntimeEventRecord,
@@ -100,6 +105,14 @@ export type PraxisRuntimeKernelOptions = {
   allowToolExecution?: boolean;
   dryRun?: boolean;
   approvalResolver?: RuntimeApprovalResolver;
+  baseToolDependencyRuntime?: {
+    mode?: BaseToolDependencyRuntimeMode;
+    probes?: readonly ToolDependencyProbe[];
+    managedRoot?: string;
+    env?: Readonly<Record<string, string | undefined>>;
+    homeDir?: string;
+    timeoutMs?: number;
+  };
   now?: () => string;
 };
 
@@ -776,6 +789,7 @@ async function executeBaseToolDecision(input: {
   providerToolName?: string;
   args: Readonly<Record<string, unknown>>;
   allowToolExecution?: boolean;
+  dependencyRuntime?: NonNullable<PraxisRuntimeKernelOptions["baseToolDependencyRuntime"]>;
   store: RuntimeSessionStateEventStore;
   approvalResolver?: RuntimeApprovalResolver;
   now: () => string;
@@ -877,6 +891,134 @@ async function executeBaseToolDecision(input: {
     }
   }
 
+  const dependencyPreflight = await preflightBaseToolDependencies({
+    executor: input.executor,
+    implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
+    readiness: runtimeReadiness,
+    catalogEntry: runtimeReadiness.entry,
+    probes: input.dependencyRuntime?.probes,
+    context: {
+      runtimeId: input.runtimeId,
+      sessionId: input.sessionId,
+      invocationId: input.toolCallId,
+      toolId: input.toolId,
+      toolInput: toolArguments,
+      governanceAccepted: true,
+      allowedScopes: input.manifest.harness.policy.scopes,
+      mode: input.dependencyRuntime?.mode ?? "observe",
+      managedRoot: input.dependencyRuntime?.managedRoot,
+      env: input.dependencyRuntime?.env,
+      homeDir: input.dependencyRuntime?.homeDir,
+      timeoutMs: input.dependencyRuntime?.timeoutMs,
+    },
+  });
+  input.events.push(...dependencyPreflight.events);
+  await input.store.appendEvent(event(input.sessionId, `event:tool:${input.toolCallId}:dependencies`, "runtime.baseTool.dependencies.preflight", input.now(), {
+    toolId: input.toolId,
+    dependencyPreflight,
+  }));
+
+  if (dependencyPreflight.decision === "requiresApproval") {
+    const approval = await requestRuntimeApproval({
+      runtimeId: input.runtimeId,
+      sessionId: input.sessionId,
+      approvalId: `${input.toolCallId}:dependency-approval`,
+      source: "runtime",
+      reason: dependencyPreflight.reason,
+      requestedScopes: [
+        "dependency.prepare",
+        ...dependencyPreflight.approvalRequiredDependencies.map((dependencyId) => `dependency.${dependencyId}`),
+      ],
+      riskLevel: "risky",
+      resolver: input.approvalResolver,
+      store: input.store,
+      now: input.now,
+      metadata: {
+        toolCallId: input.toolCallId,
+        toolId: input.toolId,
+        dependencyStatus: dependencyPreflight.status,
+        installableDependencies: dependencyPreflight.installableDependencies,
+      },
+    });
+    input.events.push(...approval.events);
+    if (approval.status !== "approved") {
+      const error = {
+        code: "DEPENDENCY_APPROVAL_REQUIRED",
+        message: approval.reason ?? dependencyPreflight.reason,
+        publicSafe: true,
+      };
+      const record: AgentToolCallRecord = {
+        callId: input.toolCallId,
+        toolId: input.toolId,
+        arguments: toolArguments,
+        ok: false,
+        error,
+      };
+      const observation = createObservationMaterial({
+        observationId: `${input.sessionId}:observation:${input.toolCallId}:dependency-approval`,
+        source: "baseTool",
+        status: "waitingApproval",
+        title: `BaseTool ${input.toolId}`,
+        summary: error.message,
+        refs: [input.toolCallId, input.toolId, approval.envelope.approvalId],
+        payload: approval.envelope,
+        metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, dependencyStatus: dependencyPreflight.status }),
+      });
+      return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance };
+    }
+
+    if ((input.dependencyRuntime?.mode ?? "observe") !== "autoInstallTrustedManaged") {
+      const error = {
+        code: "DEPENDENCY_PREPARE_PENDING",
+        message: "dependency approval was granted, but automatic trusted managed installation is not enabled for this run",
+        publicSafe: true,
+      };
+      const record: AgentToolCallRecord = {
+        callId: input.toolCallId,
+        toolId: input.toolId,
+        arguments: toolArguments,
+        ok: false,
+        error,
+      };
+      const observation = createObservationMaterial({
+        observationId: `${input.sessionId}:observation:${input.toolCallId}:dependency-prepare`,
+        source: "baseTool",
+        status: "waitingApproval",
+        title: `BaseTool ${input.toolId}`,
+        summary: error.message,
+        refs: [input.toolCallId, input.toolId],
+        payload: dependencyPreflight,
+        metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, dependencyStatus: dependencyPreflight.status }),
+      });
+      return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance };
+    }
+  }
+
+  if (dependencyPreflight.decision === "blocked") {
+    const record: AgentToolCallRecord = {
+      callId: input.toolCallId,
+      toolId: input.toolId,
+      arguments: toolArguments,
+      ok: false,
+      error: {
+        code: dependencyPreflight.status === "providerUnavailable" ? "PROVIDER_UNAVAILABLE" : "DEPENDENCY_UNAVAILABLE",
+        message: dependencyPreflight.reason,
+        publicSafe: true,
+      },
+    };
+    const observation = createObservationMaterial({
+      observationId: `${input.sessionId}:observation:${input.toolCallId}:dependency`,
+      source: "baseTool",
+      status: "failed",
+      title: `BaseTool ${input.toolId}`,
+      summary: dependencyPreflight.reason,
+      refs: [input.toolCallId, input.toolId],
+      payload: dependencyPreflight,
+      metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, dependencyStatus: dependencyPreflight.status }),
+    });
+    return { record, observation, events: [...governance.events, ...dependencyPreflight.events], governance };
+  }
+
   const toolResult = await invokeMountedBaseTool({
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
@@ -898,6 +1040,12 @@ async function executeBaseToolDecision(input: {
         risk: governance.risk,
         policyProfile: governance.policyProfile,
         policyMatrixId: governance.policyMatrixId,
+      },
+      dependencyRuntime: {
+        status: dependencyPreflight.status,
+        decision: dependencyPreflight.decision,
+        missingDependencies: dependencyPreflight.missingDependencies,
+        installableDependencies: dependencyPreflight.installableDependencies,
       },
     },
   });
@@ -937,6 +1085,7 @@ async function executeEphemeralProcedure(input: {
   allowToolExecution?: boolean;
   store: RuntimeSessionStateEventStore;
   approvalResolver?: RuntimeApprovalResolver;
+  dependencyRuntime?: NonNullable<PraxisRuntimeKernelOptions["baseToolDependencyRuntime"]>;
   now: () => string;
   events: string[];
 }): Promise<{
@@ -1011,6 +1160,7 @@ async function executeEphemeralProcedure(input: {
       allowToolExecution: input.allowToolExecution,
       store: input.store,
       approvalResolver: input.approvalResolver,
+      dependencyRuntime: input.dependencyRuntime,
       now: input.now,
       events: input.events,
     })));
@@ -1623,6 +1773,7 @@ export class PraxisRuntimeKernel {
             allowToolExecution: options.allowToolExecution,
             store,
             approvalResolver: options.approvalResolver,
+            dependencyRuntime: options.baseToolDependencyRuntime,
             now,
             events,
           });
@@ -1735,6 +1886,7 @@ export class PraxisRuntimeKernel {
             allowToolExecution: options.allowToolExecution,
             store,
             approvalResolver: options.approvalResolver,
+            dependencyRuntime: options.baseToolDependencyRuntime,
             now,
             events,
           });

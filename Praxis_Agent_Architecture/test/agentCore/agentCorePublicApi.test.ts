@@ -5,6 +5,7 @@ import {
   PraxisAgent,
   PraxisAgentArchetype,
   PraxisRuntimeKernel,
+  baseTools,
   compileAgent,
   createFrameworkInspectionReport,
   endpoint,
@@ -19,8 +20,8 @@ import {
   sandbox,
   session,
   statePlane,
-  tool,
   toolPolicies,
+  toolSets,
   tools,
   validateAgentManifest,
   type RuntimeApprovalEnvelope,
@@ -32,7 +33,7 @@ class MinimalDeveloperAgent extends PraxisAgent {
   model = model("gpt-5.4");
   harness = harness({
     tools: tools([
-      tool("code.read", { family: "codeBase", group: "explore" }),
+      baseTools.code.read(),
     ]),
     policy: policy({ allowProviderCall: true, allowToolExecution: true }),
     loop: loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
@@ -61,7 +62,8 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
   statePlane = statePlane({ expose: ["phase", "toolCalls"], control: ["pause"] });
   harness = harness({
     tools: tools([
-      tool("shell.commandExecution", { family: "shellBase", group: "shellExecution" }),
+      baseTools.shell.commandExecution(),
+      ...toolSets.git.inspection(),
     ]),
     loop: loop.standard({ maxModelTurns: 2, maxToolCalls: 2 }),
   });
@@ -73,6 +75,8 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   if (!minimal.ok) return;
   assert.equal(minimal.manifest.sandbox.profile, "host-observed");
   assert.equal(minimal.manifest.toolPolicy.profile, "standard");
+  assert.equal(minimal.manifest.harness.tools[0]?.family, "codeBase");
+  assert.equal(minimal.manifest.harness.tools[0]?.group, "explore");
 
   const mature = compileAgent(MatureDeveloperAgent, { compiledAt: "2026-05-04T00:00:00.000Z" });
   assert.equal(mature.ok, true);
@@ -81,6 +85,7 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(mature.manifest.harness.promptPack.promptPackId, "prompt.public.mature");
   assert.equal(mature.manifest.harness.toolPolicy.profile, "standard");
   assert.equal(mature.manifest.harness.sandbox.profile, "host-observed");
+  assert.equal(mature.manifest.harness.tools.some((item) => item.toolId === "git.getRepositoryStatus"), true);
   const validation = validateAgentManifest(mature.manifest);
   assert.equal(validation.ok, true);
   if (!validation.ok) return;
@@ -113,11 +118,18 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   const inspection = createFrameworkInspectionReport({
     runtimeId: "runtime.public-api",
     manifest: mature.manifest,
-    tools: [{ toolId: "shell.commandExecution", family: "shellBase", group: "shellExecution", ready: true }],
     providers: [{ providerId: "codex_responses", ready: true }],
   });
   assert.equal(inspection.ok, true);
   if (inspection.ok) {
     assert.equal(inspection.report.audit.reportSurface, "runtime.inspection.frameworkInspectionReport");
+    assert.equal(inspection.report.toolReadiness.total, mature.manifest.harness.tools.length);
+    assert.ok(inspection.report.toolReadiness.tools.some((tool) => tool.toolId === "shell.commandExecution"));
+    assert.equal(
+      inspection.report.toolReadiness.byDeveloperReadiness.adapterRequired > 0 ||
+        inspection.report.toolReadiness.byDeveloperReadiness.usableWithApproval > 0 ||
+        inspection.report.toolReadiness.byDeveloperReadiness.notLiveProven > 0,
+      true,
+    );
   }
 });

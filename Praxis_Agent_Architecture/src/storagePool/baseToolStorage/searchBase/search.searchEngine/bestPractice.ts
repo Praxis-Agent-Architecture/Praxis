@@ -144,6 +144,7 @@ export const searchEngineBaseToolDefinition: BaseToolDefinition<SearchEngineHand
   toolId: "search.searchEngine",
   source: "builtin",
   family: "search",
+  group: "(flat)",
   title: "Search Search Engine",
   description: "Query generic or custom search engines through a governed runtime network provider.",
   toolSkill: { docPath: storageDocPath(), summary: "Use search.searchEngine for portable search-engine result collection.", riskLevel: "normal" },

@@ -12,6 +12,7 @@ import { createHash } from "node:crypto";
 
 import type { CredentialRef } from "../agent_modelAdapter/authProfileLayer/credentialRef.js";
 import type { ProviderReasoningConfig } from "../agent_modelAdapter/providerAccessLayer/providerCarrier.js";
+import { createBaseToolSupportCatalog } from "./runtime.execEngine/baseToolSupportCatalog.js";
 
 export type AgentIdentity = string | {
   id: string;
@@ -525,6 +526,7 @@ export type AgentCompileErrorCode =
   | "INVALID_MAIN_LOOP"
   | "INVALID_SANDBOX"
   | "INVALID_TOOL_POLICY"
+  | "INVALID_TOOL_SPEC"
   | "INVALID_SESSION"
   | "INVALID_STATE_PLANE"
   | "INVALID_MANIFEST";
@@ -1352,6 +1354,57 @@ function normalizeToolPolicy(input: BaseToolPolicyMatrixSpec | undefined): Norma
   };
 }
 
+function normalizeHarnessTools(input: readonly ToolSpec[] | undefined): NormalizeResult<readonly ToolSpec[]> {
+  const selectedTools = input ?? [];
+  const catalogByToolId = new Map(createBaseToolSupportCatalog().map((entry) => [entry.toolId, entry]));
+  const normalized: ToolSpec[] = [];
+  const seenToolIds = new Set<string>();
+
+  for (const selectedTool of selectedTools) {
+    if (!hasText(selectedTool.toolId)) {
+      return normalizedFailure("INVALID_TOOL_SPEC", "harness tools require stable toolId");
+    }
+
+    const toolId = selectedTool.toolId.trim();
+    const entry = catalogByToolId.get(toolId);
+    if (entry === undefined) {
+      return normalizedFailure("INVALID_TOOL_SPEC", `harness references unknown BaseTool: ${toolId}`);
+    }
+
+    const family = selectedTool.family?.trim();
+    if (family !== undefined && family.length > 0 && family !== entry.family && family !== entry.storageFamily) {
+      return normalizedFailure(
+        "INVALID_TOOL_SPEC",
+        `harness tool ${toolId} family must match ${entry.storageFamily} or ${entry.family}`,
+      );
+    }
+
+    const group = selectedTool.group?.trim();
+    if (group !== undefined && group.length > 0 && group !== entry.group) {
+      return normalizedFailure("INVALID_TOOL_SPEC", `harness tool ${toolId} group must match ${entry.group}`);
+    }
+
+    if (seenToolIds.has(toolId)) {
+      continue;
+    }
+    seenToolIds.add(toolId);
+    normalized.push({
+      ...selectedTool,
+      toolId,
+      family: entry.storageFamily,
+      group: entry.group,
+      description: selectedTool.description ?? entry.title,
+      metadata: {
+        baseToolFamily: entry.family,
+        riskLevel: entry.riskLevel,
+        ...(selectedTool.metadata ?? {}),
+      },
+    });
+  }
+
+  return { ok: true, value: normalized };
+}
+
 function normalizeSession(input: SessionSpec | undefined): NormalizeResult<SessionSpec> {
   const spec = input ?? session();
   if (!hasText(spec.persistence) || !hasText(spec.resume) || !hasText(spec.thread) || !hasText(spec.logs)) {
@@ -1382,6 +1435,7 @@ function normalizeHarness(
     statePlane: StatePlaneSpec;
     frameworkCore: FrameworkCoreContractSpec;
   },
+  normalizedTools: readonly ToolSpec[],
 ): AgentManifest["harness"] {
   const loopSpec = input.loop ?? { strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 4 };
   return {
@@ -1400,7 +1454,7 @@ function normalizeHarness(
       designOwner: authoring.promptPack.designOwner,
       metadata: authoring.promptPack.metadata,
     },
-    tools: input.tools ?? [],
+    tools: normalizedTools,
     policy: input.policy ?? {},
     loop: {
       strategy: loopSpec.strategy,
@@ -1513,6 +1567,11 @@ export function compileAgent<TAgent extends PraxisAgent>(
     return failure(toolPolicySpec.code, toolPolicySpec.message, "agent-object");
   }
 
+  const harnessTools = normalizeHarnessTools(agent.harness.tools);
+  if (!harnessTools.ok) {
+    return failure(harnessTools.code, harnessTools.message, "agent-object");
+  }
+
   const sessionSpec = normalizeSession(agent.session ?? agent.harness.session);
   if (!sessionSpec.ok) {
     return failure(sessionSpec.code, sessionSpec.message, "agent-object");
@@ -1556,7 +1615,7 @@ export function compileAgent<TAgent extends PraxisAgent>(
     session: authoring.session,
     statePlane: authoring.statePlane,
     frameworkCore: authoring.frameworkCore,
-    harness: normalizeHarness(agent.harness, authoring),
+    harness: normalizeHarness(agent.harness, authoring, harnessTools.value),
     behaviors: agent.behaviors,
     hooks: agent.hooks,
     verification: {

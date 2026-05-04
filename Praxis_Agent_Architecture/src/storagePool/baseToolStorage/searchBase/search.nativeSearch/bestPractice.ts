@@ -205,6 +205,7 @@ export const nativeSearchBaseToolDefinition: BaseToolDefinition<NativeSearchHand
   toolId: "search.nativeSearch",
   source: "builtin",
   family: "search",
+  group: "(flat)",
   title: "Search Native Search",
   description: "Run provider-native web search through OpenAI, Anthropic, or DeepMind runtime backends.",
   toolSkill: {

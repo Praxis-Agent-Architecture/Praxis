@@ -63,6 +63,7 @@ export type BaseToolDefinition<Input = unknown, Output = unknown> = {
   toolId: string;
   source: BaseToolSource;
   family: BaseToolFamily;
+  group: string;
   title: string;
   description: string;
   toolSkill: BaseToolSkillReference;
@@ -127,6 +128,7 @@ export const baseToolDefinitionDescriptor = {
   contract: "agentCore.basicTool.definition",
   supportsBuiltinTools: true,
   supportsCustomTools: true,
+  identityAxis: "family/group/toolId",
   riskLevels: ["normal", "risky", "dangerous"],
   permissionsAreHints: true,
 } as const;

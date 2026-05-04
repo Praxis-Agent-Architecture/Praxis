@@ -116,6 +116,7 @@ export function createComputerUseBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "computeruse",
+    group: options.storageGroup,
     title: options.title,
     description: options.description,
     toolSkill: {

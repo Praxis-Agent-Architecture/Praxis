@@ -362,6 +362,38 @@ test("compileAgent rejects invalid sandbox and tool policy profile shapes", () =
   }
 });
 
+test("compileAgent rejects unknown or mismatched BaseTool authoring with public-safe errors", () => {
+  class UnknownToolAgent extends PraxisAgent {
+    identity = "agent.unknown-tool";
+    model = model("gpt-5.4");
+    harness = harness({
+      tools: tools([tool("code.noSuchTool")]),
+    });
+  }
+
+  const unknownTool = compileAgent(new UnknownToolAgent());
+  assert.equal(unknownTool.ok, false);
+  if (!unknownTool.ok) {
+    assert.equal(unknownTool.error.code, "INVALID_TOOL_SPEC");
+    assert.equal(unknownTool.error.publicSafe, true);
+  }
+
+  class MismatchedToolAgent extends PraxisAgent {
+    identity = "agent.mismatched-tool";
+    model = model("gpt-5.4");
+    harness = harness({
+      tools: tools([tool("code.read", { family: "gitBase", group: "inspection" })]),
+    });
+  }
+
+  const mismatchedTool = compileAgent(new MismatchedToolAgent());
+  assert.equal(mismatchedTool.ok, false);
+  if (!mismatchedTool.ok) {
+    assert.equal(mismatchedTool.error.code, "INVALID_TOOL_SPEC");
+    assert.equal(mismatchedTool.error.publicSafe, true);
+  }
+});
+
 test("prompt patch helpers keep scene triggers as metadata and validate unique ids", () => {
   const scenePatch = append("coding.base", markdown("scene material"), { sceneTrigger: "scene.coding" });
 

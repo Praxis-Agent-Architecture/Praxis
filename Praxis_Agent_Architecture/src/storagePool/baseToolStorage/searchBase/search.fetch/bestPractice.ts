@@ -179,6 +179,7 @@ export const searchFetchBaseToolDefinition: BaseToolDefinition<SearchFetchHandle
   toolId: "search.fetch",
   source: "builtin",
   family: "search",
+  group: "(flat)",
   title: "Search Fetch",
   description: "Fetch targeted web content through a governed runtime network fetch provider.",
   toolSkill: { docPath: storageDocPath(), summary: "Use search.fetch for targeted URL/page retrieval.", riskLevel: "normal" },

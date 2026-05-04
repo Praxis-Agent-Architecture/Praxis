@@ -6,6 +6,11 @@
 
 import type { MainLoopStepRecord } from "../../agent_executionEngine/coreLogic/mainLoop.js";
 import type { RuntimeFaultSignal } from "../runtime.selfRepair/faultClassifier.js";
+import {
+  createBaseToolRealityLedger,
+  type BaseToolDeveloperReadiness,
+  type BaseToolRealityStages,
+} from "../runtime.execEngine/baseToolRealityLedger.js";
 import { runSelfRepairRuntime, type SelfRepairRuntimeOutcome } from "../runtime.selfRepair/selfRepairRuntime.js";
 import { inspectAgentManifest, type AgentManifest, type AgentManifestInspection } from "../runtimeAgentManifest.js";
 import { checkRuntimeReadiness, type RuntimeReadinessSignal, type RuntimeReadinessSnapshot } from "./runtimeReadinessCheck.js";
@@ -29,6 +34,11 @@ export type FrameworkToolReadinessInput = {
   ready?: boolean;
   required?: boolean;
   reason?: string;
+  developerReadiness?: BaseToolDeveloperReadiness;
+  stages?: BaseToolRealityStages;
+  dependencyStatus?: string;
+  executorSupport?: string;
+  missingPorts?: readonly string[];
 };
 
 export type FrameworkProviderReadinessInput = {
@@ -93,6 +103,19 @@ export type FrameworkInspectionReport = {
     total: number;
     ready: number;
     missing: readonly string[];
+    byDeveloperReadiness: Readonly<Record<BaseToolDeveloperReadiness, number>>;
+    tools: readonly {
+      toolId: string;
+      family?: string;
+      group?: string;
+      ready: boolean;
+      developerReadiness?: BaseToolDeveloperReadiness;
+      stages?: BaseToolRealityStages;
+      dependencyStatus?: string;
+      executorSupport?: string;
+      missingPorts?: readonly string[];
+      reason?: string;
+    }[];
   };
   providerReadiness: {
     total: number;
@@ -243,6 +266,71 @@ function normalizePromptPreview(
   };
 }
 
+function emptyToolDeveloperReadinessCounts(): Record<BaseToolDeveloperReadiness, number> {
+  return {
+    ready: 0,
+    usableWithApproval: 0,
+    adapterRequired: 0,
+    contractIncomplete: 0,
+    notLiveProven: 0,
+  };
+}
+
+function readyFromDeveloperReadiness(readiness: BaseToolDeveloperReadiness): boolean {
+  return readiness === "ready" || readiness === "notLiveProven" || readiness === "usableWithApproval";
+}
+
+function reasonFromDeveloperReadiness(input: {
+  toolId: string;
+  readiness: BaseToolDeveloperReadiness;
+  missingPorts: readonly string[];
+}): string | undefined {
+  if (input.readiness === "contractIncomplete") return `BaseTool ${input.toolId} contract or storage is incomplete`;
+  if (input.readiness === "adapterRequired") {
+    return input.missingPorts.length > 0
+      ? `BaseTool ${input.toolId} requires runtime adapter ports: ${input.missingPorts.join(", ")}`
+      : `BaseTool ${input.toolId} requires a runtime adapter`;
+  }
+  if (input.readiness === "usableWithApproval") return `BaseTool ${input.toolId} is usable after runtime approval`;
+  if (input.readiness === "notLiveProven") return `BaseTool ${input.toolId} is mounted but has no live smoke proof yet`;
+  return undefined;
+}
+
+function toolsFromManifest(manifest: AgentManifest): readonly FrameworkToolReadinessInput[] {
+  const ledger = new Map(createBaseToolRealityLedger().map((entry) => [entry.toolId, entry]));
+  return manifest.harness.tools.map((tool): FrameworkToolReadinessInput => {
+    const entry = ledger.get(tool.toolId);
+    if (entry === undefined) {
+      return {
+        toolId: tool.toolId,
+        family: tool.family,
+        group: tool.group,
+        ready: false,
+        required: true,
+        reason: `BaseTool ${tool.toolId} is not present in the runtime reality ledger`,
+      };
+    }
+
+    return {
+      toolId: entry.toolId,
+      family: entry.storageFamily,
+      group: entry.group,
+      ready: readyFromDeveloperReadiness(entry.developerReadiness),
+      required: true,
+      reason: reasonFromDeveloperReadiness({
+        toolId: entry.toolId,
+        readiness: entry.developerReadiness,
+        missingPorts: entry.missingPorts,
+      }),
+      developerReadiness: entry.developerReadiness,
+      stages: entry.stages,
+      dependencyStatus: entry.dependencyStatus,
+      executorSupport: entry.executorSupport,
+      missingPorts: entry.missingPorts,
+    };
+  });
+}
+
 export function createFrameworkInspectionReport(
   request?: FrameworkInspectionReportRequest,
 ): FrameworkInspectionReportResult {
@@ -255,7 +343,8 @@ export function createFrameworkInspectionReport(
   }
 
   const runtimeId = (request.runtimeId ?? "").trim();
-  const toolSignals = (request.tools ?? []).map((tool): RuntimeReadinessSignal => ({
+  const requestedTools = request.tools ?? toolsFromManifest(request.manifest);
+  const toolSignals = requestedTools.map((tool): RuntimeReadinessSignal => ({
     signalId: `tool:${tool.family ?? "unknown"}/${tool.group ?? "unknown"}/${tool.toolId}`,
     ready: tool.ready,
     required: tool.required,
@@ -294,7 +383,7 @@ export function createFrameworkInspectionReport(
   }
 
   const manifest = inspectAgentManifest(request.manifest);
-  const toolMissing = (request.tools ?? []).filter((tool) => tool.ready === false);
+  const toolMissing = requestedTools.filter((tool) => tool.ready === false);
   const providerMissing = (request.providers ?? []).filter((provider) => provider.ready === false);
   const dependencySummary = summarizeMissing(request.dependencies ?? [], (dependency) => dependency.dependencyId);
   const dependencyOwners = Object.fromEntries(
@@ -323,6 +412,12 @@ export function createFrameworkInspectionReport(
     ),
     ...dependencySummary.findings,
   ];
+  const byToolDeveloperReadiness = emptyToolDeveloperReadinessCounts();
+  for (const tool of requestedTools) {
+    if (tool.developerReadiness !== undefined) {
+      byToolDeveloperReadiness[tool.developerReadiness] += 1;
+    }
+  }
 
   return {
     ok: true,
@@ -337,9 +432,22 @@ export function createFrameworkInspectionReport(
         approvalSurface: "interface/application",
       },
       toolReadiness: {
-        total: request.tools?.length ?? 0,
-        ready: (request.tools?.length ?? 0) - toolMissing.length,
+        total: requestedTools.length,
+        ready: requestedTools.length - toolMissing.length,
         missing: toolMissing.map((tool) => tool.toolId),
+        byDeveloperReadiness: byToolDeveloperReadiness,
+        tools: requestedTools.map((tool) => ({
+          toolId: tool.toolId,
+          family: tool.family,
+          group: tool.group,
+          ready: tool.ready !== false,
+          developerReadiness: tool.developerReadiness,
+          stages: tool.stages,
+          dependencyStatus: tool.dependencyStatus,
+          executorSupport: tool.executorSupport,
+          missingPorts: tool.missingPorts,
+          reason: tool.reason,
+        })),
       },
       providerReadiness: {
         total: request.providers?.length ?? 0,

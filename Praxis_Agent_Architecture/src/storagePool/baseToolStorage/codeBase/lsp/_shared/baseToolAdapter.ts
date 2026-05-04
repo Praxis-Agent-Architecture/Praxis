@@ -174,6 +174,7 @@ export function createLspBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "code",
+    group: "lsp",
     title: options.title,
     description: options.description,
     toolSkill: {

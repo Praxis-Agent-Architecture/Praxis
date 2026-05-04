@@ -124,6 +124,7 @@ export function createGitBaseToolDefinition<Input, Output>(
     toolId: options.toolId,
     source: "builtin",
     family: "git",
+    group: options.storageGroup,
     title: options.title,
     description: options.description,
     toolSkill: {
