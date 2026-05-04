@@ -28,6 +28,7 @@ export const PROMPT_PACK_INTERNAL_MATERIAL_KINDS = [
 export type PromptPackInternalMaterialKind = (typeof PROMPT_PACK_INTERNAL_MATERIAL_KINDS)[number];
 
 export type PromptPackMaterialKind = PromptPackInternalMaterialKind | "tool-summary" | "command-injection";
+export type PromptPackMaterialSourceCategory = "declared-built-in" | "process-product" | "user-request";
 
 export const BASIC_CORE_PROMPT_MATERIAL_ID = "praxis:basic-core-prompt" as const;
 export const BASIC_CORE_PROMPT_SOURCE = "runtime.basicCorePrompt" as const;
@@ -76,6 +77,7 @@ export type PromptPackMaterialDraft = {
   kind: PromptPackMaterialKind;
   text: string;
   source?: string;
+  sourceCategory?: PromptPackMaterialSourceCategory;
   priority?: number;
   estimatedTokens?: number;
   trusted?: boolean;
@@ -88,6 +90,7 @@ export type DefinedPromptMaterial = {
   kind: PromptPackMaterialKind;
   text: string;
   source: string;
+  sourceCategory: PromptPackMaterialSourceCategory;
   priority: number;
   estimatedTokens: number;
   trusted: boolean;
@@ -126,6 +129,7 @@ export type PromptPackDefinition = {
   loweringHint?: string;
   materials: readonly DefinedPromptMaterial[];
   materialKinds: readonly PromptPackMaterialKind[];
+  materialSourceCategories: readonly PromptPackMaterialSourceCategory[];
   basicCorePromptMaterialId: typeof BASIC_CORE_PROMPT_MATERIAL_ID;
   budget: PromptPackBudget;
   requestedScopes: readonly string[];
@@ -151,6 +155,7 @@ export const promptPackDefinerDescriptor = {
   route: "agent_executionEngine.promptPack",
   purpose: "define Praxis internal PromptPack constructs and the protected basic core prompt head",
   internalMaterialKinds: PROMPT_PACK_INTERNAL_MATERIAL_KINDS,
+  sourceCategories: ["declared-built-in", "process-product", "user-request"],
   basicCorePromptMaterialId: BASIC_CORE_PROMPT_MATERIAL_ID,
   providerPayloadCreated: false,
   unsafeSideEffects: false,
@@ -201,6 +206,30 @@ function guardScopes(
   return undefined;
 }
 
+export function inferPromptMaterialSourceCategory(
+  material: Pick<PromptPackMaterialDraft, "kind" | "source" | "sourceCategory">,
+): PromptPackMaterialSourceCategory {
+  if (material.sourceCategory !== undefined) {
+    return material.sourceCategory;
+  }
+
+  if (material.kind === "user" || material.source?.trim() === "user") {
+    return "user-request";
+  }
+
+  if (
+    material.kind === "event" ||
+    material.kind === "runtime" ||
+    material.kind === "tool-summary" ||
+    material.kind === "command-injection" ||
+    material.source?.startsWith("observation.")
+  ) {
+    return "process-product";
+  }
+
+  return "declared-built-in";
+}
+
 export function estimatePromptTokens(text: string): number {
   const normalized = text.trim();
   if (normalized.length === 0) {
@@ -235,6 +264,7 @@ export function createBasicCorePromptMaterial(textOverride?: string): PromptPack
     kind: "system",
     text,
     source: BASIC_CORE_PROMPT_SOURCE,
+    sourceCategory: "declared-built-in",
     priority: 1000,
     trusted: true,
     scope: "runtime.core",
@@ -326,6 +356,7 @@ export function definePromptPack(request?: PromptPackDefinitionRequest): PromptP
       kind: material.kind,
       text,
       source: material.source?.trim() || "runtime",
+      sourceCategory: inferPromptMaterialSourceCategory(material),
       priority: material.priority ?? 0,
       estimatedTokens,
       trusted: material.trusted === true,
@@ -358,6 +389,7 @@ export function definePromptPack(request?: PromptPackDefinitionRequest): PromptP
       loweringHint: request.loweringHint?.trim() || undefined,
       materials: definedMaterials,
       materialKinds: [...new Set(definedMaterials.map((material) => material.kind))],
+      materialSourceCategories: [...new Set(definedMaterials.map((material) => material.sourceCategory))],
       basicCorePromptMaterialId: BASIC_CORE_PROMPT_MATERIAL_ID,
       budget: request.budget ?? {},
       requestedScopes: cleanList(request.requestedScopes),

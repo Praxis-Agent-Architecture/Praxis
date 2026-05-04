@@ -15,6 +15,7 @@ import {
   model,
   policy,
   tool,
+  toolPolicies,
   tools,
 } from "../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
 import { createPraxisRuntimeKernel } from "../../../src/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.js";
@@ -115,6 +116,7 @@ test("PraxisRuntimeKernel.run extracts tool calls from codex responses SSE compl
   class ToolAgent extends PraxisAgent {
     identity = "agent.sse-tool";
     model = model("gpt-5.4", { carrierId: "carrier.sse-tool" });
+    toolPolicy = toolPolicies.bapr();
     harness = harness({
       tools: tools([tool("code.read")]),
       policy: policy({
@@ -200,6 +202,7 @@ test("PraxisRuntimeKernel.run deduplicates streamed tool calls by call id", asyn
   class ToolAgent extends PraxisAgent {
     identity = "agent.sse-dedupe-tool";
     model = model("gpt-5.4", { carrierId: "carrier.sse-dedupe-tool" });
+    toolPolicy = toolPolicies.bapr();
     harness = harness({
       tools: tools([tool("code.read")]),
       policy: policy({
@@ -304,6 +307,7 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   class ToolAgent extends PraxisAgent {
     identity = "agent.tool";
     model = model("gpt-5.4", { carrierId: "carrier.tool" });
+    toolPolicy = toolPolicies.bapr();
     harness = harness({
       tools: tools([tool("code.read")]),
       policy: policy({
@@ -369,7 +373,258 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "assemblePromptPack"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "interpretModelDecision"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "invokeBaseTool"), true);
+  assert.equal(result.mainLoopSteps.some((step) => step.timestamps.plannedAt.startsWith("1970-")), false);
   assert.equal(result.state.invocations.some((record) => record.kind === "tool" && record.ok), true);
+});
+
+test("PraxisRuntimeKernel.runManifest exposes model approval requests to application surface", async () => {
+  class ApprovalAgent extends PraxisAgent {
+    identity = "agent.model-approval";
+    model = model("gpt-5.4", { carrierId: "carrier.model-approval" });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-model-approval", store }).run(new ApprovalAgent(), "ask approval", {
+    sessionId: "session-model-approval",
+    dryRun: false,
+    allowProviderCall: true,
+    auth: authEnvelope(),
+    providerCaller: async () => ({
+      output: [{
+        type: "function_call",
+        name: "praxis_request_approval",
+        call_id: "approval-call-1",
+        arguments: JSON.stringify({
+          reason: "need human approval for risky continuation",
+          requestedScopes: ["runtime.continue"],
+          riskLevel: "risky",
+        }),
+      }],
+    }),
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "APPROVAL_REQUIRED");
+  assert.equal(result.state?.session?.status, "waitingApproval");
+  assert.equal(result.state?.approvals[0]?.status, "pending");
+  assert.equal(result.state?.approvals[0]?.interfaceSurface, "application");
+  assert.equal(result.mainLoopSteps?.some((step) => step.status === "waitingApproval"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest lets an approval resolver continue a model request", async () => {
+  class ApprovalAgent extends PraxisAgent {
+    identity = "agent.model-approval-resolved";
+    model = model("gpt-5.4", { carrierId: "carrier.model-approval-resolved" });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2 }),
+    });
+  }
+
+  let calls = 0;
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-model-approval-resolved", store }).run(new ApprovalAgent(), "ask approval", {
+    sessionId: "session-model-approval-resolved",
+    dryRun: false,
+    allowProviderCall: true,
+    auth: authEnvelope(),
+    approvalResolver: async (approval) => ({
+      status: "approved",
+      resolvedBy: "unit-test",
+      reason: `approved ${approval.approvalId}`,
+    }),
+    providerCaller: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          output: [{
+            type: "function_call",
+            name: "praxis_request_approval",
+            call_id: "approval-call-1",
+            arguments: JSON.stringify({
+              reason: "need human approval for risky continuation",
+              requestedScopes: ["runtime.continue"],
+              riskLevel: "risky",
+            }),
+          }],
+        };
+      }
+      return { output_text: "approval resolved and run continued" };
+    },
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "approval resolved and run continued");
+  assert.equal(result.state.approvals[0]?.status, "approved");
+  assert.equal(result.state.approvals[0]?.interfaceSurface, "test-harness");
+});
+
+test("PraxisRuntimeKernel.runManifest maps approval resolver failures to public-safe pending surface result", async () => {
+  class ApprovalAgent extends PraxisAgent {
+    identity = "agent.model-approval-resolver-failure";
+    model = model("gpt-5.4", { carrierId: "carrier.model-approval-resolver-failure" });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-model-approval-resolver-failure" }).run(new ApprovalAgent(), "ask approval", {
+    sessionId: "session-model-approval-resolver-failure",
+    dryRun: false,
+    allowProviderCall: true,
+    auth: authEnvelope(),
+    approvalResolver: async () => {
+      throw new Error("ui bridge crashed with private detail");
+    },
+    providerCaller: async () => ({
+      output: [{
+        type: "function_call",
+        name: "praxis_request_approval",
+        call_id: "approval-call-1",
+        arguments: JSON.stringify({
+          reason: "need human approval for risky continuation",
+          requestedScopes: ["runtime.continue"],
+          riskLevel: "risky",
+        }),
+      }],
+    }),
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "APPROVAL_REQUIRED");
+  assert.equal(result.state?.approvals[0]?.status, "denied");
+  assert.equal(result.state?.approvals[0]?.resolution?.reason, "approval resolver failed");
+  assert.equal(JSON.stringify(result.state).includes("private detail"), false);
+});
+
+test("PraxisRuntimeKernel.runManifest gates BaseTool calls through tool policy approval", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-tool-approval-"));
+  await writeFile(path.join(workspace, "notes.txt"), "approval gate should stop before read\n", "utf8");
+
+  class ToolApprovalAgent extends PraxisAgent {
+    identity = "agent.tool-approval";
+    model = model("gpt-5.4", { carrierId: "carrier.tool-approval" });
+    toolPolicy = toolPolicies.restricted();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 1 }),
+    });
+  }
+
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-tool-approval",
+    sessionId: "session-tool-approval",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-tool-approval" }).run(new ToolApprovalAgent(), "read notes", {
+    sessionId: "session-tool-approval",
+    dryRun: false,
+    allowProviderCall: true,
+    allowToolExecution: true,
+    auth: authEnvelope(),
+    executor,
+    providerCaller: async () => ({
+      output: [{
+        type: "function_call",
+        name: "praxis_tool_code_read",
+        call_id: "tool-approval-call-1",
+        arguments: JSON.stringify({
+          workspaceRoot: workspace,
+          targetPath: "notes.txt",
+          dryRun: false,
+          context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+        }),
+      }],
+    }),
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "APPROVAL_REQUIRED");
+  assert.equal(result.state?.session?.status, "waitingApproval");
+  assert.equal(result.state?.approvals[0]?.source, "baseTool");
+  assert.equal(result.state?.invocations.some((record) => record.kind === "tool" && !record.ok), true);
+});
+
+test("PraxisRuntimeKernel.runManifest executes governed BaseTool after approval resolver", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-tool-approved-"));
+  await writeFile(path.join(workspace, "notes.txt"), "approval resolver allows read\n", "utf8");
+
+  class ToolApprovalAgent extends PraxisAgent {
+    identity = "agent.tool-approved";
+    model = model("gpt-5.4", { carrierId: "carrier.tool-approved" });
+    toolPolicy = toolPolicies.restricted();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-tool-approved",
+    sessionId: "session-tool-approved",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-tool-approved" }).run(new ToolApprovalAgent(), "read notes", {
+    sessionId: "session-tool-approved",
+    dryRun: false,
+    allowProviderCall: true,
+    allowToolExecution: true,
+    auth: authEnvelope(),
+    executor,
+    approvalResolver: async () => ({ status: "approved", resolvedBy: "unit-test" }),
+    providerCaller: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          output: [{
+            type: "function_call",
+            name: "praxis_tool_code_read",
+            call_id: "tool-approved-call-1",
+            arguments: JSON.stringify({
+              workspaceRoot: workspace,
+              targetPath: "notes.txt",
+              dryRun: false,
+              context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+            }),
+          }],
+        };
+      }
+      return { output_text: "approval resolver allowed the file read" };
+    },
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.equal(result.state.approvals[0]?.status, "approved");
+  assert.equal(result.finalOutput, "approval resolver allowed the file read");
 });
 
 test("PraxisRuntimeKernel.runManifest executes EphemeralProcedure through mounted BaseTools", async () => {
@@ -379,6 +634,7 @@ test("PraxisRuntimeKernel.runManifest executes EphemeralProcedure through mounte
   class ProcedureAgent extends PraxisAgent {
     identity = "agent.procedure";
     model = model("gpt-5.4", { carrierId: "carrier.procedure" });
+    toolPolicy = toolPolicies.bapr();
     harness = harness({
       tools: tools([tool("code.read")]),
       policy: policy({

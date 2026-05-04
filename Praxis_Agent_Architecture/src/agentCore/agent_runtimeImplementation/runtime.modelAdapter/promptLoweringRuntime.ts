@@ -24,6 +24,8 @@ export type PromptLoweringMaterialKind =
   | "runtime-event"
   | (string & {});
 
+export type PromptLoweringSourceCategory = "declared-built-in" | "process-product" | "user-request";
+
 export type PromptLoweringBoundary =
   | "input"
   | "contract"
@@ -54,6 +56,7 @@ export type PromptLoweringMaterialInput = {
   kind?: PromptLoweringMaterialKind;
   ref?: string;
   text?: string;
+  sourceCategory?: PromptLoweringSourceCategory;
   priority?: number;
   metadata?: Readonly<Record<string, unknown>>;
 };
@@ -85,6 +88,7 @@ export type LoweredPromptMaterial = {
   kind: PromptLoweringMaterialKind;
   ref?: string;
   text?: string;
+  sourceCategory?: PromptLoweringSourceCategory;
   priority: number;
   sequence: number;
   metadata: Readonly<Record<string, unknown>>;
@@ -176,6 +180,7 @@ function normalizeMaterials(
       const lowered: LoweredPromptMaterial = {
         materialId: ref !== undefined && ref.length > 0 ? ref : `${promptPackId}:material:${index + 1}`,
         kind,
+        sourceCategory: material.sourceCategory ?? "process-product",
         priority: Number.isFinite(material.priority) ? Number(material.priority) : 0,
         sequence: index,
         metadata: material.metadata ?? {},

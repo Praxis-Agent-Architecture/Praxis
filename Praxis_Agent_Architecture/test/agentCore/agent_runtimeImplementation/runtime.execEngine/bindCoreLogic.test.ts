@@ -31,7 +31,11 @@ test("bindCoreLogic returns a dry-run runtime binding snapshot", () => {
   assert.equal(result.binding.runtimeId, "runtime-alpha");
   assert.equal(result.binding.bindingKind, "coreLogic");
   assert.equal(result.binding.bindingId, "runtime.execEngine.coreLogic");
-  assert.deepEqual(result.binding.capabilities, ["mainLoop", "stateEngine", "reuseInvoker"]);
+  assert.equal(result.binding.capabilities.includes("mainLoop"), true);
+  assert.equal(result.binding.capabilities.includes("mainLoopHandoffPlan"), true);
+  assert.equal(result.binding.capabilities.includes("modelDecision"), true);
+  assert.equal(result.binding.capabilities.includes("ephemeralProcedure"), true);
+  assert.equal(result.binding.capabilities.includes("eventSessionRecord"), true);
   assert.deepEqual(result.binding.grantedScopes, ["mainLoop.invoke", "stateEngine.read"]);
   assert.equal(result.binding.dryRun, true);
   assert.equal(result.binding.unsafeSideEffects, false);

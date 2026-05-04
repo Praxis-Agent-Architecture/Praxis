@@ -17,6 +17,7 @@ import {
   type PromptPackError,
   type PromptPackErrorCode,
   type PromptPackMaterialKind,
+  type PromptPackMaterialSourceCategory,
   type PromptPackToolMaterialType,
 } from "./promptDefiner.js";
 
@@ -50,6 +51,7 @@ export type AssembledPromptMaterial = {
   kind: PromptPackMaterialKind;
   text: string;
   source: string;
+  sourceCategory: PromptPackMaterialSourceCategory;
   priority: number;
   estimatedTokens: number;
   trusted: boolean;
@@ -92,6 +94,7 @@ export type AssembledPromptToolPack = {
 export type PromptMaterialSourceRecord = {
   materialId: string;
   source: string;
+  sourceCategory: PromptPackMaterialSourceCategory;
   kind: PromptPackMaterialKind;
   trusted: boolean;
 };
@@ -111,6 +114,7 @@ export type StandardPromptPack = {
     toolPack: AssembledPromptToolPack;
   }>;
   sourceRecords: readonly PromptMaterialSourceRecord[];
+  materialSourceCategories: readonly PromptPackMaterialSourceCategory[];
   trimRecords: readonly PromptTrimRecord[];
   injectionRecords: readonly PromptInjectionRecord[];
   totalEstimatedTokens: number;
@@ -177,6 +181,7 @@ function toAssembledMaterial(material: DefinedPromptMaterial): AssembledPromptMa
     kind: material.kind,
     text: material.text,
     source: material.source,
+    sourceCategory: material.sourceCategory,
     priority: material.priority,
     estimatedTokens: material.estimatedTokens,
     trusted: material.trusted,
@@ -426,9 +431,11 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
       sourceRecords: materialWindow.map((material) => ({
         materialId: material.id,
         source: material.source,
+        sourceCategory: material.sourceCategory,
         kind: material.kind,
         trusted: material.trusted,
       })),
+      materialSourceCategories: [...new Set(assembledMaterials.map((material) => material.sourceCategory))],
       trimRecords,
       injectionRecords,
       totalEstimatedTokens,

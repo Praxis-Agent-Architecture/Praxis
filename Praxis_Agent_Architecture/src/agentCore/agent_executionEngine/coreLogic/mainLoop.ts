@@ -16,21 +16,71 @@ import {
 } from "./stateEngine.js";
 
 export type AgentMainLoopNextHop = "prompt-pack" | "model-adapter" | "tool-layer" | "event-exposure" | "none";
+export type MainLoopTickKind =
+  | "model-only"
+  | "tool-call"
+  | "ephemeral-procedure"
+  | "approval-wait"
+  | "resume"
+  | "interrupt"
+  | "failure";
 
 export type MainLoopActionPrimitive =
   | "receiveInput"
   | "advanceState"
+  | "planMainLoopTick"
   | "assemblePromptPack"
+  | "handoffPromptPack"
   | "lowerPrompt"
+  | "handoffModelInvocation"
   | "invokeModel"
   | "interpretModelDecision"
+  | "handoffModelDecision"
+  | "handoffToolCall"
   | "invokeBaseTool"
+  | "handoffEphemeralProcedure"
   | "executeEphemeralProcedure"
   | "integrateObservation"
   | "requestApproval"
+  | "waitApproval"
+  | "resume"
+  | "interrupt"
+  | "retry"
+  | "timeout"
+  | "emitEvent"
+  | "recordSessionEvent"
   | "requestTapCapability"
   | "exposeOutput"
   | "fail";
+
+export const MAIN_LOOP_ACTION_PRIMITIVES = [
+  "receiveInput",
+  "advanceState",
+  "planMainLoopTick",
+  "assemblePromptPack",
+  "handoffPromptPack",
+  "lowerPrompt",
+  "handoffModelInvocation",
+  "invokeModel",
+  "interpretModelDecision",
+  "handoffModelDecision",
+  "handoffToolCall",
+  "invokeBaseTool",
+  "handoffEphemeralProcedure",
+  "executeEphemeralProcedure",
+  "integrateObservation",
+  "requestApproval",
+  "waitApproval",
+  "resume",
+  "interrupt",
+  "retry",
+  "timeout",
+  "emitEvent",
+  "recordSessionEvent",
+  "requestTapCapability",
+  "exposeOutput",
+  "fail",
+] as const satisfies readonly MainLoopActionPrimitive[];
 
 export type MainLoopStepStatus =
   | "planned"
@@ -94,6 +144,7 @@ export type AgentMainLoopBoundary = "input" | "runtime-state" | "contract" | "go
 export type AgentMainLoopRequest = {
   sessionId?: string;
   input?: unknown;
+  now?: string;
   currentState?: AgentExecutionStateSnapshot;
   requestedNextHop?: AgentMainLoopNextHop;
   maxSteps?: number;
@@ -139,6 +190,43 @@ export type AgentMainLoopResult =
       error: AgentMainLoopError;
       events: readonly string[];
     };
+
+export type FrameworkMainLoopHandoffRequest = {
+  sessionId?: string;
+  turnIndex?: number;
+  startStepIndex?: number;
+  now?: string;
+  tickKind: MainLoopTickKind;
+  promptPackRef?: string;
+  loweredPromptRef?: string;
+  modelCallId?: string;
+  toolCallId?: string;
+  procedureId?: string;
+  observationRefs?: readonly string[];
+  stateBeforeRef?: string;
+  stateAfterRef?: string;
+  inputRefs?: readonly string[];
+  outputRefs?: readonly string[];
+  error?: MainLoopPublicSafeFailure;
+  trace?: MainLoopStepTrace;
+  governance?: MainLoopStepGateResult;
+  contract?: MainLoopStepGateResult;
+};
+
+export type FrameworkMainLoopHandoffPlan = {
+  kind: "praxis.mainLoopHandoffPlan";
+  sessionId: string;
+  tickKind: MainLoopTickKind;
+  stepRecords: readonly MainLoopStepRecord[];
+  nextAction?: MainLoopActionPrimitive;
+  eventRefs: readonly string[];
+  dryRun: true;
+  unsafeSideEffects: false;
+};
+
+export type FrameworkMainLoopHandoffResult =
+  | { ok: true; plan: FrameworkMainLoopHandoffPlan; events: readonly string[] }
+  | { ok: false; error: AgentMainLoopError; events: readonly string[] };
 
 function isBlank(value: string | undefined): boolean {
   return typeof value !== "string" || value.trim().length === 0;
@@ -227,6 +315,101 @@ export function createMainLoopStepRecord(input: {
   };
 }
 
+function handoffPrimitivesForTick(kind: MainLoopTickKind): readonly MainLoopActionPrimitive[] {
+  if (kind === "model-only") {
+    return ["handoffPromptPack", "handoffModelInvocation", "handoffModelDecision"];
+  }
+  if (kind === "tool-call") {
+    return ["handoffToolCall", "invokeBaseTool", "integrateObservation", "recordSessionEvent"];
+  }
+  if (kind === "ephemeral-procedure") {
+    return ["handoffEphemeralProcedure", "executeEphemeralProcedure", "integrateObservation", "recordSessionEvent"];
+  }
+  if (kind === "approval-wait") {
+    return ["requestApproval", "waitApproval", "recordSessionEvent"];
+  }
+  if (kind === "resume") {
+    return ["resume", "advanceState", "recordSessionEvent"];
+  }
+  if (kind === "interrupt") {
+    return ["interrupt", "advanceState", "recordSessionEvent"];
+  }
+  return ["fail", "recordSessionEvent"];
+}
+
+export function planFrameworkMainLoopHandoff(request: FrameworkMainLoopHandoffRequest): FrameworkMainLoopHandoffResult {
+  if (isBlank(request.sessionId)) {
+    return {
+      ok: false,
+      error: {
+        code: "MISSING_SESSION_ID",
+        message: "framework mainLoop handoff requires a sessionId",
+        boundary: "input",
+        stateSafe: true,
+      },
+      events: ["agentCore.execution.mainLoop.rejected"],
+    };
+  }
+
+  const sessionId = request.sessionId?.trim() ?? "";
+  const turnIndex = request.turnIndex ?? 0;
+  const startStepIndex = request.startStepIndex ?? 0;
+  const primitives = handoffPrimitivesForTick(request.tickKind);
+  const governance = request.governance ?? { accepted: true };
+  const contract = request.contract ?? { accepted: true };
+  const eventRefs = [`mainLoop.tick.${request.tickKind}`];
+
+  const stepRecords = primitives.map((primitive, index) => {
+    const isFailure = request.tickKind === "failure" || request.error !== undefined;
+    const status: MainLoopStepStatus =
+      primitive === "waitApproval"
+        ? "waitingApproval"
+        : primitive === "interrupt"
+          ? "interrupted"
+          : isFailure && primitive === "fail"
+            ? "failed"
+            : "planned";
+    return createMainLoopStepRecord({
+      sessionId,
+      turnIndex,
+      stepIndex: startStepIndex + index,
+      actionPrimitive: primitive,
+      status,
+      inputRefs: request.inputRefs,
+      outputRefs: request.outputRefs,
+      modelCallId: request.modelCallId,
+      toolCallId: request.toolCallId,
+      procedureId: request.procedureId,
+      promptPackRef: request.promptPackRef,
+      loweredPromptRef: request.loweredPromptRef,
+      observationRefs: request.observationRefs,
+      stateBeforeRef: request.stateBeforeRef,
+      stateAfterRef: request.stateAfterRef,
+      governance,
+      contract,
+      error: primitive === "fail" ? request.error : undefined,
+      trace: request.trace,
+      now: request.now,
+      metadata: { tickKind: request.tickKind },
+    });
+  });
+
+  return {
+    ok: true,
+    plan: {
+      kind: "praxis.mainLoopHandoffPlan",
+      sessionId,
+      tickKind: request.tickKind,
+      stepRecords,
+      nextAction: primitives[0],
+      eventRefs,
+      dryRun: true,
+      unsafeSideEffects: false,
+    },
+    events: ["agentCore.execution.mainLoop.handoffPlanned"],
+  };
+}
+
 export function planAgentMainLoopTick(request: AgentMainLoopRequest): AgentMainLoopResult {
   if (isBlank(request.sessionId)) {
     return failure("MISSING_SESSION_ID", "mainLoop requires a sessionId before planning execution", "input");
@@ -286,7 +469,7 @@ export function planAgentMainLoopTick(request: AgentMainLoopRequest): AgentMainL
           governance: gateResult(request.governance),
           contract: gateResult(request.contract),
           trace: request.trace,
-          now: "1970-01-01T00:00:00.000Z",
+          now: request.now,
         }),
         createMainLoopStepRecord({
           sessionId,
@@ -299,7 +482,7 @@ export function planAgentMainLoopTick(request: AgentMainLoopRequest): AgentMainL
           governance: gateResult(request.governance),
           contract: gateResult(request.contract),
           trace: request.trace,
-          now: "1970-01-01T00:00:00.000Z",
+          now: request.now,
         }),
       ],
       dryRun: true,

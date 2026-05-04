@@ -42,6 +42,7 @@ export type PromptPackBindingError = {
 export type PromptPackLayerRef = {
   kind: PromptPackLayerKind;
   ref: string;
+  sourceCategory?: "declared-built-in" | "process-product" | "user-request";
 };
 
 export type PromptPackBindingInput = {
@@ -113,7 +114,7 @@ function normalizeCaller(caller: ExecEngineRuntimeCaller): ExecEngineRuntimeCall
 
 function normalizeLayers(layers: readonly PromptPackLayerRef[] | undefined): readonly PromptPackLayerRef[] {
   return (layers ?? [])
-    .map((layer) => ({ kind: layer.kind.trim(), ref: layer.ref.trim() }))
+    .map((layer) => ({ kind: layer.kind.trim(), ref: layer.ref.trim(), sourceCategory: layer.sourceCategory }))
     .filter((layer) => layer.kind.length > 0 && layer.ref.length > 0);
 }
 

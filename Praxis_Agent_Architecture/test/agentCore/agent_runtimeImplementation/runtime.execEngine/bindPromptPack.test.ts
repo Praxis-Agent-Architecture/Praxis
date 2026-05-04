@@ -18,9 +18,9 @@ test("bindPromptPack creates a dry-run runtime binding for promptPack layers", (
       id: " prompt-pack-1 ",
       source: "official-module",
       layers: [
-        { kind: "system", ref: " system:base " },
-        { kind: "memory", ref: " memory:recent " },
-        { kind: "memory", ref: " memory:profile " },
+        { kind: "system", ref: " system:base ", sourceCategory: "declared-built-in" },
+        { kind: "memory", ref: " memory:recent ", sourceCategory: "process-product" },
+        { kind: "memory", ref: " memory:profile ", sourceCategory: "process-product" },
       ],
       metadata: { owner: "cmp" },
     },
@@ -34,6 +34,8 @@ test("bindPromptPack creates a dry-run runtime binding for promptPack layers", (
   assert.equal(result.binding.bindingId, "runtime-1:promptPack:prompt-pack-1");
   assert.equal(result.binding.route, "runtime.execEngine.promptPack");
   assert.deepEqual(result.binding.layerKinds, ["system", "memory"]);
+  assert.equal(result.binding.layers[0]?.sourceCategory, "declared-built-in");
+  assert.equal(result.binding.layers[1]?.sourceCategory, "process-product");
   assert.equal(result.binding.dryRun, true);
   assert.equal(result.binding.unsafeSideEffects, false);
   assert.deepEqual(result.events, ["runtime.execEngine.promptPack.bound"]);

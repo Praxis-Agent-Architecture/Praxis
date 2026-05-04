@@ -113,7 +113,14 @@ export type BindCoreLogicResult = RuntimeExecEngineBindingResult;
 
 export const DEFAULT_CORE_LOGIC_BINDING_CAPABILITIES = [
   "mainLoop",
+  "mainLoopStepRecord",
+  "mainLoopHandoffPlan",
   "stateEngine",
+  "modelDecision",
+  "ephemeralProcedure",
+  "observationIntegrator",
+  "approvalWaitResume",
+  "eventSessionRecord",
   "reuseInvoker",
 ] as const;
 

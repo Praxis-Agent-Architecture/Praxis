@@ -21,6 +21,7 @@
 - 命名片段：`main` / `Loop`。
 - 工程含义：这是执行核心逻辑的一处能力点，重点是主循环、状态机、复用或事件暴露的窄职责。
 - 第一实现重点：先把状态输入、状态输出、事件和调用下一跳定义清楚。
+- 当前正式动作原语包括 promptPack handoff、model invocation handoff、ModelDecision handoff、BaseTool handoff、EphemeralProcedure handoff、approval wait/resume、interrupt、retry/timeout、event/session record 等。Kernel 可以继续保留兼容 shim，但这些动作应逐步成为主循环语义入口。
 
 ## 3. 目录语义
 
@@ -56,6 +57,7 @@
 
 - “驱动 Agent 执行主循环”后形成的状态变化、下一跳调用意图、事件材料或执行结果。
 - 可被 runtime.execEngine、behaviorExposure 和 debug/inspection 继续消费的标准结构。
+- `planFrameworkMainLoopHandoff` 输出 `praxis.mainLoopHandoffPlan`，每个 model/tool/procedure/approval/failure tick 都有 `MainLoopStepRecord`，并保持 dry-run、无副作用、可审计。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 

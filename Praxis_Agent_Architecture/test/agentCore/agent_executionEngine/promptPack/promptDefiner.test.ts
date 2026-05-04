@@ -47,13 +47,38 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
   assert.equal(result.definition.providerPayloadCreated, false);
   assert.equal(result.definition.unsafeSideEffects, false);
   assert.deepEqual(promptPackDefinerDescriptor.internalMaterialKinds, PROMPT_PACK_INTERNAL_MATERIAL_KINDS);
+  assert.deepEqual(promptPackDefinerDescriptor.sourceCategories, ["declared-built-in", "process-product", "user-request"]);
   assert.equal(result.definition.basicCorePromptMaterialId, BASIC_CORE_PROMPT_MATERIAL_ID);
+  assert.deepEqual(result.definition.materialSourceCategories, ["declared-built-in"]);
   assert.deepEqual(result.definition.requestedScopes, ["prompt"]);
   assert.equal(result.definition.materials[0]?.id, BASIC_CORE_PROMPT_MATERIAL_ID);
   assert.equal(result.definition.materials[0]?.source, "runtime.basicCorePrompt");
+  assert.equal(result.definition.materials[0]?.sourceCategory, "declared-built-in");
   assert.equal(result.definition.materials[0]?.metadata.protected, true);
   assert.equal(result.definition.materials[1]?.id, "system");
   assert.equal(result.definition.materials[1]?.source, "runtime.contractSurface");
+});
+
+test("definePromptPack classifies formal material sources without provider payloads", () => {
+  const result = definePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    includeBasicCorePrompt: false,
+    materials: [
+      { id: "declared", kind: "system", text: "base", source: "manifest.promptPack" },
+      { id: "observation", kind: "tool-summary", text: "tool result", source: "observation.tool" },
+      { id: "user", kind: "user", text: "please inspect", source: "user" },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.definition.materialSourceCategories, ["declared-built-in", "process-product", "user-request"]);
+  assert.deepEqual(
+    result.definition.materials.map((material) => material.sourceCategory),
+    ["declared-built-in", "process-product", "user-request"],
+  );
+  assert.equal(result.definition.providerPayloadCreated, false);
 });
 
 test("definePromptPack rejects missing inputs, bad budgets, and scope drift", () => {

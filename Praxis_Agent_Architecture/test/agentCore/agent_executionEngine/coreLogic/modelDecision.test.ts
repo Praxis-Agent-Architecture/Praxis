@@ -51,6 +51,45 @@ test("interpretModelDecision maps function calls through provider tool mappings"
   assert.deepEqual(result.decisions[0]?.toolCall?.arguments, { targetPath: "notes.txt" });
 });
 
+test("interpretModelDecision converts malformed provider tool arguments into fail decision", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-malformed-tool",
+    turnIndex: 1,
+    providerToolMappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    raw: {
+      output: [{
+        type: "function_call",
+        name: "praxis_tool_code_read",
+        call_id: "call-bad-json",
+        arguments: "{\"targetPath\":",
+      }],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "fail");
+  assert.equal(result.decisions[0]?.failure?.code, "MALFORMED_PROVIDER_TOOL_ARGUMENTS");
+});
+
+test("interpretModelDecision converts provider failures into fail decision", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-provider-failure",
+    turnIndex: 1,
+    raw: {
+      error: {
+        code: "upstream_timeout",
+        message: "provider timed out",
+      },
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "fail");
+  assert.equal(result.decisions[0]?.failure?.code, "upstream_timeout");
+});
+
 test("interpretModelDecision recognizes EphemeralProcedure as a runtime decision", () => {
   const result = interpretModelDecision({
     sessionId: "session-decision-procedure",
@@ -99,7 +138,8 @@ test("interpretModelDecision rejects invalid EphemeralProcedure plans", () => {
     },
   });
 
-  assert.equal(result.ok, false);
-  if (result.ok) return;
-  assert.equal(result.error.code, "INVALID_EPHEMERAL_PROCEDURE");
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "fail");
+  assert.equal(result.decisions[0]?.failure?.code, "INVALID_EPHEMERAL_PROCEDURE");
 });

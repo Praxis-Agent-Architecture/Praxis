@@ -98,6 +98,11 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
     result.promptPack.sourceRecords.map((record) => record.source),
     ["runtime.basicCorePrompt", "tool"],
   );
+  assert.deepEqual(result.promptPack.materialSourceCategories, ["declared-built-in"]);
+  assert.deepEqual(
+    result.promptPack.sourceRecords.map((record) => record.sourceCategory),
+    ["declared-built-in", "declared-built-in"],
+  );
 });
 
 test("assemblePromptPack rejects missing materials, bad budgets, and unsafe injection", () => {
@@ -118,6 +123,7 @@ test("assemblePromptPack rejects missing materials, bad budgets, and unsafe inje
         kind: "user",
         text: "hello",
         source: "user",
+        sourceCategory: "user-request",
         priority: 0,
         estimatedTokens: 2,
         trusted: false,

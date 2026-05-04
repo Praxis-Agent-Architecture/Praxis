@@ -17,9 +17,9 @@ test("promptLoweringRuntime lowers promptPack material into a model-adapter enve
     promptPack: {
       id: " prompt-pack-1 ",
       materials: [
-        { kind: "system", ref: " system:base ", priority: 100 },
-        { kind: "user", text: " hello model ", priority: 50 },
-        { kind: "context", ref: " cmp:ctx:1 " },
+        { kind: "system", ref: " system:base ", sourceCategory: "declared-built-in", priority: 100 },
+        { kind: "user", text: " hello model ", sourceCategory: "user-request", priority: 50 },
+        { kind: "context", ref: " cmp:ctx:1 ", sourceCategory: "process-product" },
       ],
       metadata: { source: "promptPack" },
     },
@@ -37,6 +37,8 @@ test("promptLoweringRuntime lowers promptPack material into a model-adapter enve
   assert.equal(result.loweredPrompt.target.carrierId, "openai-carrier");
   assert.deepEqual(result.loweredPrompt.materialKinds, ["system", "user", "context"]);
   assert.deepEqual(result.loweredPrompt.materialRefs, ["system:base", "prompt-pack-1:material:2", "cmp:ctx:1"]);
+  assert.equal(result.loweredPrompt.materials[0]?.sourceCategory, "declared-built-in");
+  assert.equal(result.loweredPrompt.materials[1]?.sourceCategory, "user-request");
   assert.equal(result.loweredPrompt.materials[1]?.text, "hello model");
   assert.equal(result.loweredPrompt.dryRun, true);
   assert.equal(result.loweredPrompt.unsafeSideEffects, false);

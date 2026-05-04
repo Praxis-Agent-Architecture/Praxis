@@ -15,6 +15,7 @@ import { receiveTextInput } from "../agent_executionEngine/IOTransceiver/inputRe
 import { exposeTextOutput } from "../agent_executionEngine/IOTransceiver/outputExposer/textExposer.js";
 import {
   createMainLoopStepRecord,
+  planFrameworkMainLoopHandoff,
   type MainLoopStepRecord,
 } from "../agent_executionEngine/coreLogic/mainLoop.js";
 import {
@@ -42,7 +43,9 @@ import {
   type RuntimeBaseToolExecutorPolicy,
   type RuntimeBaseToolExecutorResourceLimits,
 } from "./runtime.execEngine/baseToolExecutorPortFactory.js";
+import { evaluateBaseToolRuntimeGovernance, type BaseToolRuntimeGovernanceDecision } from "./runtime.execEngine/baseToolRuntimeGovernance.js";
 import { invokeMountedBaseTool } from "./runtime.execEngine/baseToolRuntimeMount.js";
+import { evaluateBaseToolRuntimeReadiness } from "./runtime.execEngine/baseToolSupportCatalog.js";
 import { invokeModelThroughRuntime } from "./runtime.modelAdapter/modelInvocationRuntime.js";
 import {
   lowerPromptForModelAdapter,
@@ -58,6 +61,9 @@ import {
   createInMemorySessionStateEventStore,
   type RuntimeEventRecord,
   type RuntimeInvocationRecord,
+  type RuntimeApprovalRecord,
+  type RuntimePublicSafeErrorRecord,
+  type RuntimeProcedureRecord,
   type RuntimeSessionSnapshot,
   type RuntimeSessionStateEventStore,
   type RuntimeStateRecord,
@@ -93,8 +99,33 @@ export type PraxisRuntimeKernelOptions = {
   allowProviderCall?: boolean;
   allowToolExecution?: boolean;
   dryRun?: boolean;
+  approvalResolver?: RuntimeApprovalResolver;
   now?: () => string;
 };
+
+export type RuntimeApprovalEnvelope = {
+  approvalId: string;
+  runtimeId: string;
+  sessionId: string;
+  source: RuntimeApprovalRecord["source"];
+  reason: string;
+  requestedScopes: readonly string[];
+  riskLevel?: string;
+  interfaceSurface: RuntimeApprovalRecord["interfaceSurface"];
+  metadata: Readonly<Record<string, unknown>>;
+  publicSafe: true;
+};
+
+export type RuntimeApprovalResolution = {
+  status: "approved" | "denied" | "pending";
+  resolvedBy?: string;
+  reason?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type RuntimeApprovalResolver = (
+  envelope: RuntimeApprovalEnvelope,
+) => RuntimeApprovalResolution | Promise<RuntimeApprovalResolution>;
 
 export type AgentToolCallRecord = {
   callId: string;
@@ -134,12 +165,6 @@ export type AgentRunResult =
       events: readonly string[];
       state?: RuntimeSessionSnapshot;
     };
-
-type NormalizedToolCall = {
-  callId: string;
-  toolId: string;
-  arguments: Readonly<Record<string, unknown>>;
-};
 
 type ProviderToolMapping = {
   providerName: string;
@@ -202,161 +227,6 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function parseArguments(value: unknown): Readonly<Record<string, unknown>> {
-  if (isRecord(value)) {
-    return value;
-  }
-
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return {};
-  }
-
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function dedupeToolCalls(calls: readonly NormalizedToolCall[]): readonly NormalizedToolCall[] {
-  const byCallId = new Map<string, NormalizedToolCall>();
-  const order: string[] = [];
-  for (const call of calls) {
-    if (!byCallId.has(call.callId)) {
-      order.push(call.callId);
-    }
-    byCallId.set(call.callId, call);
-  }
-  return order.map((callId) => byCallId.get(callId)).filter((call): call is NormalizedToolCall => call !== undefined);
-}
-
-function sseDataObjects(text: string): readonly unknown[] {
-  const objects: unknown[] = [];
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("data:")) {
-      continue;
-    }
-
-    const payload = line.slice("data:".length).trim();
-    if (payload.length === 0 || payload === "[DONE]") {
-      continue;
-    }
-
-    try {
-      objects.push(JSON.parse(payload) as unknown);
-    } catch {
-      // Ignore provider keepalive or non-JSON SSE payloads.
-    }
-  }
-  return objects;
-}
-
-function extractText(raw: unknown): string {
-  if (typeof raw === "string") {
-    const deltas: string[] = [];
-    const completed: string[] = [];
-    for (const object of sseDataObjects(raw)) {
-      if (!isRecord(object)) continue;
-      const eventType = readString(object.type);
-      const delta = readString(object.delta);
-      if (delta !== undefined && (eventType === undefined || eventType.includes("output_text"))) {
-        deltas.push(delta);
-      }
-      if (object.response !== undefined) {
-        const text = extractText(object.response);
-        if (text.length > 0) {
-          completed.push(text);
-        }
-      }
-    }
-    return deltas.join("").trim() || completed.join("\n").trim() || raw;
-  }
-
-  if (!isRecord(raw)) {
-    return "";
-  }
-
-  const direct = readString(raw.output_text) ?? readString(raw.text);
-  if (direct !== undefined) {
-    return direct;
-  }
-
-  const output = raw.output;
-  if (!Array.isArray(output)) {
-    return "";
-  }
-
-  const chunks: string[] = [];
-  for (const item of output) {
-    if (!isRecord(item)) continue;
-    const itemText = readString(item.output_text) ?? readString(item.text);
-    if (itemText !== undefined) {
-      chunks.push(itemText);
-    }
-    const content = item.content;
-    if (Array.isArray(content)) {
-      for (const block of content) {
-        if (!isRecord(block)) continue;
-        const blockText = readString(block.text) ?? readString(block.output_text);
-        if (blockText !== undefined) chunks.push(blockText);
-      }
-    }
-  }
-
-  return chunks.join("\n").trim();
-}
-
-function extractToolCalls(raw: unknown): readonly NormalizedToolCall[] {
-  if (typeof raw === "string") {
-    return dedupeToolCalls(sseDataObjects(raw).flatMap((object) => {
-      if (!isRecord(object)) return [];
-      const eventType = readString(object.type);
-      const fromResponse = object.response === undefined ? [] : extractToolCalls(object.response);
-      const fromItem = eventType === "response.output_item.done" && object.item !== undefined
-        ? extractToolCalls({ output: [object.item] })
-        : [];
-      return [...fromResponse, ...fromItem];
-    }));
-  }
-
-  if (!isRecord(raw)) {
-    return [];
-  }
-
-  const candidates = [
-    raw.tool_calls,
-    raw.toolCalls,
-    raw.output,
-  ].filter(Array.isArray) as unknown[][];
-
-  const calls: NormalizedToolCall[] = [];
-  for (const list of candidates) {
-    for (const item of list) {
-      if (!isRecord(item)) continue;
-      const functionRecord = isRecord(item.function) ? item.function : undefined;
-      const type = readString(item.type);
-      const name =
-        readString(item.toolId) ??
-        readString(item.name) ??
-        readString(functionRecord?.name);
-      if (name === undefined) continue;
-      if (type !== undefined && !["function_call", "tool_call", "function"].includes(type) && item.toolId === undefined) {
-        continue;
-      }
-      const callId = readString(item.call_id) ?? readString(item.id) ?? `${name}:${calls.length + 1}`;
-      const args = item.arguments ?? functionRecord?.arguments ?? item.input ?? {};
-      calls.push({
-        callId,
-        toolId: name,
-        arguments: parseArguments(args),
-      });
-    }
-  }
-
-  return dedupeToolCalls(calls);
-}
-
 function providerToolName(toolId: string): string {
   const normalized = toolId.replace(/[^a-zA-Z0-9_-]/gu, "_").replace(/^_+/u, "");
   return `praxis_tool_${normalized || "tool"}`;
@@ -378,10 +248,6 @@ function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMap
       toolId: tool.toolId,
     };
   });
-}
-
-function runtimeToolIdFor(providerName: string, mappings: readonly ProviderToolMapping[]): string {
-  return mappings.find((mapping) => mapping.providerName === providerName)?.toolId ?? providerName;
 }
 
 function enrichToolArguments(
@@ -570,49 +436,6 @@ function buildCodexResponsesBodyFromPromptPack(
   };
 }
 
-function buildCodexResponsesBody(
-  manifest: AgentManifest,
-  task: string,
-  toolResults: readonly AgentToolCallRecord[] = [],
-): Readonly<Record<string, unknown>> {
-  const mappings = providerToolMappings(manifest);
-  const toolMaterial = toolResults.length === 0
-    ? ""
-    : `\n\nTool results:\n${toolResults.map((result) => JSON.stringify(result)).join("\n")}`;
-
-  return {
-    model: manifest.model.model,
-    input: [
-      {
-        role: "developer",
-        content: [{
-          type: "input_text",
-          text: toolResults.length > 0
-            ? "You are running inside PraxisRuntimeKernel v1. Tool results are already available. Do not call tools again; answer the user from the tool results."
-            : "You are running inside PraxisRuntimeKernel v1. Use tool calls only when they are declared in the harness.",
-        }],
-      },
-      {
-        role: "user",
-        content: [{
-          type: "input_text",
-          text: `${task}${toolMaterial}`,
-        }],
-      },
-    ],
-    ...(toolResults.length > 0
-      ? {}
-      : {
-          tools: manifest.harness.tools.map((tool) => ({
-            type: "function",
-            name: mappings.find((mapping) => mapping.toolId === tool.toolId)?.providerName ?? providerToolName(tool.toolId),
-            description: tool.description ?? `Praxis baseTool ${tool.toolId}`,
-            parameters: tool.inputSchema ?? { type: "object", additionalProperties: true },
-          })),
-        }),
-  };
-}
-
 function kernelError(
   code: PraxisRuntimeKernelErrorCode,
   message: string,
@@ -631,6 +454,7 @@ async function recordMainLoopStep(input: {
 }): Promise<void> {
   input.mainLoopSteps.push(input.step);
   input.events.push(`mainLoop.${input.step.actionPrimitive}.${input.step.status}`);
+  await input.store.appendMainLoopStep(input.step);
   await input.store.appendEvent(event(
     input.sessionId,
     `event:${input.step.stepId}`,
@@ -640,10 +464,90 @@ async function recordMainLoopStep(input: {
   ));
 }
 
+async function recordKernelError(input: {
+  store: RuntimeSessionStateEventStore;
+  sessionId: string;
+  errorId: string;
+  error: PraxisRuntimeKernelError | RuntimePublicSafeErrorRecord;
+  createdAt: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}): Promise<void> {
+  const boundary =
+    input.error.boundary === "compile"
+      ? "runtime-state"
+      : input.error.boundary === "io"
+        ? "io"
+        : input.error.boundary === "runtime-state"
+          ? "runtime-state"
+          : input.error.boundary;
+  await input.store.appendPublicSafeError({
+    sessionId: input.sessionId,
+    errorId: input.errorId,
+    code: input.error.code,
+    message: input.error.message,
+    boundary,
+    createdAt: input.createdAt,
+    metadata: input.metadata ?? {},
+    publicSafe: true,
+  });
+}
+
+async function recordHandoffPlan(input: {
+  store: RuntimeSessionStateEventStore;
+  sessionId: string;
+  createdAt: string;
+  events: string[];
+  mainLoopSteps: MainLoopStepRecord[];
+  turnIndex: number;
+  startStepIndex: number;
+  tickKind: "model-only" | "tool-call" | "ephemeral-procedure" | "approval-wait" | "resume" | "interrupt" | "failure";
+  promptPackRef?: string;
+  loweredPromptRef?: string;
+  modelCallId?: string;
+  toolCallId?: string;
+  procedureId?: string;
+  observationRefs?: readonly string[];
+  inputRefs?: readonly string[];
+  outputRefs?: readonly string[];
+  error?: MainLoopStepRecord["error"];
+}): Promise<void> {
+  const plan = planFrameworkMainLoopHandoff({
+    sessionId: input.sessionId,
+    turnIndex: input.turnIndex,
+    startStepIndex: input.startStepIndex,
+    now: input.createdAt,
+    tickKind: input.tickKind,
+    promptPackRef: input.promptPackRef,
+    loweredPromptRef: input.loweredPromptRef,
+    modelCallId: input.modelCallId,
+    toolCallId: input.toolCallId,
+    procedureId: input.procedureId,
+    observationRefs: input.observationRefs,
+    inputRefs: input.inputRefs,
+    outputRefs: input.outputRefs,
+    error: input.error,
+  });
+  input.events.push(...plan.events);
+  if (!plan.ok) {
+    return;
+  }
+  for (const step of plan.plan.stepRecords) {
+    await recordMainLoopStep({
+      store: input.store,
+      sessionId: input.sessionId,
+      createdAt: input.createdAt,
+      events: input.events,
+      mainLoopSteps: input.mainLoopSteps,
+      step,
+    });
+  }
+}
+
 function promptLoweringMaterials(promptPack: StandardPromptPack): readonly {
   kind: string;
   ref: string;
   text: string;
+  sourceCategory?: "declared-built-in" | "process-product" | "user-request";
   priority: number;
   metadata: Readonly<Record<string, unknown>>;
 }[] {
@@ -651,9 +555,111 @@ function promptLoweringMaterials(promptPack: StandardPromptPack): readonly {
     kind: material.kind,
     ref: material.id,
     text: material.text,
+    sourceCategory: material.sourceCategory,
     priority: material.priority,
     metadata: material.metadata,
   }));
+}
+
+async function requestRuntimeApproval(input: {
+  runtimeId: string;
+  sessionId: string;
+  approvalId: string;
+  source: RuntimeApprovalRecord["source"];
+  reason: string;
+  requestedScopes: readonly string[];
+  riskLevel?: string;
+  interfaceSurface?: RuntimeApprovalRecord["interfaceSurface"];
+  resolver?: RuntimeApprovalResolver;
+  store: RuntimeSessionStateEventStore;
+  now: () => string;
+  metadata?: Readonly<Record<string, unknown>>;
+}): Promise<{ status: "approved" | "denied" | "pending"; envelope: RuntimeApprovalEnvelope; events: readonly string[]; reason?: string }> {
+  const createdAt = input.now();
+  const interfaceSurface = input.interfaceSurface ?? (input.resolver === undefined ? "application" : "test-harness");
+  const envelope: RuntimeApprovalEnvelope = {
+    approvalId: input.approvalId,
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    source: input.source,
+    reason: input.reason,
+    requestedScopes: input.requestedScopes,
+    riskLevel: input.riskLevel,
+    interfaceSurface,
+    metadata: input.metadata ?? {},
+    publicSafe: true,
+  };
+  await input.store.appendApproval({
+    sessionId: input.sessionId,
+    approvalId: input.approvalId,
+    status: "pending",
+    reason: input.reason,
+    requestedScopes: input.requestedScopes,
+    riskLevel: input.riskLevel,
+    source: input.source,
+    interfaceSurface,
+    createdAt,
+    metadata: input.metadata ?? {},
+  });
+  await input.store.appendEvent(event(input.sessionId, `event:approval:${input.approvalId}:pending`, "runtime.approval.pending", createdAt, {
+    approval: envelope,
+  }));
+
+  if (input.resolver === undefined) {
+    return { status: "pending", envelope, events: ["runtime.approval.pending"], reason: input.reason };
+  }
+
+  let resolution: RuntimeApprovalResolution;
+  try {
+    resolution = await input.resolver(envelope);
+  } catch {
+    const resolvedAt = input.now();
+    await input.store.resolveApproval(input.sessionId, input.approvalId, {
+      status: "denied",
+      resolvedAt,
+      resolution: {
+        resolvedBy: "approvalResolver",
+        reason: "approval resolver failed",
+      },
+    });
+    await input.store.appendEvent(event(input.sessionId, `event:approval:${input.approvalId}:resolverFailed`, "runtime.approval.denied", resolvedAt, {
+      approvalId: input.approvalId,
+      status: "denied",
+      publicSafeFailure: "approval resolver failed",
+    }));
+    return {
+      status: "denied",
+      envelope,
+      events: ["runtime.approval.denied"],
+      reason: "approval resolver failed",
+    };
+  }
+  const status = resolution.status;
+  if (status === "pending") {
+    return { status, envelope, events: ["runtime.approval.pending"], reason: resolution.reason ?? input.reason };
+  }
+
+  const resolvedAt = input.now();
+  await input.store.resolveApproval(input.sessionId, input.approvalId, {
+    status: status === "approved" ? "approved" : "denied",
+    resolvedAt,
+    resolution: {
+      resolvedBy: resolution.resolvedBy ?? "approvalResolver",
+      reason: resolution.reason,
+      ...(resolution.metadata ?? {}),
+    },
+  });
+  await input.store.appendEvent(event(input.sessionId, `event:approval:${input.approvalId}:resolved`, `runtime.approval.${status}`, resolvedAt, {
+    approvalId: input.approvalId,
+    status,
+    resolvedBy: resolution.resolvedBy ?? "approvalResolver",
+  }));
+  return {
+    status,
+    envelope,
+    events: [`runtime.approval.${status}`],
+    reason: resolution.reason,
+  };
 }
 
 async function buildPromptPackAndLower(input: {
@@ -770,14 +776,107 @@ async function executeBaseToolDecision(input: {
   providerToolName?: string;
   args: Readonly<Record<string, unknown>>;
   allowToolExecution?: boolean;
+  store: RuntimeSessionStateEventStore;
+  approvalResolver?: RuntimeApprovalResolver;
   now: () => string;
   events: string[];
 }): Promise<{
   record: AgentToolCallRecord;
   observation: RuntimeObservationMaterial;
   events: readonly string[];
+  governance: BaseToolRuntimeGovernanceDecision;
 }> {
   const toolArguments = enrichToolArguments(input.manifest, input.args);
+  const runtimeReadiness = evaluateBaseToolRuntimeReadiness({
+    toolId: input.toolId,
+    executor: input.executor,
+    implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
+  });
+  const governance = evaluateBaseToolRuntimeGovernance({
+    toolId: input.toolId,
+    policyMatrix: input.manifest.toolPolicy,
+    sandbox: input.manifest.sandbox,
+    readiness: runtimeReadiness,
+    catalogEntry: runtimeReadiness.entry,
+    resourceLimits: input.manifest.sandbox.resourceLimits,
+    metadata: {
+      toolCallId: input.toolCallId,
+      providerToolName: input.providerToolName ?? "",
+    },
+  });
+  input.events.push(...governance.events);
+
+  if (governance.status === "deny") {
+    const record: AgentToolCallRecord = {
+      callId: input.toolCallId,
+      toolId: input.toolId,
+      arguments: toolArguments,
+      ok: false,
+      error: {
+        code: "GOVERNANCE_REJECTED",
+        message: runtimeReadiness.decision === "blocked" ? runtimeReadiness.reason : `BaseTool ${input.toolId} was denied by runtime governance`,
+        publicSafe: true,
+      },
+    };
+    const observation = createObservationMaterial({
+      observationId: `${input.sessionId}:observation:${input.toolCallId}`,
+      source: "baseTool",
+      status: "failed",
+      title: `BaseTool ${input.toolId}`,
+      summary: "tool invocation denied by runtime governance",
+      refs: [input.toolCallId, input.toolId],
+      payload: record.error,
+      metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, governanceStatus: governance.status }),
+    });
+    return { record, observation, events: governance.events, governance };
+  }
+
+  if (governance.status === "requiresApproval") {
+    const approval = await requestRuntimeApproval({
+      runtimeId: input.runtimeId,
+      sessionId: input.sessionId,
+      approvalId: `${input.toolCallId}:approval`,
+      source: "baseTool",
+      reason: governance.approvalReason ?? `BaseTool ${input.toolId} requires approval`,
+      requestedScopes: ["tool.execute", `tool.${input.toolId}`],
+      riskLevel: governance.risk,
+      resolver: input.approvalResolver,
+      store: input.store,
+      now: input.now,
+      metadata: {
+        toolCallId: input.toolCallId,
+        toolId: input.toolId,
+        policyMatrixId: governance.policyMatrixId,
+      },
+    });
+    input.events.push(...approval.events);
+    if (approval.status !== "approved") {
+      const error = {
+        code: "APPROVAL_REQUIRED",
+        message: approval.reason ?? governance.approvalReason ?? `BaseTool ${input.toolId} requires approval`,
+        publicSafe: true,
+      };
+      const record: AgentToolCallRecord = {
+        callId: input.toolCallId,
+        toolId: input.toolId,
+        arguments: toolArguments,
+        ok: false,
+        error,
+      };
+      const observation = createObservationMaterial({
+        observationId: `${input.sessionId}:observation:${input.toolCallId}:approval`,
+        source: "baseTool",
+        status: "waitingApproval",
+        title: `BaseTool ${input.toolId}`,
+        summary: error.message,
+        refs: [input.toolCallId, input.toolId, approval.envelope.approvalId],
+        payload: approval.envelope,
+        metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, governanceStatus: governance.status }),
+      });
+      return { record, observation, events: [...governance.events, ...approval.events], governance };
+    }
+  }
+
   const toolResult = await invokeMountedBaseTool({
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
@@ -792,6 +891,15 @@ async function executeBaseToolDecision(input: {
     allowedScopes: input.manifest.harness.policy.scopes,
     governance: { accepted: input.allowToolExecution ?? input.manifest.harness.policy.allowToolExecution ?? true },
     contract: { accepted: true },
+    metadata: {
+      sandbox: governance.sandbox,
+      governance: {
+        status: governance.status,
+        risk: governance.risk,
+        policyProfile: governance.policyProfile,
+        policyMatrixId: governance.policyMatrixId,
+      },
+    },
   });
   input.events.push(...toolResult.events);
   const record: AgentToolCallRecord = {
@@ -817,7 +925,7 @@ async function executeBaseToolDecision(input: {
       createdAt: input.now(),
     }),
   });
-  return { record, observation, events: toolResult.events };
+  return { record, observation, events: toolResult.events, governance };
 }
 
 async function executeEphemeralProcedure(input: {
@@ -827,6 +935,8 @@ async function executeEphemeralProcedure(input: {
   executor: BaseToolExecutorPort;
   plan: EphemeralProcedurePlan;
   allowToolExecution?: boolean;
+  store: RuntimeSessionStateEventStore;
+  approvalResolver?: RuntimeApprovalResolver;
   now: () => string;
   events: string[];
 }): Promise<{
@@ -836,6 +946,26 @@ async function executeEphemeralProcedure(input: {
   error?: PraxisRuntimeKernelError;
 }> {
   if (input.plan.approval.required) {
+    const approval = await requestRuntimeApproval({
+      runtimeId: input.runtimeId,
+      sessionId: input.sessionId,
+      approvalId: `${input.plan.procedureId}:approval`,
+      source: "ephemeralProcedure",
+      reason: input.plan.approval.reason ?? `EphemeralProcedure ${input.plan.procedureId} requires approval`,
+      requestedScopes: input.plan.requiredBaseTools.map((toolId) => `tool.${toolId}`),
+      riskLevel: input.plan.riskLevel,
+      resolver: input.approvalResolver,
+      store: input.store,
+      now: input.now,
+      metadata: {
+        procedureId: input.plan.procedureId,
+        requiredBaseTools: input.plan.requiredBaseTools,
+      },
+    });
+    input.events.push(...approval.events);
+    if (approval.status === "approved") {
+      // Approval was resolved by the application/test harness; execute the procedure below.
+    } else {
     return {
       ok: false,
       records: [],
@@ -844,12 +974,13 @@ async function executeEphemeralProcedure(input: {
         source: "ephemeralProcedure",
         status: "waitingApproval",
         title: `EphemeralProcedure ${input.plan.procedureId}`,
-        summary: input.plan.approval.reason ?? "procedure requires approval",
-        refs: [input.plan.procedureId],
-        payload: { requiredBaseTools: input.plan.requiredBaseTools, riskLevel: input.plan.riskLevel },
+        summary: approval.reason ?? input.plan.approval.reason ?? "procedure requires approval",
+        refs: [input.plan.procedureId, approval.envelope.approvalId],
+        payload: approval.envelope,
       })],
       error: kernelError("APPROVAL_REQUIRED", `procedure requires approval: ${input.plan.procedureId}`, "tool"),
     };
+    }
   }
 
   const pending = new Map<string, EphemeralProcedureStep>(input.plan.steps.map((step) => [step.stepId, step]));
@@ -878,6 +1009,8 @@ async function executeEphemeralProcedure(input: {
       toolId: step.baseToolId,
       args: step.input,
       allowToolExecution: input.allowToolExecution,
+      store: input.store,
+      approvalResolver: input.approvalResolver,
       now: input.now,
       events: input.events,
     })));
@@ -975,6 +1108,8 @@ export class PraxisRuntimeKernel {
     });
     events.push(...input.events);
     if (!input.ok) {
+      const error = kernelError("TEXT_INPUT_REJECTED", input.error.message, "io");
+      await recordKernelError({ store, sessionId, errorId: "error:input", error, createdAt: now() });
       await store.updateSessionStatus(sessionId, "failed");
       await recordMainLoopStep({
         store,
@@ -1004,7 +1139,7 @@ export class PraxisRuntimeKernel {
         runtimeId,
         sessionId,
         manifest,
-        error: kernelError("TEXT_INPUT_REJECTED", input.error.message, "io"),
+        error,
         mainLoopSteps,
         events,
         state: snapshot,
@@ -1077,6 +1212,7 @@ export class PraxisRuntimeKernel {
       });
       events.push(...prompt.events);
       if (!prompt.ok) {
+        await recordKernelError({ store, sessionId, errorId: `error:prompt:${turn + 1}`, error: prompt.error, createdAt: now() });
         await recordMainLoopStep({
           store,
           sessionId,
@@ -1217,8 +1353,25 @@ export class PraxisRuntimeKernel {
           metadata: { turn },
         }),
       });
+      await recordHandoffPlan({
+        store,
+        sessionId,
+        createdAt: now(),
+        events,
+        mainLoopSteps,
+        turnIndex: turn,
+        startStepIndex: stepBase + 20,
+        tickKind: "model-only",
+        promptPackRef: prompt.promptPackId,
+        loweredPromptRef: prompt.loweredPrompt.loweringId,
+        modelCallId: modelInvocationId,
+        inputRefs: [prompt.promptPackId, prompt.loweredPrompt.loweringId],
+        outputRefs: [modelInvocationId],
+      });
 
       if (!modelResult.ok) {
+        const error = kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model");
+        await recordKernelError({ store, sessionId, errorId: `error:model:${turn + 1}`, error, createdAt: now(), metadata: { modelInvocationId } });
         await store.updateSessionStatus(sessionId, "failed");
         const snapshot = await store.readSession(sessionId);
         return {
@@ -1226,7 +1379,7 @@ export class PraxisRuntimeKernel {
           runtimeId,
           sessionId,
           manifest,
-          error: kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model"),
+          error,
           mainLoopSteps,
           events,
           state: snapshot,
@@ -1275,6 +1428,8 @@ export class PraxisRuntimeKernel {
         }),
       });
       if (!decisionResult.ok) {
+        const error = kernelError("MODEL_DECISION_FAILED", decisionResult.error.message, "model");
+        await recordKernelError({ store, sessionId, errorId: `error:modelDecision:${turn + 1}`, error, createdAt: now(), metadata: { modelInvocationId } });
         await store.updateSessionStatus(sessionId, "failed");
         const snapshot = await store.readSession(sessionId);
         return {
@@ -1282,7 +1437,7 @@ export class PraxisRuntimeKernel {
           runtimeId,
           sessionId,
           manifest,
-          error: kernelError("MODEL_DECISION_FAILED", decisionResult.error.message, "model"),
+          error,
           mainLoopSteps,
           events,
           state: snapshot,
@@ -1303,6 +1458,7 @@ export class PraxisRuntimeKernel {
         }
 
         if (decision.kind === "fail") {
+          const error = kernelError("MODEL_DECISION_FAILED", decision.failure?.message ?? "model decision requested failure", "model");
           await recordMainLoopStep({
             store,
             sessionId,
@@ -1325,6 +1481,17 @@ export class PraxisRuntimeKernel {
               now: now(),
             }),
           });
+          await recordKernelError({
+            store,
+            sessionId,
+            errorId: `error:modelDecisionFail:${turn + 1}:${decisionIndex}`,
+            error,
+            createdAt: now(),
+            metadata: {
+              decisionId: decision.decisionId,
+              providerRawRef: decision.metadata.providerRawRef,
+            },
+          });
           await store.updateSessionStatus(sessionId, "failed");
           const snapshot = await store.readSession(sessionId);
           return {
@@ -1332,7 +1499,7 @@ export class PraxisRuntimeKernel {
             runtimeId,
             sessionId,
             manifest,
-            error: kernelError("MODEL_DECISION_FAILED", decision.failure?.message ?? "model decision requested failure", "model"),
+            error,
             mainLoopSteps,
             events,
             state: snapshot,
@@ -1340,6 +1507,35 @@ export class PraxisRuntimeKernel {
         }
 
         if (decision.kind === "requestApproval") {
+          const approval = await requestRuntimeApproval({
+            runtimeId,
+            sessionId,
+            approvalId: `${decision.decisionId}:approval`,
+            source: "model",
+            reason: decision.approvalRequest?.reason ?? "model requested approval",
+            requestedScopes: decision.approvalRequest?.requestedScopes ?? [],
+            riskLevel: decision.approvalRequest?.riskLevel,
+            resolver: options.approvalResolver,
+            store,
+            now,
+            metadata: {
+              decisionId: decision.decisionId,
+              modelCallId: modelInvocationId,
+            },
+          });
+          events.push(...approval.events);
+          await recordHandoffPlan({
+            store,
+            sessionId,
+            createdAt: now(),
+            events,
+            mainLoopSteps,
+            turnIndex: turn,
+            startStepIndex: stepBase + 30 + decisionIndex * 10,
+            tickKind: "approval-wait",
+            inputRefs: [decision.decisionId],
+            outputRefs: [approval.envelope.approvalId],
+          });
           await recordMainLoopStep({
             store,
             sessionId,
@@ -1358,17 +1554,36 @@ export class PraxisRuntimeKernel {
               metadata: {
                 reason: decision.approvalRequest?.reason ?? "model requested approval",
                 riskLevel: decision.approvalRequest?.riskLevel ?? "unknown",
+                approvalId: approval.envelope.approvalId,
+                approvalStatus: approval.status,
               },
             }),
           });
-          await store.updateSessionStatus(sessionId, "failed");
+          if (approval.status === "approved") {
+            continueLoop = true;
+            continue;
+          }
+          const error = kernelError("APPROVAL_REQUIRED", decision.approvalRequest?.reason ?? "model requested approval", "tool");
+          await recordKernelError({
+            store,
+            sessionId,
+            errorId: `error:approval:${approval.envelope.approvalId}`,
+            error,
+            createdAt: now(),
+            metadata: {
+              approvalId: approval.envelope.approvalId,
+              approvalStatus: approval.status,
+              decisionId: decision.decisionId,
+            },
+          });
+          await store.updateSessionStatus(sessionId, "waitingApproval");
           const snapshot = await store.readSession(sessionId);
           return {
             ok: false,
             runtimeId,
             sessionId,
             manifest,
-            error: kernelError("APPROVAL_REQUIRED", decision.approvalRequest?.reason ?? "model requested approval", "tool"),
+            error,
             mainLoopSteps,
             events,
             state: snapshot,
@@ -1380,6 +1595,18 @@ export class PraxisRuntimeKernel {
             continueLoop = false;
             break;
           }
+          await recordHandoffPlan({
+            store,
+            sessionId,
+            createdAt: now(),
+            events,
+            mainLoopSteps,
+            turnIndex: turn,
+            startStepIndex: stepBase + 40 + decisionIndex * 10,
+            tickKind: "tool-call",
+            toolCallId: decision.toolCall.callId,
+            inputRefs: [decision.decisionId],
+          });
           await store.appendState(state(sessionId, `state:tool:${decision.toolCall.callId}`, "tool", now(), {
             toolId: decision.toolCall.toolId,
             providerToolName: decision.toolCall.providerToolName,
@@ -1394,6 +1621,8 @@ export class PraxisRuntimeKernel {
             providerToolName: decision.toolCall.providerToolName,
             args: decision.toolCall.arguments,
             allowToolExecution: options.allowToolExecution,
+            store,
+            approvalResolver: options.approvalResolver,
             now,
             events,
           });
@@ -1414,7 +1643,7 @@ export class PraxisRuntimeKernel {
               turnIndex: turn,
               stepIndex: stepBase + 4 + decisionIndex,
               actionPrimitive: "invokeBaseTool",
-              status: executed.record.ok ? "completed" : "failed",
+              status: executed.record.ok ? "completed" : (isRecord(executed.record.error) && executed.record.error.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed"),
               inputRefs: [decision.decisionId],
               outputRefs: [executed.record.callId],
               toolCallId: executed.record.callId,
@@ -1434,14 +1663,30 @@ export class PraxisRuntimeKernel {
           });
 
           if (!executed.record.ok) {
-            await store.updateSessionStatus(sessionId, "failed");
+            const approvalRequired = isRecord(executed.record.error) && executed.record.error.code === "APPROVAL_REQUIRED";
+            const error = approvalRequired
+              ? kernelError("APPROVAL_REQUIRED", `tool invocation requires approval: ${executed.record.toolId}`, "tool")
+              : kernelError("TOOL_INVOCATION_FAILED", `tool invocation failed: ${executed.record.toolId}`, "tool");
+            await recordKernelError({
+              store,
+              sessionId,
+              errorId: `error:tool:${executed.record.callId}`,
+              error,
+              createdAt: now(),
+              metadata: {
+                toolCallId: executed.record.callId,
+                toolId: executed.record.toolId,
+                approvalRequired,
+              },
+            });
+            await store.updateSessionStatus(sessionId, approvalRequired ? "waitingApproval" : "failed");
             const snapshot = await store.readSession(sessionId);
             return {
               ok: false,
               runtimeId,
               sessionId,
               manifest,
-              error: kernelError("TOOL_INVOCATION_FAILED", `tool invocation failed: ${executed.record.toolId}`, "tool"),
+              error,
               mainLoopSteps,
               events,
               state: snapshot,
@@ -1452,6 +1697,35 @@ export class PraxisRuntimeKernel {
         }
 
         if (decision.kind === "ephemeralProcedurePlan" && decision.ephemeralProcedurePlan !== undefined) {
+          const procedureCreatedAt = now();
+          await recordHandoffPlan({
+            store,
+            sessionId,
+            createdAt: procedureCreatedAt,
+            events,
+            mainLoopSteps,
+            turnIndex: turn,
+            startStepIndex: stepBase + 50 + decisionIndex * 10,
+            tickKind: "ephemeral-procedure",
+            procedureId: decision.ephemeralProcedurePlan.procedureId,
+            inputRefs: [decision.decisionId],
+          });
+          await store.appendProcedure({
+            sessionId,
+            procedureId: decision.ephemeralProcedurePlan.procedureId,
+            status: decision.ephemeralProcedurePlan.approval.required ? "waitingApproval" : "running",
+            createdAt: procedureCreatedAt,
+            summary: {
+              decisionId: decision.decisionId,
+              executionMode: decision.ephemeralProcedurePlan.executionMode,
+              requiredBaseTools: decision.ephemeralProcedurePlan.requiredBaseTools,
+              riskLevel: decision.ephemeralProcedurePlan.riskLevel,
+            },
+          });
+          await store.appendInvocation(invocation(sessionId, decision.ephemeralProcedurePlan.procedureId, "procedure", decision.ephemeralProcedurePlan.purpose, true, now(), {
+            decisionId: decision.decisionId,
+            status: "planned",
+          }));
           const procedureResult = await executeEphemeralProcedure({
             runtimeId,
             sessionId,
@@ -1459,8 +1733,25 @@ export class PraxisRuntimeKernel {
             executor,
             plan: decision.ephemeralProcedurePlan,
             allowToolExecution: options.allowToolExecution,
+            store,
+            approvalResolver: options.approvalResolver,
             now,
             events,
+          });
+          await store.appendProcedure({
+            sessionId,
+            procedureId: decision.ephemeralProcedurePlan.procedureId,
+            status: procedureResult.ok ? "completed" : (procedureResult.error?.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed"),
+            createdAt: procedureCreatedAt,
+            updatedAt: now(),
+            summary: {
+              decisionId: decision.decisionId,
+              executionMode: decision.ephemeralProcedurePlan.executionMode,
+              requiredBaseTools: decision.ephemeralProcedurePlan.requiredBaseTools,
+              recordCount: procedureResult.records.length,
+              observationCount: procedureResult.observations.length,
+              errorCode: procedureResult.error?.code,
+            },
           });
           toolCalls.push(...procedureResult.records);
           observations.push(...procedureResult.observations);
@@ -1502,14 +1793,27 @@ export class PraxisRuntimeKernel {
           });
 
           if (!procedureResult.ok) {
-            await store.updateSessionStatus(sessionId, "failed");
+            const error = procedureResult.error ?? kernelError("PROCEDURE_INVOCATION_FAILED", "procedure invocation failed", "tool");
+            await recordKernelError({
+              store,
+              sessionId,
+              errorId: `error:procedure:${decision.ephemeralProcedurePlan.procedureId}`,
+              error,
+              createdAt: now(),
+              metadata: {
+                procedureId: decision.ephemeralProcedurePlan.procedureId,
+                decisionId: decision.decisionId,
+                approvalRequired: error.code === "APPROVAL_REQUIRED",
+              },
+            });
+            await store.updateSessionStatus(sessionId, procedureResult.error?.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed");
             const snapshot = await store.readSession(sessionId);
             return {
               ok: false,
               runtimeId,
               sessionId,
               manifest,
-              error: procedureResult.error ?? kernelError("PROCEDURE_INVOCATION_FAILED", "procedure invocation failed", "tool"),
+              error,
               mainLoopSteps,
               events,
               state: snapshot,
@@ -1540,6 +1844,7 @@ export class PraxisRuntimeKernel {
     });
     events.push(...output.events);
     if (!output.ok) {
+      const error = kernelError("TEXT_OUTPUT_REJECTED", output.error.message, "io");
       await store.updateSessionStatus(sessionId, "failed");
       await recordMainLoopStep({
         store,
@@ -1563,13 +1868,21 @@ export class PraxisRuntimeKernel {
           now: now(),
         }),
       });
+      await recordKernelError({
+        store,
+        sessionId,
+        errorId: "error:output:final",
+        error,
+        createdAt: now(),
+        metadata: { outputId: `${sessionId}:output:final` },
+      });
       const snapshot = await store.readSession(sessionId);
       return {
         ok: false,
         runtimeId,
         sessionId,
         manifest,
-        error: kernelError("TEXT_OUTPUT_REJECTED", output.error.message, "io"),
+        error,
         mainLoopSteps,
         events,
         state: snapshot,

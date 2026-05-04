@@ -4,6 +4,11 @@
   "private": true,
   "type": "module",
   "description": "Praxis agentCore architecture scaffold, tests, and engineering contracts.",
+  "exports": {
+    ".": "./src/agentCore/index.ts",
+    "./agentCore": "./src/agentCore/index.ts",
+    "./rax": "./src/rax_packageManager/raxDeveloperCommandContract.ts"
+  },
   "engines": {
     "node": ">=22"
   },

@@ -78,6 +78,7 @@ type NormalizedProviderToolCall = {
   callId: string;
   name: string;
   arguments: Readonly<Record<string, unknown>>;
+  malformedArguments?: string;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -88,18 +89,20 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function parseArguments(value: unknown): Readonly<Record<string, unknown>> {
+function parseArguments(value: unknown): { ok: true; arguments: Readonly<Record<string, unknown>> } | { ok: false; message: string } {
   if (isRecord(value)) {
-    return value;
+    return { ok: true, arguments: value };
   }
   if (typeof value !== "string" || value.trim().length === 0) {
-    return {};
+    return { ok: true, arguments: {} };
   }
   try {
     const parsed: unknown = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
+    return isRecord(parsed)
+      ? { ok: true, arguments: parsed }
+      : { ok: false, message: "provider tool arguments must decode to an object" };
   } catch {
-    return {};
+    return { ok: false, message: "provider tool arguments are not valid JSON" };
   }
 }
 
@@ -195,10 +198,12 @@ function extractToolCalls(raw: unknown): readonly NormalizedProviderToolCall[] {
       if (type !== undefined && !["function_call", "tool_call", "function"].includes(type) && item.toolId === undefined) {
         continue;
       }
+      const parsedArguments = parseArguments(item.arguments ?? functionRecord?.arguments ?? item.input ?? {});
       calls.push({
         callId: readString(item.call_id) ?? readString(item.id) ?? `${name}:${calls.length + 1}`,
         name,
-        arguments: parseArguments(item.arguments ?? functionRecord?.arguments ?? item.input ?? {}),
+        arguments: parsedArguments.ok ? parsedArguments.arguments : {},
+        malformedArguments: parsedArguments.ok ? undefined : parsedArguments.message,
       });
     }
   }
@@ -230,12 +235,78 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
   }
 
   const rawRef = request.providerRawRef ?? `${sessionId}:model:${request.turnIndex + 1}:raw`;
+  if (request.raw instanceof Error) {
+    return {
+      ok: true,
+      decisions: [{
+        decisionId: `${sessionId}:turn:${request.turnIndex}:decision:provider-failure`,
+        kind: "fail",
+        failure: {
+          code: "PROVIDER_FAILURE",
+          message: request.raw.message || "model provider failed",
+          publicSafe: true,
+        },
+        providerRawRef: rawRef,
+        observationRefs: [],
+        metadata: { providerRawRef: rawRef },
+      }],
+      events: ["agentCore.execution.modelDecision.fail"],
+    };
+  }
+
+  if (isRecord(request.raw) && isRecord(request.raw.error)) {
+    return {
+      ok: true,
+      decisions: [{
+        decisionId: `${sessionId}:turn:${request.turnIndex}:decision:provider-error`,
+        kind: "fail",
+        failure: {
+          code: readString(request.raw.error.code) ?? "PROVIDER_ERROR",
+          message: readString(request.raw.error.message) ?? "model provider returned an error",
+          publicSafe: true,
+        },
+        providerRawRef: rawRef,
+        observationRefs: [],
+        metadata: { providerRawRef: rawRef },
+      }],
+      events: ["agentCore.execution.modelDecision.fail"],
+    };
+  }
+
   const decisions: ModelDecision[] = [];
   for (const [index, call] of extractToolCalls(request.raw).entries()) {
+    if (call.malformedArguments !== undefined) {
+      decisions.push({
+        decisionId: `${sessionId}:turn:${request.turnIndex}:decision:${index + 1}`,
+        kind: "fail",
+        failure: {
+          code: "MALFORMED_PROVIDER_TOOL_ARGUMENTS",
+          message: call.malformedArguments,
+          publicSafe: true,
+        },
+        providerRawRef: rawRef,
+        observationRefs: [],
+        metadata: { providerFunctionName: call.name, callId: call.callId },
+      });
+      continue;
+    }
+
     if (call.name === "praxis_ephemeral_procedure") {
       const procedure = normalizeEphemeralProcedurePlan(call.arguments);
       if (!procedure.ok) {
-        return failure("INVALID_EPHEMERAL_PROCEDURE", procedure.error.message);
+        decisions.push({
+          decisionId: `${sessionId}:turn:${request.turnIndex}:decision:${index + 1}`,
+          kind: "fail",
+          failure: {
+            code: "INVALID_EPHEMERAL_PROCEDURE",
+            message: procedure.error.message,
+            publicSafe: true,
+          },
+          providerRawRef: rawRef,
+          observationRefs: [],
+          metadata: { providerFunctionName: call.name, callId: call.callId },
+        });
+        continue;
       }
       decisions.push({
         decisionId: `${sessionId}:turn:${request.turnIndex}:decision:${index + 1}`,

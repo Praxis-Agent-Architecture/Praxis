@@ -264,9 +264,11 @@ export type SandboxResourceLimits = {
   metadata?: Readonly<Record<string, unknown>>;
 };
 
+export type SandboxProfile = "host-observed" | "temp" | "workspace" | "strict" | "custom" | (string & {});
+
 export type SandboxSpec = {
   sandboxId: string;
-  profile: "temp" | "workspace" | "strict" | "custom" | (string & {});
+  profile: SandboxProfile;
   filesystem: SandboxFilesystemPolicy;
   network: SandboxNetworkPolicy;
   shell: SandboxShellPolicy;
@@ -283,6 +285,25 @@ export type BaseToolPolicyDecision =
   | "approval-on-destructive"
   | (string & {});
 
+export type BaseToolPolicyProfile =
+  | "bapr"
+  | "yolo"
+  | "permissive"
+  | "standard"
+  | "restricted"
+  | "codingAgentFull"
+  | "custom";
+
+export type BaseToolPolicyRisk =
+  | "safe"
+  | "risky"
+  | "dangerous"
+  | "low"
+  | "medium"
+  | "high"
+  | "destructive"
+  | (string & {});
+
 export type BaseToolPolicyRule = {
   scope: "family" | "group" | "toolId" | "action";
   family?: string;
@@ -290,7 +311,7 @@ export type BaseToolPolicyRule = {
   toolId?: string;
   action?: string;
   decision: BaseToolPolicyDecision;
-  risk?: "low" | "medium" | "high" | "destructive" | (string & {});
+  risk?: BaseToolPolicyRisk;
   log?: "none" | "summary" | "full";
   approval?: "none" | "required" | "on-risk" | "on-destructive";
   sandboxRef?: string;
@@ -300,6 +321,7 @@ export type BaseToolPolicyRule = {
 
 export type BaseToolPolicyMatrixSpec = {
   matrixId: string;
+  profile: BaseToolPolicyProfile;
   defaultDecision: BaseToolPolicyDecision;
   familyRules: readonly BaseToolPolicyRule[];
   groupRules: readonly BaseToolPolicyRule[];
@@ -324,6 +346,67 @@ export type StatePlaneSpec = {
   control: readonly string[];
   audit: "none" | "summary" | "full";
   metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type FrameworkCoreContractSpec = {
+  kind: "praxis.frameworkCoreContract";
+  contractVersion: "praxis.frameworkCore.v1";
+  phase: "framework-core";
+  runtimeTruth: "agentManifest";
+  promptPack: {
+    layer: "formal";
+    providerPayloadBuilder: false;
+    sourceCategories: readonly ["declared-built-in", "process-product", "user-request"];
+    bindRef: "runtime.execEngine.bindPromptPack";
+    loweringRef: "runtime.modelAdapter.promptLoweringRuntime";
+    promptPackId: string;
+  };
+  mainLoop: {
+    layer: "formal";
+    arbitraryUserJs: false;
+    stepRecordCompatible: true;
+    modelDecisionCompatible: true;
+    ephemeralProcedureCompatible: true;
+    bindRef: "runtime.execEngine.bindCoreLogic";
+    strategy: MainLoopSpec["strategy"];
+  };
+  modelDecision: {
+    providerNeutral: true;
+    variants: readonly ["finalOutput", "toolCall", "ephemeralProcedurePlan", "requestApproval", "continue", "fail"];
+  };
+  baseToolGovernance: {
+    identityAxis: "family/group/toolId";
+    canonicalMountChain: readonly [
+      "adaptRuntimeToolInvocation",
+      "bridgeExecEngineInvocation",
+      "createBaseToolRegistry.lookupHandler",
+      "BaseToolHandler.invoke",
+      "BaseToolExecutorPort",
+    ];
+    policyMatrixId: string;
+    sandboxId: string;
+  };
+  sessionStateEvent: {
+    session: SessionSpec;
+    statePlane: StatePlaneSpec;
+    records: readonly ["session", "state", "event", "modelInvocation", "toolInvocation", "mainLoopStep"];
+  };
+  approval: {
+    interfaceSurface: true;
+    defaultBehavior: "public-safe-pending";
+  };
+  inspectionDebug: {
+    manifestInspectable: true;
+    debugSnapshotReady: boolean;
+    selfRepairContractReady: boolean;
+  };
+  officialModuleBridge: {
+    tap: "contract-only";
+    cmp: "contract-only";
+    mp: "contract-only";
+    multiagent: "contract-only";
+  };
+  verificationGates: readonly string[];
 };
 
 export type HarnessSpec = {
@@ -408,6 +491,7 @@ export type AgentManifest = {
   toolPolicy: BaseToolPolicyMatrixSpec;
   session: SessionSpec;
   statePlane: StatePlaneSpec;
+  frameworkCore: FrameworkCoreContractSpec;
   harness: Required<Pick<HarnessSpec, "context" | "memory" | "storage" | "promptPack" | "tools" | "policy" | "loop">> & {
     modelFleet: ModelFleetSpec;
     mainLoop: MainLoopSpec;
@@ -415,6 +499,7 @@ export type AgentManifest = {
     toolPolicy: BaseToolPolicyMatrixSpec;
     session: SessionSpec;
     statePlane: StatePlaneSpec;
+    frameworkCore: FrameworkCoreContractSpec;
     modules: Readonly<Record<string, unknown>>;
     runtimeRequirements: readonly string[];
     metadata: Readonly<Record<string, unknown>>;
@@ -441,7 +526,78 @@ export type AgentCompileErrorCode =
   | "INVALID_SANDBOX"
   | "INVALID_TOOL_POLICY"
   | "INVALID_SESSION"
-  | "INVALID_STATE_PLANE";
+  | "INVALID_STATE_PLANE"
+  | "INVALID_MANIFEST";
+
+export type AgentManifestValidationErrorCode =
+  | "MISSING_MANIFEST"
+  | "INVALID_KIND"
+  | "INVALID_SCHEMA_VERSION"
+  | "MISSING_MANIFEST_ID"
+  | "MISSING_HASH"
+  | "HASH_MISMATCH"
+  | "MISSING_FRAMEWORK_CORE"
+  | "HARNESS_VIEW_MISMATCH"
+  | "RAW_SECRET_REJECTED";
+
+export type AgentManifestValidationResult =
+  | { ok: true; manifest: AgentManifest; events: readonly string[] }
+  | {
+      ok: false;
+      error: {
+        code: AgentManifestValidationErrorCode;
+        message: string;
+        boundary: "input" | "manifest" | "security" | "consistency";
+        publicSafe: true;
+      };
+      events: readonly string[];
+    };
+
+export type AgentManifestInspection = {
+  manifestId: string;
+  manifestHash: string;
+  identityId: string;
+  model: {
+    provider: string;
+    model: string;
+    carrierId: string;
+    endpointShape: string;
+    fleetMode: ModelFleetSpec["mode"];
+    endpoints: readonly string[];
+  };
+  promptPack: {
+    promptPackId: string;
+    designOwner: AgentManifest["promptPack"]["designOwner"];
+    patchCount: number;
+    materialCount: number;
+  };
+  mainLoop: {
+    strategy: MainLoopSpec["strategy"];
+    hookCount: number;
+    formalLayer: boolean;
+  };
+  governance: {
+    sandboxProfile: SandboxProfile;
+    sandboxId: string;
+    toolPolicyProfile: BaseToolPolicyProfile;
+    policyMatrixId: string;
+  };
+  sessionState: {
+    persistence: SessionSpec["persistence"];
+    resume: SessionSpec["resume"];
+    thread: SessionSpec["thread"];
+    exposedState: readonly string[];
+    controls: readonly string[];
+  };
+  frameworkCore: {
+    contractVersion: FrameworkCoreContractSpec["contractVersion"];
+    promptPackBindRef: FrameworkCoreContractSpec["promptPack"]["bindRef"];
+    mainLoopBindRef: FrameworkCoreContractSpec["mainLoop"]["bindRef"];
+    officialModules: FrameworkCoreContractSpec["officialModuleBridge"];
+  };
+  runtimeRequirements: readonly string[];
+  verificationGates: readonly string[];
+};
 
 export type AgentCompileResult =
   | {
@@ -549,9 +705,20 @@ export function policy(input: PolicySpec = {}): PolicySpec {
   return input;
 }
 
-export function loop(input: LoopSpec = { strategy: "tool-calling-v1" }): LoopSpec {
-  return input;
-}
+export const loop = Object.assign(
+  (input: LoopSpec = { strategy: "tool-calling-v1" }): LoopSpec => input,
+  {
+    standard(input: Omit<LoopSpec, "strategy"> = {}): LoopSpec {
+      return { strategy: "tool-calling-v1", ...input };
+    },
+    single(input: Omit<LoopSpec, "strategy"> = {}): LoopSpec {
+      return { strategy: "single", ...input };
+    },
+    custom(strategy: string, input: Omit<LoopSpec, "strategy"> = {}): LoopSpec {
+      return { strategy, ...input };
+    },
+  },
+);
 
 export const mainLoop = {
   standard(input: {
@@ -617,6 +784,25 @@ export function replaceLastLines(targetRef: string, lastLines: number, material:
 }
 
 export const sandbox = {
+  hostObserved(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return {
+      sandboxId: input.sandboxId ?? "sandbox.hostObserved",
+      profile: "host-observed",
+      filesystem: input.filesystem ?? "workspace-only",
+      network: input.network ?? "deny-by-default",
+      shell: input.shell ?? "approval-for-write",
+      resourceLimits: input.resourceLimits ?? {},
+      reusableProfileRef: input.reusableProfileRef,
+      metadata: {
+        isolation: "none",
+        observation: "runtime records, gates, budgets, and approvals still apply",
+        ...(input.metadata ?? {}),
+      },
+    };
+  },
   temp(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "resourceLimits">> & {
     sandboxId?: string;
     resourceLimits?: SandboxResourceLimits;
@@ -634,7 +820,118 @@ export const sandbox = {
   },
 };
 
+type ToolPolicyProfileInput = {
+  matrixId?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+function rule(
+  action: "safe" | "risky" | "dangerous",
+  decision: BaseToolPolicyDecision,
+  approval: BaseToolPolicyRule["approval"],
+  metadata: Readonly<Record<string, unknown>> = {},
+): BaseToolPolicyRule {
+  return {
+    scope: "action",
+    action,
+    decision,
+    risk: action,
+    log: "full",
+    approval,
+    metadata,
+  };
+}
+
+function buildToolPolicyProfile(
+  profile: BaseToolPolicyProfile,
+  input: ToolPolicyProfileInput,
+  decisions: {
+    defaultDecision: BaseToolPolicyDecision;
+    safe: BaseToolPolicyDecision;
+    risky: BaseToolPolicyDecision;
+    dangerous: BaseToolPolicyDecision;
+    safeApproval: BaseToolPolicyRule["approval"];
+    riskyApproval: BaseToolPolicyRule["approval"];
+    dangerousApproval: BaseToolPolicyRule["approval"];
+  },
+): BaseToolPolicyMatrixSpec {
+  return {
+    matrixId: input.matrixId ?? `toolPolicy.${profile}`,
+    profile,
+    defaultDecision: decisions.defaultDecision,
+    familyRules: [],
+    groupRules: [],
+    toolRules: [],
+    actionRules: [
+      rule("safe", decisions.safe, decisions.safeApproval, { boundaryChecks: true }),
+      rule("risky", decisions.risky, decisions.riskyApproval, { resourceControls: true }),
+      rule("dangerous", decisions.dangerous, decisions.dangerousApproval, { destructiveOrExternalEffect: true }),
+    ],
+    readinessPolicy: "observe",
+    eventLogLevel: "full",
+    metadata: {
+      riskScale: "safe/risky/dangerous",
+      ...(input.metadata ?? {}),
+    },
+  };
+}
+
 export const toolPolicies = {
+  bapr(input: ToolPolicyProfileInput = {}): BaseToolPolicyMatrixSpec {
+    return buildToolPolicyProfile("bapr", input, {
+      defaultDecision: "allow",
+      safe: "allow",
+      risky: "allow",
+      dangerous: "allow",
+      safeApproval: "none",
+      riskyApproval: "none",
+      dangerousApproval: "none",
+    });
+  },
+  yolo(input: ToolPolicyProfileInput = {}): BaseToolPolicyMatrixSpec {
+    return buildToolPolicyProfile("yolo", input, {
+      defaultDecision: "guarded",
+      safe: "allow",
+      risky: "allow",
+      dangerous: "approval",
+      safeApproval: "none",
+      riskyApproval: "none",
+      dangerousApproval: "required",
+    });
+  },
+  permissive(input: ToolPolicyProfileInput = {}): BaseToolPolicyMatrixSpec {
+    return buildToolPolicyProfile("permissive", input, {
+      defaultDecision: "guarded",
+      safe: "allow",
+      risky: "guarded",
+      dangerous: "approval",
+      safeApproval: "none",
+      riskyApproval: "on-risk",
+      dangerousApproval: "required",
+    });
+  },
+  standard(input: ToolPolicyProfileInput = {}): BaseToolPolicyMatrixSpec {
+    return buildToolPolicyProfile("standard", input, {
+      defaultDecision: "guarded",
+      safe: "guarded",
+      risky: "approval",
+      dangerous: "approval",
+      safeApproval: "none",
+      riskyApproval: "on-risk",
+      dangerousApproval: "required",
+    });
+  },
+  restricted(input: ToolPolicyProfileInput = {}): BaseToolPolicyMatrixSpec {
+    return buildToolPolicyProfile("restricted", input, {
+      defaultDecision: "approval",
+      safe: "approval",
+      risky: "approval",
+      dangerous: "approval",
+      safeApproval: "required",
+      riskyApproval: "required",
+      dangerousApproval: "required",
+    });
+  },
   codingAgentFull(input: {
     read?: BaseToolPolicyDecision;
     write?: BaseToolPolicyDecision;
@@ -645,6 +942,7 @@ export const toolPolicies = {
   } = {}): BaseToolPolicyMatrixSpec {
     return {
       matrixId: input.matrixId ?? "toolPolicy.codingAgentFull",
+      profile: "codingAgentFull",
       defaultDecision: "deny",
       familyRules: [
         { scope: "family", family: "codeBase", action: "read", decision: input.read ?? "allow", risk: "low", log: "full", approval: "none" },
@@ -662,12 +960,24 @@ export const toolPolicies = {
   },
 };
 
-export function session(input: SessionSpec): SessionSpec {
-  return input;
+export function session(input: Partial<SessionSpec> = {}): SessionSpec {
+  return {
+    persistence: input.persistence ?? "memory",
+    resume: input.resume ?? "manual",
+    thread: input.thread ?? "ephemeral",
+    logs: input.logs ?? "summary",
+    storeRef: input.storeRef,
+    metadata: input.metadata,
+  };
 }
 
-export function statePlane(input: StatePlaneSpec): StatePlaneSpec {
-  return input;
+export function statePlane(input: Partial<StatePlaneSpec> = {}): StatePlaneSpec {
+  return {
+    expose: input.expose ?? ["phase", "lastAction", "toolCalls", "errors"],
+    control: input.control ?? [],
+    audit: input.audit ?? "summary",
+    metadata: input.metadata,
+  };
 }
 
 export function harness(input: HarnessSpec): HarnessSpec {
@@ -709,6 +1019,82 @@ function stableJson(value: unknown): string {
 
 function manifestHash(manifest: Omit<AgentManifest, "manifestHash">): string {
   return createHash("sha256").update(stableJson(manifest)).digest("hex");
+}
+
+function createFrameworkCoreContract(input: {
+  promptPack: AgentManifest["promptPack"];
+  mainLoop: MainLoopSpec;
+  toolPolicy: BaseToolPolicyMatrixSpec;
+  sandbox: SandboxSpec;
+  session: SessionSpec;
+  statePlane: StatePlaneSpec;
+}): FrameworkCoreContractSpec {
+  return {
+    kind: "praxis.frameworkCoreContract",
+    contractVersion: "praxis.frameworkCore.v1",
+    phase: "framework-core",
+    runtimeTruth: "agentManifest",
+    promptPack: {
+      layer: "formal",
+      providerPayloadBuilder: false,
+      sourceCategories: ["declared-built-in", "process-product", "user-request"],
+      bindRef: "runtime.execEngine.bindPromptPack",
+      loweringRef: "runtime.modelAdapter.promptLoweringRuntime",
+      promptPackId: input.promptPack.promptPackId,
+    },
+    mainLoop: {
+      layer: "formal",
+      arbitraryUserJs: false,
+      stepRecordCompatible: true,
+      modelDecisionCompatible: true,
+      ephemeralProcedureCompatible: true,
+      bindRef: "runtime.execEngine.bindCoreLogic",
+      strategy: input.mainLoop.strategy,
+    },
+    modelDecision: {
+      providerNeutral: true,
+      variants: ["finalOutput", "toolCall", "ephemeralProcedurePlan", "requestApproval", "continue", "fail"],
+    },
+    baseToolGovernance: {
+      identityAxis: "family/group/toolId",
+      canonicalMountChain: [
+        "adaptRuntimeToolInvocation",
+        "bridgeExecEngineInvocation",
+        "createBaseToolRegistry.lookupHandler",
+        "BaseToolHandler.invoke",
+        "BaseToolExecutorPort",
+      ],
+      policyMatrixId: input.toolPolicy.matrixId,
+      sandboxId: input.sandbox.sandboxId,
+    },
+    sessionStateEvent: {
+      session: input.session,
+      statePlane: input.statePlane,
+      records: ["session", "state", "event", "modelInvocation", "toolInvocation", "mainLoopStep"],
+    },
+    approval: {
+      interfaceSurface: true,
+      defaultBehavior: "public-safe-pending",
+    },
+    inspectionDebug: {
+      manifestInspectable: true,
+      debugSnapshotReady: false,
+      selfRepairContractReady: false,
+    },
+    officialModuleBridge: {
+      tap: "contract-only",
+      cmp: "contract-only",
+      mp: "contract-only",
+      multiagent: "contract-only",
+    },
+    verificationGates: [
+      "manifest-hash-stable",
+      "top-level-harness-consistent",
+      "no-raw-secrets",
+      "provider-neutral-prompt-pack",
+      "baseTool-registry-chain-required",
+    ],
+  };
 }
 
 type NormalizeResult<T> =
@@ -899,11 +1285,12 @@ function normalizeMainLoop(input: MainLoopSpec | undefined): NormalizeResult<Mai
 }
 
 function normalizeSandbox(input: SandboxSpec | undefined): NormalizeResult<SandboxSpec> {
-  const spec = input ?? sandbox.temp();
-  if (!hasText(spec.sandboxId)) {
-    return normalizedFailure("INVALID_SANDBOX", "sandbox requires a stable sandboxId");
+  const spec = input ?? sandbox.hostObserved();
+  if (!hasText(spec.sandboxId) || !hasText(spec.profile) || !hasText(spec.filesystem) || !hasText(spec.network) || !hasText(spec.shell)) {
+    return normalizedFailure("INVALID_SANDBOX", "sandbox requires stable sandboxId, profile, filesystem, network, and shell fields");
   }
-  for (const [key, value] of Object.entries(spec.resourceLimits)) {
+  const resourceLimits = spec.resourceLimits ?? {};
+  for (const [key, value] of Object.entries(resourceLimits)) {
     if (key === "metadata" || value === undefined) continue;
     if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
       return normalizedFailure("INVALID_SANDBOX", "sandbox resource limits must be positive finite numbers");
@@ -914,18 +1301,29 @@ function normalizeSandbox(input: SandboxSpec | undefined): NormalizeResult<Sandb
     value: {
       ...spec,
       sandboxId: spec.sandboxId.trim(),
-      resourceLimits: spec.resourceLimits,
+      profile: spec.profile.trim() as SandboxProfile,
+      filesystem: spec.filesystem.trim() as SandboxFilesystemPolicy,
+      network: spec.network.trim() as SandboxNetworkPolicy,
+      shell: spec.shell.trim() as SandboxShellPolicy,
+      resourceLimits,
       metadata: spec.metadata ?? {},
     },
   };
 }
 
 function normalizeToolPolicy(input: BaseToolPolicyMatrixSpec | undefined): NormalizeResult<BaseToolPolicyMatrixSpec> {
-  const spec = input ?? toolPolicies.codingAgentFull({ matrixId: "toolPolicy.default" });
-  if (!hasText(spec.matrixId)) {
-    return normalizedFailure("INVALID_TOOL_POLICY", "tool policy matrix requires a stable matrixId");
+  const spec = input ?? toolPolicies.standard({ matrixId: "toolPolicy.standard.default" });
+  if (!hasText(spec.matrixId) || !hasText(spec.profile)) {
+    return normalizedFailure("INVALID_TOOL_POLICY", "tool policy matrix requires stable matrixId and profile");
   }
-  for (const rule of [...spec.familyRules, ...spec.groupRules, ...spec.toolRules, ...spec.actionRules]) {
+  const familyRules = spec.familyRules ?? [];
+  const groupRules = spec.groupRules ?? [];
+  const toolRules = spec.toolRules ?? [];
+  const actionRules = spec.actionRules ?? [];
+  for (const rule of [...familyRules, ...groupRules, ...toolRules, ...actionRules]) {
+    if (!hasText(rule.decision)) {
+      return normalizedFailure("INVALID_TOOL_POLICY", "BaseTool policy rules require a decision");
+    }
     if (rule.scope === "family" && !hasText(rule.family)) {
       return normalizedFailure("INVALID_TOOL_POLICY", "family-level BaseTool policy requires family");
     }
@@ -944,13 +1342,18 @@ function normalizeToolPolicy(input: BaseToolPolicyMatrixSpec | undefined): Norma
     value: {
       ...spec,
       matrixId: spec.matrixId.trim(),
+      profile: spec.profile.trim() as BaseToolPolicyProfile,
+      familyRules,
+      groupRules,
+      toolRules,
+      actionRules,
       metadata: spec.metadata ?? {},
     },
   };
 }
 
 function normalizeSession(input: SessionSpec | undefined): NormalizeResult<SessionSpec> {
-  const spec = input ?? { persistence: "memory", resume: "manual", thread: "ephemeral", logs: "summary" };
+  const spec = input ?? session();
   if (!hasText(spec.persistence) || !hasText(spec.resume) || !hasText(spec.thread) || !hasText(spec.logs)) {
     return normalizedFailure("INVALID_SESSION", "session spec requires persistence, resume, thread, and logs");
   }
@@ -977,6 +1380,7 @@ function normalizeHarness(
     toolPolicy: BaseToolPolicyMatrixSpec;
     session: SessionSpec;
     statePlane: StatePlaneSpec;
+    frameworkCore: FrameworkCoreContractSpec;
   },
 ): AgentManifest["harness"] {
   const loopSpec = input.loop ?? { strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 4 };
@@ -1010,6 +1414,7 @@ function normalizeHarness(
     toolPolicy: authoring.toolPolicy,
     session: authoring.session,
     statePlane: authoring.statePlane,
+    frameworkCore: authoring.frameworkCore,
     modules: input.modules ?? {},
     runtimeRequirements: cleanList(input.runtimeRequirements),
     metadata: input.metadata ?? {},
@@ -1126,6 +1531,14 @@ export function compileAgent<TAgent extends PraxisAgent>(
     toolPolicy: toolPolicySpec.value,
     session: sessionSpec.value,
     statePlane: statePlaneSpec.value,
+    frameworkCore: createFrameworkCoreContract({
+      promptPack: promptPackSpec.value,
+      mainLoop: mainLoopSpec.value,
+      sandbox: sandboxSpec.value,
+      toolPolicy: toolPolicySpec.value,
+      session: sessionSpec.value,
+      statePlane: statePlaneSpec.value,
+    }),
   };
   const manifestWithoutHash: Omit<AgentManifest, "manifestHash"> = {
     kind: "praxis.agentManifest",
@@ -1142,6 +1555,7 @@ export function compileAgent<TAgent extends PraxisAgent>(
     toolPolicy: authoring.toolPolicy,
     session: authoring.session,
     statePlane: authoring.statePlane,
+    frameworkCore: authoring.frameworkCore,
     harness: normalizeHarness(agent.harness, authoring),
     behaviors: agent.behaviors,
     hooks: agent.hooks,
@@ -1159,5 +1573,139 @@ export function compileAgent<TAgent extends PraxisAgent>(
       manifestHash: manifestHash(manifestWithoutHash),
     },
     events: ["runtime.agentManifest.compiled"],
+  };
+}
+
+function manifestValidationFailure(
+  code: AgentManifestValidationErrorCode,
+  message: string,
+  boundary: "input" | "manifest" | "security" | "consistency",
+): AgentManifestValidationResult {
+  return {
+    ok: false,
+    error: { code, message, boundary, publicSafe: true },
+    events: ["runtime.agentManifest.validation.rejected"],
+  };
+}
+
+function manifestWithoutHash(manifest: AgentManifest): Omit<AgentManifest, "manifestHash"> {
+  const { manifestHash: _manifestHash, ...withoutHash } = manifest;
+  return withoutHash;
+}
+
+function looksLikeRawSecretKey(key: string): boolean {
+  return /(^|_)(api[-_]?key|secret|access[-_]?token|refresh[-_]?token|password|bearer)(_|$)/i.test(key);
+}
+
+function containsRawSecretShape(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.some(containsRawSecretShape);
+  }
+  if (!isRecord(value)) {
+    return false;
+  }
+  return Object.entries(value).some(([key, nested]) => looksLikeRawSecretKey(key) || containsRawSecretShape(nested));
+}
+
+export function validateAgentManifest(input: unknown): AgentManifestValidationResult {
+  if (!isRecord(input)) {
+    return manifestValidationFailure("MISSING_MANIFEST", "AgentManifest validation requires a manifest object", "input");
+  }
+
+  if (input.kind !== "praxis.agentManifest") {
+    return manifestValidationFailure("INVALID_KIND", "AgentManifest kind must be praxis.agentManifest", "manifest");
+  }
+
+  if (input.schemaVersion !== "praxis.agentManifest.v1") {
+    return manifestValidationFailure("INVALID_SCHEMA_VERSION", "AgentManifest schemaVersion must be praxis.agentManifest.v1", "manifest");
+  }
+
+  const manifest = input as AgentManifest;
+  if (!hasText(manifest.manifestId)) {
+    return manifestValidationFailure("MISSING_MANIFEST_ID", "AgentManifest requires a stable manifestId", "manifest");
+  }
+
+  if (!hasText(manifest.manifestHash)) {
+    return manifestValidationFailure("MISSING_HASH", "AgentManifest requires a manifestHash", "manifest");
+  }
+
+  if (manifest.frameworkCore?.kind !== "praxis.frameworkCoreContract") {
+    return manifestValidationFailure("MISSING_FRAMEWORK_CORE", "AgentManifest requires a frameworkCore contract", "manifest");
+  }
+
+  if (containsRawSecretShape(manifest.model) || containsRawSecretShape(manifest.modelFleet)) {
+    return manifestValidationFailure("RAW_SECRET_REJECTED", "AgentManifest must contain credential refs, not raw provider secrets", "security");
+  }
+
+  const expectedHash = manifestHash(manifestWithoutHash(manifest));
+  if (manifest.manifestHash !== expectedHash) {
+    return manifestValidationFailure("HASH_MISMATCH", "AgentManifest hash does not match its stable contents", "manifest");
+  }
+
+  if (
+    manifest.harness?.promptPack?.promptPackId !== manifest.promptPack?.promptPackId ||
+    manifest.harness?.mainLoop?.strategy !== manifest.mainLoop?.strategy ||
+    manifest.harness?.sandbox?.sandboxId !== manifest.sandbox?.sandboxId ||
+    manifest.harness?.toolPolicy?.matrixId !== manifest.toolPolicy?.matrixId ||
+    manifest.harness?.frameworkCore?.promptPack?.promptPackId !== manifest.frameworkCore.promptPack.promptPackId
+  ) {
+    return manifestValidationFailure("HARNESS_VIEW_MISMATCH", "AgentManifest top-level authoring fields must mirror harness view", "consistency");
+  }
+
+  return {
+    ok: true,
+    manifest,
+    events: ["runtime.agentManifest.validation.accepted"],
+  };
+}
+
+export function inspectAgentManifest(manifest: AgentManifest): AgentManifestInspection {
+  return {
+    manifestId: manifest.manifestId,
+    manifestHash: manifest.manifestHash,
+    identityId: manifest.identity.id,
+    model: {
+      provider: manifest.model.provider,
+      model: manifest.model.model,
+      carrierId: manifest.model.carrierId,
+      endpointShape: manifest.model.endpointShape,
+      fleetMode: manifest.modelFleet.mode,
+      endpoints: Object.keys(manifest.modelFleet.endpoints),
+    },
+    promptPack: {
+      promptPackId: manifest.promptPack.promptPackId,
+      designOwner: manifest.promptPack.designOwner,
+      patchCount: manifest.promptPack.patches.length + manifest.promptPack.stateMachineMutations.length,
+      materialCount: manifest.promptPack.materials.length,
+    },
+    mainLoop: {
+      strategy: manifest.mainLoop.strategy,
+      hookCount: manifest.mainLoop.hooks.length,
+      formalLayer: manifest.frameworkCore.mainLoop.layer === "formal",
+    },
+    governance: {
+      sandboxProfile: manifest.sandbox.profile,
+      sandboxId: manifest.sandbox.sandboxId,
+      toolPolicyProfile: manifest.toolPolicy.profile,
+      policyMatrixId: manifest.toolPolicy.matrixId,
+    },
+    sessionState: {
+      persistence: manifest.session.persistence,
+      resume: manifest.session.resume,
+      thread: manifest.session.thread,
+      exposedState: manifest.statePlane.expose,
+      controls: manifest.statePlane.control,
+    },
+    frameworkCore: {
+      contractVersion: manifest.frameworkCore.contractVersion,
+      promptPackBindRef: manifest.frameworkCore.promptPack.bindRef,
+      mainLoopBindRef: manifest.frameworkCore.mainLoop.bindRef,
+      officialModules: manifest.frameworkCore.officialModuleBridge,
+    },
+    runtimeRequirements: manifest.harness.runtimeRequirements,
+    verificationGates: manifest.frameworkCore.verificationGates,
   };
 }

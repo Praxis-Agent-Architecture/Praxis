@@ -10,7 +10,7 @@
 
 ## 2. 文件职责
 
-这个文件提供内存 store 与 SQLite store，记录 session、state、event、invocation。它让 Agent 运行过程可观察、可恢复、可审计，并为 runtime 治理与契约检查留下可读证据。
+这个文件提供内存 store 与 SQLite store，记录 session、state、event、invocation、mainLoop step、procedure、approval 和 public-safe error。它让 Agent 运行过程可观察、可恢复、可审计，并为 runtime 治理与契约检查留下可读证据。
 
 ## 2.1 文件名语义拆解
 
@@ -37,6 +37,11 @@
 - 创建 session。
 - 更新 session 状态。
 - 追加 state transition、event 和 invocation。
+- 持久化 `MainLoopStepRecord`，让 prompt/model/tool/procedure/approval/failure 的动作原语可审计。
+- 记录 EphemeralProcedure 计划和执行结果摘要。
+- 记录 approval pending/resolved，并保留 interface/application surface 可以接走的 public-safe envelope。
+- 记录 public-safe error，避免失败只存在于返回值里。
+- 查询 pending approvals 和最新 state snapshot。
 - 读取单个 session 的完整 public-safe snapshot。
 - 提供 in-memory 与 SQLite 两种 runtime store。
 
@@ -49,7 +54,7 @@
 ## 7. 输出边界
 
 - 输出 `RuntimeSessionSnapshot`。
-- snapshot 包含 session、states、events、invocations。
+- snapshot 包含 session、states、events、invocations、mainLoopSteps、procedures、approvals、errors。
 - 不输出 provider raw secret、auth privateMaterial 或宿主内部句柄。
 
 ## 8. 错误边界
@@ -88,6 +93,7 @@
 
 - 同一套记录流程同时覆盖内存 store 和 SQLite store。
 - 验证 session 状态更新、事件排序、invocation 记录。
+- 验证 MainLoopStepRecord、procedure、approval pending/resolved、public-safe error 同时进入 memory/SQLite snapshot。
 - 验证 snapshot 中只出现 public-safe payload。
 
 ## 14. 与系统链路的关系

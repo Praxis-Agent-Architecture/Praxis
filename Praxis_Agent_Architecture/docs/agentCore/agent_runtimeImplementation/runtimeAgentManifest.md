@@ -37,12 +37,15 @@
 - 提供 `PraxisAgent` 抽象类作为 OAO 的最小 authoring 单位。
 - 提供 `PraxisAgentArchetype` 作为成熟 Agent 模式承接层。
 - 提供 `model`、`harness`、`tool`、`tools`、`policy`、`loop` 这些声明式 helper。
-- 提供 `endpoint`、`modelFleet.auto`、`PromptPack`、`markdown`、`markdownFile`、`append`、`replaceLastLines`、`mainLoop.standard`、`sandbox.temp`、`toolPolicies.codingAgentFull`、`session`、`statePlane` 这些 authoring spec helper。
+- 提供 `endpoint`、`modelFleet.auto`、`PromptPack`、`markdown`、`markdownFile`、`append`、`replaceLastLines`、`mainLoop.standard`、`sandbox.hostObserved`、`sandbox.temp`、`toolPolicies.bapr/yolo/permissive/standard/restricted/codingAgentFull`、`session`、`statePlane` 这些 authoring spec helper。
 - 支持 `compileAgent(AgentClass)` 和 `compileAgent(instance)`。
-- 输出稳定 `manifestHash`、model carrier、ModelFleet、PromptPack authoring refs/patches、MainLoop hook refs、Sandbox、BaseTool policy matrix、Session、StatePlane、tools、policy、loop、storage 和 runtimeRequirements。
+- 输出稳定 `manifestHash`、model carrier、ModelFleet、PromptPack authoring refs/patches、MainLoop hook refs、Sandbox、BaseTool policy matrix、Session、StatePlane、FrameworkCore contract、tools、policy、loop、storage 和 runtimeRequirements。
+- 提供 `validateAgentManifest` 和 `inspectAgentManifest`，让 rax/CI/debug 可以只拿 manifest 做校验和摘要检查，不要求重新实例化 Agent class。
 - 明确 constructor 只允许声明配置，runtime 不把它当执行入口。
 - Agent/archetype 顶层声明的 PromptPack 会同步进入 `manifest.promptPack` 与 `manifest.harness.promptPack`，保证开发者 authoring 面和当前 Kernel 消费面一致。
 - Prompt patch helper 会生成稳定 patchId，并把 `sceneTrigger` / `stateTrigger` 保留为触发元数据；重复 patchId 会在 compile 阶段被拒绝，避免 prompt diff/audit ref 歧义。
+- 默认工具策略是 `toolPolicies.standard()`，默认沙箱是 `sandbox.hostObserved()`。
+- `host-observed` 表示没有真实容器隔离，但 runtime 仍然记录、治理、预算和审批行为；这是比假装 sandbox 更诚实的默认宿主模式。
 
 ## 6. 输入边界
 
@@ -53,11 +56,13 @@
 - MainLoop hook 必须是 stable refs，例如 strategyRef、handlerRef、policyRef，不能是函数体。
 - ModelFleet endpoint 必须落到显式 endpoint family / protocol family / capability role，不靠 runtime 猜字符串。
 - Prompt patch 的 `patchId` 必须在 `patches` 与 `stateMachineMutations` 合并范围内唯一；需要同场景多 patch 时应显式传入不同 `patchId`。
+- Sandbox 必须声明稳定 `sandboxId/profile/filesystem/network/shell`；ToolPolicy 必须声明稳定 `matrixId/profile`。
 
 ## 7. 输出边界
 
 - 成功输出 `praxis.agentManifest.v1`。
-- manifest 包含 identity、model、modelFleet、promptPack、mainLoop、sandbox、toolPolicy、session、statePlane、harness、source、verification 和 hash。
+- manifest 包含 identity、model、modelFleet、promptPack、mainLoop、sandbox、toolPolicy、session、statePlane、frameworkCore、harness、source、verification 和 hash。
+- `frameworkCore` 明确记录 PromptPack 正式入口、MainLoop/CoreLogic 正式入口、ModelDecision 变体、BaseTool canonical mount chain、session/state/event 记录面、approval 界面面、inspection/debug 状态，以及 TAP/CMP/MP/multiagent 的 contract-only bridge 状态。
 - 输出不包含 raw credential、provider 私有响应或工具执行结果。
 - promptPack 在这里是内部材料包 authoring refs，不是 provider payload builder。
 
@@ -66,6 +71,8 @@
 - 缺 Agent、缺 identity、缺 model、缺 harness 都返回 public-safe compile error。
 - 非法 modelFleet、prompt patch、mainLoop hook、sandbox limit、BaseTool policy matrix、session、statePlane 都返回 public-safe compile error。
 - 重复 PromptPack patchId 会被视为非法 prompt patch，因为 audit/diff/state-machine prompt mutation 都需要稳定且不歧义的引用。
+- 非法 sandbox/profile 或 policy/profile shape 会在 compile 阶段被拒绝，不进入 runtime 执行。
+- manifest 校验会拒绝 hash 不匹配、frameworkCore 缺失、顶层 view 与 harness view 不一致、以及疑似 raw secret 字段。
 - class constructor 抛错只映射为 `INVALID_AGENT_CLASS`。
 - 错误停在 compile/manifest 边界，不触发模型、工具或 IO。
 
@@ -108,6 +115,8 @@
 - 测 constructor 配置只影响声明式 harness。
 - 测 Agent Archetype 的 modelFleet、promptPack patch、mainLoop hook refs、sandbox、toolPolicy、session、statePlane 能编译进 manifest。
 - 测 archetype PromptPack 同时落入 `manifest.promptPack` 和 `manifest.harness.promptPack`，以及 scene-triggered patchId 不冲突。
+- 测 `host-observed` sandbox 和 bapr/yolo/permissive/standard/restricted policy profiles 都能落入 manifest 顶层和 harness view。
+- 测 `validateAgentManifest` 的 hash 稳定、malformed manifest public-safe error，以及 `inspectAgentManifest` 的开发者可读摘要。
 - 测函数式 mainLoop body 和非法 prompt patch 被拒绝。
 
 ## 14. 与系统链路的关系

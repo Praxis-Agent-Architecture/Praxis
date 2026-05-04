@@ -21,6 +21,7 @@
 - 命名片段：`prompt` / `Definer`。
 - 工程含义：这是 PromptPack 输入包管理面的一处能力点，重点是服务模型输入前的材料组织，而不是直接生成某家 provider 的最终 payload。
 - 第一实现重点：先围绕材料来源、排序、裁剪、注入、预算和治理限制定义窄接口。
+- 当前正式材料来源分三类：`declared-built-in`（声明内置材料）、`process-product`（运行过程产物）、`user-request`（用户本轮请求）。这三类是 PromptPack 的内部审计线索，不是 provider payload 字段。
 - 与 CMP 的关系：CMP 可以给出高级上下文策略和材料，PromptPack 负责把材料整理成 agentCore 模型输入前的统一包。
 
 ## 3. 目录语义
@@ -57,6 +58,7 @@
 
 - 标准化 PromptPack 输入包，而不是最终 provider payload。
 - 上下文材料的来源记录、裁剪记录、注入记录和后续 lowering 所需元信息。
+- `PromptPackDefinition` 会保留 `materialSourceCategories`，供 assembler、mainLoop、inspection/debug 判断材料从哪里进入上下文。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 

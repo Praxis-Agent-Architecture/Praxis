@@ -10,6 +10,7 @@ import {
   compileAgent,
   endpoint,
   harness,
+  inspectAgentManifest,
   loop,
   model,
   modelFleet,
@@ -24,6 +25,8 @@ import {
   tool,
   toolPolicies,
   tools,
+  validateAgentManifest,
+  type BaseToolPolicyMatrixSpec,
 } from "../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
 
 defineAgentCoreContractTest({
@@ -94,18 +97,13 @@ class CodingAgentArchetype extends PraxisAgentArchetype {
       onResume: { handlerRef: "coding.loop.resume" },
     },
   });
-  sandbox = sandbox.temp({
+  sandbox = sandbox.hostObserved({
     filesystem: "workspace-only",
     network: "deny-by-default",
     shell: "approval-for-write",
     resourceLimits: { timeoutMs: 30_000, maxProcesses: 8 },
   });
-  toolPolicy = toolPolicies.codingAgentFull({
-    read: "allow",
-    write: "approval",
-    shell: "guarded",
-    git: "approval-on-destructive",
-  });
+  toolPolicy = toolPolicies.standard();
   session = session({
     persistence: "sqlite",
     resume: "auto",
@@ -145,6 +143,15 @@ test("compileAgent compiles a PraxisAgent class into a stable AgentManifest", ()
   assert.equal(result.manifest.source.constructorSideEffectsAllowed, false);
   assert.equal(result.manifest.harness.tools[0]?.toolId, "code.read");
   assert.equal(result.manifest.harness.loop.maxModelTurns, 2);
+  assert.equal(result.manifest.sandbox.profile, "host-observed");
+  assert.equal(result.manifest.harness.sandbox.profile, "host-observed");
+  assert.equal(result.manifest.toolPolicy.profile, "standard");
+  assert.equal(result.manifest.harness.toolPolicy.profile, "standard");
+  assert.equal(result.manifest.frameworkCore.kind, "praxis.frameworkCoreContract");
+  assert.equal(result.manifest.frameworkCore.runtimeTruth, "agentManifest");
+  assert.equal(result.manifest.frameworkCore.promptPack.providerPayloadBuilder, false);
+  assert.equal(result.manifest.frameworkCore.baseToolGovernance.identityAxis, "family/group/toolId");
+  assert.equal(result.manifest.harness.frameworkCore.promptPack.promptPackId, result.manifest.promptPack.promptPackId);
   assert.equal(result.manifest.verification.runtimeExecutesManifestOnly, true);
   assert.equal(result.manifest.manifestHash.length, 64);
 });
@@ -183,16 +190,176 @@ test("compileAgent compiles Agent Archetype authoring specs into stable Manifest
   assert.equal(result.manifest.promptPack.patches[0]?.patchId, "coding.rules:append");
   assert.equal(result.manifest.promptPack.patches[1]?.operation, "replaceLastLines");
   assert.equal(result.manifest.mainLoop.hooks.some((hook) => hook.hook === "chooseModel" && hook.handlerRef === "coding.model.router"), true);
+  assert.equal(result.manifest.sandbox.profile, "host-observed");
   assert.equal(result.manifest.sandbox.filesystem, "workspace-only");
   assert.equal(result.manifest.sandbox.resourceLimits.timeoutMs, 30_000);
-  assert.equal(result.manifest.toolPolicy.familyRules.some((rule) => rule.family === "gitBase" && rule.decision === "approval-on-destructive"), true);
+  assert.equal(result.manifest.toolPolicy.profile, "standard");
+  assert.equal(result.manifest.toolPolicy.actionRules.find((rule) => rule.action === "dangerous")?.decision, "approval");
   assert.equal(result.manifest.session.persistence, "sqlite");
   assert.deepEqual(result.manifest.statePlane.control, ["pause", "resume", "interrupt", "rollback"]);
   assert.equal(result.manifest.harness.modelFleet.endpoints.batch?.endpoint, "/v1/batches");
   assert.equal(result.manifest.harness.promptPack.promptPackId, "prompt.coding");
   assert.equal(result.manifest.harness.promptPack.patches?.[1]?.operation, "replaceLastLines");
   assert.equal(result.manifest.harness.mainLoop.stepRecordCompatible, true);
+  assert.equal(result.manifest.harness.toolPolicy.profile, "standard");
   assert.equal(result.manifest.harness.sandbox.shell, "approval-for-write");
+  assert.equal(result.manifest.frameworkCore.promptPack.promptPackId, "prompt.coding");
+  assert.equal(result.manifest.frameworkCore.mainLoop.strategy, "standard");
+  assert.deepEqual(result.manifest.frameworkCore.officialModuleBridge, {
+    tap: "contract-only",
+    cmp: "contract-only",
+    mp: "contract-only",
+    multiagent: "contract-only",
+  });
+});
+
+test("AgentManifest validation preserves hash stability and inspectable summary", () => {
+  const first = compileAgent(CodingAgentArchetype, {
+    compiledAt: "2026-05-04T00:00:00.000Z",
+    manifestId: "manifest.coding.stable",
+  });
+  const second = compileAgent(CodingAgentArchetype, {
+    compiledAt: "2026-05-04T00:00:00.000Z",
+    manifestId: "manifest.coding.stable",
+  });
+
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  if (!first.ok || !second.ok) return;
+
+  assert.equal(first.manifest.manifestHash, second.manifest.manifestHash);
+
+  const validation = validateAgentManifest(first.manifest);
+  assert.equal(validation.ok, true);
+  if (!validation.ok) return;
+
+  const inspection = inspectAgentManifest(validation.manifest);
+  assert.equal(inspection.manifestId, "manifest.coding.stable");
+  assert.equal(inspection.identityId, "agent.coding");
+  assert.equal(inspection.promptPack.promptPackId, "prompt.coding");
+  assert.equal(inspection.mainLoop.formalLayer, true);
+  assert.equal(inspection.frameworkCore.promptPackBindRef, "runtime.execEngine.bindPromptPack");
+  assert.equal(inspection.governance.toolPolicyProfile, "standard");
+  assert.equal(inspection.verificationGates.includes("no-raw-secrets"), true);
+});
+
+test("validateAgentManifest rejects malformed manifests with public-safe errors", () => {
+  assert.equal(validateAgentManifest(undefined).ok, false);
+
+  const compiled = compileAgent(ResearchAgent, {
+    compiledAt: "2026-05-04T00:00:00.000Z",
+    manifestId: "manifest.research.malformed",
+  });
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+
+  const tamperedHash = validateAgentManifest({
+    ...compiled.manifest,
+    identity: { ...compiled.manifest.identity, id: "agent.tampered" },
+  });
+  assert.equal(tamperedHash.ok, false);
+  if (!tamperedHash.ok) {
+    assert.equal(tamperedHash.error.code, "HASH_MISMATCH");
+    assert.equal(tamperedHash.error.publicSafe, true);
+  }
+
+  const mismatchedHarness = validateAgentManifest({
+    ...compiled.manifest,
+    manifestHash: compiled.manifest.manifestHash,
+    harness: {
+      ...compiled.manifest.harness,
+      promptPack: {
+        ...compiled.manifest.harness.promptPack,
+        promptPackId: "wrong.prompt",
+      },
+    },
+  });
+  assert.equal(mismatchedHarness.ok, false);
+  if (!mismatchedHarness.ok) {
+    assert.equal(mismatchedHarness.error.code, "HASH_MISMATCH");
+  }
+
+  const rawSecret = compileAgent(ResearchAgent, {
+    compiledAt: "2026-05-04T00:00:00.000Z",
+    manifestId: "manifest.research.secret",
+  });
+  assert.equal(rawSecret.ok, true);
+  if (!rawSecret.ok) return;
+  const secretManifest = {
+    ...rawSecret.manifest,
+    model: {
+      ...rawSecret.manifest.model,
+      metadata: { apiKey: "sk-test" },
+    },
+  };
+  const secretHash = validateAgentManifest({
+    ...secretManifest,
+    manifestHash: "0".repeat(64),
+  });
+  assert.equal(secretHash.ok, false);
+  if (!secretHash.ok) {
+    assert.equal(secretHash.error.code, "RAW_SECRET_REJECTED");
+    assert.equal(secretHash.error.boundary, "security");
+  }
+});
+
+test("tool policy profiles and host-observed sandbox compile into Manifest views", () => {
+  const profiles = [
+    ["bapr", toolPolicies.bapr(), "allow"],
+    ["yolo", toolPolicies.yolo(), "guarded"],
+    ["permissive", toolPolicies.permissive(), "guarded"],
+    ["standard", toolPolicies.standard(), "guarded"],
+    ["restricted", toolPolicies.restricted(), "approval"],
+  ] as const;
+
+  for (const [profile, profilePolicy, defaultDecision] of profiles) {
+    class ProfileAgent extends PraxisAgent {
+      identity = `agent.profile.${profile}`;
+      model = model("gpt-5.4");
+      sandbox = sandbox.hostObserved();
+      toolPolicy = profilePolicy;
+      harness = harness({ loop: loop.standard() });
+    }
+
+    const result = compileAgent(new ProfileAgent());
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.manifest.sandbox.profile, "host-observed");
+    assert.equal(result.manifest.harness.sandbox.profile, "host-observed");
+    assert.equal(result.manifest.toolPolicy.profile, profile);
+    assert.equal(result.manifest.toolPolicy.defaultDecision, defaultDecision);
+    assert.equal(result.manifest.harness.toolPolicy.profile, profile);
+  }
+});
+
+test("compileAgent rejects invalid sandbox and tool policy profile shapes", () => {
+  class BadSandboxAgent extends PraxisAgent {
+    identity = "agent.bad-sandbox";
+    model = model("gpt-5.4");
+    sandbox = { ...sandbox.hostObserved(), profile: "" };
+    harness = harness({});
+  }
+
+  const badSandbox = compileAgent(new BadSandboxAgent());
+  assert.equal(badSandbox.ok, false);
+  if (!badSandbox.ok) {
+    assert.equal(badSandbox.error.code, "INVALID_SANDBOX");
+    assert.equal(badSandbox.error.publicSafe, true);
+  }
+
+  class BadToolPolicyAgent extends PraxisAgent {
+    identity = "agent.bad-tool-policy";
+    model = model("gpt-5.4");
+    toolPolicy = { ...toolPolicies.standard(), profile: "" as BaseToolPolicyMatrixSpec["profile"] };
+    harness = harness({});
+  }
+
+  const badToolPolicy = compileAgent(new BadToolPolicyAgent());
+  assert.equal(badToolPolicy.ok, false);
+  if (!badToolPolicy.ok) {
+    assert.equal(badToolPolicy.error.code, "INVALID_TOOL_POLICY");
+    assert.equal(badToolPolicy.error.publicSafe, true);
+  }
 });
 
 test("prompt patch helpers keep scene triggers as metadata and validate unique ids", () => {

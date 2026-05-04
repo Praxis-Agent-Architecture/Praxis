@@ -37,9 +37,19 @@ export type OfficialModuleRuntimeSurfaceRequest = {
   requestedCapabilities?: readonly string[];
   requestedEvents?: readonly string[];
   requestedScopes?: readonly string[];
+  grantedRuntimeScopes?: readonly string[];
+  inheritedRuntimePolicyId?: string;
+  modulePolicyExtensions?: readonly string[];
   runtimeReady?: boolean;
   contract?: OfficialModuleRuntimeGate;
   governance?: OfficialModuleRuntimeGate;
+};
+
+export type OfficialModuleRuntimeBridgeAccess = {
+  governance: "runtime.officialModuleSurface.officialModuleGovernancePort";
+  events: "runtime.officialModuleSurface.officialModuleEventBus";
+  state: "runtime.officialModuleSurface.officialModuleStateBridge";
+  invocation: "runtime.invocationMethod";
 };
 
 export type OfficialModuleRuntimeSurface = {
@@ -48,11 +58,22 @@ export type OfficialModuleRuntimeSurface = {
   requestedCapabilities: readonly string[];
   requestedEvents: readonly string[];
   requestedScopes: readonly string[];
+  grantedRuntimeScopes: readonly string[];
+  policy: {
+    inheritsRuntimePolicy: true;
+    inheritedRuntimePolicyId: string;
+    modulePolicyExtensions: readonly string[];
+    canExtendPolicy: true;
+    canBypassRuntimePolicy: false;
+  };
+  bridgeAccess: OfficialModuleRuntimeBridgeAccess;
   entrySurface: "runtime.officialModuleSurface";
   dispatch: "dry-run";
   unsafeSideEffects: false;
+  hiddenResourceAccess: false;
   canRequestCapability: (capability: string) => boolean;
   canSubscribeEvent: (eventType: string) => boolean;
+  canUseScope: (scope: string) => boolean;
 };
 
 export type OfficialModuleRuntimeSurfaceResult =
@@ -73,6 +94,14 @@ function isBlank(value: string | undefined): boolean {
 
 function cleanList(values: readonly string[] | undefined): readonly string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function firstDeniedScope(requestedScopes: readonly string[], grantedRuntimeScopes: readonly string[]): string | undefined {
+  if (grantedRuntimeScopes.length === 0) {
+    return undefined;
+  }
+
+  return requestedScopes.find((scope) => !grantedRuntimeScopes.includes(scope));
 }
 
 export function createOfficialModuleRuntimeError(
@@ -146,6 +175,16 @@ export function createOfficialModuleRuntimeSurface(
   const requestedCapabilities = cleanList(request.requestedCapabilities);
   const requestedEvents = cleanList(request.requestedEvents);
   const requestedScopes = cleanList(request.requestedScopes);
+  const grantedRuntimeScopes = cleanList(request.grantedRuntimeScopes);
+  const deniedScope = firstDeniedScope(requestedScopes, grantedRuntimeScopes);
+
+  if (deniedScope !== undefined) {
+    return failure(
+      "SCOPE_DENIED",
+      `official module requested scope outside governed runtime grant: ${deniedScope}`,
+      "scope",
+    );
+  }
 
   return {
     ok: true,
@@ -158,9 +197,24 @@ export function createOfficialModuleRuntimeSurface(
       requestedCapabilities,
       requestedEvents,
       requestedScopes,
+      grantedRuntimeScopes,
+      policy: {
+        inheritsRuntimePolicy: true,
+        inheritedRuntimePolicyId: request.inheritedRuntimePolicyId?.trim() || "runtime.policy.standard",
+        modulePolicyExtensions: cleanList(request.modulePolicyExtensions),
+        canExtendPolicy: true,
+        canBypassRuntimePolicy: false,
+      },
+      bridgeAccess: {
+        governance: "runtime.officialModuleSurface.officialModuleGovernancePort",
+        events: "runtime.officialModuleSurface.officialModuleEventBus",
+        state: "runtime.officialModuleSurface.officialModuleStateBridge",
+        invocation: "runtime.invocationMethod",
+      },
       entrySurface: "runtime.officialModuleSurface",
       dispatch: "dry-run",
       unsafeSideEffects: false,
+      hiddenResourceAccess: false,
       canRequestCapability(capability: string): boolean {
         const normalized = capability.trim();
         return normalized.length > 0 && (requestedCapabilities.length === 0 || requestedCapabilities.includes(normalized));
@@ -168,6 +222,10 @@ export function createOfficialModuleRuntimeSurface(
       canSubscribeEvent(eventType: string): boolean {
         const normalized = eventType.trim();
         return normalized.length > 0 && (requestedEvents.length === 0 || requestedEvents.includes(normalized));
+      },
+      canUseScope(scope: string): boolean {
+        const normalized = scope.trim();
+        return normalized.length > 0 && (grantedRuntimeScopes.length === 0 || grantedRuntimeScopes.includes(normalized));
       },
     },
     events: ["runtime.officialModuleSurface.created"],
