@@ -258,6 +258,7 @@ function isDeclaredImplementedPort(options: BaseToolSupportCatalogOptions, portP
 
 function statusForRequirement(
   supportId: string,
+  dependencyId: string,
   supportKind: BaseToolRuntimeSupportKind,
   portPath: string | undefined,
   options: BaseToolSupportCatalogOptions,
@@ -278,6 +279,9 @@ function statusForRequirement(
     return hasPortMethod(options.executor, portPath) && isDeclaredImplementedPort(options, portPath)
       ? "available"
       : "notImplemented";
+  }
+  if (supportKind === "runtime-contract" && dependencyId.startsWith("runtime.capabilityExposure.")) {
+    return "available";
   }
   return "unavailable";
 }
@@ -300,7 +304,7 @@ function requirementsForDependency(
       required: dependency.required,
       description: dependency.description,
       portPath,
-      status: statusForRequirement(supportId, supportKind, portPath, options),
+      status: statusForRequirement(supportId, dependency.dependencyId, supportKind, portPath, options),
     };
   });
 }

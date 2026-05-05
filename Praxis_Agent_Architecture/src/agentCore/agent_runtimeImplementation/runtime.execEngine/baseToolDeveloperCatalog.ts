@@ -6,7 +6,12 @@
 
 import type { BaseToolFamily, BaseToolRiskLevel } from "../../agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { tool, tools, type ToolSpec } from "../runtimeAgentManifest.js";
-import { createBaseToolRealityLedger, type BaseToolRealityLedgerEntry } from "./baseToolRealityLedger.js";
+import {
+  createBaseToolRealityLedger,
+  type BaseToolRealityCapabilityClass,
+  type BaseToolRealityLedgerEntry,
+  type BaseToolRealityProjection,
+} from "./baseToolRealityLedger.js";
 
 export type BaseToolDeveloperCatalogEntry = {
   toolId: string;
@@ -15,6 +20,9 @@ export type BaseToolDeveloperCatalogEntry = {
   group: string;
   title: string;
   riskLevel: BaseToolRiskLevel;
+  capabilityClass: BaseToolRealityCapabilityClass;
+  projection: BaseToolRealityProjection;
+  modelRequired: boolean;
   description?: string;
 };
 
@@ -55,6 +63,9 @@ function developerEntry(entry: BaseToolRealityLedgerEntry): BaseToolDeveloperCat
     group: entry.group,
     title: entry.title,
     riskLevel: entry.riskLevel,
+    capabilityClass: entry.capabilityClass,
+    projection: entry.projection,
+    modelRequired: entry.modelRequired,
   };
 }
 
@@ -67,6 +78,9 @@ function toToolSpec(entry: BaseToolRealityLedgerEntry, input: BaseToolSpecInput 
     metadata: {
       authoringSurface: "runtime.execEngine.baseToolDeveloperCatalog",
       baseToolFamily: entry.family,
+      capabilityClass: entry.capabilityClass,
+      projection: entry.projection,
+      modelRequired: entry.modelRequired,
       riskLevel: entry.riskLevel,
       ...(input.metadata ?? {}),
     },
@@ -272,6 +286,33 @@ export const toolSets = {
       ]);
     },
   },
+  skill: {
+    context(): readonly ToolSpec[] {
+      return tools([
+        baseTools.skill.management(),
+        baseTools.skill.summarize(),
+      ]);
+    },
+    search(): readonly ToolSpec[] {
+      return tools([
+        ...toolSets.skill.context(),
+        baseTools.skill.ripgrep(),
+      ]);
+    },
+    authoring(): readonly ToolSpec[] {
+      return tools([
+        baseTools.skill.generate(),
+        baseTools.skill.iterate(),
+        baseTools.skill.remove(),
+      ]);
+    },
+    full(): readonly ToolSpec[] {
+      return tools([
+        ...toolSets.skill.search(),
+        ...toolSets.skill.authoring(),
+      ]);
+    },
+  },
 } as const;
 
 export const baseToolDeveloperCatalogDescriptor = {
@@ -279,5 +320,6 @@ export const baseToolDeveloperCatalogDescriptor = {
   validatesAgainst: "runtime.execEngine.baseToolRealityLedger",
   publicHelpers: ["baseTools", "toolSets", "tryBaseToolById", "listBaseToolDeveloperCatalog"],
   toolSpecFamilyUsesStorageFamily: true,
+  skillBaseIsContextMaterialNotModelProvider: true,
   doesNotExecuteTools: true,
 } as const;

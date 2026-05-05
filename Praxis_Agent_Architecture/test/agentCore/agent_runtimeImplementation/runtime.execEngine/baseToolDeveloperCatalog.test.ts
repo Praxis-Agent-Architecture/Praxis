@@ -24,6 +24,7 @@ test("baseToolDeveloperCatalog exposes all registered tools without requiring ha
   assert.equal(codeRead.family, "codeBase");
   assert.equal(codeRead.group, "explore");
   assert.equal(codeRead.metadata?.baseToolFamily, "code");
+  assert.equal(codeRead.metadata?.projection, "runtimeObservation");
 
   const lookup = tryBaseToolById("code.search_Ripgrep");
   assert.equal(lookup.ok, true);
@@ -44,6 +45,9 @@ test("toolSets provide framework-level presets backed by registered BaseTool ids
   const readonly = toolSets.coding.readonly({ includeGit: true, includeSearch: true });
   const full = toolSets.coding.full({ includeShell: true });
   const research = toolSets.research.web();
+  const skillContext = toolSets.skill.context();
+  const skillSearch = toolSets.skill.search();
+  const skillAuthoring = toolSets.skill.authoring();
 
   assert.ok(readonly.some((item) => item.toolId === "code.read"));
   assert.ok(readonly.some((item) => item.toolId === "git.getRepositoryStatus"));
@@ -51,8 +55,13 @@ test("toolSets provide framework-level presets backed by registered BaseTool ids
   assert.ok(full.some((item) => item.toolId === "code.replaceFile"));
   assert.ok(full.some((item) => item.toolId === "shell.commandExecution"));
   assert.deepEqual(research.map((item) => item.toolId), ["search.searchEngine", "search.fetch", "search.ground"]);
+  assert.deepEqual(skillContext.map((item) => item.toolId), ["skill.management", "skill.summarize"]);
+  assert.deepEqual(skillSearch.map((item) => item.toolId), ["skill.management", "skill.summarize", "skill.ripgrep"]);
+  assert.deepEqual(skillAuthoring.map((item) => item.toolId), ["skill.generate", "skill.iterate", "skill.remove"]);
+  assert.equal(skillContext[0]?.metadata?.projection, "promptPackMaterial");
+  assert.equal(skillContext[0]?.metadata?.modelRequired, false);
 
-  for (const selected of [...readonly, ...full, ...research]) {
+  for (const selected of [...readonly, ...full, ...research, ...skillContext, ...skillSearch, ...skillAuthoring]) {
     assert.equal(registry.lookup(selected.toolId).ok, true, selected.toolId);
   }
 });

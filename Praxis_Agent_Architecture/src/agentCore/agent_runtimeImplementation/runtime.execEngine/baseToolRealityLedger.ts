@@ -38,6 +38,14 @@ export type BaseToolDependencyRealityStatus =
   | "blocked"
   | "providerUnavailable";
 export type BaseToolLiveRealityStatus = "liveReady" | "notProven";
+export type BaseToolRealityCapabilityClass =
+  | "contextMaterial"
+  | "contextSearch"
+  | "governedAuthoring"
+  | "hostRuntime"
+  | "externalAdapter";
+export type BaseToolRealityProjection = "promptPackMaterial" | "runtimeObservation" | "authoringArtifact";
+export type BaseToolRealityLiveGate = "noModelSmoke" | "dialogueSmoke" | "adapterSmoke";
 export type BaseToolRealityStageStatus =
   | "ready"
   | "notReady"
@@ -71,6 +79,10 @@ export type BaseToolRealityLedgerEntry = {
   executorSupport: BaseToolExecutorSupportRealityStatus;
   dependencyStatus: BaseToolDependencyRealityStatus;
   liveStatus: BaseToolLiveRealityStatus;
+  capabilityClass: BaseToolRealityCapabilityClass;
+  projection: BaseToolRealityProjection;
+  modelRequired: boolean;
+  recommendedLiveGate: BaseToolRealityLiveGate;
   stages: BaseToolRealityStages;
   developerReadiness: BaseToolDeveloperReadiness;
   readiness: BaseToolRuntimeSupportStatus;
@@ -196,6 +208,39 @@ function dependencyStatusFor(entry: BaseToolSupportCatalogEntry, missingPorts: r
   return "available";
 }
 
+function capabilityClassFor(
+  entry: BaseToolSupportCatalogEntry,
+  executorSupport: BaseToolExecutorSupportRealityStatus,
+): BaseToolRealityCapabilityClass {
+  if (entry.family === "skill") {
+    if (entry.toolId === "skill.ripgrep") return "contextSearch";
+    if (entry.toolId === "skill.generate" || entry.toolId === "skill.iterate" || entry.toolId === "skill.remove") {
+      return "governedAuthoring";
+    }
+    return "contextMaterial";
+  }
+  return executorSupport === "hostReady" ? "hostRuntime" : "externalAdapter";
+}
+
+function projectionFor(entry: BaseToolSupportCatalogEntry, capabilityClass: BaseToolRealityCapabilityClass): BaseToolRealityProjection {
+  if (entry.family === "skill" && (capabilityClass === "contextMaterial" || capabilityClass === "contextSearch")) {
+    return "promptPackMaterial";
+  }
+  if (entry.family === "skill" && capabilityClass === "governedAuthoring") return "authoringArtifact";
+  return "runtimeObservation";
+}
+
+function modelRequiredFor(entry: BaseToolSupportCatalogEntry): boolean {
+  if (entry.family === "skill") return false;
+  return entry.family === "omni";
+}
+
+function recommendedLiveGateFor(entry: BaseToolSupportCatalogEntry, capabilityClass: BaseToolRealityCapabilityClass): BaseToolRealityLiveGate {
+  if (entry.family === "skill") return "noModelSmoke";
+  if (capabilityClass === "externalAdapter") return "adapterSmoke";
+  return "dialogueSmoke";
+}
+
 function stagesFor(input: {
   registry: BaseToolRegistryMountStatus;
   storage: BaseToolStorageRealityStatus;
@@ -239,6 +284,9 @@ function notesFor(input: {
   if (input.storage !== "canonical") notes.push(`storage is ${input.storage}`);
   if (input.missingPorts.length > 0) notes.push(`missing runtime ports: ${input.missingPorts.join(", ")}`);
   if (input.dependencyStatus === "requiresApproval") notes.push("one or more required supports need approval");
+  if (input.entry.family === "skill") {
+    notes.push("skillBase is local context material or governed skill authoring; no model provider is required by the skill host");
+  }
   if (input.liveStatus === "notProven") notes.push("no live smoke proof registered for this tool");
   return notes;
 }
@@ -259,6 +307,10 @@ export function createBaseToolRealityLedger(
     const missingPorts = missingPortsFor(entry);
     const executorSupport = executorSupportFor(entry, missingPorts);
     const dependencyStatus = dependencyStatusFor(entry, missingPorts);
+    const capabilityClass = capabilityClassFor(entry, executorSupport);
+    const projection = projectionFor(entry, capabilityClass);
+    const modelRequired = modelRequiredFor(entry);
+    const recommendedLiveGate = recommendedLiveGateFor(entry, capabilityClass);
     const approvalRequiredSupports = entry.requiredSupports
       .filter((support) => support.status === "requiresApproval")
       .map((support) => support.supportId)
@@ -285,6 +337,10 @@ export function createBaseToolRealityLedger(
       executorSupport,
       dependencyStatus,
       liveStatus,
+      capabilityClass,
+      projection,
+      modelRequired,
+      recommendedLiveGate,
       stages,
       developerReadiness: developerReadinessFor(stages),
       readiness: entry.readiness,

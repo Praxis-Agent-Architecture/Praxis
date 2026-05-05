@@ -72,3 +72,45 @@ test("baseToolRealityLedger records live proof only when the runtime passes smok
   assert.ok(entry);
   assert.equal(entry.liveStatus, "liveReady");
 });
+
+test("baseToolRealityLedger treats skillBase as local context material instead of model adapter work", () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-ledger-skill",
+    sessionId: "session-ledger-skill",
+  });
+  const ledger = createBaseToolRealityLedger({
+    executor,
+    liveProvenToolIds: [
+      "skill.generate",
+      "skill.iterate",
+      "skill.management",
+      "skill.remove",
+      "skill.ripgrep",
+      "skill.summarize",
+    ],
+  });
+
+  const summarize = ledger.find((entry) => entry.toolId === "skill.summarize");
+  assert.ok(summarize);
+  assert.equal(summarize.capabilityClass, "contextMaterial");
+  assert.equal(summarize.projection, "promptPackMaterial");
+  assert.equal(summarize.modelRequired, false);
+  assert.equal(summarize.recommendedLiveGate, "noModelSmoke");
+  assert.equal(summarize.developerReadiness, "ready");
+  assert.equal(summarize.readiness, "available");
+
+  const ripgrep = ledger.find((entry) => entry.toolId === "skill.ripgrep");
+  assert.ok(ripgrep);
+  assert.equal(ripgrep.capabilityClass, "contextSearch");
+  assert.equal(ripgrep.projection, "promptPackMaterial");
+  assert.equal(ripgrep.modelRequired, false);
+  assert.equal(ripgrep.developerReadiness, "usableWithApproval");
+
+  const generate = ledger.find((entry) => entry.toolId === "skill.generate");
+  assert.ok(generate);
+  assert.equal(generate.capabilityClass, "governedAuthoring");
+  assert.equal(generate.projection, "authoringArtifact");
+  assert.equal(generate.modelRequired, false);
+  assert.equal(generate.developerReadiness, "usableWithApproval");
+  assert.ok(generate.notes.some((note) => note.includes("no model provider is required")));
+});
