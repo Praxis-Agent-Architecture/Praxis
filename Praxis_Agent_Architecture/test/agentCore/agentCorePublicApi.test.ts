@@ -20,12 +20,14 @@ import {
   sandbox,
   session,
   statePlane,
+  storage as storageHelpers,
   toolPolicies,
   toolSets,
   tools,
   validateAgentManifest,
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolver,
+  createStoragePlaneRuntime,
 } from "../../src/agentCore/index.js";
 
 class MinimalDeveloperAgent extends PraxisAgent {
@@ -57,6 +59,7 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
     },
   });
   sandbox = sandbox.hostObserved();
+  storage = storageHelpers.raxWorkspace();
   toolPolicy = toolPolicies.standard();
   session = session({ persistence: "sqlite", resume: "auto", thread: "durable", logs: "full" });
   statePlane = statePlane({ expose: ["phase", "toolCalls"], control: ["pause"] });
@@ -85,6 +88,8 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(mature.manifest.harness.promptPack.promptPackId, "prompt.public.mature");
   assert.equal(mature.manifest.harness.toolPolicy.profile, "standard");
   assert.equal(mature.manifest.harness.sandbox.profile, "host-observed");
+  assert.equal(mature.manifest.harness.storage.kind, "rax-workspace");
+  assert.equal(mature.manifest.harness.storage.sessionStoreRef, "session.sqlite.workspace");
   assert.equal(mature.manifest.harness.tools.some((item) => item.toolId === "git.getRepositoryStatus"), true);
   const validation = validateAgentManifest(mature.manifest);
   assert.equal(validation.ok, true);
@@ -123,6 +128,7 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(inspection.ok, true);
   if (inspection.ok) {
     assert.equal(inspection.report.audit.reportSurface, "runtime.inspection.frameworkInspectionReport");
+    assert.equal(inspection.report.storage.writesSecrets, false);
     assert.equal(inspection.report.toolReadiness.total, mature.manifest.harness.tools.length);
     assert.ok(inspection.report.toolReadiness.tools.some((tool) => tool.toolId === "shell.commandExecution"));
     assert.equal(
@@ -132,4 +138,10 @@ test("public agentCore API lets developers compile minimal and mature agents wit
       true,
     );
   }
+
+  const storageRuntime = createStoragePlaneRuntime({
+    cwd: process.cwd(),
+    agentId: mature.manifest.identity.id,
+  });
+  assert.equal(storageRuntime.ok, true);
 });

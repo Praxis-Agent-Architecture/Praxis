@@ -26,6 +26,7 @@ export {
   sandbox,
   session,
   statePlane,
+  storage,
   tool,
   toolPolicies,
   tools,
@@ -57,8 +58,34 @@ export {
   type SandboxSpec,
   type SessionSpec,
   type StatePlaneSpec,
+  type StorageSpec,
   type ToolSpec,
 } from "./agent_runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  applyRaxStorageInitPlan,
+  createAndApplyStoragePlaneRuntime,
+  createRaxStorageLayout,
+  createStoragePlaneRuntime,
+  planRaxStorageInit,
+  resolveRaxHome,
+  resolveRaxWorkspace,
+  type RaxHomeResolution,
+  type RaxPathResolutionError,
+  type RaxPathResolutionErrorCode,
+  type RaxPathResolutionResult,
+  type RaxStorageHomeLayout,
+  type RaxStorageInitDirectory,
+  type RaxStorageInitPlan,
+  type RaxStorageInitResult,
+  type RaxStorageLayout,
+  type RaxStorageLayoutRefs,
+  type RaxStorageWorkspaceLayout,
+  type RaxWorkspaceResolution,
+  type StoragePlaneRuntime,
+  type StoragePlaneRuntimeInput,
+  type StoragePlaneRuntimeResult,
+} from "./agent_runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 
 export {
   PraxisRuntimeKernel,

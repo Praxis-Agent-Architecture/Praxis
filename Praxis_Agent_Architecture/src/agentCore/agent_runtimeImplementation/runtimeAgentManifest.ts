@@ -193,8 +193,15 @@ export type MemorySpec = {
 };
 
 export type StorageSpec = {
-  kind?: "memory" | "sqlite" | (string & {});
+  kind?: "memory" | "sqlite" | "rax-workspace" | (string & {});
   path?: string;
+  homeRef?: string;
+  workspaceRef?: string;
+  sessionStoreRef?: string;
+  artifactRootRef?: string;
+  cacheRootRef?: string;
+  sandboxRootRef?: string;
+  init?: "manual" | "on-run" | "never";
   metadata?: Readonly<Record<string, unknown>>;
 };
 
@@ -273,6 +280,7 @@ export type SandboxSpec = {
   filesystem: SandboxFilesystemPolicy;
   network: SandboxNetworkPolicy;
   shell: SandboxShellPolicy;
+  scratchRoot?: string;
   resourceLimits: SandboxResourceLimits;
   reusableProfileRef?: string;
   metadata?: Readonly<Record<string, unknown>>;
@@ -437,6 +445,7 @@ export abstract class PraxisAgent {
   abstract model: ModelSpec;
   abstract harness: HarnessSpec;
   modelFleet?: ModelFleetSpec;
+  storage?: StorageSpec;
   promptPack?: PromptPackSpec | PromptPack;
   mainLoop?: MainLoopSpec;
   sandbox?: SandboxSpec;
@@ -449,6 +458,7 @@ export abstract class PraxisAgent {
 
 export abstract class PraxisAgentArchetype extends PraxisAgent {
   declare modelFleet?: ModelFleetSpec;
+  declare storage?: StorageSpec;
   declare promptPack?: PromptPackSpec | PromptPack;
   declare mainLoop?: MainLoopSpec;
   declare sandbox?: SandboxSpec;
@@ -488,6 +498,7 @@ export type AgentManifest = {
     metadata: Readonly<Record<string, unknown>>;
   };
   mainLoop: MainLoopSpec;
+  storage: StorageSpec;
   sandbox: SandboxSpec;
   toolPolicy: BaseToolPolicyMatrixSpec;
   session: SessionSpec;
@@ -588,6 +599,8 @@ export type AgentManifestInspection = {
     persistence: SessionSpec["persistence"];
     resume: SessionSpec["resume"];
     thread: SessionSpec["thread"];
+    storageKind: string;
+    sessionStoreRef?: string;
     exposedState: readonly string[];
     controls: readonly string[];
   };
@@ -707,6 +720,44 @@ export function policy(input: PolicySpec = {}): PolicySpec {
   return input;
 }
 
+export const storage = {
+  memory(input: Omit<StorageSpec, "kind"> = {}): StorageSpec {
+    return {
+      kind: "memory",
+      init: input.init ?? "never",
+      metadata: input.metadata,
+    };
+  },
+  sqlite(input: Omit<StorageSpec, "kind"> = {}): StorageSpec {
+    return {
+      kind: "sqlite",
+      path: input.path,
+      homeRef: input.homeRef,
+      workspaceRef: input.workspaceRef,
+      sessionStoreRef: input.sessionStoreRef ?? "session.sqlite.workspace",
+      artifactRootRef: input.artifactRootRef,
+      cacheRootRef: input.cacheRootRef,
+      sandboxRootRef: input.sandboxRootRef,
+      init: input.init ?? "on-run",
+      metadata: input.metadata,
+    };
+  },
+  raxWorkspace(input: Omit<StorageSpec, "kind"> = {}): StorageSpec {
+    return {
+      kind: "rax-workspace",
+      path: input.path,
+      homeRef: input.homeRef ?? "rax.home",
+      workspaceRef: input.workspaceRef ?? "rax.workspace",
+      sessionStoreRef: input.sessionStoreRef ?? "session.sqlite.workspace",
+      artifactRootRef: input.artifactRootRef ?? "artifact.workspace",
+      cacheRootRef: input.cacheRootRef ?? "cache.workspace",
+      sandboxRootRef: input.sandboxRootRef ?? "sandbox.workspace",
+      init: input.init ?? "on-run",
+      metadata: input.metadata,
+    };
+  },
+};
+
 export const loop = Object.assign(
   (input: LoopSpec = { strategy: "tool-calling-v1" }): LoopSpec => input,
   {
@@ -796,6 +847,7 @@ export const sandbox = {
       filesystem: input.filesystem ?? "workspace-only",
       network: input.network ?? "deny-by-default",
       shell: input.shell ?? "approval-for-write",
+      scratchRoot: input.scratchRoot ?? ".rax_workspace/sandbox",
       resourceLimits: input.resourceLimits ?? {},
       reusableProfileRef: input.reusableProfileRef,
       metadata: {
@@ -815,6 +867,7 @@ export const sandbox = {
       filesystem: input.filesystem ?? "workspace-only",
       network: input.network ?? "deny-by-default",
       shell: input.shell ?? "approval-for-write",
+      scratchRoot: input.scratchRoot ?? ".rax_workspace/sandbox/temp",
       resourceLimits: input.resourceLimits ?? {},
       reusableProfileRef: input.reusableProfileRef,
       metadata: input.metadata,
@@ -963,12 +1016,13 @@ export const toolPolicies = {
 };
 
 export function session(input: Partial<SessionSpec> = {}): SessionSpec {
+  const persistence = input.persistence ?? "memory";
   return {
-    persistence: input.persistence ?? "memory",
+    persistence,
     resume: input.resume ?? "manual",
     thread: input.thread ?? "ephemeral",
     logs: input.logs ?? "summary",
-    storeRef: input.storeRef,
+    storeRef: input.storeRef ?? (persistence === "sqlite" ? "session.sqlite.workspace" : undefined),
     metadata: input.metadata,
   };
 }
@@ -1307,6 +1361,7 @@ function normalizeSandbox(input: SandboxSpec | undefined): NormalizeResult<Sandb
       filesystem: spec.filesystem.trim() as SandboxFilesystemPolicy,
       network: spec.network.trim() as SandboxNetworkPolicy,
       shell: spec.shell.trim() as SandboxShellPolicy,
+      scratchRoot: spec.scratchRoot?.trim() || ".rax_workspace/sandbox",
       resourceLimits,
       metadata: spec.metadata ?? {},
     },
@@ -1410,7 +1465,53 @@ function normalizeSession(input: SessionSpec | undefined): NormalizeResult<Sessi
   if (!hasText(spec.persistence) || !hasText(spec.resume) || !hasText(spec.thread) || !hasText(spec.logs)) {
     return normalizedFailure("INVALID_SESSION", "session spec requires persistence, resume, thread, and logs");
   }
-  return { ok: true, value: { ...spec, metadata: spec.metadata ?? {} } };
+  return {
+    ok: true,
+    value: {
+      ...spec,
+      storeRef: spec.storeRef ?? (spec.persistence === "sqlite" ? "session.sqlite.workspace" : undefined),
+      metadata: spec.metadata ?? {},
+    },
+  };
+}
+
+function normalizeStorage(input: StorageSpec | undefined, sessionSpec: SessionSpec): NormalizeResult<StorageSpec> {
+  const spec = input ?? (sessionSpec.persistence === "sqlite" ? storage.raxWorkspace() : storage.memory());
+  if (!hasText(spec.kind)) {
+    return normalizedFailure("INVALID_MANIFEST", "storage spec requires a stable kind");
+  }
+  if (spec.path !== undefined && !hasText(spec.path)) {
+    return normalizedFailure("INVALID_MANIFEST", "storage path must be non-empty when provided");
+  }
+  if (spec.init !== undefined && !["manual", "on-run", "never"].includes(spec.init)) {
+    return normalizedFailure("INVALID_MANIFEST", "storage init policy must be manual, on-run, or never");
+  }
+
+  if ((spec.kind === "sqlite" || spec.kind === "rax-workspace") && sessionSpec.persistence === "sqlite") {
+    return {
+      ok: true,
+      value: {
+        ...spec,
+        homeRef: spec.homeRef ?? "rax.home",
+        workspaceRef: spec.workspaceRef ?? "rax.workspace",
+        sessionStoreRef: spec.sessionStoreRef ?? sessionSpec.storeRef ?? "session.sqlite.workspace",
+        artifactRootRef: spec.artifactRootRef ?? "artifact.workspace",
+        cacheRootRef: spec.cacheRootRef ?? "cache.workspace",
+        sandboxRootRef: spec.sandboxRootRef ?? "sandbox.workspace",
+        init: spec.init ?? "on-run",
+        metadata: spec.metadata ?? {},
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      ...spec,
+      init: spec.init ?? (spec.kind === "memory" ? "never" : "manual"),
+      metadata: spec.metadata ?? {},
+    },
+  };
 }
 
 function normalizeStatePlane(input: StatePlaneSpec | undefined): NormalizeResult<StatePlaneSpec> {
@@ -1429,6 +1530,7 @@ function normalizeHarness(
     modelFleet: ModelFleetSpec;
     promptPack: AgentManifest["promptPack"];
     mainLoop: MainLoopSpec;
+    storage: StorageSpec;
     sandbox: SandboxSpec;
     toolPolicy: BaseToolPolicyMatrixSpec;
     session: SessionSpec;
@@ -1441,7 +1543,7 @@ function normalizeHarness(
   return {
     context: input.context ?? {},
     memory: input.memory ?? { mode: "session" },
-    storage: input.storage ?? { kind: "memory" },
+    storage: authoring.storage,
     promptPack: {
       promptPackId: authoring.promptPack.promptPackId,
       base: authoring.promptPack.base,
@@ -1577,6 +1679,11 @@ export function compileAgent<TAgent extends PraxisAgent>(
     return failure(sessionSpec.code, sessionSpec.message, "agent-object");
   }
 
+  const storageSpec = normalizeStorage(agent.storage ?? agent.harness.storage, sessionSpec.value);
+  if (!storageSpec.ok) {
+    return failure(storageSpec.code, storageSpec.message, "agent-object");
+  }
+
   const statePlaneSpec = normalizeStatePlane(agent.statePlane ?? agent.harness.statePlane);
   if (!statePlaneSpec.ok) {
     return failure(statePlaneSpec.code, statePlaneSpec.message, "agent-object");
@@ -1586,6 +1693,7 @@ export function compileAgent<TAgent extends PraxisAgent>(
     modelFleet: modelFleetSpec.value,
     promptPack: promptPackSpec.value,
     mainLoop: mainLoopSpec.value,
+    storage: storageSpec.value,
     sandbox: sandboxSpec.value,
     toolPolicy: toolPolicySpec.value,
     session: sessionSpec.value,
@@ -1610,6 +1718,7 @@ export function compileAgent<TAgent extends PraxisAgent>(
     modelFleet: authoring.modelFleet,
     promptPack: authoring.promptPack,
     mainLoop: authoring.mainLoop,
+    storage: authoring.storage,
     sandbox: authoring.sandbox,
     toolPolicy: authoring.toolPolicy,
     session: authoring.session,
@@ -1707,6 +1816,8 @@ export function validateAgentManifest(input: unknown): AgentManifestValidationRe
   if (
     manifest.harness?.promptPack?.promptPackId !== manifest.promptPack?.promptPackId ||
     manifest.harness?.mainLoop?.strategy !== manifest.mainLoop?.strategy ||
+    manifest.harness?.storage?.kind !== manifest.storage?.kind ||
+    manifest.harness?.storage?.sessionStoreRef !== manifest.storage?.sessionStoreRef ||
     manifest.harness?.sandbox?.sandboxId !== manifest.sandbox?.sandboxId ||
     manifest.harness?.toolPolicy?.matrixId !== manifest.toolPolicy?.matrixId ||
     manifest.harness?.frameworkCore?.promptPack?.promptPackId !== manifest.frameworkCore.promptPack.promptPackId
@@ -1755,6 +1866,8 @@ export function inspectAgentManifest(manifest: AgentManifest): AgentManifestInsp
       persistence: manifest.session.persistence,
       resume: manifest.session.resume,
       thread: manifest.session.thread,
+      storageKind: manifest.storage.kind ?? "unknown",
+      sessionStoreRef: manifest.storage.sessionStoreRef ?? manifest.session.storeRef,
       exposedState: manifest.statePlane.expose,
       controls: manifest.statePlane.control,
     },

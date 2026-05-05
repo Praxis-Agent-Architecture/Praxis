@@ -86,6 +86,10 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
   assert.deepEqual(result.report.mainLoopTrace.actionPrimitives, ["handoffPromptPack"]);
   assert.deepEqual(result.report.toolReadiness.missing, ["shell.commandExecution"]);
   assert.deepEqual(result.report.dependencyGraph.missing, ["ripgrep"]);
+  assert.match(result.report.storage.homeRoot, /\/\.rax$/);
+  assert.match(result.report.storage.workspaceRoot, /\/\.rax_workspace$/);
+  assert.equal(result.report.storage.writesSecrets, false);
+  assert.equal(result.report.storage.initPlanDirectoryCount > 0, true);
   assert.equal(result.report.selfRepair?.unsafeSideEffects, false);
 });
 

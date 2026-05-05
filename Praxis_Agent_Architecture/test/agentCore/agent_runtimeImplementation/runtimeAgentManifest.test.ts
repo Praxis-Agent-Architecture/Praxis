@@ -22,6 +22,7 @@ import {
   sandbox,
   session,
   statePlane,
+  storage as storageHelpers,
   tool,
   toolPolicies,
   tools,
@@ -111,6 +112,7 @@ class CodingAgentArchetype extends PraxisAgentArchetype {
     logs: "full",
     storeRef: "session.sqlite.default",
   });
+  storage = storageHelpers.raxWorkspace({ path: ".custom_rax_workspace" });
   statePlane = statePlane({
     expose: ["phase", "lastAction", "toolCalls", "errors"],
     control: ["pause", "resume", "interrupt", "rollback"],
@@ -170,6 +172,30 @@ test("compileAgent supports configured instances without treating constructor as
   assert.equal(result.manifest.model.endpointShape, "responses");
 });
 
+test("session sqlite defaults to rax workspace storage refs", () => {
+  class SqliteAgent extends PraxisAgent {
+    identity = "agent.sqlite-defaults";
+    model = model("gpt-5.4");
+    session = session({ persistence: "sqlite" });
+    harness = harness({
+      loop: loop({ strategy: "single" }),
+    });
+  }
+
+  const result = compileAgent(SqliteAgent, {
+    compiledAt: "2026-05-05T00:00:00.000Z",
+    manifestId: "manifest.sqlite-defaults",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.manifest.session.storeRef, "session.sqlite.workspace");
+  assert.equal(result.manifest.storage.kind, "rax-workspace");
+  assert.equal(result.manifest.storage.init, "on-run");
+  assert.equal(result.manifest.harness.storage.workspaceRef, "rax.workspace");
+  assert.equal(result.manifest.harness.storage.sessionStoreRef, "session.sqlite.workspace");
+});
+
 test("compileAgent compiles Agent Archetype authoring specs into stable Manifest fields", () => {
   const result = compileAgent(CodingAgentArchetype, {
     compiledAt: "2026-05-04T00:00:00.000Z",
@@ -196,6 +222,11 @@ test("compileAgent compiles Agent Archetype authoring specs into stable Manifest
   assert.equal(result.manifest.toolPolicy.profile, "standard");
   assert.equal(result.manifest.toolPolicy.actionRules.find((rule) => rule.action === "dangerous")?.decision, "approval");
   assert.equal(result.manifest.session.persistence, "sqlite");
+  assert.equal(result.manifest.storage.kind, "rax-workspace");
+  assert.equal(result.manifest.storage.path, ".custom_rax_workspace");
+  assert.equal(result.manifest.storage.sessionStoreRef, "session.sqlite.workspace");
+  assert.equal(result.manifest.harness.storage.kind, result.manifest.storage.kind);
+  assert.equal(result.manifest.harness.storage.sessionStoreRef, result.manifest.storage.sessionStoreRef);
   assert.deepEqual(result.manifest.statePlane.control, ["pause", "resume", "interrupt", "rollback"]);
   assert.equal(result.manifest.harness.modelFleet.endpoints.batch?.endpoint, "/v1/batches");
   assert.equal(result.manifest.harness.promptPack.promptPackId, "prompt.coding");

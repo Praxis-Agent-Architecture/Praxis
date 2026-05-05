@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -15,6 +16,7 @@ import {
   loop,
   model,
   policy,
+  session,
   tool,
   toolPolicies,
   tools,
@@ -81,6 +83,53 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   assert.equal(result.toolCalls.length, 0);
   assert.equal(result.state.session?.status, "completed");
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest uses .rax_workspace SQLite storage by default", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-storage-"));
+
+  class SqliteAgent extends PraxisAgent {
+    identity = "agent.kernel-sqlite";
+    model = model("gpt-5.4", { carrierId: "carrier.kernel-sqlite" });
+    session = session({ persistence: "sqlite", resume: "auto", thread: "durable", logs: "full" });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(SqliteAgent, {
+    compiledAt: "2026-05-05T00:00:00.000Z",
+    manifestId: "manifest.kernel-sqlite",
+  });
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-sqlite" }).runManifest(
+    compiled.manifest,
+    "say hello",
+    {
+      sessionId: "session-kernel-sqlite",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      providerCaller: async () => ({ output_text: "hello from sqlite-backed run" }),
+      storage: {
+        cwd: workspace,
+        homeDir: path.join(workspace, "home"),
+        initMode: "on-run",
+      },
+      now: () => "2026-05-05T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const sqlitePath = path.join(workspace, ".rax_workspace", "sessions", "praxis.sqlite");
+  const storageMetadata = result.state.session?.metadata.storage as Record<string, unknown> | undefined;
+  assert.equal(existsSync(sqlitePath), true);
+  assert.equal(storageMetadata?.workspaceRef, "rax.workspace");
+  assert.equal(JSON.stringify(result.state.session?.metadata).includes("codex-access-token-secret"), false);
 });
 
 test("PraxisRuntimeKernel.run extracts final text from real codex responses SSE shape", async () => {

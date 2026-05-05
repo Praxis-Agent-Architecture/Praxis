@@ -9,6 +9,8 @@
  */
 
 import type { AuthEnvelope } from "../agent_modelAdapter/authProfileLayer/authEnvelope.js";
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import type { OpenAIV1ResponsesProviderCaller } from "../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { BaseToolExecutorPort } from "../agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { receiveTextInput } from "../agent_executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
@@ -64,6 +66,7 @@ import {
 import type { ToolDependencyProbe } from "../agent_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
 import {
   createInMemorySessionStateEventStore,
+  createSqliteSessionStateEventStore,
   type RuntimeEventRecord,
   type RuntimeInvocationRecord,
   type RuntimeApprovalRecord,
@@ -73,6 +76,12 @@ import {
   type RuntimeSessionStateEventStore,
   type RuntimeStateRecord,
 } from "./runtimeSessionStateEventStore.js";
+import {
+  applyRaxStorageInitPlan,
+  createStoragePlaneRuntime,
+  type RaxStorageInitMode,
+  type StoragePlaneRuntime,
+} from "./runtime.storagePlane/storagePlaneRuntime.js";
 
 export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
@@ -83,6 +92,7 @@ export type PraxisRuntimeKernelErrorCode =
   | "TOOL_INVOCATION_FAILED"
   | "PROCEDURE_INVOCATION_FAILED"
   | "APPROVAL_REQUIRED"
+  | "STORAGE_RESOLUTION_FAILED"
   | "TEXT_OUTPUT_REJECTED";
 
 export type PraxisRuntimeKernelError = {
@@ -112,6 +122,14 @@ export type PraxisRuntimeKernelOptions = {
     env?: Readonly<Record<string, string | undefined>>;
     homeDir?: string;
     timeoutMs?: number;
+  };
+  storage?: {
+    cwd?: string;
+    raxHome?: string;
+    workspaceRoot?: string;
+    homeDir?: string;
+    env?: Readonly<Record<string, string | undefined>>;
+    initMode?: RaxStorageInitMode;
   };
   now?: () => string;
 };
@@ -222,6 +240,24 @@ function state(
   metadata: Readonly<Record<string, unknown>> = {},
 ): RuntimeStateRecord {
   return { sessionId, stateId, phase, createdAt, metadata };
+}
+
+function storageSessionMetadata(storageRuntime: StoragePlaneRuntime, sessionSqlitePath: string): Readonly<Record<string, unknown>> {
+  return {
+    kind: storageRuntime.kind,
+    protocolVersion: storageRuntime.layout.protocolVersion,
+    initMode: storageRuntime.initMode,
+    homeRef: storageRuntime.layout.refs.homeRef,
+    workspaceRef: storageRuntime.layout.refs.workspaceRef,
+    sessionStoreRef: storageRuntime.layout.refs.sessionStoreRef,
+    artifactRootRef: storageRuntime.layout.refs.artifactRootRef,
+    cacheRootRef: storageRuntime.layout.refs.cacheRootRef,
+    sandboxRootRef: storageRuntime.layout.refs.sandboxRootRef,
+    homeRoot: storageRuntime.layout.home.root,
+    workspaceRoot: storageRuntime.layout.workspace.root,
+    sessionSqlitePath,
+    writesSecrets: storageRuntime.initPlan.writesSecrets,
+  };
 }
 
 function invocation(
@@ -1202,10 +1238,12 @@ async function executeEphemeralProcedure(input: {
 export class PraxisRuntimeKernel {
   readonly runtimeId?: string;
   readonly store: RuntimeSessionStateEventStore;
+  private readonly storeProvided: boolean;
 
   constructor(options: { runtimeId?: string; store?: RuntimeSessionStateEventStore } = {}) {
     this.runtimeId = options.runtimeId;
     this.store = options.store ?? createInMemorySessionStateEventStore();
+    this.storeProvided = options.store !== undefined;
   }
 
   async run(agent: PraxisAgentInput<PraxisAgent>, task: string, options: PraxisRuntimeKernelOptions = {}): Promise<AgentRunResult> {
@@ -1224,8 +1262,50 @@ export class PraxisRuntimeKernel {
     const runtimeId = options.runtimeId ?? this.runtimeId ?? runtimeIdFor(manifest);
     const sessionId = options.sessionId ?? sessionIdFor(runtimeId, manifest);
     const now = options.now ?? defaultNow;
-    const store = options.store ?? this.store;
     const events: string[] = [];
+    const storageRuntimeResult = createStoragePlaneRuntime({
+      cwd: options.storage?.cwd,
+      raxHome: options.storage?.raxHome,
+      workspaceRoot: options.storage?.workspaceRoot ?? (manifest.storage.kind === "rax-workspace" ? manifest.storage.path : undefined),
+      homeDir: options.storage?.homeDir,
+      env: options.storage?.env,
+      agentId: manifest.identity.id,
+      initMode: options.storage?.initMode ?? manifest.storage.init,
+    });
+    if (!storageRuntimeResult.ok) {
+      const error = kernelError("STORAGE_RESOLUTION_FAILED", storageRuntimeResult.error.message, "runtime-state");
+      return {
+        ok: false,
+        runtimeId,
+        sessionId,
+        manifest,
+        error,
+        mainLoopSteps: [],
+        events: storageRuntimeResult.events,
+        state: { states: [], events: [], invocations: [], mainLoopSteps: [], procedures: [], approvals: [], errors: [] },
+      };
+    }
+    const storageRuntime = storageRuntimeResult.runtime;
+    events.push(...storageRuntimeResult.events);
+
+    const shouldUseWorkspaceSqlite = options.store === undefined &&
+      !this.storeProvided &&
+      manifest.session.persistence === "sqlite" &&
+      manifest.storage.kind !== "memory";
+    if (shouldUseWorkspaceSqlite && storageRuntime.initMode === "on-run") {
+      const init = await applyRaxStorageInitPlan(storageRuntime.initPlan);
+      events.push(...init.events);
+    }
+    const sqliteStorePath = manifest.storage.kind === "sqlite" && manifest.storage.path !== undefined
+      ? path.resolve(manifest.storage.path)
+      : storageRuntime.layout.workspace.sessionSqlitePath;
+    if (shouldUseWorkspaceSqlite && storageRuntime.initMode === "on-run" && manifest.storage.kind === "sqlite" && manifest.storage.path !== undefined) {
+      await mkdir(path.dirname(sqliteStorePath), { recursive: true });
+      events.push("runtime.storagePlane.sqlitePath.parentReady");
+    }
+    const store = shouldUseWorkspaceSqlite
+      ? await createSqliteSessionStateEventStore(sqliteStorePath)
+      : options.store ?? this.store;
     const modelCalls: AgentModelCallRecord[] = [];
     const toolCalls: AgentToolCallRecord[] = [];
     const mainLoopSteps: MainLoopStepRecord[] = [];
@@ -1239,11 +1319,15 @@ export class PraxisRuntimeKernel {
       manifestHash: manifest.manifestHash,
       createdAt,
       status: "running",
-      metadata: { manifestId: manifest.manifestId },
+      metadata: {
+        manifestId: manifest.manifestId,
+        storage: storageSessionMetadata(storageRuntime, sqliteStorePath),
+      },
     });
     await store.appendState(state(sessionId, "state:received", "received", now()));
     await store.appendEvent(event(sessionId, "event:session.created", "runtime.session.created", now(), {
       agentId: manifest.identity.id,
+      storageWorkspaceRef: storageRuntime.layout.refs.workspaceRef,
     }));
 
     const input = receiveTextInput({

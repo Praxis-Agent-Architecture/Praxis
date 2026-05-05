@@ -12,6 +12,7 @@ import {
   type BaseToolRealityStages,
 } from "../runtime.execEngine/baseToolRealityLedger.js";
 import { runSelfRepairRuntime, type SelfRepairRuntimeOutcome } from "../runtime.selfRepair/selfRepairRuntime.js";
+import { createStoragePlaneRuntime, type StoragePlaneRuntime } from "../runtime.storagePlane/storagePlaneRuntime.js";
 import { inspectAgentManifest, type AgentManifest, type AgentManifestInspection } from "../runtimeAgentManifest.js";
 import { checkRuntimeReadiness, type RuntimeReadinessSignal, type RuntimeReadinessSnapshot } from "./runtimeReadinessCheck.js";
 
@@ -22,7 +23,7 @@ export type FrameworkInspectionFindingSeverity = "info" | "warning" | "error";
 export type FrameworkInspectionFinding = {
   findingId: string;
   severity: FrameworkInspectionFindingSeverity;
-  section: "manifest" | "policy" | "tools" | "provider" | "promptPack" | "mainLoop" | "dependency" | "selfRepair";
+  section: "manifest" | "policy" | "tools" | "provider" | "promptPack" | "mainLoop" | "dependency" | "storage" | "selfRepair";
   message: string;
   remediation?: string;
 };
@@ -72,6 +73,13 @@ export type FrameworkInspectionReportRequest = {
   runtimeId?: string;
   manifest?: AgentManifest;
   runtimeReady?: boolean;
+  storage?: {
+    cwd?: string;
+    raxHome?: string;
+    workspaceRoot?: string;
+    homeDir?: string;
+    env?: Readonly<Record<string, string | undefined>>;
+  };
   tools?: readonly FrameworkToolReadinessInput[];
   providers?: readonly FrameworkProviderReadinessInput[];
   dependencies?: readonly FrameworkDependencyInput[];
@@ -137,6 +145,18 @@ export type FrameworkInspectionReport = {
     total: number;
     missing: readonly string[];
     owners: Readonly<Record<string, number>>;
+  };
+  storage: {
+    homeRoot: string;
+    workspaceRoot: string;
+    sessionSqlitePath: string;
+    artifactRoot: string;
+    cacheRoot: string;
+    sandboxRoot: string;
+    initialized: boolean;
+    missingDirectories: readonly string[];
+    initPlanDirectoryCount: number;
+    writesSecrets: false;
   };
   selfRepair?: {
     status: SelfRepairRuntimeOutcome["status"];
@@ -266,6 +286,25 @@ function normalizePromptPreview(
   };
 }
 
+function storageSummary(storageRuntime: StoragePlaneRuntime): FrameworkInspectionReport["storage"] {
+  const missingDirectories = storageRuntime.initPlan.directories
+    .filter((directory) => !directory.existing)
+    .map((directory) => directory.path);
+
+  return {
+    homeRoot: storageRuntime.layout.home.root,
+    workspaceRoot: storageRuntime.layout.workspace.root,
+    sessionSqlitePath: storageRuntime.layout.workspace.sessionSqlitePath,
+    artifactRoot: storageRuntime.layout.workspace.artifacts,
+    cacheRoot: storageRuntime.layout.workspace.cache,
+    sandboxRoot: storageRuntime.layout.workspace.sandbox,
+    initialized: missingDirectories.length === 0,
+    missingDirectories,
+    initPlanDirectoryCount: storageRuntime.initPlan.directories.length,
+    writesSecrets: false,
+  };
+}
+
 function emptyToolDeveloperReadinessCounts(): Record<BaseToolDeveloperReadiness, number> {
   return {
     ready: 0,
@@ -343,6 +382,18 @@ export function createFrameworkInspectionReport(
   }
 
   const runtimeId = (request.runtimeId ?? "").trim();
+  const storageRuntime = createStoragePlaneRuntime({
+    cwd: request.storage?.cwd,
+    raxHome: request.storage?.raxHome,
+    workspaceRoot: request.storage?.workspaceRoot ?? (request.manifest.storage.kind === "rax-workspace" ? request.manifest.storage.path : undefined),
+    homeDir: request.storage?.homeDir,
+    env: request.storage?.env,
+    agentId: request.manifest.identity.id,
+    initMode: request.manifest.storage.init,
+  });
+  if (!storageRuntime.ok) {
+    return failure("READINESS_FAILED", storageRuntime.error.message, "readiness");
+  }
   const requestedTools = request.tools ?? toolsFromManifest(request.manifest);
   const toolSignals = requestedTools.map((tool): RuntimeReadinessSignal => ({
     signalId: `tool:${tool.family ?? "unknown"}/${tool.group ?? "unknown"}/${tool.toolId}`,
@@ -362,6 +413,23 @@ export function createFrameworkInspectionReport(
     required: dependency.required,
     reason: dependency.reason,
   }));
+  const missingStorageDirectories = storageRuntime.runtime.initPlan.directories.filter((directory) => !directory.existing);
+  const storageSignals = [
+    {
+      signalId: "storage:rax.home",
+      ready: true,
+      required: true,
+      reason: undefined,
+    },
+    {
+      signalId: "storage:rax.workspace",
+      ready: missingStorageDirectories.length === 0,
+      required: false,
+      reason: missingStorageDirectories.length === 0
+        ? undefined
+        : "Praxis workspace storage is not initialized; use the init plan before durable runs.",
+    },
+  ];
 
   const readiness = checkRuntimeReadiness({
     runtimeId,
@@ -370,6 +438,7 @@ export function createFrameworkInspectionReport(
       { signalId: "promptPack", ready: true, required: true },
       { signalId: "mainLoop", ready: true, required: true },
       { signalId: "sessionStateEvent", ready: true, required: true },
+      ...storageSignals,
       ...providerSignals,
       ...toolSignals,
     ]),
@@ -406,6 +475,13 @@ export function createFrameworkInspectionReport(
   }
 
   const findings: FrameworkInspectionFinding[] = [
+    ...(missingStorageDirectories.length > 0 ? [{
+      findingId: "storage.raxWorkspace.not-initialized",
+      severity: "info" as const,
+      section: "storage" as const,
+      message: "Praxis workspace storage is not initialized yet; an init plan is available and writes no secrets.",
+      remediation: "Run storage init from runtime or rax before durable SQLite sessions.",
+    }] : []),
     ...toolMissing.map((tool) => readinessFinding("tools", tool.toolId, tool.reason, tool.required !== false)),
     ...providerMissing.map((provider) =>
       readinessFinding("provider", provider.providerId, provider.reason, provider.required !== false),
@@ -465,6 +541,7 @@ export function createFrameworkInspectionReport(
         missing: dependencySummary.missing,
         owners: dependencyOwners,
       },
+      storage: storageSummary(storageRuntime.runtime),
       selfRepair: selfRepair?.outcome === undefined
         ? undefined
         : {
