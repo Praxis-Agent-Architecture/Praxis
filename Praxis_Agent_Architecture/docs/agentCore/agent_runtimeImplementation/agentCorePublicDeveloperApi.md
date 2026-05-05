@@ -2,6 +2,8 @@
 
 > 对应源码：`Praxis_Agent_Architecture/src/agentCore/index.ts`
 
+> 完整开发者手册：`Praxis_Agent_Architecture/docs/agentCore/agent_runtimeImplementation/agentCoreFrameworkDeveloperGuide.md`
+
 ## 1. Public Boundary
 
 `src/agentCore/index.ts` 是普通开发者的 framework 入口。开发者应该从这里拿到 OAO authoring、manifest compile 和 runtime kernel，而不是直接 import `runtime.*` 深层实现文件。

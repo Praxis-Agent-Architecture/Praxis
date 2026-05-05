@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -144,4 +145,16 @@ test("public agentCore API lets developers compile minimal and mature agents wit
     agentId: mature.manifest.identity.id,
   });
   assert.equal(storageRuntime.ok, true);
+});
+
+test("agentCore developer guide documents the public framework path", async () => {
+  const guide = await readFile("docs/agentCore/agent_runtimeImplementation/agentCoreFrameworkDeveloperGuide.md", "utf8");
+
+  assert.match(guide, /PraxisAgent class or instance/);
+  assert.match(guide, /compileAgent\(\.\.\.\)/);
+  assert.match(guide, /AgentManifest/);
+  assert.match(guide, /PraxisRuntimeKernel\.runManifest/);
+  assert.match(guide, /src\/agentCore\/index\.ts/);
+  assert.match(guide, /storageHelpers\.raxWorkspace\(\)/);
+  assert.match(guide, /family \/ group \/ toolId/);
 });
