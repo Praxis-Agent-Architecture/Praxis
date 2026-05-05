@@ -31,6 +31,7 @@ export {
 
 export * from "./rax/index.js";
 export * from "./agent_core/index.js";
+export * from "./agentCore/index.js";
 
 export const praxisBootstrapStatus = {
   branch: "reboot/blank-slate",

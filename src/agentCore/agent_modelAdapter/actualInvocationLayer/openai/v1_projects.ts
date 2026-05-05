@@ -1,0 +1,398 @@
+/*
+ * 文件定位：Agent 模型适配层 / 真实上游调用层 / OpenAI 官方调用面。
+ * 核心目的：承接 OpenAI 上游的 v1 projects 真实调用面。
+ * 能力要求1：需要把对应 endpoint 的请求参数、响应形态、错误形态和能力信号整理成可适配对象。
+ * 能力要求2：鉴权/API 登录后续会接入，但这里要为“上游能力变得实际可用”预留位置。
+ * 能力要求3：不把该 provider 的字段形状提升为 Praxis 统一语义，只作为 actualInvocationLayer 的现实入口。
+ * 边界：只处理上游实际调用面，不在这里定义 agentCore 使用 AI 的统一方式。
+ * 对接：需要被 runtime.modelAdapter 拉起，并和 provider/carrier、PromptPack lowering、能力抽象链路接通。
+ * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+ */
+
+export const OPENAI_V1_PROJECTS_ENDPOINT = "/v1/projects" as const;
+export const DEFAULT_OPENAI_V1_PROJECTS_BASE_URL = "https://api.openai.com" as const;
+
+export type OpenAIV1ProjectsMethod = "GET" | "POST" | "PATCH" | "DELETE";
+
+export type OpenAIV1ProjectsBoundary =
+  | "input"
+  | "contract"
+  | "governance"
+  | "auth"
+  | "scope"
+  | "provider"
+  | "response";
+
+export type OpenAIV1ProjectsErrorCode =
+  | "MISSING_OPERATION"
+  | "MISSING_RUNTIME_ID"
+  | "INVALID_QUERY"
+  | "CONTRACT_REJECTED"
+  | "GOVERNANCE_REJECTED"
+  | "SCOPE_DENIED"
+  | "AUTH_REJECTED"
+  | "REAL_PROVIDER_CALL_NOT_ALLOWED"
+  | "PROVIDER_AUTH_FAILED"
+  | "PROVIDER_RATE_LIMITED"
+  | "PROVIDER_TIMEOUT"
+  | "PROVIDER_UNAVAILABLE"
+  | "RESPONSE_FORMAT_DRIFT"
+  | "PROVIDER_REJECTED";
+
+export type OpenAIV1ProjectsGate = {
+  accepted: boolean;
+  reason?: string;
+};
+
+export type OpenAIV1ProjectsRuntimeContext = {
+  runtimeId?: string;
+  invocationId?: string;
+  traceId?: string;
+  callerId?: string;
+};
+
+export type OpenAIV1ProjectsAuthEnvelope = {
+  kind: "bearer" | "api-key" | "none";
+  present: boolean;
+  redactedToken?: string;
+  organizationId?: string;
+};
+
+export type OpenAIV1ProjectsRequestEnvelope = {
+  provider: "openai";
+  apiVersion: "v1";
+  endpoint: typeof OPENAI_V1_PROJECTS_ENDPOINT;
+  operation: string;
+  method: OpenAIV1ProjectsMethod;
+  url: string;
+  pathSuffix: string;
+  query: Readonly<Record<string, string>>;
+  headers: Readonly<Record<string, string>>;
+  body?: unknown;
+  runtime: Required<OpenAIV1ProjectsRuntimeContext>;
+  requestedScopes: readonly string[];
+  grantedScopes: readonly string[];
+  dryRun: true;
+  providerCallPlanned: false;
+  unsafeSideEffects: false;
+  providerFieldsOpaque: true;
+};
+
+export type OpenAIV1ProjectsInvocationRequest = {
+  operation?: string;
+  method?: OpenAIV1ProjectsMethod;
+  pathSuffix?: string;
+  query?: Readonly<Record<string, string | number | boolean | undefined>>;
+  headers?: Readonly<Record<string, string | undefined>>;
+  body?: unknown;
+  baseUrl?: string;
+  auth?: OpenAIV1ProjectsAuthEnvelope;
+  runtime?: OpenAIV1ProjectsRuntimeContext;
+  requiredScopes?: readonly string[];
+  allowedScopes?: readonly string[];
+  contract?: OpenAIV1ProjectsGate;
+  governance?: OpenAIV1ProjectsGate;
+  dryRun?: boolean;
+  mockResponse?: unknown;
+  expectResponseObject?: boolean;
+  providerError?: unknown;
+};
+
+export type OpenAIV1ProjectsResponseEnvelope = {
+  provider: "openai";
+  endpoint: typeof OPENAI_V1_PROJECTS_ENDPOINT;
+  mode: "dry-run" | "mock";
+  raw: unknown;
+  providerFieldsOpaque: true;
+};
+
+export type OpenAIV1ProjectsCapabilitySignal = {
+  provider: "openai";
+  layer: "actualInvocationLayer";
+  endpoint: typeof OPENAI_V1_PROJECTS_ENDPOINT;
+  operation: string;
+  rawShape: "projects-list" | "project-object" | "mock" | "dry-run";
+  providerRawShapePromoted: false;
+};
+
+export type OpenAIV1ProjectsError = {
+  code: OpenAIV1ProjectsErrorCode;
+  message: string;
+  boundary: OpenAIV1ProjectsBoundary;
+  retryable: boolean;
+  safeForRuntimeInspection: true;
+  providerRawDetailExposed: false;
+};
+
+export type OpenAIV1ProjectsResult =
+  | {
+      ok: true;
+      request: OpenAIV1ProjectsRequestEnvelope;
+      response: OpenAIV1ProjectsResponseEnvelope;
+      capability: OpenAIV1ProjectsCapabilitySignal;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: OpenAIV1ProjectsError;
+      request?: OpenAIV1ProjectsRequestEnvelope;
+      events: readonly string[];
+    };
+
+export const openAIV1ProjectsDescriptor = {
+  provider: "openai",
+  layer: "actualInvocationLayer",
+  endpoint: OPENAI_V1_PROJECTS_ENDPOINT,
+  methods: ["GET", "POST", "PATCH", "DELETE"],
+  requestShape: "query-or-json",
+  providerRawShapePromoted: false,
+  unsafeSideEffects: false,
+} as const;
+
+function hasText(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cleanScopes(scopes: readonly string[] | undefined): readonly string[] {
+  return [...new Set((scopes ?? []).map((scope) => scope.trim()).filter(Boolean))];
+}
+
+function cleanQuery(query: OpenAIV1ProjectsInvocationRequest["query"]): Readonly<Record<string, string>> {
+  const cleaned: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(query ?? {})) {
+    const key = rawKey.trim();
+    if (key.length === 0 || rawValue === undefined) {
+      continue;
+    }
+    cleaned[key] = String(rawValue);
+  }
+  return cleaned;
+}
+
+function cleanHeaders(headers: OpenAIV1ProjectsInvocationRequest["headers"]): Readonly<Record<string, string>> {
+  const cleaned: Record<string, string> = {};
+  for (const [rawKey, rawValue] of Object.entries(headers ?? {})) {
+    const key = rawKey.trim().toLowerCase();
+    const value = rawValue?.trim();
+    if (key.length > 0 && value !== undefined && value.length > 0) {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned;
+}
+
+function normalizeBaseUrl(baseUrl: string | undefined): string {
+  return hasText(baseUrl) ? baseUrl.trim().replace(/\/+$/, "") : DEFAULT_OPENAI_V1_PROJECTS_BASE_URL;
+}
+
+function cleanPathSuffix(pathSuffix: string | undefined): string {
+  return pathSuffix?.trim().replace(/^\/+/, "").replace(/\/+$/, "") ?? "";
+}
+
+function buildUrl(baseUrl: string | undefined, pathSuffix: string | undefined): string {
+  const suffix = cleanPathSuffix(pathSuffix);
+  return suffix
+    ? `${normalizeBaseUrl(baseUrl)}${OPENAI_V1_PROJECTS_ENDPOINT}/${suffix}`
+    : `${normalizeBaseUrl(baseUrl)}${OPENAI_V1_PROJECTS_ENDPOINT}`;
+}
+
+function providerStatus(error: unknown): number | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+  const status = error.status ?? error.statusCode;
+  return typeof status === "number" ? status : undefined;
+}
+
+function providerCode(error: unknown): string {
+  if (!isRecord(error)) {
+    return "";
+  }
+  const code = error.code ?? error.name;
+  return typeof code === "string" ? code.toLowerCase() : "";
+}
+
+function failure(
+  code: OpenAIV1ProjectsErrorCode,
+  message: string,
+  boundary: OpenAIV1ProjectsBoundary,
+  retryable = false,
+  request?: OpenAIV1ProjectsRequestEnvelope,
+): OpenAIV1ProjectsResult {
+  return {
+    ok: false,
+    error: {
+      code,
+      message,
+      boundary,
+      retryable,
+      safeForRuntimeInspection: true,
+      providerRawDetailExposed: false,
+    },
+    request,
+    events: ["agentCore.modelAdapter.openai.v1.projects.rejected"],
+  };
+}
+
+export function classifyOpenAIV1ProjectsProviderError(error: unknown): OpenAIV1ProjectsErrorCode {
+  const status = providerStatus(error);
+  const code = providerCode(error);
+
+  if (status === 401 || status === 403) {
+    return "PROVIDER_AUTH_FAILED";
+  }
+  if (status === 429) {
+    return "PROVIDER_RATE_LIMITED";
+  }
+  if (status === 408 || code.includes("timeout") || code.includes("abort")) {
+    return "PROVIDER_TIMEOUT";
+  }
+  if ((status !== undefined && status >= 500) || status === 404) {
+    return "PROVIDER_UNAVAILABLE";
+  }
+  if (code.includes("format") || code.includes("schema") || code.includes("parse")) {
+    return "RESPONSE_FORMAT_DRIFT";
+  }
+  return "PROVIDER_REJECTED";
+}
+
+function inferRawShape(operation: string, raw: unknown): OpenAIV1ProjectsCapabilitySignal["rawShape"] {
+  if (operation === "list" || (isRecord(raw) && Array.isArray(raw.data))) {
+    return "projects-list";
+  }
+  if (isRecord(raw)) {
+    return "project-object";
+  }
+  return "mock";
+}
+
+export function createOpenAIV1ProjectsInvocation(
+  input: OpenAIV1ProjectsInvocationRequest = {},
+): OpenAIV1ProjectsResult {
+  if (!hasText(input.operation)) {
+    return failure("MISSING_OPERATION", "OpenAI v1 projects invocation requires an explicit operation", "input");
+  }
+
+  const runtime = input.runtime;
+  if (runtime === undefined || !hasText(runtime.runtimeId)) {
+    return failure("MISSING_RUNTIME_ID", "OpenAI v1 projects invocation requires runtime.runtimeId", "input");
+  }
+
+  if (input.query !== undefined && !isRecord(input.query)) {
+    return failure("INVALID_QUERY", "OpenAI v1 projects query must be a plain record", "input");
+  }
+
+  if (input.contract?.accepted === false) {
+    return failure(
+      "CONTRACT_REJECTED",
+      input.contract.reason ?? "OpenAI v1 projects contract rejected the request",
+      "contract",
+    );
+  }
+
+  if (input.governance?.accepted === false) {
+    return failure(
+      "GOVERNANCE_REJECTED",
+      input.governance.reason ?? "OpenAI v1 projects governance rejected the request",
+      "governance",
+    );
+  }
+
+  if (input.auth?.present === false) {
+    return failure("AUTH_REJECTED", "OpenAI v1 projects auth envelope is unavailable", "auth");
+  }
+
+  const requestedScopes = cleanScopes(input.requiredScopes);
+  const allowedScopes = cleanScopes(input.allowedScopes);
+  const deniedScopes =
+    allowedScopes.length === 0 ? [] : requestedScopes.filter((scope) => !allowedScopes.includes(scope));
+  if (deniedScopes.length > 0) {
+    return failure(
+      "SCOPE_DENIED",
+      `OpenAI v1 projects requested scopes outside the allowed boundary: ${deniedScopes.join(", ")}`,
+      "scope",
+    );
+  }
+
+  const operation = input.operation.trim();
+  const request: OpenAIV1ProjectsRequestEnvelope = {
+    provider: "openai",
+    apiVersion: "v1",
+    endpoint: OPENAI_V1_PROJECTS_ENDPOINT,
+    operation,
+    method: input.method ?? "GET",
+    url: buildUrl(input.baseUrl, input.pathSuffix),
+    pathSuffix: cleanPathSuffix(input.pathSuffix),
+    query: cleanQuery(input.query),
+    headers: cleanHeaders(input.headers),
+    body: input.body,
+    runtime: {
+      runtimeId: runtime.runtimeId.trim(),
+      invocationId: runtime.invocationId?.trim() || "",
+      traceId: runtime.traceId?.trim() || "",
+      callerId: runtime.callerId?.trim() || "",
+    },
+    requestedScopes,
+    grantedScopes: requestedScopes,
+    dryRun: true,
+    providerCallPlanned: false,
+    unsafeSideEffects: false,
+    providerFieldsOpaque: true,
+  };
+
+  if (input.dryRun === false) {
+    return failure(
+      "REAL_PROVIDER_CALL_NOT_ALLOWED",
+      "first-round OpenAI v1 projects invocation only builds dry-run or mock envelopes",
+      "governance",
+      false,
+      request,
+    );
+  }
+
+  if (input.providerError !== undefined) {
+    const code = classifyOpenAIV1ProjectsProviderError(input.providerError);
+    return failure(
+      code,
+      `OpenAI v1 projects provider failed with ${code}`,
+      code === "RESPONSE_FORMAT_DRIFT" ? "response" : "provider",
+      code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_TIMEOUT" || code === "PROVIDER_UNAVAILABLE",
+      request,
+    );
+  }
+
+  if (input.expectResponseObject === true && input.mockResponse !== undefined && !isRecord(input.mockResponse)) {
+    return failure(
+      "RESPONSE_FORMAT_DRIFT",
+      "OpenAI v1 projects mock response did not match the expected object envelope",
+      "response",
+      false,
+      request,
+    );
+  }
+
+  return {
+    ok: true,
+    request,
+    response: {
+      provider: "openai",
+      endpoint: OPENAI_V1_PROJECTS_ENDPOINT,
+      mode: input.mockResponse === undefined ? "dry-run" : "mock",
+      raw: input.mockResponse ?? null,
+      providerFieldsOpaque: true,
+    },
+    capability: {
+      provider: "openai",
+      layer: "actualInvocationLayer",
+      endpoint: OPENAI_V1_PROJECTS_ENDPOINT,
+      operation,
+      rawShape: input.mockResponse === undefined ? "dry-run" : inferRawShape(operation, input.mockResponse),
+      providerRawShapePromoted: false,
+    },
+    events: ["agentCore.modelAdapter.openai.v1.projects.dryRun"],
+  };
+}
