@@ -148,7 +148,10 @@ test("public agentCore API lets developers compile minimal and mature agents wit
 });
 
 test("agentCore developer guide documents the public framework path", async () => {
-  const guide = await readFile("docs/agentCore/agent_runtimeImplementation/agentCoreFrameworkDeveloperGuide.md", "utf8");
+  const guide = await readFile(
+    new URL("../../docs/agentCore/agent_runtimeImplementation/agentCoreFrameworkDeveloperGuide.md", import.meta.url),
+    "utf8",
+  );
 
   assert.match(guide, /PraxisAgent class or instance/);
   assert.match(guide, /compileAgent\(\.\.\.\)/);
