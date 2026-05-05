@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.tsbuildinfo
+.rax_workspace/
+~/.cache/
+tasks/runs/
