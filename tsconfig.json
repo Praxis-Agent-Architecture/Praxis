@@ -3,20 +3,14 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "jsx": "react-jsx",
     "lib": ["ES2022"],
-    "rootDir": "src",
-    "outDir": "dist",
+    "types": ["node"],
     "strict": true,
-    "noEmitOnError": true,
+    "noEmit": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "sourceMap": true,
-    "declaration": true,
-    "incremental": true,
-    "tsBuildInfoFile": ".tsbuildinfo"
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist", "node_modules"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
 }

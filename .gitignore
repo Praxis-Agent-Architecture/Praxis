@@ -45,6 +45,10 @@ tmp/
 src/.cmp-worktrees/
 
 # Agent runtime scratch state
+.rax_workspace/
+realtest/
+tasks/runs/
+tasks/tmp/
 .raxode/agents/*.json
 .raxode/rewind/
 .raxode/sessions/
@@ -72,3 +76,7 @@ docs/docs-status-baseline.md
 # Workspace session/agents/AGENTS.md
 .raxode/
 .raxode/AGENTS.md
+
+# Local leftovers after promoting Praxis_Agent_Architecture/ to repository root.
+/Praxis_Agent_Architecture/
+.migration-leftovers/

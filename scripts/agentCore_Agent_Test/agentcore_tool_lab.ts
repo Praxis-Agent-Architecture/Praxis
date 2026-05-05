@@ -2183,7 +2183,7 @@ function inferPathFromUserText(userText: string | undefined): string | undefined
   if (userText === undefined) {
     return undefined;
   }
-  const match = userText.match(/((?:.|\.|src|test|tasks|docs|scripts)[A-Za-z0-9_./~:-]*\.[A-Za-z0-9_-]+)/u);
+  const match = userText.match(/((?:\.|src|test|tasks|docs|scripts)[A-Za-z0-9_./~:-]*\.[A-Za-z0-9_-]+)/u);
   return match?.[1];
 }
 
@@ -4826,7 +4826,7 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
     "LSP 常用映射：文档符号/符号树用 code.lsp_scanDocumentSymbols；工作区符号搜索用 code.lsp_searchWorkspaceSymbols；定义用 code.lsp_locateDefinition；类型定义用 code.lsp_locateTypeDefinition；引用用 code.lsp_traceReferences；实现用 code.lsp_traceImplementations；补全用 code.lsp_completeCode；签名用 code.lsp_assistSignature；诊断用 code.lsp_inspectDiagnostics；格式化预览用 code.lsp_formatDocument 或 code.lsp_formatRange。",
     "调用 code.read 时，如果用户说“前 N 行”“开头 N 行”，必须设置 range: { startLine: 1, endLine: N }；如果说“开头几行”，设置 range: { startLine: 1, endLine: 12 }。",
     "调用 code.scan 时，如果用户说“下面有什么”“有哪些文件/文件夹”“第一层”，必须设置 depth: 1；只有用户明确说递归、展开多层、看结构或 deeper 时才设置更大的 depth。",
-    "调用 code.search_Ripgrep 时必须提供 directoryPath；如果用户没有指定范围，默认用 .。",
+    "调用 code.search_Ripgrep 时必须提供 directoryPath；如果用户没有指定范围，默认用当前 Praxis 仓库根目录。",
     "如果用户说“只看/只列/只在 ts 文件”，code.scan 使用 includeGlobs: [\"*.ts\", \"**/*.ts\"]，code.search_Ripgrep 使用 fileGlob: \"**/*.ts\"；其他后缀同理。",
     "代码探索和 LSP 语义任务禁止改用 shell.commandExecution、shell.scriptExecution、bash、sed、head、find、rg、grep、cat、ls 等 shell 路径。",
     "当用户要创建、覆盖、整体替换、局部修改、删除文件/行或格式化代码时，必须优先并且只使用 code.replaceFile、code.overwrite、code.modify、code.delete、code.format。",
@@ -4842,7 +4842,7 @@ function buildToolAwarePrompt(agent: LabAgent, history: readonly ChatMessage[], 
     "当用户要查看 Git 仓库状态时，必须使用 git.getRepositoryStatus；禁止改用 shell.commandExecution、shell.scriptExecution 或任意伪造的 git.* 子命令。",
     "gitBase 是内部 family 名称；对外可调用 toolId 必须精确使用 git.* registry 名称，禁止输出 gitBase.*、git.execute 或其他别名。",
     "当用户已经明确要求执行 Git mutation，lab 会注入 affirmative guard；模型仍必须选择对应 fixed-action gitBase 工具，让 storage core 和 runtime governance 继续执行安全边界，而不是改走 shell 或自造命令。",
-    "git.getRepositoryStatus 是 fixed-action gitBase 工具，不是 git.execute。调用形状必须是 {target:{repositoryPath, porcelainVersion:\"v1\"或\"v2\"}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}；如果用户没有指定仓库，repositoryPath 使用当前 .。",
+    "git.getRepositoryStatus 是 fixed-action gitBase 工具，不是 git.execute。调用形状必须是 {target:{repositoryPath, porcelainVersion:\"v1\"或\"v2\"}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}；如果用户没有指定仓库，repositoryPath 使用当前 Praxis。",
     "当用户要查看 Git diff 时，必须使用 git.getWorkingTreeDiff。调用形状必须是 {target:{repositoryPath, mode:\"unstaged\"|\"staged\"|\"combined\", pathspecs?:string[], contextLines?:number}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}。",
     "当用户要查看 Git 提交历史时，必须使用 git.getCommitHistory。调用形状必须是 {target:{repositoryPath, maxCount?:number, ref?:string, pathFilter?:string}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}。",
     "当用户要查看 Git 对象、HEAD、某个 commit 的原始信息、摘要或 patch 时，必须使用 git.showGitObjectDetails。调用形状必须是 {target:{repositoryPath, objectRef:\"HEAD\"或安全 ref, format:\"summary\"|\"raw\"|\"patch\"}, context:{dryRun:false, guard:{allowed:true, accepted:true}}}。",

@@ -184,7 +184,7 @@ async function runHarmlessCommand(
   if (rejected !== undefined) return publicShellError("GOVERNANCE_REJECTED", rejected);
 
   const cwd = resolveSafeCwd(workspaceRoot, request.cwd);
-  if (cwd === undefined) return publicShellError("INVALID_CWD", "cwd must stay inside the . workspace");
+  if (cwd === undefined) return publicShellError("INVALID_CWD", "cwd must stay inside the Praxis workspace");
 
   const timeoutMs = Math.min(Math.max(request.timeoutMs ?? 10_000, 1), 30_000);
 

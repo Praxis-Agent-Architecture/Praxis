@@ -1,2 +1,0 @@
-import { createHostExecutorCodeDebugRunProvider, type CodeDebugRunProviderPractice } from "./dependencies.js";
-export const anthropicCodeDebugRunPractice: CodeDebugRunProviderPractice = { providerName: "anthropic", source: { kind: "cli", label: "Claude Code debug launch practice" }, directCliSupport: true, sideEffectPolicy: "runtime-governed", notes: ["Launch/attach debug sessions through a fixed primitive; runtime owns live handles."], createProvider: ({ provider, executor }) => provider ?? createHostExecutorCodeDebugRunProvider(executor) };

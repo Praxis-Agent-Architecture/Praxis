@@ -57,7 +57,7 @@ export type LspBaseToolDefinitionOptions<Input, Output> = {
 };
 
 export function architectureRelativePath(absolutePath: string): string {
-  return path.relative(repoRoot, absolutePath).split(path.sep).join("/") || ".";
+  return path.relative(repoRoot, absolutePath).split(path.sep).join("/");
 }
 
 export function lspToolSkillDocPath(toolId: string): string {

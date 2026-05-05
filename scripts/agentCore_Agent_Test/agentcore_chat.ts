@@ -238,7 +238,7 @@ function renderPrompt(history: readonly ChatMessage[], userText: string): string
     `可用工具：${shellLiveToolIds.join(", ")}`,
     "用户问你可以使用什么工具时，直接列出这些工具和用途，不要调用工具。",
     "需要调用工具时，必须只返回 JSON，不要解释：",
-    "{\"tool_calls\":[{\"tool\":\"shell.commandExecution\",\"arguments\":{\"command\":\"pwd\",\"args\":[],\"cwd\":\"/home/proview/Desktop/Praxis_series/Praxis_org/.\",\"timeoutMs\":10000}}]}",
+    "{\"tool_calls\":[{\"tool\":\"shell.commandExecution\",\"arguments\":{\"command\":\"pwd\",\"args\":[],\"cwd\":\"/home/proview/Desktop/Praxis_series/Praxis_org\",\"timeoutMs\":10000}}]}",
     "如果用户指定某个 shell.* 工具但没有给完整参数，可以按内置测试样例生成无害参数。",
     "安全规则：真实本机命令只允许无害读取类命令；process/session/resource/background/detached/interactive 类能力由 runtime-owned fake executor 模拟，不直接操作真实危险资源。",
     "如果不需要工具，就正常回答。",
