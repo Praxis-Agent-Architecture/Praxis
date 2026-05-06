@@ -84,6 +84,18 @@ import {
   inspectBaseToolReality,
   snapshotBaseToolRealityLedger,
 } from "./agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+import {
+  adjudicateRuntimeDecision,
+  createMainLoopStepRecord,
+  planFrameworkMainLoopHandoff,
+  prepareMainLoopTurn,
+} from "./agent_executionEngine/coreLogic/mainLoop.js";
+import {
+  interpretModelDecision,
+} from "./agent_executionEngine/coreLogic/modelDecision.js";
+import {
+  assemblePromptPack,
+} from "./agent_executionEngine/promptPack/promptAssembler.js";
 
 export {
   PromptPack,
@@ -151,6 +163,40 @@ export {
   type ToolSpec,
   type ToolPolicyCustomInput,
 } from "./agent_runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  adjudicateRuntimeDecision,
+  createMainLoopStepRecord,
+  planFrameworkMainLoopHandoff,
+  prepareMainLoopTurn,
+  type MainLoopStepRecord,
+  type MainLoopTurnRecord,
+  type MainLoopTurnPreparationRequest,
+  type MainLoopTurnPreparationResult,
+  type RuntimeAdjudication,
+  type RuntimeAdjudicationKind,
+  type RuntimeAdjudicationRequest,
+} from "./agent_executionEngine/coreLogic/mainLoop.js";
+
+export {
+  interpretModelDecision,
+  type ModelDecision,
+  type ModelDecisionFailure,
+  type ModelDecisionKind,
+  type ModelDecisionToolCall,
+} from "./agent_executionEngine/coreLogic/modelDecision.js";
+
+export {
+  assemblePromptPack,
+  inferPromptPackSegmentKind,
+  type PromptPackCachePlan,
+  type PromptPackCacheTelemetry,
+  type PromptPackSegment,
+  type PromptPackSegmentCachePolicy,
+  type PromptPackSegmentKind,
+  type PromptPackSegmentStability,
+  type StandardPromptPack,
+} from "./agent_executionEngine/promptPack/promptAssembler.js";
 
 export {
   createSandboxRuntimeProvider,
@@ -349,6 +395,15 @@ export const runtimeKernel = Object.freeze({
   createInMemorySessionStateEventStore,
 });
 
+export const executionCore = Object.freeze({
+  adjudicateRuntimeDecision,
+  assemblePromptPack,
+  createMainLoopStepRecord,
+  interpretModelDecision,
+  planFrameworkMainLoopHandoff,
+  prepareMainLoopTurn,
+});
+
 export const inspection = Object.freeze({
   createFrameworkInspectionReport,
   createBaseToolRealityLedger,
@@ -436,6 +491,7 @@ export const praxis = Object.freeze({
   listBaseToolDeveloperCatalog,
 
   runtime: runtimeKernel,
+  execution: executionCore,
   inspection,
   storagePlane,
   sandboxPlane,

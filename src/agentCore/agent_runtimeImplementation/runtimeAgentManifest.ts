@@ -510,6 +510,18 @@ export type FrameworkCoreContractSpec = {
 };
 
 export type HarnessSpec = {
+  modelRef?: string;
+  modelFleetRef?: string;
+  promptPackRef?: string;
+  toolPolicyRef?: string;
+  mainLoopRef?: string;
+  sandboxRef?: string;
+  storageRef?: string;
+  sessionRef?: string;
+  statePlaneRef?: string;
+  interfaceRefs?: readonly string[];
+  contextRefs?: readonly string[];
+  memoryRefs?: readonly string[];
   context?: ContextSpec;
   memory?: MemorySpec;
   storage?: StorageSpec;
@@ -596,6 +608,18 @@ export type AgentManifest = {
   statePlane: StatePlaneSpec;
   frameworkCore: FrameworkCoreContractSpec;
   harness: Required<Pick<HarnessSpec, "context" | "memory" | "storage" | "promptPack" | "tools" | "policy" | "loop">> & {
+    modelRef: string;
+    modelFleetRef: string;
+    promptPackRef: string;
+    toolPolicyRef: string;
+    mainLoopRef: string;
+    sandboxRef: string;
+    storageRef: string;
+    sessionRef: string;
+    statePlaneRef: string;
+    interfaceRefs: readonly string[];
+    contextRefs: readonly string[];
+    memoryRefs: readonly string[];
     modelFleet: ModelFleetSpec;
     mainLoop: MainLoopSpec;
     sandbox: SandboxSpec;
@@ -1872,6 +1896,8 @@ function normalizeStatePlane(input: StatePlaneSpec | undefined): NormalizeResult
 function normalizeHarness(
   input: HarnessSpec,
   authoring: {
+    identityId: string;
+    model: AgentManifest["model"];
     modelFleet: ModelFleetSpec;
     promptPack: AgentManifest["promptPack"];
     mainLoop: MainLoopSpec;
@@ -1885,9 +1911,23 @@ function normalizeHarness(
   normalizedTools: readonly ToolSpec[],
 ): AgentManifest["harness"] {
   const loopSpec = input.loop ?? { strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 4 };
+  const contextRefs = cleanList(input.contextRefs ?? input.context?.refs);
+  const memoryRefs = cleanList(input.memoryRefs ?? (input.memory?.pool === undefined ? undefined : [input.memory.pool]));
   return {
+    modelRef: input.modelRef?.trim() || `${authoring.identityId}:model:${authoring.model.provider}:${authoring.model.model}`,
+    modelFleetRef: input.modelFleetRef?.trim() || `${authoring.identityId}:modelFleet`,
+    promptPackRef: input.promptPackRef?.trim() || authoring.promptPack.promptPackId,
+    toolPolicyRef: input.toolPolicyRef?.trim() || authoring.toolPolicy.matrixId,
+    mainLoopRef: input.mainLoopRef?.trim() || `mainLoop:${authoring.mainLoop.strategy}`,
+    sandboxRef: input.sandboxRef?.trim() || authoring.sandbox.sandboxId,
+    storageRef: input.storageRef?.trim() || authoring.storage.workspaceRef || authoring.storage.kind || "storage.default",
+    sessionRef: input.sessionRef?.trim() || authoring.session.storeRef || `session:${authoring.session.persistence}`,
+    statePlaneRef: input.statePlaneRef?.trim() || "statePlane.default",
+    interfaceRefs: cleanList(input.interfaceRefs),
+    contextRefs,
+    memoryRefs,
     context: input.context ?? {},
-    memory: input.memory ?? { mode: "session" },
+    memory: input.memory ?? { mode: "session", pool: memoryRefs[0] },
     storage: authoring.storage,
     promptPack: {
       promptPackId: authoring.promptPack.promptPackId,
@@ -2035,6 +2075,8 @@ export function compileAgent<TAgent extends PraxisAgent>(
   }
 
   const authoring = {
+    identityId: identity.id,
+    model: modelSpec,
     modelFleet: modelFleetSpec.value,
     promptPack: promptPackSpec.value,
     mainLoop: mainLoopSpec.value,
@@ -2160,6 +2202,9 @@ export function validateAgentManifest(input: unknown): AgentManifestValidationRe
 
   if (
     manifest.harness?.promptPack?.promptPackId !== manifest.promptPack?.promptPackId ||
+    manifest.harness?.promptPackRef !== manifest.promptPack?.promptPackId ||
+    manifest.harness?.toolPolicyRef !== manifest.toolPolicy?.matrixId ||
+    manifest.harness?.sandboxRef !== manifest.sandbox?.sandboxId ||
     manifest.harness?.mainLoop?.strategy !== manifest.mainLoop?.strategy ||
     manifest.harness?.storage?.kind !== manifest.storage?.kind ||
     manifest.harness?.storage?.sessionStoreRef !== manifest.storage?.sessionStoreRef ||

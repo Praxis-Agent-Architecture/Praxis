@@ -8,6 +8,7 @@
  * 实现提示：优先保持 registry 数据驱动，避免把不同语言的安装逻辑散落到工具实现里。
  */
 
+import os from "node:os";
 import path from "node:path";
 
 export type ToolDependencySourceSafety = "trusted-managed" | "trusted-detect-only" | "custom-source" | "system-global";
@@ -286,7 +287,7 @@ function managedRootFrom(request: Pick<ToolDependencyInstallPlanRequest, "env" |
     return path.join(xdgCache ?? "", "praxis", "tool-deps");
   }
 
-  return path.join(request.homeDir?.trim() || "~", ".cache", "praxis", "tool-deps");
+  return path.join(request.homeDir?.trim() || os.homedir(), ".cache", "praxis", "tool-deps");
 }
 
 function replaceTokens(value: string, replacements: Readonly<Record<string, string>>): string {

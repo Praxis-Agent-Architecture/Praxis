@@ -57,6 +57,39 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
     ],
     promptPackPreview: {
       promptPackId: compiled.manifest.promptPack.promptPackId,
+      cachePlan: {
+        kind: "praxis.promptPack.cachePlan",
+        format: "praxis.promptPack.cachePlan.v1",
+        strategy: "stable-segment-prefix",
+        orderedSegmentKinds: [
+          "core-static",
+          "agent-base-static",
+          "project-static",
+          "capability-static",
+          "session-summary",
+          "context-managed",
+          "memory-retrieval",
+          "turn-dynamic",
+          "observation-dynamic",
+        ],
+        segments: [
+          {
+            segmentId: "prompt.segment.core-static",
+            segmentKind: "core-static",
+            stability: "static",
+            cachePolicy: "cacheable-prefix",
+            segmentHash: "a".repeat(64),
+            estimatedTokens: 12,
+            materialRefs: ["material.secret"],
+            sourceRefs: ["runtime"],
+            providerHints: {},
+          },
+        ],
+        cacheablePrefixSegmentKinds: ["core-static"],
+        dynamicSegmentKinds: [],
+        cacheRiskWarnings: ["dynamic-tool-declaration-in-capability-prefix"],
+        providerPayloadCreated: false,
+      },
       materials: [
         {
           materialId: "material.secret",
@@ -83,6 +116,9 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
   assert.equal(result.report.audit.unsafeSideEffects, false);
   assert.equal(result.report.promptPackPreview?.providerPayloadBuilt, false);
   assert.match(result.report.promptPackPreview?.materials[0]?.preview ?? "", /token=\[redacted\]/);
+  assert.equal(result.report.promptPackPreview?.cachePlan?.segmentCount, 1);
+  assert.deepEqual(result.report.promptPackPreview?.cachePlan?.cacheRiskWarnings, ["dynamic-tool-declaration-in-capability-prefix"]);
+  assert.equal(result.report.findings.some((finding) => finding.findingId === "promptPack.cache.dynamic-tool-declaration-in-capability-prefix"), true);
   assert.deepEqual(result.report.mainLoopTrace.actionPrimitives, ["handoffPromptPack"]);
   assert.deepEqual(result.report.toolReadiness.missing, ["shell.commandExecution"]);
   assert.deepEqual(result.report.dependencyGraph.missing, ["ripgrep"]);

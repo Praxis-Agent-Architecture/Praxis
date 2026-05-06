@@ -229,6 +229,15 @@ test("compileAgent compiles Agent Archetype authoring specs into stable Manifest
   assert.equal(result.manifest.harness.storage.sessionStoreRef, result.manifest.storage.sessionStoreRef);
   assert.deepEqual(result.manifest.statePlane.control, ["pause", "resume", "interrupt", "rollback"]);
   assert.equal(result.manifest.harness.modelFleet.endpoints.batch?.endpoint, "/v1/batches");
+  assert.equal(result.manifest.harness.modelRef, "agent.coding:model:openai:gpt-5.4-nano");
+  assert.equal(result.manifest.harness.modelFleetRef, "agent.coding:modelFleet");
+  assert.equal(result.manifest.harness.promptPackRef, "prompt.coding");
+  assert.equal(result.manifest.harness.toolPolicyRef, result.manifest.toolPolicy.matrixId);
+  assert.equal(result.manifest.harness.mainLoopRef, "mainLoop:standard");
+  assert.equal(result.manifest.harness.sandboxRef, result.manifest.sandbox.sandboxId);
+  assert.equal(result.manifest.harness.storageRef, result.manifest.storage.workspaceRef);
+  assert.equal(result.manifest.harness.sessionRef, result.manifest.session.storeRef);
+  assert.equal(result.manifest.harness.statePlaneRef, "statePlane.default");
   assert.equal(result.manifest.harness.promptPack.promptPackId, "prompt.coding");
   assert.equal(result.manifest.harness.promptPack.patches?.[1]?.operation, "replaceLastLines");
   assert.equal(result.manifest.harness.mainLoop.stepRecordCompatible, true);

@@ -77,15 +77,16 @@ function normalizedOptions(input: RaxBuildInitOptions): Required<RaxBuildInitOpt
 }
 
 function packageJson(options: Required<RaxBuildInitOptions>): string {
+  const agentInput = options.preset === "minimal" ? "agents/mainAgent.ts" : ".";
   return `${JSON.stringify({
     name: options.projectName,
     version: "0.1.0",
     private: true,
     type: "module",
     scripts: {
-      inspect: "rax inspect agents/mainAgent.ts",
-      test: "rax test agents/mainAgent.ts",
-      run: "rax run agents/mainAgent.ts",
+      inspect: `rax inspect ${agentInput}`,
+      test: `rax test ${agentInput}`,
+      run: `rax run ${agentInput}`,
       typecheck: "tsc -p tsconfig.json --noEmit",
     },
     dependencies: {
@@ -109,17 +110,40 @@ function tsconfigJson(): string {
       types: ["node"],
     },
     include: [
+      "application/**/*.ts",
       "agents/**/*.ts",
-      "config/**/*.ts",
-      "interfaces/**/*.ts",
-      "policies/**/*.ts",
-      "run/**/*.ts",
-      "sandbox/**/*.ts",
-      "state/**/*.ts",
-      "storage/**/*.ts",
+      "authentication/**/*.ts",
+      "context/**/*.ts",
+      "memory/**/*.ts",
       "tests/**/*.ts",
-      "tools/**/*.ts",
+      "topology/**/*.ts",
     ],
+  }, null, 2)}\n`;
+}
+
+function raxProjectJson(options: Required<RaxBuildInitOptions>): string {
+  const fullstack = options.preset !== "minimal";
+  return `${JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: fullstack ? "application-project" : "agent-project",
+    id: options.projectName,
+    entry: fullstack ? "agents/mainAgent/praxis.agent.ts" : "agents/mainAgent.ts",
+    export: "default",
+    agent: {
+      id: options.agentId,
+    },
+    paths: {
+      ...(fullstack ? {
+        application: "application",
+        authentication: "authentication",
+        context: "context",
+        memory: "memory",
+        topology: "topology",
+        tests: "tests",
+        primaryAgent: "agents/mainAgent",
+      } : {}),
+      agents: "agents",
+    },
   }, null, 2)}\n`;
 }
 
@@ -139,13 +163,14 @@ function toolsBlock(options: Required<RaxBuildInitOptions>): string {
 
 function agentSource(options: Required<RaxBuildInitOptions>): string {
   const className = agentClassName(options.projectName);
+  const promptRoot = options.preset === "minimal" ? "prompts" : "agents/mainAgent/prompts";
   return `import { praxis } from "@praxis-ai/framework";
 
 class MainPrompt extends praxis.PromptPack {
   promptPackId = "prompt.${options.projectName}.main";
-  base = praxis.markdownFile("prompts/main.md", "prompt.main");
+  base = praxis.markdownFile("${promptRoot}/main.md", "prompt.main");
   patches = [
-    praxis.append("prompt.main", praxis.markdownFile("prompts/rules.md", "prompt.rules")),
+    praxis.append("prompt.main", praxis.markdownFile("${promptRoot}/rules.md", "prompt.rules")),
   ];
 }
 
@@ -184,7 +209,7 @@ ${toolsBlock(options)}
 
 function runSource(): string {
   return `import { praxis } from "@praxis-ai/framework";
-import Agent from "../agents/mainAgent.js";
+import Agent from "../agents/mainAgent/praxis.agent.js";
 
 const compiled = praxis.compileAgent(Agent);
 if (!compiled.ok) {
@@ -207,19 +232,23 @@ export function createRaxBuildInitPlan(input: RaxBuildInitOptions): RaxBuildInit
   const dirs = options.preset === "minimal"
     ? ["agents", "prompts", "run", ".rax_workspace"]
     : [
-        "agents",
-        "config",
-        "prompts",
-        "policies",
-        "sandbox",
-        "tools",
-        "storage",
-        "sessions",
-        "state",
-        "interfaces",
-        "reports",
+        "application",
+        "agents/mainAgent/config",
+        "agents/mainAgent/prompts",
+        "agents/mainAgent/policies",
+        "agents/mainAgent/sandbox",
+        "agents/mainAgent/tools",
+        "agents/mainAgent/storage",
+        "agents/mainAgent/state",
+        "agents/mainAgent/interfaces",
+        "agents/mainAgent/harness",
+        "agents/mainAgent/mainLoop",
+        "authentication",
+        "context",
+        "memory",
+        "topology",
         "tests",
-        "run",
+        "reports",
         ".rax_workspace/sessions",
         ".rax_workspace/state",
         ".rax_workspace/events",
@@ -231,29 +260,36 @@ export function createRaxBuildInitPlan(input: RaxBuildInitOptions): RaxBuildInit
 
   const files: RaxBuildInitFile[] = [
     { path: "package.json", content: packageJson(options) },
+    { path: "rax.project.json", content: raxProjectJson(options) },
     { path: "tsconfig.json", content: tsconfigJson() },
-    { path: "agents/mainAgent.ts", content: agentSource(options) },
-    { path: "prompts/main.md", content: markdown("Main Prompt", "你是一个 Praxis Agent。先理解任务，再用已挂载工具完成工作。") },
-    { path: "prompts/rules.md", content: markdown("Rules", "- 所有工具调用都必须经过 runtime governance。\n- 需要审批时，走 interface surface。") },
-    { path: "run/runAgent.ts", content: runSource() },
+    { path: options.preset === "minimal" ? "agents/mainAgent.ts" : "agents/mainAgent/agent.ts", content: agentSource(options) },
+    ...(options.preset === "minimal" ? [] : [{ path: "agents/mainAgent/praxis.agent.ts", content: "import Agent from \"./agent.js\";\n\nexport default Agent;\n" }]),
+    { path: options.preset === "minimal" ? "prompts/main.md" : "agents/mainAgent/prompts/main.md", content: markdown("Main Prompt", "你是一个 Praxis Agent。先理解任务，再用已挂载工具完成工作。") },
+    { path: options.preset === "minimal" ? "prompts/rules.md" : "agents/mainAgent/prompts/rules.md", content: markdown("Rules", "- 所有工具调用都必须经过 runtime governance。\n- 需要审批时，走 interface surface。") },
+    ...(options.preset === "minimal" ? [{ path: "run/runAgent.ts", content: runSource().replace("../agents/mainAgent/praxis.agent.js", "../agents/mainAgent.js") }] : [{ path: "application/runAgent.ts", content: runSource() }]),
     { path: ".gitignore", content: "node_modules/\ndist/\n.rax_workspace/\n" },
     { path: "README.md", content: markdown(options.projectName, "Run `npm run inspect`, `npm run test`, or `npm run run -- \"your task\"`.") },
   ];
 
   if (options.preset !== "minimal") {
     files.push(
-      { path: "config/modelFleet.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const modelFleet = praxis.modelFleet.auto({\n  primary: praxis.endpoint(\"/v1/responses\", { role: \"reasoning\", provider: \"openai\", model: \"gpt-5.4\" }),\n});\n" },
-      { path: "policies/toolPolicy.ts", content: `import { praxis } from "@praxis-ai/framework";\n\nexport const toolPolicy = praxis.toolPolicies.${options.toolPolicyProfile}();\n` },
-      { path: "sandbox/profile.ts", content: `import { praxis } from "@praxis-ai/framework";\n\nexport const sandboxProfile = praxis.sandbox.${options.sandboxProfile}();\n` },
-      { path: "tools/toolSet.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const repoToolSet = praxis.tools([\n  praxis.baseTools.code.read(),\n  praxis.baseTools.code.searchRipgrep(),\n  ...praxis.toolSets.git.inspection(),\n]);\n" },
-      { path: "storage/storagePolicy.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const storagePolicy = praxis.storage.raxWorkspace();\nexport const sessionPolicy = praxis.session({ persistence: \"sqlite\", resume: \"auto\", thread: \"durable\", logs: \"full\" });\n" },
-      { path: "state/statePlane.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const statePlanePolicy = praxis.statePlane({\n  expose: [\"phase\", \"lastAction\", \"toolCalls\", \"errors\", \"approvals\"],\n  control: [\"pause\", \"resume\", \"interrupt\", \"approve\", \"deny\", \"rollback\", \"inspect\", \"repair\", \"configure\"],\n  audit: \"full\",\n});\n" },
+      { path: "application/application.ts", content: `export const application = { id: "application.${options.projectName}", primaryAgentRef: "agents/mainAgent" } as const;\n` },
+      { path: "agents/mainAgent/config/modelFleet.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const modelFleet = praxis.modelFleet.auto({\n  primary: praxis.endpoint(\"/v1/responses\", { role: \"reasoning\", provider: \"openai\", model: \"gpt-5.4\" }),\n});\n" },
+      { path: "agents/mainAgent/policies/toolPolicy.ts", content: `import { praxis } from "@praxis-ai/framework";\n\nexport const toolPolicy = praxis.toolPolicies.${options.toolPolicyProfile}();\n` },
+      { path: "agents/mainAgent/sandbox/profile.ts", content: `import { praxis } from "@praxis-ai/framework";\n\nexport const sandboxProfile = praxis.sandbox.${options.sandboxProfile}();\n` },
+      { path: "agents/mainAgent/tools/toolSet.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const repoToolSet = praxis.tools([\n  praxis.baseTools.code.read(),\n  praxis.baseTools.code.searchRipgrep(),\n  ...praxis.toolSets.git.inspection(),\n]);\n" },
+      { path: "agents/mainAgent/storage/storagePolicy.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const storagePolicy = praxis.storage.raxWorkspace();\nexport const sessionPolicy = praxis.session({ persistence: \"sqlite\", resume: \"auto\", thread: \"durable\", logs: \"full\" });\n" },
+      { path: "agents/mainAgent/state/statePlane.ts", content: "import { praxis } from \"@praxis-ai/framework\";\n\nexport const statePlanePolicy = praxis.statePlane({\n  expose: [\"phase\", \"lastAction\", \"toolCalls\", \"errors\", \"approvals\"],\n  control: [\"pause\", \"resume\", \"interrupt\", \"approve\", \"deny\", \"rollback\", \"inspect\", \"repair\", \"configure\"],\n  audit: \"full\",\n});\n" },
+      { path: "authentication/providerProfiles.ts", content: "export const providerProfiles = { rawSecretsStoredHere: false, profiles: [] } as const;\n" },
+      { path: "context/cmpBridge.ts", content: "export const cmpBridge = { status: \"contract-only\" } as const;\n" },
+      { path: "memory/mpBridge.ts", content: "export const mpBridge = { status: \"contract-only\" } as const;\n" },
+      { path: "topology/multiagentTopology.ts", content: "export const topology = { status: \"single-agent\" } as const;\n" },
       { path: "reports/.gitkeep", content: "" },
-      { path: "tests/mainAgent.test.ts", content: "import test from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { praxis } from \"@praxis-ai/framework\";\nimport Agent from \"../agents/mainAgent.js\";\n\ntest(\"agent compiles\", () => {\n  const result = praxis.compileAgent(Agent);\n  assert.equal(result.ok, true);\n});\n" },
+      { path: "tests/mainAgent.test.ts", content: "import test from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { praxis } from \"@praxis-ai/framework\";\nimport Agent from \"../agents/mainAgent/praxis.agent.js\";\n\ntest(\"agent compiles\", () => {\n  const result = praxis.compileAgent(Agent);\n  assert.equal(result.ok, true);\n});\n" },
     );
     if (options.includeInterfaceSurface) {
       files.push({
-        path: "interfaces/interfaceSurface.md",
+        path: "agents/mainAgent/interfaces/interfaceSurface.md",
         content: markdown("Interface Surface", "Approval、state、event、management envelope 会从这里接到 CLI/TUI/Raxode/Raxos。"),
       });
     }

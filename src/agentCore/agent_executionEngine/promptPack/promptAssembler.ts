@@ -8,6 +8,7 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import { createHash } from "node:crypto";
 import {
   BASIC_CORE_PROMPT_MATERIAL_ID,
   detectPromptInjectionRisk,
@@ -22,6 +23,54 @@ import {
 } from "./promptDefiner.js";
 
 export type PromptAssemblerOrdering = "input-order" | "priority-desc";
+
+export const PROMPT_PACK_SEGMENT_KINDS = [
+  "core-static",
+  "agent-base-static",
+  "project-static",
+  "capability-static",
+  "session-summary",
+  "context-managed",
+  "memory-retrieval",
+  "turn-dynamic",
+  "observation-dynamic",
+] as const;
+
+export type PromptPackSegmentKind = (typeof PROMPT_PACK_SEGMENT_KINDS)[number];
+export type PromptPackSegmentStability = "static" | "semi-stable" | "dynamic";
+export type PromptPackSegmentCachePolicy = "cacheable-prefix" | "cacheable-readonly" | "dynamic-no-cache";
+
+export type PromptPackSegment = {
+  segmentId: string;
+  segmentKind: PromptPackSegmentKind;
+  stability: PromptPackSegmentStability;
+  cachePolicy: PromptPackSegmentCachePolicy;
+  segmentHash: string;
+  estimatedTokens: number;
+  materialRefs: readonly string[];
+  sourceRefs: readonly string[];
+  providerHints: Readonly<Record<string, unknown>>;
+};
+
+export type PromptPackCachePlan = {
+  kind: "praxis.promptPack.cachePlan";
+  format: "praxis.promptPack.cachePlan.v1";
+  strategy: "stable-segment-prefix";
+  orderedSegmentKinds: readonly PromptPackSegmentKind[];
+  segments: readonly PromptPackSegment[];
+  cacheablePrefixSegmentKinds: readonly PromptPackSegmentKind[];
+  dynamicSegmentKinds: readonly PromptPackSegmentKind[];
+  cacheRiskWarnings: readonly string[];
+  providerPayloadCreated: false;
+};
+
+export type PromptPackCacheTelemetry = {
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  cacheHitRate?: number;
+  segmentHashes: Readonly<Record<string, string>>;
+  cacheMissReasons: readonly string[];
+};
 
 export type PromptAssemblerRequest = {
   runtimeId?: string;
@@ -58,6 +107,7 @@ export type AssembledPromptMaterial = {
   scope?: string;
   metadata: Readonly<Record<string, string | number | boolean | object>>;
   protected: boolean;
+  promptSegmentKind: PromptPackSegmentKind;
 };
 
 export type AssembledPromptToolDeclaration = {
@@ -115,6 +165,9 @@ export type StandardPromptPack = {
   }>;
   sourceRecords: readonly PromptMaterialSourceRecord[];
   materialSourceCategories: readonly PromptPackMaterialSourceCategory[];
+  segments: readonly PromptPackSegment[];
+  cachePlan: PromptPackCachePlan;
+  cacheTelemetry: PromptPackCacheTelemetry;
   trimRecords: readonly PromptTrimRecord[];
   injectionRecords: readonly PromptInjectionRecord[];
   totalEstimatedTokens: number;
@@ -188,6 +241,205 @@ function toAssembledMaterial(material: DefinedPromptMaterial): AssembledPromptMa
     scope: material.scope,
     metadata: material.metadata,
     protected: isProtectedMaterial(material),
+    promptSegmentKind: inferPromptPackSegmentKind(material),
+  };
+}
+
+function readPromptSegmentMetadata(
+  material: Pick<DefinedPromptMaterial, "metadata">,
+): PromptPackSegmentKind | undefined {
+  const value = material.metadata.promptSegmentKind;
+  return typeof value === "string" && PROMPT_PACK_SEGMENT_KINDS.includes(value as PromptPackSegmentKind)
+    ? (value as PromptPackSegmentKind)
+    : undefined;
+}
+
+export function inferPromptPackSegmentKind(material: DefinedPromptMaterial): PromptPackSegmentKind {
+  const explicit = readPromptSegmentMetadata(material);
+  if (explicit !== undefined) {
+    return explicit;
+  }
+
+  if (material.id === BASIC_CORE_PROMPT_MATERIAL_ID || material.metadata.protected === true) {
+    return "core-static";
+  }
+
+  const toolType = typeof material.metadata.toolMaterialType === "string" ? material.metadata.toolMaterialType : undefined;
+  if (material.kind === "tool" && (toolType === "declaration" || toolType === "policy" || toolType === undefined)) {
+    return "capability-static";
+  }
+
+  if (material.sourceCategory === "user-request" || material.kind === "user") {
+    return "turn-dynamic";
+  }
+
+  if (material.kind === "cmp") {
+    return "context-managed";
+  }
+
+  if (material.kind === "memory" || material.kind === "retrieval") {
+    return "memory-retrieval";
+  }
+
+  if (
+    material.sourceCategory === "process-product" ||
+    material.kind === "event" ||
+    material.kind === "runtime" ||
+    material.kind === "tool-summary" ||
+    material.kind === "command" ||
+    material.kind === "command-injection"
+  ) {
+    return "observation-dynamic";
+  }
+
+  if (material.kind === "system") {
+    return "agent-base-static";
+  }
+
+  return "project-static";
+}
+
+function segmentStability(kind: PromptPackSegmentKind): PromptPackSegmentStability {
+  if (kind === "core-static" || kind === "agent-base-static" || kind === "project-static" || kind === "capability-static") {
+    return "static";
+  }
+  if (kind === "session-summary" || kind === "context-managed") {
+    return "semi-stable";
+  }
+  return "dynamic";
+}
+
+function segmentCachePolicy(kind: PromptPackSegmentKind): PromptPackSegmentCachePolicy {
+  if (kind === "turn-dynamic" || kind === "observation-dynamic" || kind === "memory-retrieval") {
+    return "dynamic-no-cache";
+  }
+  if (kind === "session-summary" || kind === "context-managed") {
+    return "cacheable-readonly";
+  }
+  return "cacheable-prefix";
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableStringify(record[key])}`)
+    .join(",")}}`;
+}
+
+function hashPromptSegment(segmentKind: PromptPackSegmentKind, materials: readonly AssembledPromptMaterial[]): string {
+  const input = stableStringify({
+    segmentKind,
+    materials: materials.map((material) => ({
+      id: material.id,
+      kind: material.kind,
+      text: material.text,
+      source: material.source,
+      sourceCategory: material.sourceCategory,
+      metadata: material.metadata,
+    })),
+  });
+  return createHash("sha256").update(input).digest("hex");
+}
+
+function segmentOrder(kind: PromptPackSegmentKind): number {
+  return PROMPT_PACK_SEGMENT_KINDS.indexOf(kind);
+}
+
+function toolProviderOrder(material: DefinedPromptMaterial): number {
+  const providerKind = material.metadata.toolProviderKind;
+  if (providerKind === "baseTool" || providerKind === "builtinBaseTool") return 0;
+  if (providerKind === "tap" || providerKind === "officialTap") return 1;
+  if (providerKind === "mcp" || providerKind === "mcp-static") return 2;
+  if (providerKind === "dynamic" || providerKind === "external-dynamic") return 3;
+  return 0;
+}
+
+function comparePromptMaterials(left: DefinedPromptMaterial, right: DefinedPromptMaterial, ordering?: PromptAssemblerOrdering): number {
+  const leftSegment = inferPromptPackSegmentKind(left);
+  const rightSegment = inferPromptPackSegmentKind(right);
+  const segmentDelta = segmentOrder(leftSegment) - segmentOrder(rightSegment);
+  if (segmentDelta !== 0) {
+    return segmentDelta;
+  }
+
+  if (leftSegment === "capability-static") {
+    const providerDelta = toolProviderOrder(left) - toolProviderOrder(right);
+    if (providerDelta !== 0) {
+      return providerDelta;
+    }
+  }
+
+  if (isProtectedMaterial(left) && !isProtectedMaterial(right)) {
+    return -1;
+  }
+  if (!isProtectedMaterial(left) && isProtectedMaterial(right)) {
+    return 1;
+  }
+
+  if (ordering === "priority-desc") {
+    const priorityDelta = right.priority - left.priority;
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+  }
+
+  return 0;
+}
+
+function buildPromptPackCachePlan(materials: readonly AssembledPromptMaterial[]): PromptPackCachePlan {
+  const segments = PROMPT_PACK_SEGMENT_KINDS.flatMap((segmentKind): PromptPackSegment[] => {
+    const segmentMaterials = materials.filter((material) => material.promptSegmentKind === segmentKind);
+    if (segmentMaterials.length === 0) {
+      return [];
+    }
+    return [{
+      segmentId: `prompt.segment.${segmentKind}`,
+      segmentKind,
+      stability: segmentStability(segmentKind),
+      cachePolicy: segmentCachePolicy(segmentKind),
+      segmentHash: hashPromptSegment(segmentKind, segmentMaterials),
+      estimatedTokens: segmentMaterials.reduce((sum, material) => sum + material.estimatedTokens, 0),
+      materialRefs: segmentMaterials.map((material) => material.id),
+      sourceRefs: [...new Set(segmentMaterials.map((material) => material.source))],
+      providerHints: {},
+    }];
+  });
+
+  const cacheRiskWarnings: string[] = [];
+  const dynamicBeforeStatic = materials.some((material, index) => {
+    if (segmentStability(material.promptSegmentKind) !== "dynamic") {
+      return false;
+    }
+    return materials.slice(index + 1).some((next) => segmentStability(next.promptSegmentKind) === "static");
+  });
+  if (dynamicBeforeStatic) {
+    cacheRiskWarnings.push("dynamic-material-before-static-prefix");
+  }
+  if (materials.some((material) => material.promptSegmentKind === "capability-static" && material.metadata.toolProviderKind === "dynamic")) {
+    cacheRiskWarnings.push("dynamic-tool-declaration-in-capability-prefix");
+  }
+
+  return {
+    kind: "praxis.promptPack.cachePlan",
+    format: "praxis.promptPack.cachePlan.v1",
+    strategy: "stable-segment-prefix",
+    orderedSegmentKinds: PROMPT_PACK_SEGMENT_KINDS,
+    segments,
+    cacheablePrefixSegmentKinds: segments
+      .filter((segment) => segment.cachePolicy === "cacheable-prefix")
+      .map((segment) => segment.segmentKind),
+    dynamicSegmentKinds: segments
+      .filter((segment) => segment.cachePolicy === "dynamic-no-cache")
+      .map((segment) => segment.segmentKind),
+    cacheRiskWarnings,
+    providerPayloadCreated: false,
   };
 }
 
@@ -324,18 +576,13 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
     });
   }
 
-  const orderedMaterials =
-    request.ordering === "priority-desc"
-      ? [...materials].sort((left, right) => {
-          if (isProtectedMaterial(left) && !isProtectedMaterial(right)) {
-            return -1;
-          }
-          if (!isProtectedMaterial(left) && isProtectedMaterial(right)) {
-            return 1;
-          }
-          return right.priority - left.priority;
-        })
-      : [...materials].sort((left, right) => Number(isProtectedMaterial(right)) - Number(isProtectedMaterial(left)));
+  const orderedMaterials = materials
+    .map((material, index) => ({ material, index }))
+    .sort((left, right) => {
+      const compared = comparePromptMaterials(left.material, right.material, request.ordering);
+      return compared === 0 ? left.index - right.index : compared;
+    })
+    .map((entry) => entry.material);
 
   const trimRecords: PromptTrimRecord[] = [];
   const maxMaterials = request.budget?.maxMaterials;
@@ -411,6 +658,10 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
 
   const renderedText = renderAssembledText(assembledMaterials);
   const toolPack = buildToolPack(assembledMaterials);
+  const cachePlan = buildPromptPackCachePlan(assembledMaterials);
+  const segmentHashes = Object.fromEntries(
+    cachePlan.segments.map((segment) => [segment.segmentKind, segment.segmentHash]),
+  );
 
   return {
     ok: true,
@@ -436,6 +687,12 @@ export function assemblePromptPack(request?: PromptAssemblerRequest): PromptAsse
         trusted: material.trusted,
       })),
       materialSourceCategories: [...new Set(assembledMaterials.map((material) => material.sourceCategory))],
+      segments: cachePlan.segments,
+      cachePlan,
+      cacheTelemetry: {
+        segmentHashes,
+        cacheMissReasons: cachePlan.cacheRiskWarnings,
+      },
       trimRecords,
       injectionRecords,
       totalEstimatedTokens,

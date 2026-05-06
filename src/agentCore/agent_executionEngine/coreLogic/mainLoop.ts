@@ -14,6 +14,16 @@ import {
   type AgentExecutionStateSnapshot,
   type AgentExecutionStateTrace,
 } from "./stateEngine.js";
+import type { ModelDecision } from "./modelDecision.js";
+import {
+  assemblePromptPack,
+  type PromptPackCachePlan,
+  type StandardPromptPack,
+} from "../promptPack/promptAssembler.js";
+import {
+  definePromptPack,
+  type PromptPackMaterialDraft,
+} from "../promptPack/promptDefiner.js";
 
 export type AgentMainLoopNextHop = "prompt-pack" | "model-adapter" | "tool-layer" | "event-exposure" | "none";
 export type MainLoopTickKind =
@@ -27,15 +37,18 @@ export type MainLoopTickKind =
 
 export type MainLoopActionPrimitive =
   | "receiveInput"
+  | "prepareTurn"
   | "sandboxPrepare"
   | "advanceState"
   | "planMainLoopTick"
   | "assemblePromptPack"
+  | "buildCachePlan"
   | "handoffPromptPack"
   | "lowerPrompt"
   | "handoffModelInvocation"
   | "invokeModel"
   | "interpretModelDecision"
+  | "adjudicateDecision"
   | "handoffModelDecision"
   | "handoffToolCall"
   | "invokeBaseTool"
@@ -50,21 +63,26 @@ export type MainLoopActionPrimitive =
   | "timeout"
   | "emitEvent"
   | "recordSessionEvent"
+  | "updateSummaryStateEvent"
+  | "decideContinueBreak"
   | "requestTapCapability"
   | "exposeOutput"
   | "fail";
 
 export const MAIN_LOOP_ACTION_PRIMITIVES = [
   "receiveInput",
+  "prepareTurn",
   "sandboxPrepare",
   "advanceState",
   "planMainLoopTick",
   "assemblePromptPack",
+  "buildCachePlan",
   "handoffPromptPack",
   "lowerPrompt",
   "handoffModelInvocation",
   "invokeModel",
   "interpretModelDecision",
+  "adjudicateDecision",
   "handoffModelDecision",
   "handoffToolCall",
   "invokeBaseTool",
@@ -79,6 +97,8 @@ export const MAIN_LOOP_ACTION_PRIMITIVES = [
   "timeout",
   "emitEvent",
   "recordSessionEvent",
+  "updateSummaryStateEvent",
+  "decideContinueBreak",
   "requestTapCapability",
   "exposeOutput",
   "fail",
@@ -230,6 +250,75 @@ export type FrameworkMainLoopHandoffResult =
   | { ok: true; plan: FrameworkMainLoopHandoffPlan; events: readonly string[] }
   | { ok: false; error: AgentMainLoopError; events: readonly string[] };
 
+export type RuntimeAdjudicationKind =
+  | "allowed"
+  | "requiresApproval"
+  | "blockedByPolicy"
+  | "blockedBySandbox"
+  | "resourceExceeded"
+  | "invalidDecision"
+  | "finalAllowed"
+  | "continueAllowed";
+
+export type RuntimeAdjudication = {
+  kind: RuntimeAdjudicationKind;
+  accepted: boolean;
+  decisionId?: string;
+  reason: string;
+  requestedScopes: readonly string[];
+  riskLevel?: "safe" | "risky" | "dangerous" | (string & {});
+  metadata: Readonly<Record<string, unknown>>;
+  publicSafe: true;
+};
+
+export type RuntimeAdjudicationRequest = {
+  decision?: ModelDecision;
+  policy?: MainLoopStepGateResult;
+  sandbox?: MainLoopStepGateResult;
+  resource?: MainLoopStepGateResult;
+  pendingApprovalRefs?: readonly string[];
+  unresolvedProcedureRefs?: readonly string[];
+};
+
+export type MainLoopTurnPreparationRequest = {
+  runtimeId?: string;
+  sessionId?: string;
+  turnIndex?: number;
+  startStepIndex?: number;
+  promptPackId?: string;
+  targetModel?: string;
+  loweringHint?: string;
+  materials?: readonly PromptPackMaterialDraft[];
+  now?: string;
+};
+
+export type MainLoopTurnRecord = {
+  turnId: string;
+  sessionId: string;
+  turnIndex: number;
+  lifecycle: "prepared";
+  promptPackRef: string;
+  cachePlanRef: string;
+  segmentKinds: readonly string[];
+  stepRecords: readonly MainLoopStepRecord[];
+  metadata: Readonly<Record<string, unknown>>;
+};
+
+export type MainLoopTurnPreparationResult =
+  | {
+      ok: true;
+      promptPackId: string;
+      promptPack: StandardPromptPack;
+      cachePlan: PromptPackCachePlan;
+      turnRecord: MainLoopTurnRecord;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      error: MainLoopPublicSafeFailure;
+      events: readonly string[];
+    };
+
 function isBlank(value: string | undefined): boolean {
   return typeof value !== "string" || value.trim().length === 0;
 }
@@ -257,6 +346,131 @@ function gateResult(gate: AgentExecutionStateGate | undefined): MainLoopStepGate
   return gate.reason === undefined
     ? { accepted: gate.accepted }
     : { accepted: gate.accepted, reason: gate.reason };
+}
+
+function publicSafeMainLoopFailure(
+  code: string,
+  message: string,
+  boundary: MainLoopPublicSafeFailure["boundary"],
+): MainLoopPublicSafeFailure {
+  return { code, message, boundary, publicSafe: true };
+}
+
+function gateAccepted(gate: MainLoopStepGateResult | undefined): boolean {
+  return gate?.accepted !== false;
+}
+
+function gateReason(gate: MainLoopStepGateResult | undefined, fallback: string): string {
+  return gate?.reason ?? fallback;
+}
+
+export function adjudicateRuntimeDecision(request: RuntimeAdjudicationRequest): RuntimeAdjudication {
+  const decision = request.decision;
+  if (decision === undefined) {
+    return {
+      kind: "invalidDecision",
+      accepted: false,
+      reason: "runtime adjudication requires a ModelDecision",
+      requestedScopes: [],
+      metadata: {},
+      publicSafe: true,
+    };
+  }
+
+  if (!gateAccepted(request.resource)) {
+    return {
+      kind: "resourceExceeded",
+      accepted: false,
+      decisionId: decision.decisionId,
+      reason: gateReason(request.resource, "runtime resource policy rejected the model decision"),
+      requestedScopes: [],
+      metadata: { decisionKind: decision.kind },
+      publicSafe: true,
+    };
+  }
+
+  if (!gateAccepted(request.sandbox)) {
+    return {
+      kind: "blockedBySandbox",
+      accepted: false,
+      decisionId: decision.decisionId,
+      reason: gateReason(request.sandbox, "sandbox policy rejected the model decision"),
+      requestedScopes: [],
+      metadata: { decisionKind: decision.kind },
+      publicSafe: true,
+    };
+  }
+
+  if (!gateAccepted(request.policy)) {
+    return {
+      kind: "blockedByPolicy",
+      accepted: false,
+      decisionId: decision.decisionId,
+      reason: gateReason(request.policy, "tool/runtime policy rejected the model decision"),
+      requestedScopes: [],
+      metadata: { decisionKind: decision.kind },
+      publicSafe: true,
+    };
+  }
+
+  if (decision.kind === "requestApproval") {
+    return {
+      kind: "requiresApproval",
+      accepted: false,
+      decisionId: decision.decisionId,
+      reason: decision.approvalRequest?.reason ?? "model requested runtime approval",
+      requestedScopes: decision.approvalRequest?.requestedScopes ?? [],
+      riskLevel: decision.approvalRequest?.riskLevel,
+      metadata: { decisionKind: decision.kind },
+      publicSafe: true,
+    };
+  }
+
+  if (decision.kind === "toolCall" && request.policy?.metadata?.requiresApproval === true) {
+    return {
+      kind: "requiresApproval",
+      accepted: false,
+      decisionId: decision.decisionId,
+      reason: request.policy.reason ?? "tool call requires approval by runtime policy",
+      requestedScopes: decision.toolCall === undefined ? [] : [`tool:${decision.toolCall.toolId}`],
+      metadata: { decisionKind: decision.kind, toolId: decision.toolCall?.toolId },
+      publicSafe: true,
+    };
+  }
+
+  if ((request.pendingApprovalRefs ?? []).length > 0 && decision.kind === "finalOutput") {
+    return {
+      kind: "requiresApproval",
+      accepted: false,
+      decisionId: decision.decisionId,
+      reason: "runtime cannot accept final output while approvals are pending",
+      requestedScopes: request.pendingApprovalRefs ?? [],
+      metadata: { decisionKind: decision.kind },
+      publicSafe: true,
+    };
+  }
+
+  if ((request.unresolvedProcedureRefs ?? []).length > 0 && decision.kind === "finalOutput") {
+    return {
+      kind: "blockedByPolicy",
+      accepted: false,
+      decisionId: decision.decisionId,
+      reason: "runtime cannot accept final output while ephemeral procedures are unresolved",
+      requestedScopes: request.unresolvedProcedureRefs ?? [],
+      metadata: { decisionKind: decision.kind },
+      publicSafe: true,
+    };
+  }
+
+  return {
+    kind: decision.kind === "finalOutput" ? "finalAllowed" : decision.kind === "continue" ? "continueAllowed" : "allowed",
+    accepted: true,
+    decisionId: decision.decisionId,
+    reason: "runtime accepted the model decision under current governance",
+    requestedScopes: [],
+    metadata: { decisionKind: decision.kind },
+    publicSafe: true,
+  };
 }
 
 export function createMainLoopStepRecord(input: {
@@ -319,7 +533,7 @@ export function createMainLoopStepRecord(input: {
 
 function handoffPrimitivesForTick(kind: MainLoopTickKind): readonly MainLoopActionPrimitive[] {
   if (kind === "model-only") {
-    return ["handoffPromptPack", "handoffModelInvocation", "handoffModelDecision"];
+    return ["prepareTurn", "assemblePromptPack", "buildCachePlan", "handoffPromptPack", "lowerPrompt", "handoffModelInvocation", "interpretModelDecision", "adjudicateDecision", "handoffModelDecision"];
   }
   if (kind === "tool-call") {
     return ["handoffToolCall", "invokeBaseTool", "integrateObservation", "recordSessionEvent"];
@@ -337,6 +551,121 @@ function handoffPrimitivesForTick(kind: MainLoopTickKind): readonly MainLoopActi
     return ["interrupt", "advanceState", "recordSessionEvent"];
   }
   return ["fail", "recordSessionEvent"];
+}
+
+export function prepareMainLoopTurn(request: MainLoopTurnPreparationRequest): MainLoopTurnPreparationResult {
+  const runtimeId = request.runtimeId?.trim();
+  const sessionId = request.sessionId?.trim();
+  if (runtimeId === undefined || runtimeId.length === 0) {
+    return {
+      ok: false,
+      error: publicSafeMainLoopFailure("MISSING_RUNTIME_ID", "mainLoop turn preparation requires a runtimeId", "input"),
+      events: ["agentCore.execution.mainLoop.turnPreparation.rejected"],
+    };
+  }
+  if (sessionId === undefined || sessionId.length === 0) {
+    return {
+      ok: false,
+      error: publicSafeMainLoopFailure("MISSING_SESSION_ID", "mainLoop turn preparation requires a sessionId", "input"),
+      events: ["agentCore.execution.mainLoop.turnPreparation.rejected"],
+    };
+  }
+  const turnIndex = request.turnIndex ?? 0;
+  const startStepIndex = request.startStepIndex ?? 0;
+  const promptPackId = request.promptPackId?.trim() || `${sessionId}:promptPack:${turnIndex + 1}`;
+  const defined = definePromptPack({
+    runtimeId,
+    sessionId,
+    targetModel: request.targetModel,
+    loweringHint: request.loweringHint,
+    materials: request.materials,
+    requestedScopes: ["promptPack.define"],
+    allowedScopes: ["promptPack.define"],
+    runtimeReady: true,
+    contract: { accepted: true },
+    governance: { accepted: true },
+  });
+  if (!defined.ok) {
+    return {
+      ok: false,
+      error: publicSafeMainLoopFailure(defined.error.code, defined.error.message, "prompt"),
+      events: defined.events,
+    };
+  }
+
+  const assembled = assemblePromptPack({
+    runtimeId,
+    sessionId,
+    targetModel: request.targetModel,
+    materials: defined.definition.materials,
+    ordering: "priority-desc",
+  });
+  if (!assembled.ok) {
+    return {
+      ok: false,
+      error: publicSafeMainLoopFailure(assembled.error.code, assembled.error.message, "prompt"),
+      events: [...defined.events, ...assembled.events],
+    };
+  }
+
+  const stepRecords = [
+    createMainLoopStepRecord({
+      sessionId,
+      turnIndex,
+      stepIndex: startStepIndex,
+      actionPrimitive: "prepareTurn",
+      status: "completed",
+      outputRefs: [promptPackId],
+      promptPackRef: promptPackId,
+      now: request.now,
+    }),
+    createMainLoopStepRecord({
+      sessionId,
+      turnIndex,
+      stepIndex: startStepIndex + 1,
+      actionPrimitive: "assemblePromptPack",
+      status: "completed",
+      outputRefs: assembled.promptPack.materials.map((material) => material.id),
+      promptPackRef: promptPackId,
+      now: request.now,
+    }),
+    createMainLoopStepRecord({
+      sessionId,
+      turnIndex,
+      stepIndex: startStepIndex + 2,
+      actionPrimitive: "buildCachePlan",
+      status: "completed",
+      inputRefs: assembled.promptPack.materials.map((material) => material.id),
+      outputRefs: assembled.promptPack.cachePlan.segments.map((segment) => segment.segmentId),
+      promptPackRef: promptPackId,
+      now: request.now,
+      metadata: {
+        cacheablePrefixSegmentKinds: assembled.promptPack.cachePlan.cacheablePrefixSegmentKinds,
+        cacheRiskWarnings: assembled.promptPack.cachePlan.cacheRiskWarnings,
+      },
+    }),
+  ];
+
+  return {
+    ok: true,
+    promptPackId,
+    promptPack: assembled.promptPack,
+    cachePlan: assembled.promptPack.cachePlan,
+    turnRecord: {
+      turnId: `${sessionId}:turn:${turnIndex}`,
+      sessionId,
+      turnIndex,
+      lifecycle: "prepared",
+      promptPackRef: promptPackId,
+      cachePlanRef: `${promptPackId}:cachePlan`,
+      segmentKinds: assembled.promptPack.cachePlan.segments.map((segment) => segment.segmentKind),
+      stepRecords,
+      metadata: {
+        cacheRiskWarnings: assembled.promptPack.cachePlan.cacheRiskWarnings,
+      },
+    },
+    events: [...defined.events, ...assembled.events, "agentCore.execution.mainLoop.turnPrepared"],
+  };
 }
 
 export function planFrameworkMainLoopHandoff(request: FrameworkMainLoopHandoffRequest): FrameworkMainLoopHandoffResult {

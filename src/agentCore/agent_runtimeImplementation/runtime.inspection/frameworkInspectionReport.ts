@@ -5,6 +5,7 @@
  */
 
 import type { MainLoopStepRecord } from "../../agent_executionEngine/coreLogic/mainLoop.js";
+import type { PromptPackCachePlan } from "../../agent_executionEngine/promptPack/promptAssembler.js";
 import type { RuntimeFaultSignal } from "../runtime.selfRepair/faultClassifier.js";
 import {
   createBaseToolRealityLedger,
@@ -60,6 +61,7 @@ export type FrameworkDependencyInput = {
 
 export type FrameworkPromptPackPreviewInput = {
   promptPackId: string;
+  cachePlan?: PromptPackCachePlan;
   materials: readonly {
     materialId: string;
     kind: string;
@@ -134,6 +136,21 @@ export type FrameworkInspectionReport = {
     promptPackId: string;
     materialCount: number;
     materials: readonly FrameworkPromptPackPreviewInput["materials"][number][];
+    cachePlan?: {
+      strategy: PromptPackCachePlan["strategy"];
+      segmentCount: number;
+      segments: readonly {
+        segmentKind: string;
+        stability: string;
+        cachePolicy: string;
+        segmentHash: string;
+        estimatedTokens: number;
+        materialRefs: readonly string[];
+      }[];
+      cacheablePrefixSegmentKinds: readonly string[];
+      dynamicSegmentKinds: readonly string[];
+      cacheRiskWarnings: readonly string[];
+    };
     providerPayloadBuilt: false;
   };
   mainLoopTrace: {
@@ -282,6 +299,21 @@ function normalizePromptPreview(
       ...material,
       preview: publicPreview(material.preview),
     })),
+    cachePlan: preview.cachePlan === undefined ? undefined : {
+      strategy: preview.cachePlan.strategy,
+      segmentCount: preview.cachePlan.segments.length,
+      segments: preview.cachePlan.segments.map((segment) => ({
+        segmentKind: segment.segmentKind,
+        stability: segment.stability,
+        cachePolicy: segment.cachePolicy,
+        segmentHash: segment.segmentHash,
+        estimatedTokens: segment.estimatedTokens,
+        materialRefs: segment.materialRefs,
+      })),
+      cacheablePrefixSegmentKinds: preview.cachePlan.cacheablePrefixSegmentKinds,
+      dynamicSegmentKinds: preview.cachePlan.dynamicSegmentKinds,
+      cacheRiskWarnings: preview.cachePlan.cacheRiskWarnings,
+    },
     providerPayloadBuilt: false,
   };
 }
@@ -455,6 +487,7 @@ export function createFrameworkInspectionReport(
   const toolMissing = requestedTools.filter((tool) => tool.ready === false);
   const providerMissing = (request.providers ?? []).filter((provider) => provider.ready === false);
   const dependencySummary = summarizeMissing(request.dependencies ?? [], (dependency) => dependency.dependencyId);
+  const promptCacheWarnings = request.promptPackPreview?.cachePlan?.cacheRiskWarnings ?? [];
   const dependencyOwners = Object.fromEntries(
     [...new Set((request.dependencies ?? []).map((dependency) => dependency.owner))].map((owner) => [
       owner,
@@ -486,6 +519,13 @@ export function createFrameworkInspectionReport(
     ...providerMissing.map((provider) =>
       readinessFinding("provider", provider.providerId, provider.reason, provider.required !== false),
     ),
+    ...promptCacheWarnings.map((warning): FrameworkInspectionFinding => ({
+      findingId: `promptPack.cache.${warning}`,
+      severity: "warning",
+      section: "promptPack",
+      message: `PromptPack cache risk detected: ${warning}`,
+      remediation: "Keep stable prompt/tool material before dynamic turn, retrieval, and observation material.",
+    })),
     ...dependencySummary.findings,
   ];
   const byToolDeveloperReadiness = emptyToolDeveloperReadinessCounts();

@@ -4,8 +4,10 @@ import test from "node:test";
 
 import {
   MAIN_LOOP_ACTION_PRIMITIVES,
+  adjudicateRuntimeDecision,
   planAgentMainLoopTick,
   planFrameworkMainLoopHandoff,
+  prepareMainLoopTurn,
 } from "../../../../src/agentCore/agent_executionEngine/coreLogic/mainLoop.js";
 
 defineAgentCoreContractTest({
@@ -82,11 +84,21 @@ test("planFrameworkMainLoopHandoff records model, tool, procedure, approval, and
   if (!model.ok) return;
   assert.deepEqual(
     model.plan.stepRecords.map((record) => record.actionPrimitive),
-    ["handoffPromptPack", "handoffModelInvocation", "handoffModelDecision"],
+    [
+      "prepareTurn",
+      "assemblePromptPack",
+      "buildCachePlan",
+      "handoffPromptPack",
+      "lowerPrompt",
+      "handoffModelInvocation",
+      "interpretModelDecision",
+      "adjudicateDecision",
+      "handoffModelDecision",
+    ],
   );
   assert.equal(model.plan.stepRecords[0]?.promptPackRef, "prompt-1");
-  assert.equal(model.plan.stepRecords[1]?.loweredPromptRef, "lowered-1");
-  assert.equal(model.plan.stepRecords[2]?.modelCallId, "model-call-1");
+  assert.equal(model.plan.stepRecords[4]?.loweredPromptRef, "lowered-1");
+  assert.equal(model.plan.stepRecords[5]?.modelCallId, "model-call-1");
   assert.equal(model.plan.stepRecords[0]?.timestamps.plannedAt, "2026-05-04T00:00:00.000Z");
 
   const tool = planFrameworkMainLoopHandoff({
@@ -133,4 +145,83 @@ test("planFrameworkMainLoopHandoff records model, tool, procedure, approval, and
   assert.equal(failed.plan.stepRecords[0]?.actionPrimitive, "fail");
   assert.equal(failed.plan.stepRecords[0]?.status, "failed");
   assert.equal(failed.plan.stepRecords[0]?.error?.code, "MODEL_FAILED");
+});
+
+test("prepareMainLoopTurn assembles PromptPack and cache plan for a formal turn", () => {
+  const result = prepareMainLoopTurn({
+    runtimeId: "runtime",
+    sessionId: "session",
+    promptPackId: "prompt-1",
+    turnIndex: 2,
+    targetModel: "gpt-test",
+    now: "2026-05-04T00:00:00.000Z",
+    materials: [
+      {
+        id: "agent-base",
+        kind: "system",
+        text: "You are a repo inspector.",
+        source: "agent.prompt",
+        trusted: true,
+        metadata: { promptSegmentKind: "agent-base-static" },
+      },
+      {
+        id: "task",
+        kind: "user",
+        text: "Read package.json",
+        source: "user",
+        metadata: { promptSegmentKind: "turn-dynamic" },
+      },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected turn preparation");
+  assert.equal(result.promptPackId, "prompt-1");
+  assert.deepEqual(
+    result.cachePlan.segments.map((segment) => segment.segmentKind),
+    ["core-static", "agent-base-static", "turn-dynamic"],
+  );
+  assert.deepEqual(
+    result.turnRecord.stepRecords.map((record) => record.actionPrimitive),
+    ["prepareTurn", "assemblePromptPack", "buildCachePlan"],
+  );
+});
+
+test("adjudicateRuntimeDecision lets runtime overrule model proposals", () => {
+  const finalBlocked = adjudicateRuntimeDecision({
+    decision: {
+      decisionId: "decision-final",
+      kind: "finalOutput",
+      finalOutput: "done",
+      observationRefs: [],
+      metadata: {},
+    },
+    pendingApprovalRefs: ["approval-1"],
+  });
+  assert.equal(finalBlocked.kind, "requiresApproval");
+  assert.equal(finalBlocked.accepted, false);
+
+  const policyBlocked = adjudicateRuntimeDecision({
+    decision: {
+      decisionId: "decision-tool",
+      kind: "toolCall",
+      toolCall: { callId: "call-1", toolId: "shell.commandExecution", arguments: {} },
+      observationRefs: [],
+      metadata: {},
+    },
+    policy: { accepted: false, reason: "shell is restricted" },
+  });
+  assert.equal(policyBlocked.kind, "blockedByPolicy");
+  assert.equal(policyBlocked.accepted, false);
+
+  const allowed = adjudicateRuntimeDecision({
+    decision: {
+      decisionId: "decision-continue",
+      kind: "continue",
+      observationRefs: [],
+      metadata: {},
+    },
+  });
+  assert.equal(allowed.kind, "continueAllowed");
+  assert.equal(allowed.accepted, true);
 });

@@ -88,6 +88,13 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
     result.promptPack.materials.map((material) => material.id),
     [BASIC_CORE_PROMPT_MATERIAL_ID, "tool-declaration"],
   );
+  assert.deepEqual(
+    result.promptPack.segments.map((segment) => segment.segmentKind),
+    ["core-static", "capability-static"],
+  );
+  assert.deepEqual(result.promptPack.cachePlan.cacheablePrefixSegmentKinds, ["core-static", "capability-static"]);
+  assert.equal(result.promptPack.cachePlan.providerPayloadCreated, false);
+  assert.match(result.promptPack.cacheTelemetry.segmentHashes["core-static"], /^[a-f0-9]{64}$/);
   assert.equal(result.promptPack.toolPack.declarations[0]?.name, "workspace_read");
   assert.match(result.promptPack.renderedText, /Praxis root head/);
   assert.deepEqual(
@@ -102,6 +109,113 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
   assert.deepEqual(
     result.promptPack.sourceRecords.map((record) => record.sourceCategory),
     ["declared-built-in", "declared-built-in"],
+  );
+});
+
+test("assemblePromptPack keeps stable segments before dynamic material and preserves capability provider order", () => {
+  const defined = definePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    basicCorePromptText: "Praxis root head.",
+    materials: [
+      {
+        id: "task",
+        kind: "user",
+        text: "Inspect this repo.",
+        source: "user",
+        priority: 100,
+        metadata: { promptSegmentKind: "turn-dynamic" },
+      },
+      {
+        id: "mcp",
+        kind: "tool",
+        text: "External MCP search.",
+        source: "runtime.tool",
+        priority: 99,
+        trusted: true,
+        metadata: { promptSegmentKind: "capability-static", toolMaterialType: "declaration", toolProviderKind: "mcp-static" },
+      },
+      {
+        id: "base",
+        kind: "tool",
+        text: "Builtin code read.",
+        source: "runtime.tool",
+        priority: 1,
+        trusted: true,
+        metadata: { promptSegmentKind: "capability-static", toolMaterialType: "declaration", toolProviderKind: "baseTool" },
+      },
+      {
+        id: "summary",
+        kind: "cmp",
+        text: "Stable-ish session summary.",
+        source: "cmp.summary",
+        priority: 50,
+        trusted: true,
+        metadata: { promptSegmentKind: "session-summary" },
+      },
+    ],
+  });
+  assert.equal(defined.ok, true);
+  if (!defined.ok) throw new Error("expected setup materials to define");
+
+  const result = assemblePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    materials: defined.definition.materials,
+    ordering: "priority-desc",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected PromptPack assembly");
+
+  assert.deepEqual(
+    result.promptPack.materials.map((material) => material.id),
+    [BASIC_CORE_PROMPT_MATERIAL_ID, "base", "mcp", "summary", "task"],
+  );
+  assert.deepEqual(
+    result.promptPack.cachePlan.dynamicSegmentKinds,
+    ["turn-dynamic"],
+  );
+});
+
+test("assemblePromptPack preserves developer input order inside the same segment by default", () => {
+  const defined = definePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    includeBasicCorePrompt: false,
+    materials: [
+      {
+        id: "project-rule-second-id",
+        kind: "file",
+        text: "First project rule from prompt package.",
+        source: "prompt.package.first",
+        trusted: true,
+        metadata: { promptSegmentKind: "project-static" },
+      },
+      {
+        id: "project-rule-first-id",
+        kind: "file",
+        text: "Second project rule from prompt package.",
+        source: "prompt.package.second",
+        trusted: true,
+        metadata: { promptSegmentKind: "project-static" },
+      },
+    ],
+  });
+  assert.equal(defined.ok, true);
+  if (!defined.ok) throw new Error("expected setup materials to define");
+
+  const result = assemblePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    materials: defined.definition.materials,
+    ordering: "input-order",
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected PromptPack assembly");
+
+  assert.deepEqual(
+    result.promptPack.materials.map((material) => material.id),
+    ["project-rule-second-id", "project-rule-first-id"],
   );
 });
 

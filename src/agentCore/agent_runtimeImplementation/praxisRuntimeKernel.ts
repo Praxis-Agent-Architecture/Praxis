@@ -17,7 +17,9 @@ import { receiveTextInput } from "../agent_executionEngine/IOTransceiver/inputRe
 import { exposeTextOutput } from "../agent_executionEngine/IOTransceiver/outputExposer/textExposer.js";
 import {
   createMainLoopStepRecord,
+  prepareMainLoopTurn,
   planFrameworkMainLoopHandoff,
+  type MainLoopTurnRecord,
   type MainLoopStepRecord,
 } from "../agent_executionEngine/coreLogic/mainLoop.js";
 import {
@@ -31,12 +33,8 @@ import {
   createObservationMaterial,
   type RuntimeObservationMaterial,
 } from "../agent_executionEngine/coreLogic/observationIntegrator.js";
+import type { StandardPromptPack } from "../agent_executionEngine/promptPack/promptAssembler.js";
 import {
-  assemblePromptPack,
-  type StandardPromptPack,
-} from "../agent_executionEngine/promptPack/promptAssembler.js";
-import {
-  definePromptPack,
   type PromptPackMaterialDraft,
 } from "../agent_executionEngine/promptPack/promptDefiner.js";
 import {
@@ -348,6 +346,23 @@ function metadataRecord(value: Readonly<Record<string, unknown>>): Readonly<Reco
   );
 }
 
+function toolProviderKind(tool: AgentManifest["harness"]["tools"][number]): "baseTool" | "tap" | "mcp-static" | "dynamic" {
+  const explicit = tool.metadata?.toolProviderKind;
+  if (explicit === "tap" || explicit === "officialTap") return "tap";
+  if (explicit === "mcp" || explicit === "mcp-static") return "mcp-static";
+  if (explicit === "dynamic" || explicit === "external-dynamic") return "dynamic";
+  if (tool.family === "mcpBase" || tool.toolId.startsWith("mcp.")) return "mcp-static";
+  if (tool.toolId.startsWith("tap.") || tool.family === "tap") return "tap";
+  return "baseTool";
+}
+
+function toolProviderSortWeight(kind: ReturnType<typeof toolProviderKind>): number {
+  if (kind === "baseTool") return 0;
+  if (kind === "tap") return 1;
+  if (kind === "mcp-static") return 2;
+  return 3;
+}
+
 function promptMaterialsForTurn(input: {
   manifest: AgentManifest;
   task: string;
@@ -356,8 +371,14 @@ function promptMaterialsForTurn(input: {
   observations: readonly RuntimeObservationMaterial[];
   events: readonly string[];
 }): readonly PromptPackMaterialDraft[] {
-  const toolMaterials = input.manifest.harness.tools.map((tool, index): PromptPackMaterialDraft => {
+  const orderedTools = [...input.manifest.harness.tools].sort((left, right) => {
+    const providerDelta = toolProviderSortWeight(toolProviderKind(left)) - toolProviderSortWeight(toolProviderKind(right));
+    if (providerDelta !== 0) return providerDelta;
+    return left.toolId.localeCompare(right.toolId);
+  });
+  const toolMaterials = orderedTools.map((tool, index): PromptPackMaterialDraft => {
     const providerName = input.toolMappings.find((mapping) => mapping.toolId === tool.toolId)?.providerName ?? providerToolName(tool.toolId);
+    const providerKind = toolProviderKind(tool);
     return {
       id: `tool:${tool.toolId}`,
       kind: "tool",
@@ -367,6 +388,9 @@ function promptMaterialsForTurn(input: {
       trusted: true,
       scope: "runtime.toolProjection",
       metadata: {
+        promptSegmentKind: "capability-static",
+        toolProviderKind: providerKind,
+        toolOrder: index,
         toolMaterialType: "declaration",
         toolId: tool.toolId,
         toolName: providerName,
@@ -386,7 +410,7 @@ function promptMaterialsForTurn(input: {
       priority: 100,
       trusted: false,
       scope: "user.task",
-      metadata: { turnIndex: input.turnIndex },
+      metadata: { promptSegmentKind: "turn-dynamic", turnIndex: input.turnIndex },
     },
     {
       id: `runtime:${input.turnIndex}`,
@@ -401,6 +425,7 @@ function promptMaterialsForTurn(input: {
       trusted: true,
       scope: "runtime.state",
       metadata: {
+        promptSegmentKind: "observation-dynamic",
         turnIndex: input.turnIndex,
         maxModelTurns: input.manifest.harness.loop.maxModelTurns ?? 2,
         maxToolCalls: input.manifest.harness.loop.maxToolCalls ?? 4,
@@ -814,6 +839,8 @@ async function buildPromptPackAndLower(input: {
   manifest: AgentManifest;
   task: string;
   turnIndex: number;
+  startStepIndex?: number;
+  now?: string;
   modelCaller: { kind: "application"; id: string; sessionId: string };
   toolMappings: readonly ProviderToolMapping[];
   observations: readonly RuntimeObservationMaterial[];
@@ -824,6 +851,7 @@ async function buildPromptPackAndLower(input: {
       promptPackId: string;
       promptPack: StandardPromptPack;
       loweredPrompt: LoweredPromptEnvelope;
+      turnRecord: MainLoopTurnRecord;
       events: readonly string[];
     }
   | {
@@ -833,9 +861,13 @@ async function buildPromptPackAndLower(input: {
     }
 > {
   const promptPackId = input.manifest.harness.promptPack.promptPackId ?? `${input.sessionId}:promptPack:${input.turnIndex + 1}`;
-  const defined = definePromptPack({
+  const preparedTurn = prepareMainLoopTurn({
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
+    promptPackId,
+    turnIndex: input.turnIndex,
+    startStepIndex: input.startStepIndex,
+    now: input.now,
     targetModel: input.manifest.model.model,
     loweringHint: input.manifest.model.endpointShape,
     materials: promptMaterialsForTurn({
@@ -846,32 +878,12 @@ async function buildPromptPackAndLower(input: {
       observations: input.observations,
       events: input.events,
     }),
-    requestedScopes: ["promptPack.define"],
-    allowedScopes: ["promptPack.define"],
-    runtimeReady: true,
-    contract: { accepted: true },
-    governance: { accepted: true },
   });
-  if (!defined.ok) {
+  if (!preparedTurn.ok) {
     return {
       ok: false,
-      error: kernelError("PROMPT_PACK_FAILED", defined.error.message, "runtime-state"),
-      events: defined.events,
-    };
-  }
-
-  const assembled = assemblePromptPack({
-    runtimeId: input.runtimeId,
-    sessionId: input.sessionId,
-    targetModel: input.manifest.model.model,
-    materials: defined.definition.materials,
-    ordering: "priority-desc",
-  });
-  if (!assembled.ok) {
-    return {
-      ok: false,
-      error: kernelError("PROMPT_PACK_FAILED", assembled.error.message, "runtime-state"),
-      events: [...defined.events, ...assembled.events],
+      error: kernelError("PROMPT_PACK_FAILED", preparedTurn.error.message, "runtime-state"),
+      events: preparedTurn.events,
     };
   }
 
@@ -880,10 +892,12 @@ async function buildPromptPackAndLower(input: {
     caller: input.modelCaller,
     promptPack: {
       id: promptPackId,
-      materials: promptLoweringMaterials(assembled.promptPack),
+      materials: promptLoweringMaterials(preparedTurn.promptPack),
       metadata: {
         source: "PraxisRuntimeKernel",
-        format: assembled.promptPack.format,
+        format: preparedTurn.promptPack.format,
+        cachePlan: preparedTurn.cachePlan,
+        turnRecord: preparedTurn.turnRecord,
       },
     },
     target: {
@@ -899,16 +913,17 @@ async function buildPromptPackAndLower(input: {
     return {
       ok: false,
       error: kernelError("PROMPT_PACK_FAILED", lowered.error.message, "runtime-state"),
-      events: [...defined.events, ...assembled.events, ...lowered.events],
+      events: [...preparedTurn.events, ...lowered.events],
     };
   }
 
   return {
     ok: true,
     promptPackId,
-    promptPack: assembled.promptPack,
+    promptPack: preparedTurn.promptPack,
     loweredPrompt: lowered.loweredPrompt,
-    events: [...defined.events, ...assembled.events, ...lowered.events],
+    turnRecord: preparedTurn.turnRecord,
+    events: [...preparedTurn.events, ...lowered.events],
   };
 }
 
@@ -1515,7 +1530,7 @@ export class PraxisRuntimeKernel {
         step: createMainLoopStepRecord({
           sessionId,
           turnIndex: 0,
-          stepIndex: 0,
+          stepIndex: 1,
           actionPrimitive: "receiveInput",
           status: "failed",
           inputRefs: ["runtime.input.text"],
@@ -1549,7 +1564,7 @@ export class PraxisRuntimeKernel {
       step: createMainLoopStepRecord({
         sessionId,
         turnIndex: 0,
-        stepIndex: 0,
+        stepIndex: 1,
         actionPrimitive: "receiveInput",
         status: "completed",
         inputRefs: ["runtime.input.text"],
@@ -1594,13 +1609,15 @@ export class PraxisRuntimeKernel {
 
     for (let turn = 0; turn < maxModelTurns; turn += 1) {
       await store.appendState(state(sessionId, `state:model:${turn + 1}`, "model", now(), { turn }));
-      const stepBase = turn * 10 + 1;
+      const stepBase = turn * 20 + 2;
       const prompt = await buildPromptPackAndLower({
         runtimeId,
         sessionId,
         manifest,
         task: input.input.normalizedText,
         turnIndex: turn,
+        startStepIndex: stepBase,
+        now: now(),
         modelCaller,
         toolMappings,
         observations,
@@ -1645,6 +1662,16 @@ export class PraxisRuntimeKernel {
         };
       }
 
+      for (const turnStep of prompt.turnRecord.stepRecords) {
+        await recordMainLoopStep({
+          store,
+          sessionId,
+          createdAt: now(),
+          events,
+          mainLoopSteps,
+          step: turnStep,
+        });
+      }
       await recordMainLoopStep({
         store,
         sessionId,
@@ -1654,30 +1681,7 @@ export class PraxisRuntimeKernel {
         step: createMainLoopStepRecord({
           sessionId,
           turnIndex: turn,
-          stepIndex: stepBase,
-          actionPrimitive: "assemblePromptPack",
-          status: "completed",
-          inputRefs: ["runtime.input.normalized", ...observations.map((observation) => observation.observationId)],
-          outputRefs: prompt.promptPack.materials.map((material) => material.id),
-          promptPackRef: prompt.promptPackId,
-          observationRefs: observations.map((observation) => observation.observationId),
-          now: now(),
-          metadata: {
-            materialCount: prompt.promptPack.materials.length,
-            toolDeclarationCount: prompt.promptPack.toolPack.declarations.length,
-          },
-        }),
-      });
-      await recordMainLoopStep({
-        store,
-        sessionId,
-        createdAt: now(),
-        events,
-        mainLoopSteps,
-        step: createMainLoopStepRecord({
-          sessionId,
-          turnIndex: turn,
-          stepIndex: stepBase + 1,
+          stepIndex: stepBase + 3,
           actionPrimitive: "lowerPrompt",
           status: "completed",
           inputRefs: [prompt.promptPackId],
@@ -1731,7 +1735,7 @@ export class PraxisRuntimeKernel {
         step: createMainLoopStepRecord({
           sessionId,
           turnIndex: turn,
-          stepIndex: stepBase + 2,
+          stepIndex: stepBase + 4,
           actionPrimitive: "invokeModel",
           status: modelResult.ok ? "completed" : "failed",
           inputRefs: [prompt.loweredPrompt.loweringId],
@@ -1804,7 +1808,7 @@ export class PraxisRuntimeKernel {
         step: createMainLoopStepRecord({
           sessionId,
           turnIndex: turn,
-          stepIndex: stepBase + 3,
+          stepIndex: stepBase + 5,
           actionPrimitive: "interpretModelDecision",
           status: decisionResult.ok ? "completed" : "failed",
           inputRefs: [modelInvocationId],
@@ -1864,7 +1868,7 @@ export class PraxisRuntimeKernel {
             step: createMainLoopStepRecord({
               sessionId,
               turnIndex: turn,
-              stepIndex: stepBase + 4 + decisionIndex,
+              stepIndex: stepBase + 6 + decisionIndex,
               actionPrimitive: "fail",
               status: "failed",
               inputRefs: [decision.decisionId],
@@ -1941,7 +1945,7 @@ export class PraxisRuntimeKernel {
             step: createMainLoopStepRecord({
               sessionId,
               turnIndex: turn,
-              stepIndex: stepBase + 4 + decisionIndex,
+              stepIndex: stepBase + 6 + decisionIndex,
               actionPrimitive: "requestApproval",
               status: "waitingApproval",
               inputRefs: [decision.decisionId],
@@ -2038,7 +2042,7 @@ export class PraxisRuntimeKernel {
             step: createMainLoopStepRecord({
               sessionId,
               turnIndex: turn,
-              stepIndex: stepBase + 4 + decisionIndex,
+              stepIndex: stepBase + 6 + decisionIndex,
               actionPrimitive: "invokeBaseTool",
               status: executed.record.ok ? "completed" : (isRecord(executed.record.error) && executed.record.error.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed"),
               inputRefs: [decision.decisionId],
@@ -2169,7 +2173,7 @@ export class PraxisRuntimeKernel {
             step: createMainLoopStepRecord({
               sessionId,
               turnIndex: turn,
-              stepIndex: stepBase + 4 + decisionIndex,
+              stepIndex: stepBase + 6 + decisionIndex,
               actionPrimitive: "executeEphemeralProcedure",
               status: procedureResult.ok ? "completed" : (procedureResult.error?.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed"),
               inputRefs: [decision.decisionId],
@@ -2241,6 +2245,10 @@ export class PraxisRuntimeKernel {
       contract: { accepted: true },
     });
     events.push(...output.events);
+    const outputStepIndex = Math.max(
+      0,
+      ...mainLoopSteps.map((step) => step.stepIndex),
+    ) + 1;
     if (!output.ok) {
       const error = kernelError("TEXT_OUTPUT_REJECTED", output.error.message, "io");
       await store.updateSessionStatus(sessionId, "failed");
@@ -2253,7 +2261,7 @@ export class PraxisRuntimeKernel {
         step: createMainLoopStepRecord({
           sessionId,
           turnIndex: maxModelTurns,
-          stepIndex: maxModelTurns * 10 + 1,
+          stepIndex: outputStepIndex,
           actionPrimitive: "exposeOutput",
           status: "failed",
           inputRefs: ["runtime.output.final"],
@@ -2293,10 +2301,10 @@ export class PraxisRuntimeKernel {
       events,
       mainLoopSteps,
       step: createMainLoopStepRecord({
-        sessionId,
-        turnIndex: maxModelTurns,
-        stepIndex: maxModelTurns * 10 + 1,
-        actionPrimitive: "exposeOutput",
+          sessionId,
+          turnIndex: maxModelTurns,
+          stepIndex: outputStepIndex,
+          actionPrimitive: "exposeOutput",
         status: "completed",
         inputRefs: ["runtime.output.final"],
         outputRefs: [output.exposed.outputId],

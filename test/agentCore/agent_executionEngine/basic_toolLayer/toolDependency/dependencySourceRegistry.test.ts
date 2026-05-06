@@ -1,5 +1,6 @@
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
+import os from "node:os";
 import test from "node:test";
 import {
   dependencySourceRegistryDescriptor,
@@ -53,6 +54,20 @@ test("C# dependency source uses a managed dotnet tool install recipe", () => {
   assert.equal(result.plan.packageManager, "dotnet-tool");
   assert.equal(result.plan.approvalRequired, false);
   assert.deepEqual(result.plan.steps[0]?.args, ["tool", "install", "csharp-ls", "--tool-path", "/tmp/praxis-tool-deps/bin"]);
+});
+
+test("managed dependency root falls back to the real user cache, not a literal project ~/ path", () => {
+  const result = planDependencyInstallation({
+    dependencyId: "lsp.server.typescript-language-server",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  assert.equal(result.plan.managedRoot, `${os.homedir()}/.cache/praxis/tool-deps`);
+  assert.equal(result.plan.managedRoot.startsWith("~"), false);
 });
 
 test("unregistered and detect-only dependencies do not get silent automatic install plans", () => {

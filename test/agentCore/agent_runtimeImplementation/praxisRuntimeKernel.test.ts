@@ -508,9 +508,13 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.ok, true);
   assert.equal(result.toolCalls[0]?.toolId, "code.read");
+  assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "prepareTurn"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "assemblePromptPack"), true);
+  assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "buildCachePlan"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "interpretModelDecision"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "invokeBaseTool"), true);
+  const buildCacheStep = result.mainLoopSteps.find((step) => step.actionPrimitive === "buildCachePlan");
+  assert.equal(Array.isArray(buildCacheStep?.metadata.cacheablePrefixSegmentKinds), true);
   assert.equal(result.mainLoopSteps.some((step) => step.timestamps.plannedAt.startsWith("1970-")), false);
   assert.equal(result.state.invocations.some((record) => record.kind === "tool" && record.ok), true);
   assert.equal(result.state.events.some((record) => record.type === "runtime.baseTool.dependencies.preflight"), true);

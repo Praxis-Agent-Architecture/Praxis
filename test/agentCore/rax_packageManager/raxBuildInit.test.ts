@@ -41,19 +41,24 @@ test("rax build init fullstack prepares the mature agent workspace layout", () =
     sessionPersistence: "sqlite",
   });
 
-  assert.equal(plan.directories.includes("interfaces"), true);
-  assert.equal(plan.directories.includes("config"), true);
+  assert.equal(plan.directories.includes("application"), true);
+  assert.equal(plan.directories.includes("agents/mainAgent/interfaces"), true);
+  assert.equal(plan.directories.includes("agents/mainAgent/config"), true);
+  assert.equal(plan.directories.includes("authentication"), true);
+  assert.equal(plan.directories.includes("context"), true);
+  assert.equal(plan.directories.includes("memory"), true);
+  assert.equal(plan.directories.includes("topology"), true);
   assert.equal(plan.directories.includes(".rax_workspace/approvals"), true);
   assert.equal(plan.directories.includes(".rax_workspace/sandbox"), true);
-  assert.equal(plan.files.some((file) => file.path === "interfaces/interfaceSurface.md"), true);
-  assert.equal(plan.files.some((file) => file.path === "config/modelFleet.ts"), true);
-  assert.equal(plan.files.some((file) => file.path === "state/statePlane.ts"), true);
+  assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/interfaces/interfaceSurface.md"), true);
+  assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/config/modelFleet.ts"), true);
+  assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/state/statePlane.ts"), true);
   const tsconfig = plan.files.find((file) => file.path === "tsconfig.json")?.content ?? "";
-  assert.match(tsconfig, /config\/\*\*\/\*\.ts/);
-  assert.match(tsconfig, /policies\/\*\*\/\*\.ts/);
-  assert.match(tsconfig, /sandbox\/\*\*\/\*\.ts/);
-  assert.match(tsconfig, /tools\/\*\*\/\*\.ts/);
-  const agent = plan.files.find((file) => file.path === "agents/mainAgent.ts")?.content ?? "";
+  assert.match(tsconfig, /application\/\*\*\/\*\.ts/);
+  assert.match(tsconfig, /agents\/\*\*\/\*\.ts/);
+  assert.match(tsconfig, /authentication\/\*\*\/\*\.ts/);
+  assert.match(tsconfig, /context\/\*\*\/\*\.ts/);
+  const agent = plan.files.find((file) => file.path === "agents/mainAgent/agent.ts")?.content ?? "";
   assert.match(agent, /praxis\.sandbox\.linuxBubblewrap\(\)/);
   assert.match(agent, /onApprovalRef/);
   assert.match(agent, /"approve"/);
@@ -88,10 +93,10 @@ test("rax build init custom supports a non-interactive wizard input path", async
   assert.equal(result.exitCode, 0);
   const plan = JSON.parse(result.output) as { preset: string; files: { path: string; content: string }[] };
   assert.equal(plan.preset, "custom");
-  const agent = plan.files.find((file) => file.path === "agents/mainAgent.ts")?.content ?? "";
+  const agent = plan.files.find((file) => file.path === "agents/mainAgent/agent.ts")?.content ?? "";
   assert.match(agent, /praxis\.sandbox\.workspaceOnly\(\)/);
   assert.match(agent, /praxis\.toolPolicies\.restricted\(\)/);
-  const sandboxProfile = plan.files.find((file) => file.path === "sandbox/profile.ts")?.content ?? "";
+  const sandboxProfile = plan.files.find((file) => file.path === "agents/mainAgent/sandbox/profile.ts")?.content ?? "";
   assert.match(sandboxProfile, /praxis\.sandbox\.workspaceOnly\(\)/);
 });
 
@@ -136,6 +141,23 @@ test("rax inspect auto-discovers named Agent exports", async () => {
 
   assert.equal(result.exitCode, 0);
   assert.match(result.output, /agent\.named-export/);
+  const payload = JSON.parse(result.output) as {
+    readiness?: {
+      promptPackPreview?: {
+        cachePlan?: {
+          segmentCount?: number;
+          cacheablePrefixSegmentKinds?: readonly string[];
+          dynamicSegmentKinds?: readonly string[];
+        };
+      };
+    };
+  };
+  assert.ok((payload.readiness?.promptPackPreview?.cachePlan?.segmentCount ?? 0) > 0);
+  assert.deepEqual(
+    payload.readiness?.promptPackPreview?.cachePlan?.cacheablePrefixSegmentKinds?.slice(0, 1),
+    ["core-static"],
+  );
+  assert.ok(payload.readiness?.promptPackPreview?.cachePlan?.dynamicSegmentKinds?.includes("turn-dynamic"));
 });
 
 test("rax test executes a runtime dry-run after readiness checks", async () => {

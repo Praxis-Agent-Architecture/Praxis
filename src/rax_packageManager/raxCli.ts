@@ -5,11 +5,13 @@
  */
 
 import { createInterface } from "node:readline/promises";
+import { readFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { praxis, type AgentRunResult } from "../agentCore/index.js";
+import { praxis, type AgentManifest, type AgentRunResult, type PromptMaterialSource } from "../agentCore/index.js";
 import {
   createRaxBuildInitPlan,
   initRaxProject,
@@ -21,6 +23,11 @@ import { planRaxDeveloperCommand } from "./raxDeveloperCommandContract.js";
 export type RaxCliResult = {
   exitCode: number;
   output: string;
+};
+
+type RaxProjectDescriptor = {
+  entry?: string;
+  export?: string;
 };
 
 function argValue(args: readonly string[], name: string): string | undefined {
@@ -116,10 +123,54 @@ async function loadAgentModule(agentPath: string): Promise<Record<string, unknow
   return await import(pathToFileURL(absolute).href) as Record<string, unknown>;
 }
 
+async function pathExists(pathname: string): Promise<boolean> {
+  try {
+    await stat(pathname);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveAgentEntry(inputPath: string, exportName?: string): Promise<{ agentPath: string; exportName?: string }> {
+  const absolute = path.resolve(inputPath);
+  const info = await stat(absolute);
+  if (!info.isDirectory()) {
+    return { agentPath: absolute, exportName };
+  }
+
+  const descriptorPath = path.join(absolute, "rax.project.json");
+  if (await pathExists(descriptorPath)) {
+    const descriptor = JSON.parse(await readFile(descriptorPath, "utf8")) as RaxProjectDescriptor;
+    if (typeof descriptor.entry === "string" && descriptor.entry.trim().length > 0) {
+      return {
+        agentPath: path.resolve(absolute, descriptor.entry),
+        exportName: exportName ?? descriptor.export,
+      };
+    }
+  }
+
+  const conventionalEntries = [
+    "praxis.agent.ts",
+    "agents/mainAgent.ts",
+    "agents/repoInspectorAgent.ts",
+  ];
+  for (const entry of conventionalEntries) {
+    const candidate = path.join(absolute, entry);
+    if (await pathExists(candidate)) {
+      return { agentPath: candidate, exportName };
+    }
+  }
+
+  throw new Error(`no Praxis agent entry found in ${inputPath}. Add rax.project.json with {"entry":"praxis.agent.ts"}.`);
+}
+
 async function compileAgentFile(agentPath: string, exportName?: string) {
-  const module = await loadAgentModule(agentPath);
-  if (exportName !== undefined && exportName.trim().length > 0) {
-    return praxis.compileAgent(module[exportName] as never);
+  const entry = await resolveAgentEntry(agentPath, exportName);
+  const module = await loadAgentModule(entry.agentPath);
+  const effectiveExportName = entry.exportName;
+  if (effectiveExportName !== undefined && effectiveExportName.trim().length > 0) {
+    return praxis.compileAgent(module[effectiveExportName] as never);
   }
 
   const candidates = [
@@ -148,11 +199,173 @@ async function compileAgentFile(agentPath: string, exportName?: string) {
   return lastFailure ?? praxis.compileAgent(undefined as never);
 }
 
+function materialSourceText(material: PromptMaterialSource, fallbackRef: string): string {
+  if (material.kind === "markdown") {
+    return material.text;
+  }
+  if (material.kind === "markdownFile") {
+    try {
+      return readFileSync(path.resolve(material.path), "utf8");
+    } catch {
+      return `Prompt markdown file declared at ${material.path}.`;
+    }
+  }
+  return `Prompt material reference declared as ${material.ref || fallbackRef}.`;
+}
+
+function materialSourceRef(material: PromptMaterialSource, fallbackRef: string): string {
+  if (material.kind === "markdown") {
+    return material.ref || fallbackRef;
+  }
+  if (material.kind === "markdownFile") {
+    return material.ref || material.path;
+  }
+  return material.ref || fallbackRef;
+}
+
+function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof praxis.execution.prepareMainLoopTurn>[0]["materials"] {
+  type PromptPreviewMaterials = NonNullable<Parameters<typeof praxis.execution.prepareMainLoopTurn>[0]["materials"]>;
+  const materials: PromptPreviewMaterials[number][] = [];
+  if (manifest.promptPack.base !== undefined) {
+    materials.push({
+      id: materialSourceRef(manifest.promptPack.base, `${manifest.promptPack.promptPackId}:base`),
+      kind: manifest.promptPack.base.kind === "markdownFile" ? "file" : "system",
+      text: materialSourceText(manifest.promptPack.base, `${manifest.promptPack.promptPackId}:base`),
+      source: "manifest.promptPack.base",
+      trusted: true,
+      metadata: { promptSegmentKind: "agent-base-static" },
+    });
+  }
+
+  for (const inherited of manifest.promptPack.inherits) {
+    materials.push({
+      id: `promptPack.inherits:${inherited}`,
+      kind: "runtime",
+      text: `PromptPack inherits ${inherited}.`,
+      source: "manifest.promptPack.inherits",
+      trusted: true,
+      metadata: { promptSegmentKind: "project-static" },
+    });
+  }
+
+  for (const patch of [...manifest.promptPack.patches, ...manifest.promptPack.stateMachineMutations]) {
+    materials.push({
+      id: patch.patchId,
+      kind: patch.material.kind === "markdownFile" ? "file" : "system",
+      text: materialSourceText(patch.material, patch.patchId),
+      source: `manifest.promptPack.${patch.operation}`,
+      trusted: true,
+      metadata: {
+        promptSegmentKind: "project-static",
+        patchId: patch.patchId,
+        operation: patch.operation,
+        targetRef: patch.targetRef,
+        sceneTrigger: patch.sceneTrigger ?? "",
+      },
+    });
+  }
+
+  for (const materialRef of manifest.promptPack.materials) {
+    materials.push({
+      id: `promptPack.material:${materialRef}`,
+      kind: "runtime",
+      text: `PromptPack material reference ${materialRef}.`,
+      source: "manifest.promptPack.materials",
+      trusted: true,
+      metadata: { promptSegmentKind: "project-static" },
+    });
+  }
+
+  for (const [index, tool] of manifest.harness.tools.entries()) {
+    materials.push({
+      id: `tool:${tool.family}:${tool.group}:${tool.toolId}`,
+      kind: "tool",
+      text: tool.description ?? `Mounted BaseTool ${tool.toolId}.`,
+      source: "manifest.harness.tools",
+      trusted: true,
+      priority: 100 - index,
+      metadata: {
+        promptSegmentKind: "capability-static",
+        toolMaterialType: "declaration",
+        toolProviderKind: "baseTool",
+        toolId: tool.toolId,
+        toolName: tool.toolId.replaceAll(".", "_"),
+        inputSchema: tool.inputSchema ?? { type: "object", additionalProperties: true },
+      },
+    });
+  }
+
+  for (const contextRef of manifest.harness.contextRefs) {
+    materials.push({
+      id: `context:${contextRef}`,
+      kind: "cmp",
+      text: `Context bridge reference ${contextRef}.`,
+      source: "manifest.harness.contextRefs",
+      trusted: true,
+      metadata: { promptSegmentKind: "context-managed" },
+    });
+  }
+
+  for (const memoryRef of manifest.harness.memoryRefs) {
+    materials.push({
+      id: `memory:${memoryRef}`,
+      kind: "memory",
+      text: `Memory bridge reference ${memoryRef}.`,
+      source: "manifest.harness.memoryRefs",
+      trusted: true,
+      metadata: { promptSegmentKind: "memory-retrieval" },
+    });
+  }
+
+  materials.push({
+    id: "rax.inspect.turn",
+    kind: "user",
+    text: "Inspect this Praxis Agent project for readiness and cache health.",
+    source: "rax.inspect",
+    trusted: true,
+    metadata: { promptSegmentKind: "turn-dynamic" },
+  });
+
+  return materials;
+}
+
+function prepareInspectionPromptPreview(manifest: AgentManifest) {
+  const turn = praxis.execution.prepareMainLoopTurn({
+    runtimeId: "runtime.rax.cli.inspect",
+    sessionId: `${manifest.identity.id}:inspect`,
+    promptPackId: manifest.promptPack.promptPackId,
+    turnIndex: 0,
+    targetModel: manifest.model.model,
+    materials: buildPromptPreviewMaterials(manifest),
+  });
+  if (!turn.ok) {
+    return undefined;
+  }
+
+  return {
+    promptPackId: turn.promptPackId,
+    cachePlan: turn.cachePlan,
+    materials: turn.promptPack.materials.map((material) => ({
+      materialId: material.id,
+      kind: material.kind,
+      sourceCategory: material.sourceCategory,
+      preview: material.text,
+      trusted: material.trusted,
+    })),
+  };
+}
+
 function formatReadinessConsole(input: {
   command: "inspect" | "test";
   manifest: ReturnType<typeof praxis.inspectAgentManifest>;
   sandbox: Awaited<ReturnType<typeof praxis.sandboxPlane.prepareSandboxRuntime>>;
   inspection: unknown;
+  promptCache?: {
+    segmentCount: number;
+    cacheablePrefixSegmentKinds: readonly string[];
+    dynamicSegmentKinds: readonly string[];
+    cacheRiskWarnings: readonly string[];
+  };
   runtimeDryRun?: AgentRunResult;
 }): string {
   const hints = input.sandbox.probe.selfRepairHints.map((hint) => `  - ${hint.message}`).join("\n") || "  - none";
@@ -172,6 +385,10 @@ function formatReadinessConsole(input: {
     `sandbox smoke: ${smoke}`,
     `runtime dry-run: ${runtimeDryRun}`,
     `missing dependencies: ${missing}`,
+    `prompt cache segments: ${input.promptCache?.segmentCount ?? "not-built"}`,
+    `prompt cache prefix: ${input.promptCache?.cacheablePrefixSegmentKinds.join(", ") || "none"}`,
+    `prompt cache dynamic: ${input.promptCache?.dynamicSegmentKinds.join(", ") || "none"}`,
+    `prompt cache warnings: ${input.promptCache?.cacheRiskWarnings.join(", ") || "none"}`,
     "self-repair hints:",
     hints,
     "",
@@ -267,6 +484,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
       cwd: process.cwd(),
       runSmoke: command === "test",
     });
+    const promptPackPreview = prepareInspectionPromptPreview(compiled.manifest);
     const report = praxis.inspection.createFrameworkInspectionReport({
       runtimeId: "runtime.rax.cli",
       manifest: compiled.manifest,
@@ -278,6 +496,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
         required: check.required,
         reason: check.publicSafeMessage,
       })),
+      promptPackPreview,
     });
     const manifestInspection = praxis.inspectAgentManifest(compiled.manifest);
     const runtimeDryRun = command === "test"
@@ -310,6 +529,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
             manifest: manifestInspection,
             sandbox: sandboxReadiness,
             inspection: report.ok ? report.report : report.error,
+            promptCache: report.ok ? report.report.promptPackPreview?.cachePlan : undefined,
             runtimeDryRun,
           }),
     };
