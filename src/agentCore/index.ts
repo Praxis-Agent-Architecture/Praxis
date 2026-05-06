@@ -4,6 +4,64 @@
  * 边界：不把 runtime.* 深层实现文件作为普通 public API。
  */
 
+import {
+  PromptPack,
+  PraxisAgent,
+  PraxisAgentArchetype,
+  append,
+  compileAgent,
+  endpoint,
+  harness,
+  inspectAgentManifest,
+  loop,
+  mainLoop,
+  markdown,
+  markdownFile,
+  model,
+  modelFleet,
+  overwrite,
+  policy,
+  prepend,
+  replaceLastLines,
+  sandbox,
+  session,
+  statePlane,
+  storage,
+  tool,
+  toolPolicies,
+  tools,
+  validateAgentManifest,
+} from "./agent_runtimeImplementation/runtimeAgentManifest.js";
+import {
+  applyRaxStorageInitPlan,
+  createAndApplyStoragePlaneRuntime,
+  createRaxStorageLayout,
+  createStoragePlaneRuntime,
+  planRaxStorageInit,
+  resolveRaxHome,
+  resolveRaxWorkspace,
+} from "./agent_runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
+import {
+  PraxisRuntimeKernel,
+  createPraxisRuntimeKernel,
+} from "./agent_runtimeImplementation/praxisRuntimeKernel.js";
+import {
+  createFrameworkInspectionReport,
+} from "./agent_runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
+import {
+  baseToolDeveloperCatalogDescriptor,
+  baseTools,
+  listBaseToolDeveloperCatalog,
+  toolSets,
+  tryBaseToolById,
+} from "./agent_runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+import {
+  baseToolRealityLedgerDescriptor,
+  createBaseToolRealityLedger,
+  inspectBaseToolReality,
+  snapshotBaseToolRealityLedger,
+} from "./agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+
 export {
   PromptPack,
   PraxisAgent,
@@ -145,3 +203,137 @@ export {
   type BaseToolRegistryMountStatus,
   type BaseToolStorageRealityStatus,
 } from "./agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+
+/**
+ * Recommended developer authoring boxes.
+ *
+ * 白话：细粒度导出还保留；这些对象只是给普通开发者一个更像 framework 的入口，
+ * 不用在一个 Agent 文件顶部 import 三十多个零件。
+ */
+export const authoringPrimitives = Object.freeze({
+  PromptPack,
+  PraxisAgent,
+  PraxisAgentArchetype,
+  compileAgent,
+  inspectAgentManifest,
+  validateAgentManifest,
+});
+
+export const promptPack = Object.freeze({
+  PromptPack,
+  append,
+  markdown,
+  markdownFile,
+  overwrite,
+  prepend,
+  replaceLastLines,
+});
+
+export const modelAuthoring = Object.freeze({
+  endpoint,
+  model,
+  modelFleet,
+});
+
+export const harnessRuntimePolicy = Object.freeze({
+  harness,
+  loop,
+  mainLoop,
+  policy,
+  sandbox,
+  session,
+  statePlane,
+  storage,
+});
+
+export const baseTool = Object.freeze({
+  baseTools,
+  tool,
+  tools,
+  toolPolicies,
+  toolSets,
+  tryBaseToolById,
+  listBaseToolDeveloperCatalog,
+  baseToolDeveloperCatalogDescriptor,
+});
+
+export const runtimeKernel = Object.freeze({
+  PraxisRuntimeKernel,
+  createPraxisRuntimeKernel,
+});
+
+export const inspection = Object.freeze({
+  createFrameworkInspectionReport,
+  createBaseToolRealityLedger,
+  inspectBaseToolReality,
+  snapshotBaseToolRealityLedger,
+  baseToolRealityLedgerDescriptor,
+});
+
+export const storagePlane = Object.freeze({
+  applyRaxStorageInitPlan,
+  createAndApplyStoragePlaneRuntime,
+  createRaxStorageLayout,
+  createStoragePlaneRuntime,
+  planRaxStorageInit,
+  resolveRaxHome,
+  resolveRaxWorkspace,
+});
+
+/**
+ * One-object authoring facade.
+ *
+ * 白话：这是最省心的开发者入口。用户可以只写：
+ *
+ * ```ts
+ * import { praxis } from "@praxis-ai/framework";
+ * ```
+ *
+ * 然后用 `praxis.AgentArchetype`、`praxis.prompt.append`、
+ * `praxis.model(...)`、`praxis.baseTools.code.read()` 来定义 Agent。
+ */
+export const praxis = Object.freeze({
+  Agent: PraxisAgent,
+  AgentArchetype: PraxisAgentArchetype,
+  PraxisAgent,
+  PraxisAgentArchetype,
+  PromptPack,
+  compileAgent,
+  inspectAgentManifest,
+  validateAgentManifest,
+
+  prompt: promptPack,
+  append,
+  markdown,
+  markdownFile,
+  overwrite,
+  prepend,
+  replaceLastLines,
+
+  endpoint,
+  model,
+  modelFleet,
+
+  harness,
+  loop,
+  mainLoop,
+  policy,
+  sandbox,
+  session,
+  statePlane,
+  storage,
+
+  baseTools,
+  tool,
+  tools,
+  toolPolicies,
+  toolSets,
+  tryBaseToolById,
+  listBaseToolDeveloperCatalog,
+
+  runtime: runtimeKernel,
+  inspection,
+  storagePlane,
+});
+
+export default praxis;

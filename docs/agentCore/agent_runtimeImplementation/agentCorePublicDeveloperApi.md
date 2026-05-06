@@ -12,35 +12,28 @@
 
 ```ts
 import {
-  PraxisAgent,
-  PraxisAgentArchetype,
-  PraxisRuntimeKernel,
+  praxis,
   type RuntimeApprovalResolver,
-  compileAgent,
-  harness,
-  model,
-  sandbox,
-  toolPolicies,
-} from "praxis";
+} from "@praxis-ai/framework";
 ```
 
-当前 package source export map 把包根和 `./agentCore` 指到这个公共入口。深层 `runtime.execEngine`、`runtime.modelAdapter`、`runtime.governancePlane`、`runtime.officialModuleSurface` 仍然是 repo 内部实现面，不承诺普通开发者 semver 稳定性。
+当前 package source export map 把包根和 `./agentCore` 指到这个公共入口。仓库内示例也可以直接 `import ... from "@praxis-ai/framework"`，模拟安装后的开发者体验。`praxis` 是推荐的一包式 authoring facade；细粒度导出仍然保留给测试、高级用户和内部工程。深层 `runtime.execEngine`、`runtime.modelAdapter`、`runtime.governancePlane`、`runtime.officialModuleSurface` 仍然是 repo 内部实现面，不承诺普通开发者 semver 稳定性。
 
 ## 2. Minimal Agent Example
 
 ```ts
-class MinimalAgent extends PraxisAgent {
+class MinimalAgent extends praxis.Agent {
   identity = "agent.minimal";
-  model = model("gpt-5.4");
-  harness = harness({
-    tools: tools([
-      tool("code.read", { family: "codeBase", group: "explore" }),
+  model = praxis.model("gpt-5.4");
+  harness = praxis.harness({
+    tools: praxis.tools([
+      praxis.tool("code.read", { family: "codeBase", group: "explore" }),
     ]),
-    loop: loop.standard({ maxModelTurns: 1 }),
+    loop: praxis.loop.standard({ maxModelTurns: 1 }),
   });
 }
 
-const manifest = compileAgent(MinimalAgent);
+const manifest = praxis.compileAgent(MinimalAgent);
 ```
 
 这个例子不需要声明 sandbox 或 tool policy；compiler 会默认使用：
@@ -51,27 +44,27 @@ const manifest = compileAgent(MinimalAgent);
 ## 3. Mature Archetype Example
 
 ```ts
-class CodingAgent extends PraxisAgentArchetype {
+class CodingAgent extends praxis.AgentArchetype {
   identity = "agent.coding";
-  model = model("gpt-5.4-nano");
+  model = praxis.model("gpt-5.4-nano");
   promptPack = {
     promptPackId: "prompt.coding",
-    base: markdown("You are a Praxis coding agent.", "coding.base"),
+    base: praxis.markdown("You are a Praxis coding agent.", "coding.base"),
   };
-  mainLoop = mainLoop.standard({
+  mainLoop = praxis.mainLoop.standard({
     hooks: {
       buildPrompt: { strategyRef: "coding.prompt.strategy" },
     },
   });
-  sandbox = sandbox.hostObserved();
-  toolPolicy = toolPolicies.standard();
-  session = session({ persistence: "sqlite", resume: "auto" });
-  statePlane = statePlane({ expose: ["phase", "toolCalls"], control: ["pause"] });
-  harness = harness({
-    tools: tools([
-      tool("shell.commandExecution", { family: "shellBase", group: "shellExecution" }),
+  sandbox = praxis.sandbox.hostObserved();
+  toolPolicy = praxis.toolPolicies.standard();
+  session = praxis.session({ persistence: "sqlite", resume: "auto" });
+  statePlane = praxis.statePlane({ expose: ["phase", "toolCalls"], control: ["pause"] });
+  harness = praxis.harness({
+    tools: praxis.tools([
+      praxis.tool("shell.commandExecution", { family: "shellBase", group: "shellExecution" }),
     ]),
-    loop: loop.standard({ maxModelTurns: 2, maxToolCalls: 2 }),
+    loop: praxis.loop.standard({ maxModelTurns: 2, maxToolCalls: 2 }),
   });
 }
 ```

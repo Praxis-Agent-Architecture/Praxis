@@ -6,6 +6,8 @@ import {
   PraxisAgent,
   PraxisAgentArchetype,
   PraxisRuntimeKernel,
+  authoringPrimitives,
+  baseTool,
   baseTools,
   compileAgent,
   createFrameworkInspectionReport,
@@ -29,7 +31,15 @@ import {
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolver,
   createStoragePlaneRuntime,
+  praxis,
 } from "../../src/agentCore/index.js";
+
+import {
+  authoringPrimitives as packageAuthoringPrimitives,
+  baseTool as packageBaseTool,
+  modelAuthoring as packageModelAuthoring,
+  praxis as packagePraxis,
+} from "@praxis-ai/framework";
 
 class MinimalDeveloperAgent extends PraxisAgent {
   identity = "agent.public.minimal";
@@ -74,6 +84,16 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
 }
 
 test("public agentCore API lets developers compile minimal and mature agents without runtime internals", async () => {
+  assert.equal(authoringPrimitives.PraxisAgent, PraxisAgent);
+  assert.equal(baseTool.baseTools.code.read().toolId, "code.read");
+  assert.equal(packageAuthoringPrimitives.PraxisAgentArchetype, PraxisAgentArchetype);
+  assert.equal(packageModelAuthoring.model("gpt-5.4").model, "gpt-5.4");
+  assert.equal(packageBaseTool.baseTools.git.getRepositoryStatus().toolId, "git.getRepositoryStatus");
+  assert.equal(praxis.Agent, PraxisAgent);
+  assert.equal(packagePraxis.AgentArchetype, PraxisAgentArchetype);
+  assert.equal(packagePraxis.model("gpt-5.4").model, "gpt-5.4");
+  assert.equal(packagePraxis.baseTools.code.read().toolId, "code.read");
+
   const minimal = compileAgent(MinimalDeveloperAgent, { compiledAt: "2026-05-04T00:00:00.000Z" });
   assert.equal(minimal.ok, true);
   if (!minimal.ok) return;
@@ -158,6 +178,6 @@ test("agentCore developer guide documents the public framework path", async () =
   assert.match(guide, /AgentManifest/);
   assert.match(guide, /PraxisRuntimeKernel\.runManifest/);
   assert.match(guide, /src\/agentCore\/index\.ts/);
-  assert.match(guide, /storageHelpers\.raxWorkspace\(\)/);
+  assert.match(guide, /praxis\.storage\.raxWorkspace\(\)/);
   assert.match(guide, /family \/ group \/ toolId/);
 });

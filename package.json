@@ -1,9 +1,12 @@
 {
-  "name": "praxis-agent-architecture",
+  "name": "@praxis-ai/framework",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "description": "Praxis agentCore architecture scaffold, tests, and engineering contracts.",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./src/agentCore/index.ts",
     "./agentCore": "./src/agentCore/index.ts",

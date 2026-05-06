@@ -30,32 +30,9 @@ Normal developers should import from the public entry:
 
 ```ts
 import {
-  PraxisAgent,
-  PraxisAgentArchetype,
-  PraxisRuntimeKernel,
-  PromptPack,
-  RuntimeApprovalResolver,
-  append,
-  baseTools,
-  compileAgent,
-  createFrameworkInspectionReport,
-  endpoint,
-  harness,
-  loop,
-  mainLoop,
-  markdown,
-  model,
-  modelFleet,
-  policy,
-  sandbox,
-  session,
-  statePlane,
-  storage as storageHelpers,
-  toolPolicies,
-  toolSets,
-  tools,
-  validateAgentManifest,
-} from "praxis";
+  praxis,
+  type RuntimeApprovalResolver,
+} from "@praxis-ai/framework";
 ```
 
 In this repo, that public surface is `src/agentCore/index.ts`.
@@ -67,24 +44,24 @@ Do not ask normal developers to import from deep `runtime.*` files. Those files 
 Use `PraxisAgent` when the agent is small and mostly needs one model plus a harness.
 
 ```ts
-class MinimalRepoAgent extends PraxisAgent {
+class MinimalRepoAgent extends praxis.Agent {
   identity = "agent.repo.minimal";
-  model = model("gpt-5.4");
+  model = praxis.model("gpt-5.4");
 
-  harness = harness({
-    tools: tools([
-      baseTools.code.read(),
-      baseTools.code.searchRipgrep(),
-      baseTools.git.getRepositoryStatus(),
+  harness = praxis.harness({
+    tools: praxis.tools([
+      praxis.baseTools.code.read(),
+      praxis.baseTools.code.searchRipgrep(),
+      praxis.baseTools.git.getRepositoryStatus(),
     ]),
-    loop: loop.standard({ maxModelTurns: 1, maxToolCalls: 2 }),
+    loop: praxis.loop.standard({ maxModelTurns: 1, maxToolCalls: 2 }),
   });
 }
 
-const compiled = compileAgent(MinimalRepoAgent);
+const compiled = praxis.compileAgent(MinimalRepoAgent);
 if (!compiled.ok) throw new Error(compiled.error.message);
 
-const runtime = new PraxisRuntimeKernel({ runtimeId: "runtime.repo" });
+const runtime = new praxis.runtime.PraxisRuntimeKernel({ runtimeId: "runtime.repo" });
 const result = await runtime.runManifest(compiled.manifest, "Summarize this repo.");
 ```
 
@@ -102,46 +79,46 @@ Defaults:
 Use `PraxisAgentArchetype` when the class should be reusable, inheritable, patchable, and suitable as a product or official agent base.
 
 ```ts
-class CodingAgent extends PraxisAgentArchetype {
+class CodingAgent extends praxis.AgentArchetype {
   identity = { id: "agent.coding", version: "1.0.0" };
 
-  model = model("gpt-5.4-nano", {
+  model = praxis.model("gpt-5.4-nano", {
     carrierId: "carrier.coding.background",
     endpointShape: "responses",
   });
 
   promptPack = {
     promptPackId: "prompt.coding",
-    base: markdown("You are a Praxis coding agent.", "coding.base"),
+    base: praxis.markdown("You are a Praxis coding agent.", "coding.base"),
   };
 
-  mainLoop = mainLoop.standard({
+  mainLoop = praxis.mainLoop.standard({
     hooks: {
       buildPrompt: { strategyRef: "coding.prompt.strategy" },
       shouldContinue: { strategyRef: "coding.loop.continue" },
     },
   });
 
-  sandbox = sandbox.hostObserved();
-  toolPolicy = toolPolicies.standard();
-  storage = storageHelpers.raxWorkspace();
-  session = session({
+  sandbox = praxis.sandbox.hostObserved();
+  toolPolicy = praxis.toolPolicies.standard();
+  storage = praxis.storage.raxWorkspace();
+  session = praxis.session({
     persistence: "sqlite",
     resume: "auto",
     thread: "durable",
     logs: "full",
   });
-  statePlane = statePlane({
+  statePlane = praxis.statePlane({
     expose: ["phase", "lastAction", "toolCalls", "errors"],
     control: ["pause", "resume", "interrupt"],
   });
 
-  harness = harness({
-    tools: tools([
-      ...toolSets.coding.readonly({ includeGit: true, includeSearch: true }),
-      baseTools.shell.commandExecution(),
+  harness = praxis.harness({
+    tools: praxis.tools([
+      ...praxis.toolSets.coding.readonly({ includeGit: true, includeSearch: true }),
+      praxis.baseTools.shell.commandExecution(),
     ]),
-    loop: loop.standard({ maxModelTurns: 4, maxToolCalls: 8 }),
+    loop: praxis.loop.standard({ maxModelTurns: 4, maxToolCalls: 8 }),
   });
 }
 ```
@@ -153,7 +130,7 @@ This is the preferred shape for serious agents: class fields describe the agent,
 A simple agent can use one model:
 
 ```ts
-model = model("gpt-5.4", {
+model = praxis.model("gpt-5.4", {
   provider: "openai",
   endpointShape: "responses",
 });
@@ -162,13 +139,13 @@ model = model("gpt-5.4", {
 A mature agent can declare a model fleet:
 
 ```ts
-modelFleet = modelFleet.auto({
-  primary: endpoint("/v1/responses", {
+modelFleet = praxis.modelFleet.auto({
+  primary: praxis.endpoint("/v1/responses", {
     role: "reasoning",
     provider: "openai",
     model: "gpt-5.4",
   }),
-  batch: endpoint("/v1/batches", {
+  batch: praxis.endpoint("/v1/batches", {
     role: "batch",
     provider: "openai",
     model: "gpt-5.5-pro",
@@ -195,19 +172,19 @@ Common fields:
 Example:
 
 ```ts
-harness = harness({
-  tools: tools([
-    baseTools.code.read(),
-    baseTools.code.searchRipgrep(),
-    baseTools.git.getRepositoryStatus(),
+harness = praxis.harness({
+  tools: praxis.tools([
+    praxis.baseTools.code.read(),
+    praxis.baseTools.code.searchRipgrep(),
+    praxis.baseTools.git.getRepositoryStatus(),
   ]),
-  policy: policy({
+  policy: praxis.policy({
     allowProviderCall: true,
     allowToolExecution: true,
     workspaceRoot: process.cwd(),
     allowedRoots: [process.cwd()],
   }),
-  loop: loop.standard({ maxModelTurns: 2, maxToolCalls: 4 }),
+  loop: praxis.loop.standard({ maxModelTurns: 2, maxToolCalls: 4 }),
 });
 ```
 
@@ -216,24 +193,24 @@ harness = harness({
 Prefer typed public helpers:
 
 ```ts
-baseTools.code.read()
-baseTools.code.searchRipgrep()
-baseTools.git.getRepositoryStatus()
-baseTools.shell.commandExecution()
+praxis.baseTools.code.read()
+praxis.baseTools.code.searchRipgrep()
+praxis.baseTools.git.getRepositoryStatus()
+praxis.baseTools.shell.commandExecution()
 ```
 
 Prefer tool sets for common bundles:
 
 ```ts
-toolSets.coding.readonly({ includeGit: true, includeSearch: true })
-toolSets.git.inspection()
-toolSets.shell.safe()
+praxis.toolSets.coding.readonly({ includeGit: true, includeSearch: true })
+praxis.toolSets.git.inspection()
+praxis.toolSets.shell.safe()
 ```
 
 You can still use low-level `tool(...)` when needed:
 
 ```ts
-tool("code.read", { family: "codeBase", group: "explore" })
+praxis.tool("code.read", { family: "codeBase", group: "explore" })
 ```
 
 But the compiler validates `toolId`, `family`, and `group` against the runtime catalog. Tool identity is always:
@@ -261,16 +238,16 @@ Default policy profile is `standard`.
 
 Available profiles:
 
-- `toolPolicies.bapr()`: broad pass, useful only for trusted test harnesses
-- `toolPolicies.yolo()`: low human intervention; dangerous actions still require approval
-- `toolPolicies.permissive()`: safe actions pass, risky actions guarded, dangerous actions approval
-- `toolPolicies.standard()`: conservative daily default
-- `toolPolicies.restricted()`: approval for all tool actions
+- `praxis.toolPolicies.bapr()`: broad pass, useful only for trusted test harnesses
+- `praxis.toolPolicies.yolo()`: low human intervention; dangerous actions still require approval
+- `praxis.toolPolicies.permissive()`: safe actions pass, risky actions guarded, dangerous actions approval
+- `praxis.toolPolicies.standard()`: conservative daily default
+- `praxis.toolPolicies.restricted()`: approval for all tool actions
 
 Default sandbox profile is:
 
 ```ts
-sandbox.hostObserved()
+praxis.sandbox.hostObserved()
 ```
 
 This is an honest host-mode profile. It does not promise container isolation. It does promise runtime observation, policy gates, approval surfaces, event logs, and metadata for later sandbox implementations.
@@ -288,11 +265,11 @@ It can contain:
 Example:
 
 ```ts
-class CodingPrompt extends PromptPack {
+class CodingPrompt extends praxis.PromptPack {
   promptPackId = "prompt.coding";
-  base = markdown("You are a Praxis coding agent.", "coding.base");
+  base = praxis.markdown("You are a Praxis coding agent.", "coding.base");
   patches = [
-    append("coding.base", markdown("Prefer small patches.", "coding.patch.rules")),
+    praxis.prompt.append("coding.base", praxis.markdown("Prefer small patches.", "coding.patch.rules")),
   ];
 }
 ```
@@ -304,7 +281,7 @@ Provider payload shaping happens later through `promptLoweringRuntime` and model
 MainLoop is the reusable running core, but developers should extend it by stable refs, not arbitrary runtime JS.
 
 ```ts
-mainLoop = mainLoop.standard({
+mainLoop = praxis.mainLoop.standard({
   hooks: {
     buildPrompt: { strategyRef: "coding.prompt.strategy" },
     beforeTool: { policyRef: "coding.beforeTool.policy" },
@@ -330,8 +307,8 @@ Praxis uses two storage roots:
 SQLite is the default durable local session store:
 
 ```ts
-storage = storageHelpers.raxWorkspace();
-session = session({
+storage = praxis.storage.raxWorkspace();
+session = praxis.session({
   persistence: "sqlite",
   resume: "auto",
   thread: "durable",
@@ -352,7 +329,7 @@ Compile does not create directories. Runtime or rax init/run applies the init pl
 Compile:
 
 ```ts
-const compiled = compileAgent(CodingAgent);
+const compiled = praxis.compileAgent(CodingAgent);
 if (!compiled.ok) {
   console.error(compiled.error);
 }
@@ -361,13 +338,13 @@ if (!compiled.ok) {
 Validate:
 
 ```ts
-const validation = validateAgentManifest(compiled.manifest);
+const validation = praxis.validateAgentManifest(compiled.manifest);
 ```
 
 Inspect:
 
 ```ts
-const report = createFrameworkInspectionReport({
+const report = praxis.inspection.createFrameworkInspectionReport({
   runtimeId: "runtime.coding",
   manifest: compiled.manifest,
 });
@@ -376,7 +353,7 @@ const report = createFrameworkInspectionReport({
 Run:
 
 ```ts
-const runtime = new PraxisRuntimeKernel({ runtimeId: "runtime.coding" });
+const runtime = new praxis.runtime.PraxisRuntimeKernel({ runtimeId: "runtime.coding" });
 const result = await runtime.runManifest(compiled.manifest, "Read package.json and summarize it.");
 ```
 
