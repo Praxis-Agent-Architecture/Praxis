@@ -9,7 +9,7 @@ import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { praxis } from "../agentCore/index.js";
+import { praxis, type AgentRunResult } from "../agentCore/index.js";
 import {
   createRaxBuildInitPlan,
   initRaxProject,
@@ -111,15 +111,41 @@ async function handleBuildInit(args: readonly string[]): Promise<RaxCliResult> {
   };
 }
 
-async function loadAgent(agentPath: string, exportName = "default"): Promise<unknown> {
+async function loadAgentModule(agentPath: string): Promise<Record<string, unknown>> {
   const absolute = path.resolve(agentPath);
-  const module = await import(pathToFileURL(absolute).href);
-  return module[exportName];
+  return await import(pathToFileURL(absolute).href) as Record<string, unknown>;
 }
 
 async function compileAgentFile(agentPath: string, exportName?: string) {
-  const Agent = await loadAgent(agentPath, exportName);
-  return praxis.compileAgent(Agent as never);
+  const module = await loadAgentModule(agentPath);
+  if (exportName !== undefined && exportName.trim().length > 0) {
+    return praxis.compileAgent(module[exportName] as never);
+  }
+
+  const candidates = [
+    ["default", module.default],
+    ...Object.entries(module).filter(([name]) => name !== "default"),
+  ] as [string, unknown][];
+  let lastFailure: ReturnType<typeof praxis.compileAgent> | undefined;
+  const validAgents: { exportName: string; compiled: ReturnType<typeof praxis.compileAgent> }[] = [];
+  for (const [name, candidate] of candidates) {
+    const compiled = praxis.compileAgent(candidate as never);
+    if (compiled.ok) {
+      validAgents.push({ exportName: name, compiled });
+      continue;
+    }
+    lastFailure = compiled;
+  }
+
+  if (validAgents.length === 1) {
+    return validAgents[0].compiled;
+  }
+
+  if (validAgents.length > 1) {
+    throw new Error(`multiple Praxis Agent exports found: ${validAgents.map((agent) => agent.exportName).join(", ")}. Use --export <name>.`);
+  }
+
+  return lastFailure ?? praxis.compileAgent(undefined as never);
 }
 
 function formatReadinessConsole(input: {
@@ -127,10 +153,16 @@ function formatReadinessConsole(input: {
   manifest: ReturnType<typeof praxis.inspectAgentManifest>;
   sandbox: Awaited<ReturnType<typeof praxis.sandboxPlane.prepareSandboxRuntime>>;
   inspection: unknown;
+  runtimeDryRun?: AgentRunResult;
 }): string {
   const hints = input.sandbox.probe.selfRepairHints.map((hint) => `  - ${hint.message}`).join("\n") || "  - none";
   const missing = input.sandbox.probe.missingDependencies.join(", ") || "none";
   const smoke = input.sandbox.smoke?.status ?? "not-run";
+  const runtimeDryRun = input.runtimeDryRun === undefined
+    ? "not-run"
+    : input.runtimeDryRun.ok
+      ? "passed"
+      : `failed:${input.runtimeDryRun.error.code}`;
   return [
     `rax ${input.command}`,
     `agent: ${input.manifest.identityId}`,
@@ -138,11 +170,50 @@ function formatReadinessConsole(input: {
     `sandbox ready: ${input.sandbox.ready}`,
     `sandbox probe: ${input.sandbox.probe.status}`,
     `sandbox smoke: ${smoke}`,
+    `runtime dry-run: ${runtimeDryRun}`,
     `missing dependencies: ${missing}`,
     "self-repair hints:",
     hints,
     "",
     JSON.stringify({ inspection: input.inspection }, null, 2),
+    "",
+  ].join("\n");
+}
+
+function formatRunConsole(result: AgentRunResult): string {
+  const common = [
+    "rax run",
+    `ok: ${result.ok}`,
+    `runtime: ${result.runtimeId ?? "unknown"}`,
+    `session: ${result.sessionId ?? "unknown"}`,
+  ];
+
+  if (result.ok) {
+    return [
+      ...common,
+      `final output: ${result.finalOutput}`,
+      `model calls: ${result.modelCalls.length}`,
+      `tool calls: ${result.toolCalls.length}`,
+      `events: ${result.events.length}`,
+      "",
+    ].join("\n");
+  }
+
+  const pendingApprovals = result.state?.approvals.filter((approval) => approval.status === "pending") ?? [];
+  const repairEvents = result.state?.events
+    .filter((event) => event.type === "runtime.sandboxPlane.prepared")
+    .flatMap((event) => {
+      const sandbox = (event.payload as { sandbox?: { probe?: { selfRepairHints?: { message?: string }[] } } }).sandbox;
+      return sandbox?.probe?.selfRepairHints?.map((hint) => hint.message).filter((message): message is string => typeof message === "string") ?? [];
+    }) ?? [];
+
+  return [
+    ...common,
+    `error: ${result.error.code}`,
+    result.error.message,
+    `pending approvals: ${pendingApprovals.length}`,
+    "self-repair hints:",
+    ...(repairEvents.length > 0 ? repairEvents.map((hint) => `  - ${hint}`) : ["  - none"]),
     "",
   ].join("\n");
 }
@@ -169,15 +240,20 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
     compiled = await compileAgentFile(agentPath, exportName);
   } catch (error) {
     const message = error instanceof Error ? error.message : "failed to load agent file";
+    const multipleExports = message.includes("multiple Praxis Agent exports found");
     return {
       exitCode: 1,
       output: [
         `rax ${command} could not load ${agentPath}`,
         message,
         "self-repair hints:",
-        "  - run npm install in the generated agent project",
-        "  - verify @praxis-ai/framework is installed or linked",
-        "  - rerun rax inspect after dependencies are ready",
+        multipleExports
+          ? "  - rerun with --export <AgentClassName>"
+          : "  - run npm install in the generated agent project",
+        multipleExports
+          ? "  - add a default export if this file has one intended Agent"
+          : "  - verify @praxis-ai/framework is installed or linked",
+        "  - rerun rax inspect after the issue is fixed",
         "",
       ].join("\n"),
     };
@@ -204,15 +280,29 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
       })),
     });
     const manifestInspection = praxis.inspectAgentManifest(compiled.manifest);
+    const runtimeDryRun = command === "test"
+      ? await praxis.runtime.createPraxisRuntimeKernel({
+          runtimeId: "runtime.rax.cli.test",
+          store: praxis.runtime.createInMemorySessionStateEventStore(),
+        }).runManifest(compiled.manifest, "Praxis rax test dry-run.", {
+          dryRun: true,
+          allowProviderCall: false,
+          allowToolExecution: false,
+          storage: { cwd: process.cwd(), initMode: "never" },
+          sandbox: { cwd: process.cwd(), failOnUnavailable: true },
+        })
+      : undefined;
     const payload = {
       command,
       plan: plan.plan,
       manifest: manifestInspection,
       sandbox: sandboxReadiness,
       readiness: report.ok ? report.report : report.error,
+      runtimeDryRun,
     };
+    const ok = report.ok && (command === "inspect" || runtimeDryRun?.ok === true);
     return {
-      exitCode: report.ok ? 0 : 1,
+      exitCode: ok ? 0 : 1,
       output: hasFlag(args, "--json")
         ? `${JSON.stringify(payload, null, 2)}\n`
         : formatReadinessConsole({
@@ -220,6 +310,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
             manifest: manifestInspection,
             sandbox: sandboxReadiness,
             inspection: report.ok ? report.report : report.error,
+            runtimeDryRun,
           }),
     };
   }
@@ -229,7 +320,9 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
   const result = await runtime.runManifest(compiled.manifest, task);
   return {
     exitCode: result.ok ? 0 : 1,
-    output: `${JSON.stringify(result, null, 2)}\n`,
+    output: hasFlag(args, "--json")
+      ? `${JSON.stringify(result, null, 2)}\n`
+      : formatRunConsole(result),
   };
 }
 

@@ -27,6 +27,7 @@ export type MainLoopTickKind =
 
 export type MainLoopActionPrimitive =
   | "receiveInput"
+  | "sandboxPrepare"
   | "advanceState"
   | "planMainLoopTick"
   | "assemblePromptPack"
@@ -55,6 +56,7 @@ export type MainLoopActionPrimitive =
 
 export const MAIN_LOOP_ACTION_PRIMITIVES = [
   "receiveInput",
+  "sandboxPrepare",
   "advanceState",
   "planMainLoopTick",
   "assemblePromptPack",

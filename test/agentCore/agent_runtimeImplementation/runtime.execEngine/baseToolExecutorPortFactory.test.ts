@@ -14,6 +14,8 @@ import {
   createRuntimeBaseToolExecutorPort,
   listRuntimeBaseToolImplementedPortPaths,
 } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import { sandbox } from "../../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
+import { prepareSandboxRuntime } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
   baseToolSupportCatalogDescriptor,
   createBaseToolSupportCatalog,
@@ -409,5 +411,50 @@ test("runtime factory executor can drive git inspection through mounted baseTool
     const output = asRecord(status.toolResult.output);
     assert.equal(output.providerCalled, true);
     assert.equal(output.dryRun, false);
+  }
+});
+
+test("runtime factory executor runs process-backed ports through linux bubblewrap when prepared", async () => {
+  const workspace = await makeWorkspace();
+  const prepared = await prepareSandboxRuntime(sandbox.linuxBubblewrap({
+    resourceLimits: { timeoutMs: 5_000, maxOutputBytes: 16_000 },
+  }), {
+    cwd: workspace,
+    runSmoke: true,
+  });
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-sandbox",
+    sessionId: "session-factory-sandbox",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowShellExecution: true,
+      allowProcessExecution: true,
+    },
+    sandbox: prepared,
+  });
+
+  const shellResult = await executor.shell?.run?.({ command: "pwd", cwd: workspace });
+  if (!prepared.ready) {
+    assert.equal(shellResult?.ok, false);
+    if (shellResult?.ok === false) {
+      assert.equal(shellResult.error.code, "SANDBOX_UNAVAILABLE");
+    }
+    return;
+  }
+
+  assert.equal(shellResult?.ok, true);
+  if (shellResult?.ok) {
+    assert.equal(shellResult.output.stdout.trim(), "/workspace");
+    assert.equal(asRecord(shellResult.metadata).sandbox !== undefined, true);
+    assert.equal(asRecord(asRecord(shellResult.metadata).sandbox).applied, true);
+    assert.equal(asRecord(asRecord(shellResult.metadata).sandbox).providerFamily, "linux-bubblewrap");
+  }
+
+  const processResult = await executor.process?.run?.({ command: "pwd", cwd: workspace });
+  assert.equal(processResult?.ok, true);
+  if (processResult?.ok) {
+    assert.equal(processResult.output.stdout.trim(), "/workspace");
+    assert.equal(asRecord(asRecord(processResult.metadata).sandbox).applied, true);
   }
 });

@@ -108,7 +108,18 @@ function tsconfigJson(): string {
       skipLibCheck: true,
       types: ["node"],
     },
-    include: ["agents/**/*.ts", "run/**/*.ts", "tests/**/*.ts"],
+    include: [
+      "agents/**/*.ts",
+      "config/**/*.ts",
+      "interfaces/**/*.ts",
+      "policies/**/*.ts",
+      "run/**/*.ts",
+      "sandbox/**/*.ts",
+      "state/**/*.ts",
+      "storage/**/*.ts",
+      "tests/**/*.ts",
+      "tools/**/*.ts",
+    ],
   }, null, 2)}\n`;
 }
 

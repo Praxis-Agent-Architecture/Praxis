@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -48,6 +48,11 @@ test("rax build init fullstack prepares the mature agent workspace layout", () =
   assert.equal(plan.files.some((file) => file.path === "interfaces/interfaceSurface.md"), true);
   assert.equal(plan.files.some((file) => file.path === "config/modelFleet.ts"), true);
   assert.equal(plan.files.some((file) => file.path === "state/statePlane.ts"), true);
+  const tsconfig = plan.files.find((file) => file.path === "tsconfig.json")?.content ?? "";
+  assert.match(tsconfig, /config\/\*\*\/\*\.ts/);
+  assert.match(tsconfig, /policies\/\*\*\/\*\.ts/);
+  assert.match(tsconfig, /sandbox\/\*\*\/\*\.ts/);
+  assert.match(tsconfig, /tools\/\*\*\/\*\.ts/);
   const agent = plan.files.find((file) => file.path === "agents/mainAgent.ts")?.content ?? "";
   assert.match(agent, /praxis\.sandbox\.linuxBubblewrap\(\)/);
   assert.match(agent, /onApprovalRef/);
@@ -109,4 +114,74 @@ test("rax inspect console explains missing framework dependency before project i
   assert.match(result.output, /self-repair hints:/);
   assert.match(result.output, /npm install/);
   assert.match(result.output, /@praxis-ai\/framework/);
+});
+
+test("rax inspect auto-discovers named Agent exports", async () => {
+  const targetDir = path.join(scratchRoot, "named-export");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const agentPath = path.join(targetDir, "namedAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "export class HelperPrompt extends praxis.PromptPack {}",
+    "export class NamedAgent extends praxis.Agent {",
+    "  identity = \"agent.named-export\";",
+    "  model = praxis.model(\"gpt-5.4\");",
+    "  harness = praxis.harness({ loop: praxis.loop.single() });",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli(["inspect", agentPath, "--json"]);
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.output, /agent\.named-export/);
+});
+
+test("rax test executes a runtime dry-run after readiness checks", async () => {
+  const targetDir = path.join(scratchRoot, "dry-run-test");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const agentPath = path.join(targetDir, "dryRunAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "export class DryRunAgent extends praxis.Agent {",
+    "  identity = \"agent.dry-run-test\";",
+    "  model = praxis.model(\"gpt-5.4\");",
+    "  storage = praxis.storage.memory();",
+    "  harness = praxis.harness({ loop: praxis.loop.single() });",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli(["test", agentPath, "--json"]);
+
+  assert.equal(result.exitCode, 0);
+  const payload = JSON.parse(result.output) as { runtimeDryRun?: { ok?: boolean; finalOutput?: string } };
+  assert.equal(payload.runtimeDryRun?.ok, true);
+  assert.equal(payload.runtimeDryRun?.finalOutput, "PraxisRuntimeKernel dry-run completed.");
+});
+
+test("rax inspect asks for --export when an agent file exports multiple agents", async () => {
+  const targetDir = path.join(scratchRoot, "multiple-export");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const agentPath = path.join(targetDir, "multiAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "class Base extends praxis.Agent {",
+    "  identity = \"agent.multi.base\";",
+    "  model = praxis.model(\"gpt-5.4\");",
+    "  harness = praxis.harness({ loop: praxis.loop.single() });",
+    "}",
+    "export class FirstAgent extends Base {}",
+    "export class SecondAgent extends Base { identity = \"agent.multi.second\"; }",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli(["inspect", agentPath]);
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.output, /multiple Praxis Agent exports found/);
+  assert.match(result.output, /--export/);
 });

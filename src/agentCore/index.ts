@@ -41,7 +41,17 @@ import {
 import {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
+  eventInterfaceEnvelope,
+  managementInterfaceEnvelope,
+  repairInterfaceEnvelope,
+  stateInterfaceEnvelope,
 } from "./agent_interfaceAdapter/interfaceEnvelope.js";
+import {
+  createInterfaceAdapterRuntime,
+} from "./agent_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
+import {
+  bindBasicInterfaceLayer,
+} from "./agent_runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
 import {
   applyRaxStorageInitPlan,
   createAndApplyStoragePlaneRuntime,
@@ -55,6 +65,9 @@ import {
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
 } from "./agent_runtimeImplementation/praxisRuntimeKernel.js";
+import {
+  createInMemorySessionStateEventStore,
+} from "./agent_runtimeImplementation/runtimeSessionStateEventStore.js";
 import {
   createFrameworkInspectionReport,
 } from "./agent_runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
@@ -144,6 +157,8 @@ export {
   prepareSandboxRuntime,
   sandboxRuntimeProviderDescriptor,
   type SandboxRuntimePrepareResult,
+  type SandboxRuntimeDependencyCheck,
+  type SandboxRuntimeSelfRepairHint,
   type SandboxRuntimeProvider,
   type SandboxRuntimeProviderAction,
   type SandboxRuntimeProviderProbe,
@@ -154,12 +169,36 @@ export {
 export {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
+  eventInterfaceEnvelope,
+  managementInterfaceEnvelope,
+  repairInterfaceEnvelope,
+  stateInterfaceEnvelope,
   type InterfaceEnvelope,
   type InterfaceEnvelopeKind,
   type InterfaceEnvelopeSurface,
   type InterfaceEnvelopeValidationErrorCode,
   type InterfaceEnvelopeValidationResult,
 } from "./agent_interfaceAdapter/interfaceEnvelope.js";
+
+export {
+  bindBasicInterfaceLayer,
+  type BasicInterfaceKind,
+  type BasicInterfaceLayerBinding,
+  type BasicInterfaceLayerBindingRequest,
+  type BasicInterfaceLayerBindingResult,
+  type BasicInterfaceRef,
+} from "./agent_runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
+
+export {
+  createInterfaceAdapterRuntime,
+  type InterfaceAdapterRuntimeBinding,
+  type InterfaceAdapterRuntimeBindingInput,
+  type InterfaceAdapterRuntimeCaller,
+  type InterfaceAdapterRuntimeHandle,
+  type InterfaceAdapterRuntimeRequest,
+  type InterfaceAdapterRuntimeResult,
+  type InterfaceAdapterRuntimeSurface,
+} from "./agent_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
 
 export {
   applyRaxStorageInitPlan,
@@ -199,6 +238,12 @@ export {
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
 } from "./agent_runtimeImplementation/praxisRuntimeKernel.js";
+
+export {
+  createInMemorySessionStateEventStore,
+  type RuntimeSessionSnapshot,
+  type RuntimeSessionStateEventStore,
+} from "./agent_runtimeImplementation/runtimeSessionStateEventStore.js";
 
 export {
   createFrameworkInspectionReport,
@@ -301,6 +346,7 @@ export const baseTool = Object.freeze({
 export const runtimeKernel = Object.freeze({
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
+  createInMemorySessionStateEventStore,
 });
 
 export const inspection = Object.freeze({
@@ -329,7 +375,13 @@ export const sandboxPlane = Object.freeze({
 
 export const interfaceAdapter = Object.freeze({
   approvalInterfaceEnvelope,
+  bindBasicInterfaceLayer,
   createInterfaceEnvelope,
+  createInterfaceAdapterRuntime,
+  eventInterfaceEnvelope,
+  managementInterfaceEnvelope,
+  repairInterfaceEnvelope,
+  stateInterfaceEnvelope,
 });
 
 /**

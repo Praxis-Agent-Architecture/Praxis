@@ -16,7 +16,9 @@ import {
   loop,
   model,
   policy,
+  sandbox as sandboxHelper,
   session,
+  storage as storageHelper,
   tool,
   toolPolicies,
   tools,
@@ -130,6 +132,79 @@ test("PraxisRuntimeKernel.runManifest uses .rax_workspace SQLite storage by defa
   assert.equal(existsSync(sqlitePath), true);
   assert.equal(storageMetadata?.workspaceRef, "rax.workspace");
   assert.equal(JSON.stringify(result.state.session?.metadata).includes("codex-access-token-secret"), false);
+});
+
+test("PraxisRuntimeKernel.runManifest fails before model invocation when sandbox provider is unavailable", async () => {
+  class MissingSandboxAgent extends PraxisAgent {
+    identity = "agent.missing-sandbox";
+    model = model("gpt-5.4", { carrierId: "carrier.missing-sandbox" });
+    storage = storageHelper.memory();
+    sandbox = sandboxHelper.linuxBubblewrap({
+      dependencyRefs: ["binary:praxis-missing-bwrap-for-test"],
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  let providerCalls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-missing-sandbox" }).run(
+    new MissingSandboxAgent(),
+    "say hello",
+    {
+      sessionId: "session-missing-sandbox",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      providerCaller: async () => {
+        providerCalls += 1;
+        return { output_text: "should not run" };
+      },
+      now: () => "2026-05-06T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, false);
+  assert.equal(providerCalls, 0);
+  if (result.ok) return;
+  assert.equal(result.error.code, "SANDBOX_UNAVAILABLE");
+  assert.equal(result.state?.events.some((event) => event.type === "runtime.sandboxPlane.prepared"), true);
+  assert.equal(result.state?.session?.status, "failed");
+});
+
+test("PraxisRuntimeKernel routes pending approvals through interface envelopes", async () => {
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-approval-interface" }).run(
+    new PlainAgent(),
+    "ask for approval",
+    {
+      sessionId: "session-approval-interface",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      providerCaller: async () => ({
+        output: [{
+          type: "function_call",
+          name: "praxis_request_approval",
+          call_id: "approval-call-1",
+          arguments: JSON.stringify({
+            reason: "need a human decision",
+            requestedScopes: ["tool.shell.commandExecution"],
+            riskLevel: "high",
+          }),
+        }],
+      }),
+      now: () => "2026-05-06T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "APPROVAL_REQUIRED");
+  assert.equal(result.state?.approvals.length, 1);
+  const interfaceEvent = result.state?.events.find((event) => event.type === "runtime.interfaceAdapter.approval.envelope");
+  assert.notEqual(interfaceEvent, undefined);
+  assert.equal(JSON.stringify(interfaceEvent?.payload).includes("\"kind\":\"approval\""), true);
 });
 
 test("PraxisRuntimeKernel.run extracts final text from real codex responses SSE shape", async () => {

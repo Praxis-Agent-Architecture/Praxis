@@ -47,11 +47,27 @@ export type RuntimeBaseToolExecutorResourceLimits = {
   maxListEntries?: number;
 };
 
+export type RuntimeBaseToolExecutorSandbox = {
+  providerFamily?: string;
+  profile?: string;
+  isolationLevel?: string;
+  ready?: boolean;
+  probe?: {
+    status?: string;
+    publicSafeMessage?: string;
+  };
+  smoke?: {
+    status?: string;
+    publicSafeMessage?: string;
+  };
+};
+
 export type RuntimeBaseToolExecutorContext = {
   runtimeId: string;
   sessionId: string;
   policy?: RuntimeBaseToolExecutorPolicy;
   resourceLimits?: RuntimeBaseToolExecutorResourceLimits;
+  sandbox?: RuntimeBaseToolExecutorSandbox;
   adapters?: Partial<BaseToolExecutorPort>;
   emitEvent?: (event: RuntimeBaseToolExecutorEvent) => void;
 };
@@ -229,6 +245,128 @@ function timeoutMs(context: RuntimeBaseToolExecutorContext, requested?: number):
   return requested ?? context.resourceLimits?.timeoutMs ?? 30_000;
 }
 
+function sandboxFamily(context: RuntimeBaseToolExecutorContext): string {
+  return context.sandbox?.providerFamily ?? "host-observed";
+}
+
+function sandboxMetadata(context: RuntimeBaseToolExecutorContext, applied: boolean): Readonly<Record<string, unknown>> {
+  return {
+    providerFamily: sandboxFamily(context),
+    profile: context.sandbox?.profile ?? "host-observed",
+    isolationLevel: context.sandbox?.isolationLevel ?? (applied ? "process-namespace" : "none"),
+    ready: context.sandbox?.ready ?? true,
+    applied,
+    probeStatus: context.sandbox?.probe?.status,
+    smokeStatus: context.sandbox?.smoke?.status,
+  };
+}
+
+function sandboxUnavailable(context: RuntimeBaseToolExecutorContext): BaseToolExecutorResult<never> | undefined {
+  const family = sandboxFamily(context);
+  if (family === "host-observed" || family === "workspace-policy") return undefined;
+  if (family === "linux-bubblewrap" && context.sandbox?.ready === true) return undefined;
+  if (family === "linux-bubblewrap") {
+    return failure("SANDBOX_UNAVAILABLE", context.sandbox?.probe?.publicSafeMessage ?? "linux-bubblewrap sandbox is not ready for runtime process execution", [
+      "runtime.execEngine.baseToolExecutorPort.sandbox.unavailable",
+    ]);
+  }
+  return failure("SANDBOX_PROVIDER_UNSUPPORTED", `${family} sandbox cannot execute BaseTool host processes in this runtime build`, [
+    "runtime.execEngine.baseToolExecutorPort.sandbox.unsupported",
+  ]);
+}
+
+function sandboxCwd(cwd: string, context: RuntimeBaseToolExecutorContext): BaseToolExecutorResult<string> {
+  const root = workspaceRoot(context);
+  const relative = path.relative(root, cwd);
+  if (relative === "") return success("/workspace");
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return failure("SCOPE_REJECTED", "linux-bubblewrap process cwd must stay inside runtime workspace root", [
+      "runtime.execEngine.baseToolExecutorPort.sandbox.scope.rejected",
+    ]);
+  }
+  return success(`/workspace/${relative.split(path.sep).join("/")}`);
+}
+
+function linuxBubblewrapProcessCommand(
+  request: {
+    command: string;
+    args?: readonly string[];
+    shell?: boolean | string;
+  },
+  context: RuntimeBaseToolExecutorContext,
+  cwd: string,
+): BaseToolExecutorResult<{ command: string; args: readonly string[]; cwd: string; shell: false; sandboxApplied: true }> {
+  const insideCwd = sandboxCwd(cwd, context);
+  if (!insideCwd.ok) return insideCwd;
+
+  const shellCommand = request.shell === true || typeof request.shell === "string";
+  const shellBinary = typeof request.shell === "string" ? request.shell : "sh";
+  const target = shellCommand
+    ? [shellBinary, "-lc", request.command]
+    : [request.command, ...(request.args ?? [])];
+
+  return success({
+    command: "bwrap",
+    args: [
+      "--unshare-all",
+      "--die-with-parent",
+      "--ro-bind",
+      "/usr",
+      "/usr",
+      "--ro-bind",
+      "/bin",
+      "/bin",
+      "--ro-bind",
+      "/lib",
+      "/lib",
+      "--ro-bind",
+      "/lib64",
+      "/lib64",
+      "--proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--tmpfs",
+      "/tmp",
+      "--bind",
+      workspaceRoot(context),
+      "/workspace",
+      "--chdir",
+      insideCwd.output,
+      "/usr/bin/env",
+      ...target,
+    ],
+    cwd: workspaceRoot(context),
+    shell: false,
+    sandboxApplied: true,
+  });
+}
+
+function processCommand(
+  request: {
+    command: string;
+    args?: readonly string[];
+    shell?: boolean | string;
+  },
+  context: RuntimeBaseToolExecutorContext,
+  cwd: string,
+): BaseToolExecutorResult<{ command: string; args: readonly string[]; cwd: string; shell: boolean | string | undefined; sandboxApplied: boolean }> {
+  const unavailable = sandboxUnavailable(context);
+  if (unavailable !== undefined) return unavailable;
+
+  if (sandboxFamily(context) === "linux-bubblewrap") {
+    return linuxBubblewrapProcessCommand(request, context, cwd);
+  }
+
+  return success({
+    command: request.command,
+    args: request.args ?? [],
+    cwd,
+    shell: request.shell,
+    sandboxApplied: false,
+  });
+}
+
 async function runChildProcess(request: {
   command: string;
   args?: readonly string[];
@@ -251,12 +389,15 @@ async function runChildProcess(request: {
   const startedAt = Date.now();
   const outputLimit = maxOutputBytes(context);
   const commandTimeoutMs = timeoutMs(context, request.timeoutMs);
+  const spawnSpec = processCommand(request, context, cwdResult.output);
+  if (!spawnSpec.ok) return spawnSpec;
+  const sandbox = sandboxMetadata(context, spawnSpec.output.sandboxApplied);
 
   return await new Promise((resolve) => {
-    const child = spawn(request.command, request.args ? [...request.args] : [], {
-      cwd: cwdResult.output,
+    const child = spawn(spawnSpec.output.command, [...spawnSpec.output.args], {
+      cwd: spawnSpec.output.cwd,
       env: request.env === undefined ? undefined : { ...process.env, ...request.env },
-      shell: request.shell,
+      shell: spawnSpec.output.shell,
     });
 
     let stdout = "";
@@ -301,7 +442,7 @@ async function runChildProcess(request: {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      emit(context, portPath, "runtime.execEngine.baseToolExecutorPort.process.finished", { exitCode: code ?? 0 });
+      emit(context, portPath, "runtime.execEngine.baseToolExecutorPort.process.finished", { exitCode: code ?? 0, sandbox });
       resolve(
         success(
           {
@@ -314,6 +455,7 @@ async function runChildProcess(request: {
           {
             stdoutTruncated: stdoutBytes > outputLimit,
             stderrTruncated: stderrBytes > outputLimit,
+            sandbox,
           },
         ),
       );

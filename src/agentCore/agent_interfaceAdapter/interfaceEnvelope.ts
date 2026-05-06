@@ -131,3 +131,87 @@ export function approvalInterfaceEnvelope(input: {
     metadata: { approvalId: input.approvalId },
   });
 }
+
+export function eventInterfaceEnvelope(input: {
+  eventId: string;
+  runtimeId: string;
+  sessionId?: string;
+  surface?: InterfaceEnvelopeSurface;
+  payload: unknown;
+  createdAt?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}): InterfaceEnvelopeValidationResult {
+  return createInterfaceEnvelope({
+    envelopeId: `event:${input.eventId}`,
+    kind: "event",
+    surface: input.surface ?? "application",
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    payload: input.payload,
+    createdAt: input.createdAt,
+    metadata: { eventId: input.eventId, ...(input.metadata ?? {}) },
+  });
+}
+
+export function stateInterfaceEnvelope(input: {
+  stateId: string;
+  runtimeId: string;
+  sessionId?: string;
+  surface?: InterfaceEnvelopeSurface;
+  payload: unknown;
+  createdAt?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}): InterfaceEnvelopeValidationResult {
+  return createInterfaceEnvelope({
+    envelopeId: `state:${input.stateId}`,
+    kind: "state",
+    surface: input.surface ?? "application",
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    payload: input.payload,
+    createdAt: input.createdAt,
+    metadata: { stateId: input.stateId, ...(input.metadata ?? {}) },
+  });
+}
+
+export function managementInterfaceEnvelope(input: {
+  commandId: string;
+  runtimeId: string;
+  sessionId?: string;
+  surface?: InterfaceEnvelopeSurface;
+  payload: unknown;
+  createdAt?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}): InterfaceEnvelopeValidationResult {
+  return createInterfaceEnvelope({
+    envelopeId: `management:${input.commandId}`,
+    kind: "management",
+    surface: input.surface ?? "application",
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    payload: input.payload,
+    createdAt: input.createdAt,
+    metadata: { commandId: input.commandId, ...(input.metadata ?? {}) },
+  });
+}
+
+export function repairInterfaceEnvelope(input: {
+  repairId: string;
+  runtimeId: string;
+  sessionId?: string;
+  surface?: InterfaceEnvelopeSurface;
+  payload: unknown;
+  createdAt?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}): InterfaceEnvelopeValidationResult {
+  return createInterfaceEnvelope({
+    envelopeId: `repair:${input.repairId}`,
+    kind: "repair",
+    surface: input.surface ?? "application",
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    payload: input.payload,
+    createdAt: input.createdAt,
+    metadata: { repairId: input.repairId, ...(input.metadata ?? {}) },
+  });
+}

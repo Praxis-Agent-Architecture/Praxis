@@ -63,6 +63,10 @@ import {
   type PraxisAgent,
   type PraxisAgentInput,
 } from "./runtimeAgentManifest.js";
+import {
+  approvalInterfaceEnvelope,
+  type InterfaceEnvelope,
+} from "../agent_interfaceAdapter/interfaceEnvelope.js";
 import type { ToolDependencyProbe } from "../agent_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
 import {
   createInMemorySessionStateEventStore,
@@ -82,6 +86,10 @@ import {
   type RaxStorageInitMode,
   type StoragePlaneRuntime,
 } from "./runtime.storagePlane/storagePlaneRuntime.js";
+import {
+  prepareSandboxRuntime,
+  type SandboxRuntimePrepareResult,
+} from "./runtime.sandboxPlane/sandboxRuntimeProvider.js";
 
 export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
@@ -92,6 +100,7 @@ export type PraxisRuntimeKernelErrorCode =
   | "TOOL_INVOCATION_FAILED"
   | "PROCEDURE_INVOCATION_FAILED"
   | "APPROVAL_REQUIRED"
+  | "SANDBOX_UNAVAILABLE"
   | "STORAGE_RESOLUTION_FAILED"
   | "TEXT_OUTPUT_REJECTED";
 
@@ -130,6 +139,11 @@ export type PraxisRuntimeKernelOptions = {
     homeDir?: string;
     env?: Readonly<Record<string, string | undefined>>;
     initMode?: RaxStorageInitMode;
+  };
+  sandbox?: {
+    cwd?: string;
+    runSmoke?: boolean;
+    failOnUnavailable?: boolean;
   };
   now?: () => string;
 };
@@ -623,7 +637,13 @@ async function requestRuntimeApproval(input: {
   store: RuntimeSessionStateEventStore;
   now: () => string;
   metadata?: Readonly<Record<string, unknown>>;
-}): Promise<{ status: "approved" | "denied" | "pending"; envelope: RuntimeApprovalEnvelope; events: readonly string[]; reason?: string }> {
+}): Promise<{
+  status: "approved" | "denied" | "pending";
+  envelope: RuntimeApprovalEnvelope;
+  interfaceEnvelope?: InterfaceEnvelope;
+  events: readonly string[];
+  reason?: string;
+}> {
   const createdAt = input.now();
   const interfaceSurface = input.interfaceSurface ?? (input.resolver === undefined ? "application" : "test-harness");
   const envelope: RuntimeApprovalEnvelope = {
@@ -653,9 +673,36 @@ async function requestRuntimeApproval(input: {
   await input.store.appendEvent(event(input.sessionId, `event:approval:${input.approvalId}:pending`, "runtime.approval.pending", createdAt, {
     approval: envelope,
   }));
+  const interfaceEnvelope = approvalInterfaceEnvelope({
+    approvalId: input.approvalId,
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    surface: interfaceSurface === "cli" || interfaceSurface === "tui" || interfaceSurface === "raxos"
+      ? interfaceSurface
+      : "application",
+    payload: envelope,
+    createdAt,
+  });
+  if (interfaceEnvelope.ok) {
+    await input.store.appendEvent(event(
+      input.sessionId,
+      `event:interface:approval:${input.approvalId}`,
+      "runtime.interfaceAdapter.approval.envelope",
+      createdAt,
+      {
+        envelope: interfaceEnvelope.envelope,
+      },
+    ));
+  }
 
   if (input.resolver === undefined) {
-    return { status: "pending", envelope, events: ["runtime.approval.pending"], reason: input.reason };
+    return {
+      status: "pending",
+      envelope,
+      interfaceEnvelope: interfaceEnvelope.ok ? interfaceEnvelope.envelope : undefined,
+      events: ["runtime.approval.pending", ...(interfaceEnvelope.ok ? interfaceEnvelope.events : [])],
+      reason: input.reason,
+    };
   }
 
   let resolution: RuntimeApprovalResolution;
@@ -679,13 +726,20 @@ async function requestRuntimeApproval(input: {
     return {
       status: "denied",
       envelope,
-      events: ["runtime.approval.denied"],
+      interfaceEnvelope: interfaceEnvelope.ok ? interfaceEnvelope.envelope : undefined,
+      events: ["runtime.approval.denied", ...(interfaceEnvelope.ok ? interfaceEnvelope.events : [])],
       reason: "approval resolver failed",
     };
   }
   const status = resolution.status;
   if (status === "pending") {
-    return { status, envelope, events: ["runtime.approval.pending"], reason: resolution.reason ?? input.reason };
+    return {
+      status,
+      envelope,
+      interfaceEnvelope: interfaceEnvelope.ok ? interfaceEnvelope.envelope : undefined,
+      events: ["runtime.approval.pending", ...(interfaceEnvelope.ok ? interfaceEnvelope.events : [])],
+      reason: resolution.reason ?? input.reason,
+    };
   }
 
   const resolvedAt = input.now();
@@ -706,9 +760,52 @@ async function requestRuntimeApproval(input: {
   return {
     status,
     envelope,
-    events: [`runtime.approval.${status}`],
+    interfaceEnvelope: interfaceEnvelope.ok ? interfaceEnvelope.envelope : undefined,
+    events: [`runtime.approval.${status}`, ...(interfaceEnvelope.ok ? interfaceEnvelope.events : [])],
     reason: resolution.reason,
   };
+}
+
+async function prepareKernelSandbox(input: {
+  manifest: AgentManifest;
+  runtimeId: string;
+  sessionId: string;
+  storageRuntime: StoragePlaneRuntime;
+  options: PraxisRuntimeKernelOptions;
+  store: RuntimeSessionStateEventStore;
+  now: () => string;
+  events: string[];
+}): Promise<
+  | { ok: true; sandbox: SandboxRuntimePrepareResult }
+  | { ok: false; sandbox: SandboxRuntimePrepareResult; error: PraxisRuntimeKernelError }
+> {
+  const sandbox = await prepareSandboxRuntime(input.manifest.sandbox, {
+    cwd: input.options.sandbox?.cwd ?? input.storageRuntime.layout.workspace.root,
+    runSmoke: input.options.sandbox?.runSmoke ?? false,
+  });
+  input.events.push(...sandbox.events);
+  await input.store.appendEvent(event(
+    input.sessionId,
+    "event:sandbox.prepared",
+    "runtime.sandboxPlane.prepared",
+    input.now(),
+    { sandbox },
+  ));
+
+  const failOnUnavailable = input.options.sandbox?.failOnUnavailable ?? true;
+  if (!sandbox.ready && failOnUnavailable) {
+    return {
+      ok: false,
+      sandbox,
+      error: kernelError(
+        "SANDBOX_UNAVAILABLE",
+        sandbox.probe.publicSafeMessage,
+        "runtime-state",
+      ),
+    };
+  }
+
+  return { ok: true, sandbox };
 }
 
 async function buildPromptPackAndLower(input: {
@@ -1330,6 +1427,70 @@ export class PraxisRuntimeKernel {
       storageWorkspaceRef: storageRuntime.layout.refs.workspaceRef,
     }));
 
+    const sandboxPrepared = await prepareKernelSandbox({
+      manifest,
+      runtimeId,
+      sessionId,
+      storageRuntime,
+      options,
+      store,
+      now,
+      events,
+    });
+    await recordMainLoopStep({
+      store,
+      sessionId,
+      createdAt: now(),
+      events,
+      mainLoopSteps,
+      step: createMainLoopStepRecord({
+        sessionId,
+        turnIndex: 0,
+        stepIndex: 0,
+        actionPrimitive: "sandboxPrepare",
+        status: sandboxPrepared.ok ? "completed" : "failed",
+        inputRefs: [manifest.sandbox.sandboxId],
+        outputRefs: [sandboxPrepared.sandbox.providerFamily],
+        error: sandboxPrepared.ok ? undefined : {
+          code: sandboxPrepared.error.code,
+          message: sandboxPrepared.error.message,
+          boundary: "runtime-state",
+          publicSafe: true,
+        },
+        now: now(),
+        metadata: {
+          providerFamily: sandboxPrepared.sandbox.providerFamily,
+          profile: sandboxPrepared.sandbox.profile,
+          probeStatus: sandboxPrepared.sandbox.probe.status,
+          ready: sandboxPrepared.sandbox.ready,
+        },
+      }),
+    });
+    if (!sandboxPrepared.ok) {
+      await recordKernelError({
+        store,
+        sessionId,
+        errorId: "error:sandbox",
+        error: sandboxPrepared.error,
+        createdAt: now(),
+        metadata: {
+          sandbox: sandboxPrepared.sandbox,
+        },
+      });
+      await store.updateSessionStatus(sessionId, "failed");
+      const snapshot = await store.readSession(sessionId);
+      return {
+        ok: false,
+        runtimeId,
+        sessionId,
+        manifest,
+        error: sandboxPrepared.error,
+        mainLoopSteps,
+        events,
+        state: snapshot,
+      };
+    }
+
     const input = receiveTextInput({
       runtimeId,
       sessionId,
@@ -1414,6 +1575,7 @@ export class PraxisRuntimeKernel {
         ...(options.baseToolPolicy ?? {}),
       },
       resourceLimits: options.baseToolResourceLimits,
+      sandbox: sandboxPrepared.sandbox,
       emitEvent: (runtimeEvent) => {
         events.push(runtimeEvent.type);
       },

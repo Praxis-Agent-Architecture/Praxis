@@ -272,6 +272,17 @@ const prepared = await praxis.sandboxPlane.prepareSandboxRuntime(
 
 If `bwrap` is missing, the runtime reports a public-safe dependency plan instead of pretending isolation is active. Non-Linux providers remain contract/readiness surfaces until their platform adapters are implemented.
 
+`PraxisRuntimeKernel.runManifest(...)` now prepares the declared sandbox before model invocation. If a required live provider is unavailable, the run fails early with `SANDBOX_UNAVAILABLE`, records the sandbox probe in session events, and avoids calling the model or tools under a false isolation claim.
+
+When `praxis.sandbox.linuxBubblewrap()` is prepared successfully, the default runtime-owned BaseTool executor runs process-backed host ports through bubblewrap:
+
+- `shell.run`
+- `process.run`
+- `git.runGit`
+- external `search.ripgrep` dispatch
+
+Filesystem ports such as `filesystem.readText` and `filesystem.writeText` are still executed by the Node runtime process, so they are governed by workspace/allowed-root policy rather than OS-level bubblewrap containment. This split is intentional for v1: process side effects get real Linux sandbox execution first, while direct filesystem adapters remain strict scoped host adapters.
+
 ## 9. PromptPack
 
 PromptPack is Praxis internal context material, not the provider payload.
@@ -366,6 +377,14 @@ rax test agents/mainAgent.ts
 rax run agents/mainAgent.ts "read the repo and summarize it"
 ```
 
+If the file exports exactly one Praxis Agent class, `rax inspect/test/run` can discover it. If the file exports multiple Agents, pass an explicit export:
+
+```bash
+rax inspect agents/mainAgent.ts --export RepoInspectorAgent
+```
+
+`rax inspect` compiles and reports manifest/sandbox/readiness. `rax test` goes one step further: it executes a governed `PraxisRuntimeKernel.runManifest(...)` dry-run with an in-memory session store, so promptPack, mainLoop records, sandbox preparation, and final output exposure are exercised without live provider calls or tool side effects.
+
 Compile:
 
 ```ts
@@ -411,6 +430,19 @@ const approvalResolver: RuntimeApprovalResolver = async (approval) => ({
 ```
 
 CLI, TUI, UI, Raxos, or remote management can later implement this resolver shape.
+
+Every pending runtime approval also emits an `InterfaceEnvelope` event with kind `approval`. That gives CLI/TUI/Raxode/Raxos/application surfaces a stable public-safe envelope to route, display, approve, deny, audit, or replay.
+
+The same interface envelope shape is available for other external surfaces:
+
+```ts
+praxis.interfaceAdapter.eventInterfaceEnvelope(...);
+praxis.interfaceAdapter.stateInterfaceEnvelope(...);
+praxis.interfaceAdapter.managementInterfaceEnvelope(...);
+praxis.interfaceAdapter.repairInterfaceEnvelope(...);
+```
+
+These are still contracts, not product UI. They are the bridge Raxode, Raxos, CLI/TUI, or an embedded application can subscribe to without importing deep runtime internals.
 
 ## 14. What Is Live Today
 
