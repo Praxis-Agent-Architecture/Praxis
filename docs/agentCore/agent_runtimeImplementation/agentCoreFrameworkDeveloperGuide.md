@@ -252,6 +252,26 @@ praxis.sandbox.hostObserved()
 
 This is an honest host-mode profile. It does not promise container isolation. It does promise runtime observation, policy gates, approval surfaces, event logs, and metadata for later sandbox implementations.
 
+Provider-aware sandbox profiles are also available:
+
+- `praxis.sandbox.workspaceOnly()`: workspace and `.rax_workspace` policy profile.
+- `praxis.sandbox.linuxBubblewrap()`: Linux bubblewrap provider profile.
+- `praxis.sandbox.rootlessContainer()`: future rootless container provider contract.
+- `praxis.sandbox.windowsSandbox()`: Windows Sandbox contract.
+- `praxis.sandbox.macosContainerization()`: macOS Containerization contract.
+- `praxis.sandbox.remoteWorker()`: future Raxos/enterprise remote worker contract.
+
+Linux bubblewrap is the first real smoke-tested provider:
+
+```ts
+const prepared = await praxis.sandboxPlane.prepareSandboxRuntime(
+  praxis.sandbox.linuxBubblewrap(),
+  { cwd: process.cwd(), runSmoke: true },
+);
+```
+
+If `bwrap` is missing, the runtime reports a public-safe dependency plan instead of pretending isolation is active. Non-Linux providers remain contract/readiness surfaces until their platform adapters are implemented.
+
 ## 9. PromptPack
 
 PromptPack is Praxis internal context material, not the provider payload.
@@ -282,11 +302,13 @@ MainLoop is the reusable running core, but developers should extend it by stable
 
 ```ts
 mainLoop = praxis.mainLoop.standard({
-  hooks: {
-    buildPrompt: { strategyRef: "coding.prompt.strategy" },
-    beforeTool: { policyRef: "coding.beforeTool.policy" },
-    afterTool: { handlerRef: "coding.afterTool.handler" },
-  },
+  buildPromptRef: "coding.prompt.strategy",
+  chooseModelRef: "coding.model.router",
+  beforeToolRef: "coding.beforeTool.policy",
+  afterToolRef: "coding.afterTool.handler",
+  onApprovalRef: "coding.approval.route",
+  onErrorRef: "coding.error.report",
+  onResumeRef: "coding.resume.session",
 });
 ```
 
@@ -325,6 +347,24 @@ This resolves to:
 Compile does not create directories. Runtime or rax init/run applies the init plan. The storage plane records public-safe path refs and must not store raw auth tokens.
 
 ## 12. Running And Inspecting
+
+Start a new project:
+
+```bash
+rax build init minimal --name repo-agent --dir repo-agent
+rax build init fullstack --name coding-agent --dir coding-agent
+rax build init custom
+```
+
+`minimal` creates a small public-API agent. `fullstack` creates a mature project layout with `agents/`, `prompts/`, `policies/`, `sandbox/`, `interfaces/`, `reports/`, tests, and `.rax_workspace`. `custom` asks for model, sandbox, tool policy, session/storage, tool set, and interface-surface choices.
+
+Inspect, test, or run:
+
+```bash
+rax inspect agents/mainAgent.ts
+rax test agents/mainAgent.ts
+rax run agents/mainAgent.ts "read the repo and summarize it"
+```
 
 Compile:
 
@@ -392,9 +432,9 @@ Still compatibility bridge or contract-only:
 
 - final product-grade MainLoop executor
 - final PromptPack semantics and compression strategy
-- full CLI `rax` binary and package manager
+- remote package installation and marketplace distribution
 - concrete TAP/CMP/MP/multiagent advanced capabilities
-- full real sandbox container runtime
+- macOS/Windows/container/remote sandbox providers beyond readiness contracts
 - live adapters for every model endpoint role
 
 ## 15. Verification Commands

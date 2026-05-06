@@ -484,6 +484,60 @@ test("compileAgent rejects non-declarative mainLoop hooks and invalid prompt pat
   }
 });
 
+test("compileAgent supports custom sandbox, policy, mainLoop refs, and statePlane controls", () => {
+  class FinalClosureAgent extends PraxisAgentArchetype {
+    identity = "agent.final-closure";
+    model = model("gpt-5.4");
+    sandbox = sandbox.profile(sandbox.workspaceOnly({
+      sandboxId: "sandbox.final.workspace",
+      dependencyRefs: ["policy:workspace-only"],
+    }));
+    toolPolicy = toolPolicies.custom({
+      matrixId: "toolPolicy.final.custom",
+      defaultDecision: "approval",
+      familyRules: [
+        { scope: "family", family: "codeBase", decision: "allow", risk: "safe", log: "full", approval: "none" },
+      ],
+      toolRules: [
+        { scope: "toolId", toolId: "shell.commandExecution", decision: "approval", risk: "dangerous", log: "full", approval: "required" },
+      ],
+    });
+    mainLoop = mainLoop.standard({
+      buildPromptRef: "loop.final.buildPrompt",
+      chooseModelRef: "loop.final.chooseModel",
+      onApprovalRef: "loop.final.approval",
+      onErrorRef: "loop.final.error",
+    });
+    statePlane = statePlane({
+      expose: ["phase", "approvals"],
+      control: ["pause", "resume", "interrupt", "approve", "deny", "rollback", "inspect", "repair", "configure", "rotateSecretRef"],
+      audit: "full",
+    });
+    harness = harness({
+      tools: tools([
+        tool("code.read"),
+        tool("shell.commandExecution"),
+      ]),
+    });
+  }
+
+  const result = compileAgent(FinalClosureAgent, {
+    compiledAt: "2026-05-06T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.manifest.sandbox.providerFamily, "workspace-policy");
+  assert.equal(result.manifest.sandbox.isolationLevel, "workspace-policy");
+  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["policy:workspace-only"]);
+  assert.equal(result.manifest.toolPolicy.profile, "custom");
+  assert.equal(result.manifest.toolPolicy.familyRules[0]?.family, "codeBase");
+  assert.equal(result.manifest.mainLoop.hooks.some((hook) => hook.hook === "onApproval" && hook.handlerRef === "loop.final.approval"), true);
+  assert.equal(result.manifest.statePlane.control.includes("rotateSecretRef"), true);
+  assert.equal(result.manifest.harness.sandbox.providerFamily, "workspace-policy");
+  assert.equal(result.manifest.harness.toolPolicy.matrixId, "toolPolicy.final.custom");
+});
+
 test("compileAgent rejects missing agent input with public-safe error", () => {
   const result = compileAgent(undefined);
 

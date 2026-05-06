@@ -93,6 +93,15 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(packagePraxis.AgentArchetype, PraxisAgentArchetype);
   assert.equal(packagePraxis.model("gpt-5.4").model, "gpt-5.4");
   assert.equal(packagePraxis.baseTools.code.read().toolId, "code.read");
+  assert.equal(packagePraxis.sandbox.linuxBubblewrap().providerFamily, "linux-bubblewrap");
+  assert.equal(packagePraxis.toolPolicies.custom({ matrixId: "toolPolicy.public.custom" }).profile, "custom");
+  assert.equal(packagePraxis.interfaceAdapter.createInterfaceEnvelope({
+    envelopeId: "event.public",
+    kind: "event",
+    surface: "application",
+    runtimeId: "runtime.public-api",
+    payload: {},
+  }).ok, true);
 
   const minimal = compileAgent(MinimalDeveloperAgent, { compiledAt: "2026-05-04T00:00:00.000Z" });
   assert.equal(minimal.ok, true);

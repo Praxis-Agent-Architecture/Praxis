@@ -8,6 +8,7 @@ import {
   PromptPack,
   PraxisAgent,
   PraxisAgentArchetype,
+  STATE_PLANE_STANDARD_CONTROLS,
   append,
   compileAgent,
   endpoint,
@@ -32,6 +33,15 @@ import {
   tools,
   validateAgentManifest,
 } from "./agent_runtimeImplementation/runtimeAgentManifest.js";
+import {
+  createSandboxRuntimeProvider,
+  prepareSandboxRuntime,
+  sandboxRuntimeProviderDescriptor,
+} from "./agent_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+import {
+  approvalInterfaceEnvelope,
+  createInterfaceEnvelope,
+} from "./agent_interfaceAdapter/interfaceEnvelope.js";
 import {
   applyRaxStorageInitPlan,
   createAndApplyStoragePlaneRuntime,
@@ -66,6 +76,7 @@ export {
   PromptPack,
   PraxisAgent,
   PraxisAgentArchetype,
+  STATE_PLANE_STANDARD_CONTROLS,
   append,
   compileAgent,
   endpoint,
@@ -114,11 +125,41 @@ export {
   type PromptPackSpec,
   type PromptPatchSpec,
   type SandboxSpec,
+  type SandboxIsolationLevel,
+  type SandboxMountPolicy,
+  type SandboxNetworkRuntimePolicy,
+  type SandboxPlatformSupport,
+  type SandboxPlatformSupportStatus,
+  type SandboxProcessPolicy,
+  type SandboxProviderFamily,
   type SessionSpec,
   type StatePlaneSpec,
   type StorageSpec,
   type ToolSpec,
+  type ToolPolicyCustomInput,
 } from "./agent_runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  createSandboxRuntimeProvider,
+  prepareSandboxRuntime,
+  sandboxRuntimeProviderDescriptor,
+  type SandboxRuntimePrepareResult,
+  type SandboxRuntimeProvider,
+  type SandboxRuntimeProviderAction,
+  type SandboxRuntimeProviderProbe,
+  type SandboxRuntimeProviderStatus,
+  type SandboxRuntimeSmokeResult,
+} from "./agent_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+
+export {
+  approvalInterfaceEnvelope,
+  createInterfaceEnvelope,
+  type InterfaceEnvelope,
+  type InterfaceEnvelopeKind,
+  type InterfaceEnvelopeSurface,
+  type InterfaceEnvelopeValidationErrorCode,
+  type InterfaceEnvelopeValidationResult,
+} from "./agent_interfaceAdapter/interfaceEnvelope.js";
 
 export {
   applyRaxStorageInitPlan,
@@ -280,6 +321,17 @@ export const storagePlane = Object.freeze({
   resolveRaxWorkspace,
 });
 
+export const sandboxPlane = Object.freeze({
+  createSandboxRuntimeProvider,
+  prepareSandboxRuntime,
+  sandboxRuntimeProviderDescriptor,
+});
+
+export const interfaceAdapter = Object.freeze({
+  approvalInterfaceEnvelope,
+  createInterfaceEnvelope,
+});
+
 /**
  * One-object authoring facade.
  *
@@ -334,6 +386,8 @@ export const praxis = Object.freeze({
   runtime: runtimeKernel,
   inspection,
   storagePlane,
+  sandboxPlane,
+  interfaceAdapter,
 });
 
 export default praxis;

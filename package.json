@@ -7,10 +7,13 @@
   "publishConfig": {
     "access": "public"
   },
+  "bin": {
+    "rax": "./bin/rax"
+  },
   "exports": {
     ".": "./src/agentCore/index.ts",
     "./agentCore": "./src/agentCore/index.ts",
-    "./rax": "./src/rax_packageManager/raxDeveloperCommandContract.ts"
+    "./rax": "./src/rax_packageManager/index.ts"
   },
   "engines": {
     "node": ">=22"

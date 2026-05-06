@@ -157,6 +157,7 @@ export type MainLoopHookName =
   | "chooseModel"
   | "beforeTool"
   | "afterTool"
+  | "onApproval"
   | "shouldContinue"
   | "shouldBreak"
   | "onError"
@@ -272,14 +273,91 @@ export type SandboxResourceLimits = {
   metadata?: Readonly<Record<string, unknown>>;
 };
 
-export type SandboxProfile = "host-observed" | "temp" | "workspace" | "strict" | "custom" | (string & {});
+export type SandboxProfile =
+  | "host-observed"
+  | "workspace-only"
+  | "linux-bubblewrap"
+  | "rootless-container"
+  | "windows-sandbox"
+  | "macos-containerization"
+  | "remote-worker"
+  | "temp"
+  | "workspace"
+  | "strict"
+  | "custom"
+  | (string & {});
+
+export type SandboxProviderFamily =
+  | "host-observed"
+  | "workspace-policy"
+  | "linux-bubblewrap"
+  | "rootless-container"
+  | "windows-sandbox"
+  | "macos-containerization"
+  | "remote-worker"
+  | "custom"
+  | (string & {});
+
+export type SandboxIsolationLevel =
+  | "none"
+  | "workspace-policy"
+  | "process-namespace"
+  | "container"
+  | "light-vm"
+  | "remote"
+  | "custom"
+  | (string & {});
+
+export type SandboxPlatformSupportStatus =
+  | "supported"
+  | "contract-only"
+  | "unsupported"
+  | "requires-provider"
+  | "unknown";
+
+export type SandboxMountPolicy = {
+  workspaceRootRef?: string;
+  allowedReadRoots?: readonly string[];
+  allowedWriteRoots?: readonly string[];
+  readonlyRoot?: boolean;
+  tmpfsRefs?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type SandboxNetworkRuntimePolicy = {
+  outbound: "allow" | "deny" | "approval" | "provider-policy";
+  allowedHosts?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type SandboxProcessPolicy = {
+  allowShell: boolean;
+  maxProcesses?: number;
+  allowedCommands?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type SandboxPlatformSupport = {
+  linux?: SandboxPlatformSupportStatus;
+  macos?: SandboxPlatformSupportStatus;
+  windows?: SandboxPlatformSupportStatus;
+  minimumVersions?: Readonly<Record<string, string>>;
+  metadata?: Readonly<Record<string, unknown>>;
+};
 
 export type SandboxSpec = {
   sandboxId: string;
   profile: SandboxProfile;
+  providerFamily?: SandboxProviderFamily;
+  isolationLevel?: SandboxIsolationLevel;
+  dependencyRefs?: readonly string[];
   filesystem: SandboxFilesystemPolicy;
   network: SandboxNetworkPolicy;
   shell: SandboxShellPolicy;
+  mountPolicy?: SandboxMountPolicy;
+  networkPolicy?: SandboxNetworkRuntimePolicy;
+  processPolicy?: SandboxProcessPolicy;
+  platformSupport?: SandboxPlatformSupport;
   scratchRoot?: string;
   resourceLimits: SandboxResourceLimits;
   reusableProfileRef?: string;
@@ -356,6 +434,19 @@ export type StatePlaneSpec = {
   audit: "none" | "summary" | "full";
   metadata?: Readonly<Record<string, unknown>>;
 };
+
+export const STATE_PLANE_STANDARD_CONTROLS = [
+  "pause",
+  "resume",
+  "interrupt",
+  "approve",
+  "deny",
+  "rollback",
+  "inspect",
+  "repair",
+  "configure",
+  "rotateSecretRef",
+] as const;
 
 export type FrameworkCoreContractSpec = {
   kind: "praxis.frameworkCoreContract";
@@ -773,17 +864,40 @@ export const loop = Object.assign(
   },
 );
 
+export type MainLoopStandardInput = {
+  hooks?: Partial<Record<MainLoopHookName, string | Omit<MainLoopHookRef, "hook">>>;
+  buildPromptRef?: string;
+  chooseModelRef?: string;
+  beforeToolRef?: string;
+  afterToolRef?: string;
+  onApprovalRef?: string;
+  onErrorRef?: string;
+  onResumeRef?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
 export const mainLoop = {
-  standard(input: {
-    hooks?: Partial<Record<MainLoopHookName, string | Omit<MainLoopHookRef, "hook">>>;
-    metadata?: Readonly<Record<string, unknown>>;
-  } = {}): MainLoopSpec {
-    const hooks = Object.entries(input.hooks ?? {}).map(([name, ref]) => {
+  standard(input: MainLoopStandardInput = {}): MainLoopSpec {
+    const directRefs: Partial<Record<MainLoopHookName, string>> = {
+      buildPrompt: input.buildPromptRef,
+      chooseModel: input.chooseModelRef,
+      beforeTool: input.beforeToolRef,
+      afterTool: input.afterToolRef,
+      onApproval: input.onApprovalRef,
+      onError: input.onErrorRef,
+      onResume: input.onResumeRef,
+    };
+    const hookInput: Partial<Record<MainLoopHookName, string | Omit<MainLoopHookRef, "hook">>> = {
+      ...directRefs,
+      ...(input.hooks ?? {}),
+    };
+    const hooks = Object.entries(hookInput).map(([name, ref]) => {
+      if (ref === undefined) return undefined;
       const hook = name as MainLoopHookName;
       return typeof ref === "string"
         ? { hook, handlerRef: ref }
         : { hook, ...ref };
-    });
+    }).filter((hook): hook is MainLoopHookRef => hook !== undefined);
     return {
       kind: "praxis.mainLoopSpec",
       strategy: "standard",
@@ -793,6 +907,17 @@ export const mainLoop = {
       ephemeralProcedureCompatible: true,
       promptPackCompatible: true,
       metadata: input.metadata,
+    };
+  },
+  custom(input: Omit<MainLoopStandardInput, "metadata"> & {
+    strategy: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }): MainLoopSpec {
+    const standard = this.standard(input);
+    return {
+      ...standard,
+      kind: "praxis.mainLoopSpec",
+      strategy: input.strategy,
     };
   },
 };
@@ -850,6 +975,25 @@ export const sandbox = {
       scratchRoot: input.scratchRoot ?? ".rax_workspace/sandbox",
       resourceLimits: input.resourceLimits ?? {},
       reusableProfileRef: input.reusableProfileRef,
+      providerFamily: "host-observed",
+      isolationLevel: "none",
+      dependencyRefs: [],
+      mountPolicy: {
+        workspaceRootRef: "rax.workspace",
+        allowedReadRoots: ["workspace", ".rax_workspace"],
+        allowedWriteRoots: [".rax_workspace"],
+        readonlyRoot: false,
+      },
+      networkPolicy: { outbound: "approval" },
+      processPolicy: {
+        allowShell: true,
+        maxProcesses: input.resourceLimits?.maxProcesses,
+      },
+      platformSupport: {
+        linux: "supported",
+        macos: "supported",
+        windows: "supported",
+      },
       metadata: {
         isolation: "none",
         observation: "runtime records, gates, budgets, and approvals still apply",
@@ -873,11 +1017,158 @@ export const sandbox = {
       metadata: input.metadata,
     };
   },
+  workspaceOnly(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return {
+      sandboxId: input.sandboxId ?? "sandbox.workspaceOnly",
+      profile: "workspace-only",
+      providerFamily: "workspace-policy",
+      isolationLevel: "workspace-policy",
+      dependencyRefs: input.dependencyRefs ?? [],
+      filesystem: input.filesystem ?? "workspace-only",
+      network: input.network ?? "deny-by-default",
+      shell: input.shell ?? "approval-for-write",
+      mountPolicy: input.mountPolicy ?? {
+        workspaceRootRef: "rax.workspace",
+        allowedReadRoots: ["workspace", ".rax_workspace"],
+        allowedWriteRoots: ["workspace", ".rax_workspace"],
+        readonlyRoot: false,
+      },
+      networkPolicy: input.networkPolicy ?? { outbound: "deny" },
+      processPolicy: input.processPolicy ?? {
+        allowShell: true,
+        maxProcesses: input.resourceLimits?.maxProcesses,
+      },
+      platformSupport: input.platformSupport ?? {
+        linux: "supported",
+        macos: "supported",
+        windows: "supported",
+      },
+      scratchRoot: input.scratchRoot ?? ".rax_workspace/sandbox/workspace",
+      resourceLimits: input.resourceLimits ?? {},
+      reusableProfileRef: input.reusableProfileRef,
+      metadata: input.metadata,
+    };
+  },
+  linuxBubblewrap(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return {
+      ...sandbox.workspaceOnly(input),
+      sandboxId: input.sandboxId ?? "sandbox.linuxBubblewrap",
+      profile: "linux-bubblewrap",
+      providerFamily: "linux-bubblewrap",
+      isolationLevel: "process-namespace",
+      dependencyRefs: input.dependencyRefs ?? ["binary:bwrap"],
+      platformSupport: input.platformSupport ?? {
+        linux: "supported",
+        macos: "unsupported",
+        windows: "unsupported",
+      },
+      metadata: {
+        provider: "bubblewrap",
+        flatpakCompatible: true,
+        ...(input.metadata ?? {}),
+      },
+    };
+  },
+  rootlessContainer(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return {
+      ...sandbox.workspaceOnly(input),
+      sandboxId: input.sandboxId ?? "sandbox.rootlessContainer",
+      profile: "rootless-container",
+      providerFamily: "rootless-container",
+      isolationLevel: "container",
+      dependencyRefs: input.dependencyRefs ?? ["binary:podman|docker"],
+      platformSupport: input.platformSupport ?? {
+        linux: "requires-provider",
+        macos: "requires-provider",
+        windows: "requires-provider",
+      },
+      metadata: { contractOnly: true, ...(input.metadata ?? {}) },
+    };
+  },
+  windowsSandbox(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return {
+      ...sandbox.workspaceOnly(input),
+      sandboxId: input.sandboxId ?? "sandbox.windowsSandbox",
+      profile: "windows-sandbox",
+      providerFamily: "windows-sandbox",
+      isolationLevel: "light-vm",
+      dependencyRefs: input.dependencyRefs ?? ["windows:Windows-Sandbox"],
+      platformSupport: input.platformSupport ?? {
+        linux: "unsupported",
+        macos: "unsupported",
+        windows: "contract-only",
+      },
+      metadata: { contractOnly: true, ...(input.metadata ?? {}) },
+    };
+  },
+  macosContainerization(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return {
+      ...sandbox.workspaceOnly(input),
+      sandboxId: input.sandboxId ?? "sandbox.macosContainerization",
+      profile: "macos-containerization",
+      providerFamily: "macos-containerization",
+      isolationLevel: "container",
+      dependencyRefs: input.dependencyRefs ?? ["macos:containerization"],
+      platformSupport: input.platformSupport ?? {
+        linux: "unsupported",
+        macos: "contract-only",
+        windows: "unsupported",
+      },
+      metadata: { contractOnly: true, ...(input.metadata ?? {}) },
+    };
+  },
+  remoteWorker(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return {
+      ...sandbox.workspaceOnly(input),
+      sandboxId: input.sandboxId ?? "sandbox.remoteWorker",
+      profile: "remote-worker",
+      providerFamily: "remote-worker",
+      isolationLevel: "remote",
+      dependencyRefs: input.dependencyRefs ?? ["remote:raxos-worker"],
+      platformSupport: input.platformSupport ?? {
+        linux: "requires-provider",
+        macos: "requires-provider",
+        windows: "requires-provider",
+      },
+      metadata: { contractOnly: true, ...(input.metadata ?? {}) },
+    };
+  },
+  profile(input: SandboxSpec): SandboxSpec {
+    return input;
+  },
 };
 
 type ToolPolicyProfileInput = {
   matrixId?: string;
   metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type ToolPolicyCustomInput = ToolPolicyProfileInput & {
+  defaultDecision?: BaseToolPolicyDecision;
+  familyRules?: readonly BaseToolPolicyRule[];
+  groupRules?: readonly BaseToolPolicyRule[];
+  toolRules?: readonly BaseToolPolicyRule[];
+  actionRules?: readonly BaseToolPolicyRule[];
+  readinessPolicy?: BaseToolPolicyMatrixSpec["readinessPolicy"];
+  eventLogLevel?: BaseToolPolicyMatrixSpec["eventLogLevel"];
 };
 
 function rule(
@@ -932,6 +1223,23 @@ function buildToolPolicyProfile(
 }
 
 export const toolPolicies = {
+  custom(input: ToolPolicyCustomInput = {}): BaseToolPolicyMatrixSpec {
+    return {
+      matrixId: input.matrixId ?? "toolPolicy.custom",
+      profile: "custom",
+      defaultDecision: input.defaultDecision ?? "guarded",
+      familyRules: input.familyRules ?? [],
+      groupRules: input.groupRules ?? [],
+      toolRules: input.toolRules ?? [],
+      actionRules: input.actionRules ?? [],
+      readinessPolicy: input.readinessPolicy ?? "observe",
+      eventLogLevel: input.eventLogLevel ?? "full",
+      metadata: {
+        developerAuthored: true,
+        ...(input.metadata ?? {}),
+      },
+    };
+  },
   bapr(input: ToolPolicyProfileInput = {}): BaseToolPolicyMatrixSpec {
     return buildToolPolicyProfile("bapr", input, {
       defaultDecision: "allow",
@@ -1358,10 +1666,47 @@ function normalizeSandbox(input: SandboxSpec | undefined): NormalizeResult<Sandb
       ...spec,
       sandboxId: spec.sandboxId.trim(),
       profile: spec.profile.trim() as SandboxProfile,
+      providerFamily: (spec.providerFamily?.trim() as SandboxProviderFamily | undefined) ?? (
+        spec.profile === "host-observed"
+          ? "host-observed"
+          : spec.profile === "workspace-only" || spec.profile === "workspace"
+            ? "workspace-policy"
+            : spec.profile
+      ),
+      isolationLevel: (spec.isolationLevel?.trim() as SandboxIsolationLevel | undefined) ?? (
+        spec.profile === "host-observed"
+          ? "none"
+          : spec.profile === "workspace-only" || spec.profile === "workspace"
+            ? "workspace-policy"
+            : "custom"
+      ),
+      dependencyRefs: cleanList(spec.dependencyRefs),
       filesystem: spec.filesystem.trim() as SandboxFilesystemPolicy,
       network: spec.network.trim() as SandboxNetworkPolicy,
       shell: spec.shell.trim() as SandboxShellPolicy,
       scratchRoot: spec.scratchRoot?.trim() || ".rax_workspace/sandbox",
+      mountPolicy: spec.mountPolicy === undefined ? undefined : {
+        ...spec.mountPolicy,
+        allowedReadRoots: cleanList(spec.mountPolicy.allowedReadRoots),
+        allowedWriteRoots: cleanList(spec.mountPolicy.allowedWriteRoots),
+        tmpfsRefs: cleanList(spec.mountPolicy.tmpfsRefs),
+        metadata: spec.mountPolicy.metadata ?? {},
+      },
+      networkPolicy: spec.networkPolicy === undefined ? undefined : {
+        ...spec.networkPolicy,
+        allowedHosts: cleanList(spec.networkPolicy.allowedHosts),
+        metadata: spec.networkPolicy.metadata ?? {},
+      },
+      processPolicy: spec.processPolicy === undefined ? undefined : {
+        ...spec.processPolicy,
+        allowedCommands: cleanList(spec.processPolicy.allowedCommands),
+        metadata: spec.processPolicy.metadata ?? {},
+      },
+      platformSupport: spec.platformSupport === undefined ? undefined : {
+        ...spec.platformSupport,
+        minimumVersions: spec.platformSupport.minimumVersions ?? {},
+        metadata: spec.platformSupport.metadata ?? {},
+      },
       resourceLimits,
       metadata: spec.metadata ?? {},
     },

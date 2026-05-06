@@ -49,10 +49,13 @@ export type BaseToolRuntimeGovernanceDecision = {
   sandbox: {
     sandboxId: string;
     profile: SandboxSpec["profile"];
+    providerFamily?: SandboxSpec["providerFamily"];
+    isolationLevel?: SandboxSpec["isolationLevel"];
     filesystem: SandboxSpec["filesystem"];
     network: SandboxSpec["network"];
     shell: SandboxSpec["shell"];
     hostObserved: boolean;
+    dependencyRefs: readonly string[];
   };
   readiness?: BaseToolRuntimeReadinessPreflight;
   resourceLimits: SandboxResourceLimits;
@@ -166,10 +169,13 @@ export function evaluateBaseToolRuntimeGovernance(
     sandbox: {
       sandboxId: request.sandbox.sandboxId,
       profile: request.sandbox.profile,
+      providerFamily: request.sandbox.providerFamily,
+      isolationLevel: request.sandbox.isolationLevel,
       filesystem: request.sandbox.filesystem,
       network: request.sandbox.network,
       shell: request.sandbox.shell,
       hostObserved: request.sandbox.profile === "host-observed",
+      dependencyRefs: request.sandbox.dependencyRefs ?? [],
     },
     readiness: request.readiness,
     resourceLimits: request.resourceLimits ?? request.sandbox.resourceLimits,
