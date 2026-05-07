@@ -40,6 +40,9 @@
 ## 5. 需要提供的能力
 
 - 实现模型适配运行绑定中的 prompt / Lowering / Runtime 能力
+- 接收 PromptPack 十段顺序后的 provider-neutral envelope，并保持 `stableSystemCore -> declaredRuntimeContext -> toolDeclarations -> projectContext -> sessionSummary -> memoryContext -> retrievedContext -> observations -> userTurn -> assistantScratchpadPlan` 的语义顺序。
+- 默认只把 1-9 段交给 provider；`assistantScratchpadPlan` 是内部树状决议计划层，只有显式 JSON tool plan fallback 才能变成可见材料。
+- 执行 lowering policy：安全、权限、工具语义无法保持时 fail closed；缓存、格式优化、provider 特性缺失时 best-effort，并返回 degraded 记录。
 - 需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
 - 如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
@@ -57,6 +60,8 @@
 
 - 明确的 runtime 结果、状态变化、事件、契约判断或治理判断。
 - 可被上层应用、官方模块或其他 runtime surface 消费的稳定结构。
+- 输出仍是 provider-neutral lowered prompt envelope，不是 OpenAI、Claude、Gemini 的最终 provider payload。
+- 输出要记录 provider-visible 段落、隐藏的内部段落、fallback mode、best-effort degradation 和 fail-closed 策略结果，供 runtime inspection/debug/selfRepair 使用。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 

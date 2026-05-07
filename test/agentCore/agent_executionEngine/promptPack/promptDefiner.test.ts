@@ -5,6 +5,8 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import {
   BASIC_CORE_PROMPT_MATERIAL_ID,
   PROMPT_PACK_INTERNAL_MATERIAL_KINDS,
+  PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
+  PROMPT_PACK_SEGMENT_KINDS,
   definePromptPack,
   promptPackDefinerDescriptor,
 } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
@@ -48,15 +50,51 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
   assert.equal(result.definition.unsafeSideEffects, false);
   assert.deepEqual(promptPackDefinerDescriptor.internalMaterialKinds, PROMPT_PACK_INTERNAL_MATERIAL_KINDS);
   assert.deepEqual(promptPackDefinerDescriptor.sourceCategories, ["declared-built-in", "process-product", "user-request"]);
+  assert.deepEqual(promptPackDefinerDescriptor.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
+  assert.deepEqual(promptPackDefinerDescriptor.providerVisibleSegmentKinds, PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS);
   assert.equal(result.definition.basicCorePromptMaterialId, BASIC_CORE_PROMPT_MATERIAL_ID);
+  assert.deepEqual(result.definition.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
+  assert.deepEqual(result.definition.providerVisibleSegmentKinds, PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS);
   assert.deepEqual(result.definition.materialSourceCategories, ["declared-built-in"]);
   assert.deepEqual(result.definition.requestedScopes, ["prompt"]);
   assert.equal(result.definition.materials[0]?.id, BASIC_CORE_PROMPT_MATERIAL_ID);
   assert.equal(result.definition.materials[0]?.source, "runtime.basicCorePrompt");
   assert.equal(result.definition.materials[0]?.sourceCategory, "declared-built-in");
+  assert.equal(result.definition.materials[0]?.promptSegmentKind, "stableSystemCore");
   assert.equal(result.definition.materials[0]?.metadata.protected, true);
   assert.equal(result.definition.materials[1]?.id, "system");
   assert.equal(result.definition.materials[1]?.source, "runtime.contractSurface");
+});
+
+test("definePromptPack supports the ten fixed PromptPack sections and internal scratchpad plans", () => {
+  const result = definePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    includeBasicCorePrompt: false,
+    materials: PROMPT_PACK_SEGMENT_KINDS.map((segmentKind, index) => {
+      const material = {
+        id: segmentKind,
+        kind: segmentKind === "userTurn" ? "user" as const : segmentKind === "toolDeclarations" ? "tool" as const : "system" as const,
+        text: `material for ${segmentKind}`,
+        source: segmentKind === "userTurn" ? "user" : "manifest.promptPack",
+        promptSegmentKind: segmentKind,
+        priority: index,
+      };
+      return segmentKind === "assistantScratchpadPlan"
+        ? { ...material, metadata: { decisionTree: { root: "plan", alternatives: ["fallback"] } } }
+        : material;
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("expected ten-section PromptPack definition");
+
+  assert.deepEqual(
+    result.definition.materials.map((material) => material.promptSegmentKind),
+    PROMPT_PACK_SEGMENT_KINDS,
+  );
+  assert.equal(result.definition.materials.at(-1)?.promptSegmentKind, "assistantScratchpadPlan");
+  assert.equal(result.definition.materials.at(-1)?.internalOnly, true);
 });
 
 test("definePromptPack classifies formal material sources without provider payloads", () => {

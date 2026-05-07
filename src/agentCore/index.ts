@@ -188,15 +188,20 @@ export {
 
 export {
   assemblePromptPack,
-  inferPromptPackSegmentKind,
   type PromptPackCachePlan,
   type PromptPackCacheTelemetry,
   type PromptPackSegment,
   type PromptPackSegmentCachePolicy,
-  type PromptPackSegmentKind,
   type PromptPackSegmentStability,
   type StandardPromptPack,
 } from "./agent_executionEngine/promptPack/promptAssembler.js";
+
+export {
+  PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
+  PROMPT_PACK_SEGMENT_KINDS,
+  inferPromptPackSegmentKind,
+  type PromptPackSegmentKind,
+} from "./agent_executionEngine/promptPack/promptDefiner.js";
 
 export {
   createSandboxRuntimeProvider,

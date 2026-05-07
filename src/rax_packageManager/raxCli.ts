@@ -7,11 +7,26 @@
 import { createInterface } from "node:readline/promises";
 import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import os from "node:os";
 import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import type { OpenAIV1ResponsesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import type { AuthEnvelope } from "../agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
+import { resolveAuthEnvelope } from "../agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
+import { createCredentialRef } from "../agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller } from "../agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
+import { createChatGPTCodexResponsesCarrier } from "../agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
+import { fetchProviderTransport } from "../agentCore/agent_modelAdapter/providerAccessLayer/transportCaller.js";
 import { praxis, type AgentManifest, type AgentRunResult, type PromptMaterialSource } from "../agentCore/index.js";
+import {
+  createRuntimeBaseToolExecutorPort,
+  listRuntimeBaseToolImplementedPortPaths,
+} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import {
+  createBaseToolRealityLedger,
+} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 import {
   createRaxBuildInitPlan,
   initRaxProject,
@@ -25,10 +40,34 @@ export type RaxCliResult = {
   output: string;
 };
 
+const RAX_USAGE = "Usage: rax build init minimal|fullstack|custom [--dir path] [--dry-run] | rax inspect/test/run agent.ts\n";
+
 type RaxProjectDescriptor = {
   entry?: string;
   export?: string;
 };
+
+type RaxProjectResolution = {
+  agentPath: string;
+  exportName?: string;
+  projectRoot?: string;
+};
+
+type LiveProviderBinding =
+  | {
+      ok: true;
+      auth: AuthEnvelope;
+      providerCaller: OpenAIV1ResponsesProviderCaller;
+      authSource: string;
+      carrierId: string;
+      events: readonly string[];
+    }
+  | {
+      ok: false;
+      reason: string;
+      authSource?: string;
+      events: readonly string[];
+    };
 
 function argValue(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -38,6 +77,27 @@ function argValue(args: readonly string[], name: string): string | undefined {
 
 function hasFlag(args: readonly string[], name: string): boolean {
   return args.includes(name);
+}
+
+function wantsHelp(args: readonly string[]): boolean {
+  return args.includes("--help") || args.includes("-h") || args.includes("help");
+}
+
+function commandTaskFromArgs(args: readonly string[]): string {
+  const values: string[] = [];
+  const flagsWithValue = new Set(["--export", "--codex-auth-file", "--auth-file"]);
+  for (let index = 1; index < args.length; index += 1) {
+    const value = args[index];
+    if (flagsWithValue.has(value)) {
+      index += 1;
+      continue;
+    }
+    if (value.startsWith("--")) {
+      continue;
+    }
+    values.push(value);
+  }
+  return values.join(" ").trim();
 }
 
 function parseBoolean(value: string): boolean {
@@ -80,6 +140,10 @@ async function customOptions(args: readonly string[]): Promise<RaxBuildInitOptio
 }
 
 async function handleBuildInit(args: readonly string[]): Promise<RaxCliResult> {
+  if (wantsHelp(args)) {
+    return { exitCode: 0, output: RAX_USAGE };
+  }
+
   const preset = (args[0] ?? "minimal") as RaxBuildInitPreset;
   if (!["minimal", "fullstack", "custom"].includes(preset)) {
     return { exitCode: 1, output: `Unknown rax build init preset: ${preset}\n` };
@@ -165,8 +229,19 @@ async function resolveAgentEntry(inputPath: string, exportName?: string): Promis
   throw new Error(`no Praxis agent entry found in ${inputPath}. Add rax.project.json with {"entry":"praxis.agent.ts"}.`);
 }
 
+async function resolveProjectAgentEntry(inputPath: string, exportName?: string): Promise<RaxProjectResolution> {
+  const absolute = path.resolve(inputPath);
+  const info = await stat(absolute);
+  if (!info.isDirectory()) {
+    return { agentPath: absolute, exportName };
+  }
+
+  const resolved = await resolveAgentEntry(inputPath, exportName);
+  return { ...resolved, projectRoot: absolute };
+}
+
 async function compileAgentFile(agentPath: string, exportName?: string) {
-  const entry = await resolveAgentEntry(agentPath, exportName);
+  const entry = await resolveProjectAgentEntry(agentPath, exportName);
   const module = await loadAgentModule(entry.agentPath);
   const effectiveExportName = entry.exportName;
   if (effectiveExportName !== undefined && effectiveExportName.trim().length > 0) {
@@ -197,6 +272,119 @@ async function compileAgentFile(agentPath: string, exportName?: string) {
   }
 
   return lastFailure ?? praxis.compileAgent(undefined as never);
+}
+
+function homeDir(): string {
+  return process.env.HOME?.trim() || os.homedir();
+}
+
+async function firstExistingPath(paths: readonly string[]): Promise<string | undefined> {
+  for (const candidate of paths) {
+    if (candidate.trim().length === 0) {
+      continue;
+    }
+    if (await pathExists(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+async function resolveCodexAuthFile(args: readonly string[], projectRoot: string | undefined): Promise<string | undefined> {
+  const explicit = argValue(args, "--codex-auth-file") ?? argValue(args, "--auth-file");
+  if (explicit !== undefined && explicit.trim().length > 0) {
+    return path.resolve(explicit);
+  }
+
+  const codexHome = process.env.CODEX_HOME?.trim() || path.join(homeDir(), ".codex");
+  const candidates = [
+    process.env.AGENTCORE_CODEX_AUTH_FILE,
+    process.env.RAX_CODEX_AUTH_FILE,
+    projectRoot === undefined ? undefined : path.join(projectRoot, ".rax_workspace", "auth", "openai", "default", "auth.json"),
+    projectRoot === undefined ? undefined : path.join(projectRoot, ".rax_workspace", "auth", "codex", "auth.json"),
+    path.join(homeDir(), ".rax", "auth", "openai", "default", "auth.json"),
+    path.join(codexHome, "auth.json"),
+  ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0);
+
+  return firstExistingPath(candidates);
+}
+
+async function createLiveProviderBinding(input: {
+  args: readonly string[];
+  manifest: AgentManifest;
+  projectRoot?: string;
+}): Promise<LiveProviderBinding> {
+  const authFile = await resolveCodexAuthFile(input.args, input.projectRoot);
+  if (authFile === undefined) {
+    return {
+      ok: false,
+      reason: "No Codex auth file found. Provide --codex-auth-file, AGENTCORE_CODEX_AUTH_FILE, project .rax_workspace auth, ~/.rax auth, or ~/.codex/auth.json.",
+      events: ["rax.provider.liveAuth.missing"],
+    };
+  }
+
+  const credentialRef = createCredentialRef({
+    id: `rax:${input.manifest.identity.id}:chatgpt-codex`,
+    provider: "openai",
+    credentialType: "chatgpt_codex_oauth",
+    source: { kind: "codex-auth-file", filePath: authFile },
+  });
+  if (!credentialRef.ok) {
+    return {
+      ok: false,
+      authSource: authFile,
+      reason: credentialRef.error.message,
+      events: credentialRef.events,
+    };
+  }
+
+  const auth = resolveAuthEnvelope({
+    credentialRef: credentialRef.credentialRef,
+    readFile: (filePath) => {
+      try {
+        return readFileSync(filePath, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+  });
+  if (!auth.ok) {
+    return {
+      ok: false,
+      authSource: authFile,
+      reason: auth.error.message,
+      events: auth.events,
+    };
+  }
+
+  const carrier = createChatGPTCodexResponsesCarrier({
+    carrierId: input.manifest.model.carrierId,
+    model: input.manifest.model.model,
+    credentialRef: credentialRef.credentialRef,
+    clientName: input.manifest.model.clientName ?? "praxis-rax-cli",
+    clientVersion: input.manifest.model.clientVersion ?? process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0",
+  });
+  if (!carrier.ok) {
+    return {
+      ok: false,
+      authSource: authFile,
+      reason: carrier.error.message,
+      events: carrier.events,
+    };
+  }
+
+  return {
+    ok: true,
+    auth: auth.resolved.envelope,
+    providerCaller: createProviderCaller({
+      transport: fetchProviderTransport,
+      authMaterial: auth.resolved.privateMaterial,
+      timeoutMs: Number(process.env.RAX_PROVIDER_TIMEOUT_MS ?? "60000"),
+    }),
+    authSource: authFile,
+    carrierId: carrier.carrier.carrierId,
+    events: [...auth.events, ...carrier.events],
+  };
 }
 
 function materialSourceText(material: PromptMaterialSource, fallbackRef: string): string {
@@ -233,7 +421,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
       text: materialSourceText(manifest.promptPack.base, `${manifest.promptPack.promptPackId}:base`),
       source: "manifest.promptPack.base",
       trusted: true,
-      metadata: { promptSegmentKind: "agent-base-static" },
+      promptSegmentKind: "declaredRuntimeContext",
     });
   }
 
@@ -244,7 +432,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
       text: `PromptPack inherits ${inherited}.`,
       source: "manifest.promptPack.inherits",
       trusted: true,
-      metadata: { promptSegmentKind: "project-static" },
+      promptSegmentKind: "projectContext",
     });
   }
 
@@ -256,7 +444,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
       source: `manifest.promptPack.${patch.operation}`,
       trusted: true,
       metadata: {
-        promptSegmentKind: "project-static",
+        promptSegmentKind: "projectContext",
         patchId: patch.patchId,
         operation: patch.operation,
         targetRef: patch.targetRef,
@@ -272,7 +460,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
       text: `PromptPack material reference ${materialRef}.`,
       source: "manifest.promptPack.materials",
       trusted: true,
-      metadata: { promptSegmentKind: "project-static" },
+      promptSegmentKind: "projectContext",
     });
   }
 
@@ -285,7 +473,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
       trusted: true,
       priority: 100 - index,
       metadata: {
-        promptSegmentKind: "capability-static",
+        promptSegmentKind: "toolDeclarations",
         toolMaterialType: "declaration",
         toolProviderKind: "baseTool",
         toolId: tool.toolId,
@@ -302,7 +490,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
       text: `Context bridge reference ${contextRef}.`,
       source: "manifest.harness.contextRefs",
       trusted: true,
-      metadata: { promptSegmentKind: "context-managed" },
+      promptSegmentKind: "sessionSummary",
     });
   }
 
@@ -313,7 +501,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
       text: `Memory bridge reference ${memoryRef}.`,
       source: "manifest.harness.memoryRefs",
       trusted: true,
-      metadata: { promptSegmentKind: "memory-retrieval" },
+      promptSegmentKind: "memoryContext",
     });
   }
 
@@ -323,7 +511,7 @@ function buildPromptPreviewMaterials(manifest: AgentManifest): Parameters<typeof
     text: "Inspect this Praxis Agent project for readiness and cache health.",
     source: "rax.inspect",
     trusted: true,
-    metadata: { promptSegmentKind: "turn-dynamic" },
+    promptSegmentKind: "userTurn",
   });
 
   return materials;
@@ -353,6 +541,91 @@ function prepareInspectionPromptPreview(manifest: AgentManifest) {
       trusted: material.trusted,
     })),
   };
+}
+
+function createCliBaseToolReadiness(input: {
+  manifest: AgentManifest;
+  projectRoot?: string;
+  sandbox: Awaited<ReturnType<typeof praxis.sandboxPlane.prepareSandboxRuntime>>;
+}) {
+  const workspaceRoot = path.resolve(input.projectRoot ?? process.cwd());
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime.rax.cli.inspect",
+    sessionId: `${input.manifest.identity.id}:inspect`,
+    policy: {
+      workspaceRoot,
+      allowedRoots: [workspaceRoot],
+      allowGitExecution: true,
+      allowRipgrep: true,
+      allowNetworkFetch: false,
+      allowShellExecution: false,
+      allowProcessExecution: false,
+      allowFilesystemWrite: false,
+      allowFilesystemDelete: false,
+    },
+    resourceLimits: {
+      timeoutMs: 10_000,
+      maxOutputBytes: 256 * 1024,
+      maxReadBytes: 256 * 1024,
+      maxListEntries: 500,
+    },
+    sandbox: {
+      providerFamily: input.sandbox.providerFamily,
+      profile: input.sandbox.profile,
+      ready: input.sandbox.ready,
+      probe: {
+        status: input.sandbox.probe.status,
+        publicSafeMessage: input.sandbox.probe.publicSafeMessage,
+      },
+      smoke: input.sandbox.smoke === undefined
+        ? undefined
+        : {
+            status: input.sandbox.smoke.status,
+            publicSafeMessage: input.sandbox.smoke.publicSafeMessage,
+          },
+    },
+  });
+  const implementedPortPaths = listRuntimeBaseToolImplementedPortPaths({ adapters: executor });
+  const ledger = new Map(createBaseToolRealityLedger({ executor, implementedPortPaths }).map((entry) => [entry.toolId, entry]));
+
+  return input.manifest.harness.tools.map((tool) => {
+    const entry = ledger.get(tool.toolId);
+    if (entry === undefined) {
+      return {
+        toolId: tool.toolId,
+        family: tool.family,
+        group: tool.group,
+        ready: false,
+        required: true,
+        reason: `BaseTool ${tool.toolId} is not present in the runtime reality ledger`,
+      };
+    }
+
+    const ready = entry.developerReadiness === "ready" ||
+      entry.developerReadiness === "notLiveProven" ||
+      entry.developerReadiness === "usableWithApproval";
+    const reason = ready
+      ? entry.liveStatus === "notProven"
+        ? `BaseTool ${entry.toolId} has runtime host adapters but no live smoke proof yet`
+        : undefined
+      : entry.missingPorts.length > 0
+        ? `BaseTool ${entry.toolId} requires runtime adapter ports: ${entry.missingPorts.join(", ")}`
+        : `BaseTool ${entry.toolId} is not ready for this CLI runtime`;
+
+    return {
+      toolId: entry.toolId,
+      family: entry.storageFamily,
+      group: entry.group,
+      ready,
+      required: true,
+      reason,
+      developerReadiness: entry.developerReadiness,
+      stages: entry.stages,
+      dependencyStatus: entry.dependencyStatus,
+      executorSupport: entry.executorSupport,
+      missingPorts: entry.missingPorts,
+    };
+  });
 }
 
 function formatReadinessConsole(input: {
@@ -442,6 +715,12 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
   }
 
   const exportName = argValue(args, "--export");
+  let resolvedEntry: RaxProjectResolution | undefined;
+  try {
+    resolvedEntry = await resolveProjectAgentEntry(agentPath, exportName);
+  } catch {
+    resolvedEntry = undefined;
+  }
   const plan = planRaxDeveloperCommand({
     command,
     input: { kind: "agentFile", path: agentPath, exportName },
@@ -454,7 +733,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
 
   let compiled: Awaited<ReturnType<typeof compileAgentFile>>;
   try {
-    compiled = await compileAgentFile(agentPath, exportName);
+    compiled = await compileAgentFile(resolvedEntry?.agentPath ?? agentPath, resolvedEntry?.exportName ?? exportName);
   } catch (error) {
     const message = error instanceof Error ? error.message : "failed to load agent file";
     const multipleExports = message.includes("multiple Praxis Agent exports found");
@@ -479,16 +758,40 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
     return { exitCode: 1, output: `${compiled.error.message}\n` };
   }
 
+  const live = hasFlag(args, "--live");
+  const liveProvider = live
+    ? await createLiveProviderBinding({
+        args,
+        manifest: compiled.manifest,
+        projectRoot: resolvedEntry?.projectRoot,
+      })
+    : undefined;
+
   if (command === "inspect" || command === "test") {
     const sandboxReadiness = await praxis.sandboxPlane.prepareSandboxRuntime(compiled.manifest.sandbox, {
       cwd: process.cwd(),
       runSmoke: command === "test",
     });
+    const toolReadiness = createCliBaseToolReadiness({
+      manifest: compiled.manifest,
+      projectRoot: resolvedEntry?.projectRoot,
+      sandbox: sandboxReadiness,
+    });
     const promptPackPreview = prepareInspectionPromptPreview(compiled.manifest);
     const report = praxis.inspection.createFrameworkInspectionReport({
       runtimeId: "runtime.rax.cli",
       manifest: compiled.manifest,
-      providers: [{ providerId: compiled.manifest.model.provider, ready: false, reason: "provider probe is deferred in CLI v0" }],
+      tools: toolReadiness,
+      providers: [{
+        providerId: compiled.manifest.model.provider,
+        ready: liveProvider?.ok === true,
+        reason:
+          liveProvider === undefined
+            ? "provider probe is deferred; rerun with --live to use chatgpt_codex_responses"
+            : liveProvider.ok
+              ? `chatgpt_codex_responses auth resolved from ${liveProvider.authSource}`
+              : liveProvider.reason,
+      }],
       dependencies: sandboxReadiness.probe.dependencyChecks.map((check) => ({
         dependencyId: check.dependencyId,
         owner: "runtime",
@@ -503,12 +806,15 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
       ? await praxis.runtime.createPraxisRuntimeKernel({
           runtimeId: "runtime.rax.cli.test",
           store: praxis.runtime.createInMemorySessionStateEventStore(),
-        }).runManifest(compiled.manifest, "Praxis rax test dry-run.", {
-          dryRun: true,
-          allowProviderCall: false,
+        }).runManifest(compiled.manifest, live ? "Praxis rax test live provider probe." : "Praxis rax test dry-run.", {
+          dryRun: !live,
+          allowProviderCall: live,
           allowToolExecution: false,
           storage: { cwd: process.cwd(), initMode: "never" },
           sandbox: { cwd: process.cwd(), failOnUnavailable: true },
+          auth: liveProvider?.ok === true ? liveProvider.auth : undefined,
+          providerCaller: liveProvider?.ok === true ? liveProvider.providerCaller : undefined,
+          exposeProviderTools: !live,
         })
       : undefined;
     const payload = {
@@ -518,8 +824,13 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
       sandbox: sandboxReadiness,
       readiness: report.ok ? report.report : report.error,
       runtimeDryRun,
+      liveProvider: liveProvider === undefined
+        ? undefined
+        : liveProvider.ok
+          ? { ok: true, authSource: liveProvider.authSource, carrierId: liveProvider.carrierId, events: liveProvider.events }
+          : { ok: false, authSource: liveProvider.authSource, reason: liveProvider.reason, events: liveProvider.events },
     };
-    const ok = report.ok && (command === "inspect" || runtimeDryRun?.ok === true);
+    const ok = report.ok && (liveProvider?.ok !== false) && (command === "inspect" || runtimeDryRun?.ok === true);
     return {
       exitCode: ok ? 0 : 1,
       output: hasFlag(args, "--json")
@@ -536,8 +847,29 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
   }
 
   const runtime = praxis.runtime.createPraxisRuntimeKernel({ runtimeId: "runtime.rax.cli" });
-  const task = args.slice(1).filter((value) => !value.startsWith("--")).join(" ") || "Run this Praxis agent.";
-  const result = await runtime.runManifest(compiled.manifest, task);
+  const task = commandTaskFromArgs(args) || "Run this Praxis agent.";
+  const dryRun = hasFlag(args, "--dry-run") || !live;
+  if (liveProvider?.ok === false) {
+    return {
+      exitCode: 1,
+      output: [
+        "rax run live provider is not ready",
+        liveProvider.reason,
+        "self-repair hints:",
+        "  - provide --codex-auth-file <path>",
+        "  - or set AGENTCORE_CODEX_AUTH_FILE",
+        "  - or place auth.json under project .rax_workspace/auth/openai/default/",
+        "",
+      ].join("\n"),
+    };
+  }
+  const result = await runtime.runManifest(compiled.manifest, task, {
+    dryRun,
+    allowProviderCall: live,
+    auth: liveProvider?.ok === true ? liveProvider.auth : undefined,
+    providerCaller: liveProvider?.ok === true ? liveProvider.providerCaller : undefined,
+    exposeProviderTools: !live,
+  });
   return {
     exitCode: result.ok ? 0 : 1,
     output: hasFlag(args, "--json")
@@ -547,6 +879,10 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
 }
 
 export async function runRaxCli(argv = process.argv.slice(2)): Promise<RaxCliResult> {
+  if (wantsHelp(argv)) {
+    return { exitCode: 0, output: RAX_USAGE };
+  }
+
   const [command, subcommand, ...rest] = argv;
   if (command === "build" && subcommand === "init") {
     return handleBuildInit(rest);
@@ -556,7 +892,7 @@ export async function runRaxCli(argv = process.argv.slice(2)): Promise<RaxCliRes
   }
   return {
     exitCode: 1,
-    output: "Usage: rax build init minimal|fullstack|custom [--dir path] [--dry-run] | rax inspect/test/run agent.ts\n",
+    output: RAX_USAGE,
   };
 }
 

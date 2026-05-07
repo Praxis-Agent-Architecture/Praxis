@@ -100,6 +100,24 @@ test("rax build init custom supports a non-interactive wizard input path", async
   assert.match(sandboxProfile, /praxis\.sandbox\.workspaceOnly\(\)/);
 });
 
+test("rax help never creates a project by accident", async () => {
+  const targetDir = path.join(scratchRoot, "help-should-not-create");
+  await rm(targetDir, { recursive: true, force: true });
+
+  const result = await runRaxCli([
+    "build",
+    "init",
+    "minimal",
+    "--dir",
+    targetDir,
+    "--help",
+  ]);
+
+  assert.equal(result.exitCode, 0);
+  assert.match(result.output, /Usage: rax build init/);
+  await assert.rejects(readFile(path.join(targetDir, "package.json"), "utf8"));
+});
+
 test("rax inspect console explains missing framework dependency before project install", async () => {
   const targetDir = path.join(scratchRoot, "inspect-console");
   await rm(targetDir, { recursive: true, force: true });
@@ -155,9 +173,9 @@ test("rax inspect auto-discovers named Agent exports", async () => {
   assert.ok((payload.readiness?.promptPackPreview?.cachePlan?.segmentCount ?? 0) > 0);
   assert.deepEqual(
     payload.readiness?.promptPackPreview?.cachePlan?.cacheablePrefixSegmentKinds?.slice(0, 1),
-    ["core-static"],
+    ["stableSystemCore"],
   );
-  assert.ok(payload.readiness?.promptPackPreview?.cachePlan?.dynamicSegmentKinds?.includes("turn-dynamic"));
+  assert.ok(payload.readiness?.promptPackPreview?.cachePlan?.dynamicSegmentKinds?.includes("userTurn"));
 });
 
 test("rax test executes a runtime dry-run after readiness checks", async () => {
@@ -182,6 +200,88 @@ test("rax test executes a runtime dry-run after readiness checks", async () => {
   const payload = JSON.parse(result.output) as { runtimeDryRun?: { ok?: boolean; finalOutput?: string } };
   assert.equal(payload.runtimeDryRun?.ok, true);
   assert.equal(payload.runtimeDryRun?.finalOutput, "PraxisRuntimeKernel dry-run completed.");
+});
+
+test("rax inspect reports selected BaseTools through CLI host adapter readiness", async () => {
+  const targetDir = path.join(scratchRoot, "basetool-host-readiness");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const agentPath = path.join(targetDir, "toolAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "export class ToolAgent extends praxis.Agent {",
+    "  identity = \"agent.basetool-host-readiness\";",
+    "  model = praxis.model(\"gpt-5.5\");",
+    "  storage = praxis.storage.memory();",
+    "  harness = praxis.harness({",
+    "    tools: praxis.tools([",
+    "      praxis.baseTools.code.read(),",
+    "      praxis.baseTools.code.searchRipgrep(),",
+    "      praxis.baseTools.git.getRepositoryStatus(),",
+    "      praxis.baseTools.skill.ripgrep(),",
+    "    ]),",
+    "    loop: praxis.loop.single(),",
+    "  });",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli(["inspect", agentPath, "--json"]);
+
+  assert.equal(result.exitCode, 0);
+  const payload = JSON.parse(result.output) as {
+    readiness?: {
+      toolReadiness?: {
+        ready?: number;
+        missing?: readonly string[];
+        tools?: {
+          toolId: string;
+          ready?: boolean;
+          executorSupport?: string;
+          missingPorts?: readonly string[];
+        }[];
+      };
+    };
+  };
+  const readiness = payload.readiness?.toolReadiness;
+  assert.equal(readiness?.ready, 4);
+  assert.deepEqual(readiness?.missing, []);
+  for (const tool of readiness?.tools ?? []) {
+    assert.equal(tool.ready, true, tool.toolId);
+    assert.equal(tool.executorSupport, "hostReady", tool.toolId);
+    assert.deepEqual(tool.missingPorts, [], tool.toolId);
+  }
+});
+
+test("rax live mode reports missing Codex auth through public-safe output", async () => {
+  const targetDir = path.join(scratchRoot, "live-missing-auth");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const agentPath = path.join(targetDir, "liveAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "export class LiveAgent extends praxis.Agent {",
+    "  identity = \"agent.live-missing-auth\";",
+    "  model = praxis.model(\"gpt-5.4\");",
+    "  storage = praxis.storage.memory();",
+    "  harness = praxis.harness({ loop: praxis.loop.single() });",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli([
+    "run",
+    agentPath,
+    "--live",
+    "--codex-auth-file",
+    path.join(targetDir, "missing-auth.json"),
+    "hello live",
+  ]);
+
+  assert.equal(result.exitCode, 1);
+  assert.match(result.output, /live provider is not ready/);
+  assert.match(result.output, /provide --codex-auth-file/);
+  assert.doesNotMatch(result.output, /Bearer\s+/);
 });
 
 test("rax inspect asks for --export when an agent file exports multiple agents", async () => {

@@ -120,6 +120,7 @@ export type PraxisRuntimeKernelOptions = {
   store?: RuntimeSessionStateEventStore;
   allowProviderCall?: boolean;
   allowToolExecution?: boolean;
+  exposeProviderTools?: boolean;
   dryRun?: boolean;
   approvalResolver?: RuntimeApprovalResolver;
   baseToolDependencyRuntime?: {
@@ -388,7 +389,7 @@ function promptMaterialsForTurn(input: {
       trusted: true,
       scope: "runtime.toolProjection",
       metadata: {
-        promptSegmentKind: "capability-static",
+        promptSegmentKind: "toolDeclarations",
         toolProviderKind: providerKind,
         toolOrder: index,
         toolMaterialType: "declaration",
@@ -410,7 +411,8 @@ function promptMaterialsForTurn(input: {
       priority: 100,
       trusted: false,
       scope: "user.task",
-      metadata: { promptSegmentKind: "turn-dynamic", turnIndex: input.turnIndex },
+      promptSegmentKind: "userTurn",
+      metadata: { turnIndex: input.turnIndex },
     },
     {
       id: `runtime:${input.turnIndex}`,
@@ -425,7 +427,7 @@ function promptMaterialsForTurn(input: {
       trusted: true,
       scope: "runtime.state",
       metadata: {
-        promptSegmentKind: "observation-dynamic",
+        promptSegmentKind: "observations",
         turnIndex: input.turnIndex,
         maxModelTurns: input.manifest.harness.loop.maxModelTurns ?? 2,
         maxToolCalls: input.manifest.harness.loop.maxToolCalls ?? 4,
@@ -440,69 +442,9 @@ function buildCodexResponsesBodyFromPromptPack(
   manifest: AgentManifest,
   promptPack: StandardPromptPack,
   mappings: readonly ProviderToolMapping[],
+  options: { exposeProviderTools?: boolean } = {},
 ): Readonly<Record<string, unknown>> {
-  const baseToolDeclarations = manifest.harness.tools.map((tool) => ({
-    type: "function",
-    name: mappings.find((mapping) => mapping.toolId === tool.toolId)?.providerName ?? providerToolName(tool.toolId),
-    description: tool.description ?? `Praxis baseTool ${tool.toolId}`,
-    parameters: tool.inputSchema ?? { type: "object", additionalProperties: true },
-  }));
-  const runtimeDecisionDeclarations = [
-    {
-      type: "function",
-      name: "praxis_ephemeral_procedure",
-      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability.",
-      parameters: {
-        type: "object",
-        additionalProperties: true,
-        required: ["procedureId", "purpose", "steps"],
-        properties: {
-          procedureId: { type: "string" },
-          purpose: { type: "string" },
-          executionMode: { type: "string", enum: ["serial", "parallel", "mixed"] },
-          approval: {
-            type: "object",
-            additionalProperties: true,
-            properties: {
-              required: { type: "boolean" },
-              reason: { type: "string" },
-            },
-          },
-          steps: {
-            type: "array",
-            items: {
-              type: "object",
-              additionalProperties: true,
-              required: ["stepId", "baseToolId", "input"],
-              properties: {
-                stepId: { type: "string" },
-                baseToolId: { type: "string" },
-                input: { type: "object", additionalProperties: true },
-                dependsOn: { type: "array", items: { type: "string" } },
-                riskLevel: { type: "string", enum: ["low", "medium", "high"] },
-                outputRef: { type: "string" },
-              },
-            },
-          },
-        },
-      },
-    },
-    {
-      type: "function",
-      name: "praxis_request_approval",
-      description: "Ask the Praxis runtime for approval before continuing a governed model/tool action.",
-      parameters: {
-        type: "object",
-        additionalProperties: true,
-        properties: {
-          reason: { type: "string" },
-          requestedScopes: { type: "array", items: { type: "string" } },
-          riskLevel: { type: "string" },
-        },
-      },
-    },
-  ];
-  return {
+  const body: Record<string, unknown> = {
     model: manifest.model.model,
     input: [
       {
@@ -520,8 +462,74 @@ function buildCodexResponsesBodyFromPromptPack(
         }],
       },
     ],
-    tools: [...baseToolDeclarations, ...runtimeDecisionDeclarations],
   };
+
+  if (options.exposeProviderTools !== false) {
+    const baseToolDeclarations = manifest.harness.tools.map((tool) => ({
+      type: "function",
+      name: mappings.find((mapping) => mapping.toolId === tool.toolId)?.providerName ?? providerToolName(tool.toolId),
+      description: tool.description ?? `Praxis baseTool ${tool.toolId}`,
+      parameters: tool.inputSchema ?? { type: "object", additionalProperties: true },
+    }));
+    const runtimeDecisionDeclarations = [
+      {
+        type: "function",
+        name: "praxis_ephemeral_procedure",
+        description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability.",
+        parameters: {
+          type: "object",
+          additionalProperties: true,
+          required: ["procedureId", "purpose", "steps"],
+          properties: {
+            procedureId: { type: "string" },
+            purpose: { type: "string" },
+            executionMode: { type: "string", enum: ["serial", "parallel", "mixed"] },
+            approval: {
+              type: "object",
+              additionalProperties: true,
+              properties: {
+                required: { type: "boolean" },
+                reason: { type: "string" },
+              },
+            },
+            steps: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: true,
+                required: ["stepId", "baseToolId", "input"],
+                properties: {
+                  stepId: { type: "string" },
+                  baseToolId: { type: "string" },
+                  input: { type: "object", additionalProperties: true },
+                  dependsOn: { type: "array", items: { type: "string" } },
+                  riskLevel: { type: "string", enum: ["low", "medium", "high"] },
+                  outputRef: { type: "string" },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        type: "function",
+        name: "praxis_request_approval",
+        description: "Ask the Praxis runtime for approval before continuing a governed model/tool action.",
+        parameters: {
+          type: "object",
+          additionalProperties: true,
+          properties: {
+            reason: { type: "string" },
+            requestedScopes: { type: "array", items: { type: "string" } },
+            riskLevel: { type: "string" },
+          },
+        },
+      },
+    ];
+    body.tools = [...baseToolDeclarations, ...runtimeDecisionDeclarations];
+  }
+
+  return body;
 }
 
 function kernelError(
@@ -1709,7 +1717,9 @@ export class PraxisRuntimeKernel {
         allowProviderCall: options.allowProviderCall ?? manifest.harness.policy.allowProviderCall ?? !dryRun,
         auth: options.auth,
         providerCaller: options.providerCaller,
-        providerBody: buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, toolMappings),
+        providerBody: buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, toolMappings, {
+          exposeProviderTools: options.exposeProviderTools,
+        }),
         governance: { accepted: true },
         contract: { accepted: true },
         clientName: manifest.model.clientName,

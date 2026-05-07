@@ -40,6 +40,12 @@
 ## 5. 需要提供的能力
 
 - 实现 PromptPack 输入包管理中的 prompt / Assembler 能力
+- 固化 PromptPack 十段顺序：`stableSystemCore -> declaredRuntimeContext -> toolDeclarations -> projectContext -> sessionSummary -> memoryContext -> retrievedContext -> observations -> userTurn -> assistantScratchpadPlan`。
+- Provider adapter 不允许重排这些语义段落；provider lowering 只能把它们映射成目标 API 支持的 message、instruction、tool schema 或 cache block 形态。
+- `assistantScratchpadPlan` 是 Praxis 内部树状决议计划层，默认不进入 provider payload；只有显式 JSON tool plan fallback 才能暴露。
+- `observations` 可以记录工具结果、runtime events、错误、stdout/stderr、上一轮 assistant 可见输出和 action traces，但必须保留来源和权威标记。
+- `memoryContext` 只放记忆索引或分层摘要；MP 未来检索出的真实记忆材料进入 `retrievedContext`。
+- `PromptPackCachePlan` 以十个 PromptPack section 为缓存单元，不再细分到单个工具包、文件或 material。
 - 需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
 - 如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
@@ -57,6 +63,8 @@
 
 - 标准化 PromptPack 输入包，而不是最终 provider payload。
 - 上下文材料的来源记录、裁剪记录、注入记录和后续 lowering 所需元信息。
+- 输出必须包含十段顺序、provider-visible 段落、cache unit、cache 优先级和各段 hash，让 `rax inspect` 后续能诊断是哪一段破坏缓存。
+- ToolSpec、baseTool、TAP package 和 custom tool 声明进入 `toolDeclarations`；商业授权、售卖和套餐信息只属于 runtime/package governance，不进入 PromptPack。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 

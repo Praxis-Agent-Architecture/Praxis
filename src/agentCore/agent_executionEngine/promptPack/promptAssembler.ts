@@ -11,6 +11,8 @@
 import { createHash } from "node:crypto";
 import {
   BASIC_CORE_PROMPT_MATERIAL_ID,
+  PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
+  PROMPT_PACK_SEGMENT_KINDS,
   detectPromptInjectionRisk,
   type DefinedPromptMaterial,
   type PromptPackBoundary,
@@ -19,24 +21,11 @@ import {
   type PromptPackErrorCode,
   type PromptPackMaterialKind,
   type PromptPackMaterialSourceCategory,
+  type PromptPackSegmentKind,
   type PromptPackToolMaterialType,
 } from "./promptDefiner.js";
 
 export type PromptAssemblerOrdering = "input-order" | "priority-desc";
-
-export const PROMPT_PACK_SEGMENT_KINDS = [
-  "core-static",
-  "agent-base-static",
-  "project-static",
-  "capability-static",
-  "session-summary",
-  "context-managed",
-  "memory-retrieval",
-  "turn-dynamic",
-  "observation-dynamic",
-] as const;
-
-export type PromptPackSegmentKind = (typeof PROMPT_PACK_SEGMENT_KINDS)[number];
 export type PromptPackSegmentStability = "static" | "semi-stable" | "dynamic";
 export type PromptPackSegmentCachePolicy = "cacheable-prefix" | "cacheable-readonly" | "dynamic-no-cache";
 
@@ -57,9 +46,12 @@ export type PromptPackCachePlan = {
   format: "praxis.promptPack.cachePlan.v1";
   strategy: "stable-segment-prefix";
   orderedSegmentKinds: readonly PromptPackSegmentKind[];
+  providerVisibleSegmentKinds: readonly PromptPackSegmentKind[];
   segments: readonly PromptPackSegment[];
   cacheablePrefixSegmentKinds: readonly PromptPackSegmentKind[];
   dynamicSegmentKinds: readonly PromptPackSegmentKind[];
+  cacheUnit: "prompt-pack-section";
+  cachePriority: readonly ["context-quality", "cost", "latency"];
   cacheRiskWarnings: readonly string[];
   providerPayloadCreated: false;
 };
@@ -108,6 +100,7 @@ export type AssembledPromptMaterial = {
   metadata: Readonly<Record<string, string | number | boolean | object>>;
   protected: boolean;
   promptSegmentKind: PromptPackSegmentKind;
+  internalOnly: boolean;
 };
 
 export type AssembledPromptToolDeclaration = {
@@ -241,79 +234,36 @@ function toAssembledMaterial(material: DefinedPromptMaterial): AssembledPromptMa
     scope: material.scope,
     metadata: material.metadata,
     protected: isProtectedMaterial(material),
-    promptSegmentKind: inferPromptPackSegmentKind(material),
+    promptSegmentKind: material.promptSegmentKind,
+    internalOnly: material.internalOnly,
   };
 }
 
-function readPromptSegmentMetadata(
-  material: Pick<DefinedPromptMaterial, "metadata">,
-): PromptPackSegmentKind | undefined {
-  const value = material.metadata.promptSegmentKind;
-  return typeof value === "string" && PROMPT_PACK_SEGMENT_KINDS.includes(value as PromptPackSegmentKind)
-    ? (value as PromptPackSegmentKind)
-    : undefined;
-}
-
-export function inferPromptPackSegmentKind(material: DefinedPromptMaterial): PromptPackSegmentKind {
-  const explicit = readPromptSegmentMetadata(material);
-  if (explicit !== undefined) {
-    return explicit;
-  }
-
-  if (material.id === BASIC_CORE_PROMPT_MATERIAL_ID || material.metadata.protected === true) {
-    return "core-static";
-  }
-
-  const toolType = typeof material.metadata.toolMaterialType === "string" ? material.metadata.toolMaterialType : undefined;
-  if (material.kind === "tool" && (toolType === "declaration" || toolType === "policy" || toolType === undefined)) {
-    return "capability-static";
-  }
-
-  if (material.sourceCategory === "user-request" || material.kind === "user") {
-    return "turn-dynamic";
-  }
-
-  if (material.kind === "cmp") {
-    return "context-managed";
-  }
-
-  if (material.kind === "memory" || material.kind === "retrieval") {
-    return "memory-retrieval";
-  }
-
-  if (
-    material.sourceCategory === "process-product" ||
-    material.kind === "event" ||
-    material.kind === "runtime" ||
-    material.kind === "tool-summary" ||
-    material.kind === "command" ||
-    material.kind === "command-injection"
-  ) {
-    return "observation-dynamic";
-  }
-
-  if (material.kind === "system") {
-    return "agent-base-static";
-  }
-
-  return "project-static";
-}
-
 function segmentStability(kind: PromptPackSegmentKind): PromptPackSegmentStability {
-  if (kind === "core-static" || kind === "agent-base-static" || kind === "project-static" || kind === "capability-static") {
+  if (
+    kind === "stableSystemCore" ||
+    kind === "declaredRuntimeContext" ||
+    kind === "toolDeclarations" ||
+    kind === "projectContext"
+  ) {
     return "static";
   }
-  if (kind === "session-summary" || kind === "context-managed") {
+  if (kind === "sessionSummary" || kind === "memoryContext") {
     return "semi-stable";
   }
   return "dynamic";
 }
 
 function segmentCachePolicy(kind: PromptPackSegmentKind): PromptPackSegmentCachePolicy {
-  if (kind === "turn-dynamic" || kind === "observation-dynamic" || kind === "memory-retrieval") {
+  if (
+    kind === "retrievedContext" ||
+    kind === "observations" ||
+    kind === "userTurn" ||
+    kind === "assistantScratchpadPlan"
+  ) {
     return "dynamic-no-cache";
   }
-  if (kind === "session-summary" || kind === "context-managed") {
+  if (kind === "sessionSummary" || kind === "memoryContext") {
     return "cacheable-readonly";
   }
   return "cacheable-prefix";
@@ -362,14 +312,14 @@ function toolProviderOrder(material: DefinedPromptMaterial): number {
 }
 
 function comparePromptMaterials(left: DefinedPromptMaterial, right: DefinedPromptMaterial, ordering?: PromptAssemblerOrdering): number {
-  const leftSegment = inferPromptPackSegmentKind(left);
-  const rightSegment = inferPromptPackSegmentKind(right);
+  const leftSegment = left.promptSegmentKind;
+  const rightSegment = right.promptSegmentKind;
   const segmentDelta = segmentOrder(leftSegment) - segmentOrder(rightSegment);
   if (segmentDelta !== 0) {
     return segmentDelta;
   }
 
-  if (leftSegment === "capability-static") {
+  if (leftSegment === "toolDeclarations") {
     const providerDelta = toolProviderOrder(left) - toolProviderOrder(right);
     if (providerDelta !== 0) {
       return providerDelta;
@@ -394,12 +344,9 @@ function comparePromptMaterials(left: DefinedPromptMaterial, right: DefinedPromp
 }
 
 function buildPromptPackCachePlan(materials: readonly AssembledPromptMaterial[]): PromptPackCachePlan {
-  const segments = PROMPT_PACK_SEGMENT_KINDS.flatMap((segmentKind): PromptPackSegment[] => {
+  const segments = PROMPT_PACK_SEGMENT_KINDS.map((segmentKind): PromptPackSegment => {
     const segmentMaterials = materials.filter((material) => material.promptSegmentKind === segmentKind);
-    if (segmentMaterials.length === 0) {
-      return [];
-    }
-    return [{
+    return {
       segmentId: `prompt.segment.${segmentKind}`,
       segmentKind,
       stability: segmentStability(segmentKind),
@@ -409,7 +356,7 @@ function buildPromptPackCachePlan(materials: readonly AssembledPromptMaterial[])
       materialRefs: segmentMaterials.map((material) => material.id),
       sourceRefs: [...new Set(segmentMaterials.map((material) => material.source))],
       providerHints: {},
-    }];
+    };
   });
 
   const cacheRiskWarnings: string[] = [];
@@ -422,8 +369,11 @@ function buildPromptPackCachePlan(materials: readonly AssembledPromptMaterial[])
   if (dynamicBeforeStatic) {
     cacheRiskWarnings.push("dynamic-material-before-static-prefix");
   }
-  if (materials.some((material) => material.promptSegmentKind === "capability-static" && material.metadata.toolProviderKind === "dynamic")) {
+  if (materials.some((material) => material.promptSegmentKind === "toolDeclarations" && material.metadata.toolProviderKind === "dynamic")) {
     cacheRiskWarnings.push("dynamic-tool-declaration-in-capability-prefix");
+  }
+  if (materials.some((material) => material.promptSegmentKind === "assistantScratchpadPlan")) {
+    cacheRiskWarnings.push("assistant-scratchpad-plan-is-internal-no-provider-cache");
   }
 
   return {
@@ -431,6 +381,7 @@ function buildPromptPackCachePlan(materials: readonly AssembledPromptMaterial[])
     format: "praxis.promptPack.cachePlan.v1",
     strategy: "stable-segment-prefix",
     orderedSegmentKinds: PROMPT_PACK_SEGMENT_KINDS,
+    providerVisibleSegmentKinds: PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
     segments,
     cacheablePrefixSegmentKinds: segments
       .filter((segment) => segment.cachePolicy === "cacheable-prefix")
@@ -438,6 +389,8 @@ function buildPromptPackCachePlan(materials: readonly AssembledPromptMaterial[])
     dynamicSegmentKinds: segments
       .filter((segment) => segment.cachePolicy === "dynamic-no-cache")
       .map((segment) => segment.segmentKind),
+    cacheUnit: "prompt-pack-section",
+    cachePriority: ["context-quality", "cost", "latency"],
     cacheRiskWarnings,
     providerPayloadCreated: false,
   };

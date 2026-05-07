@@ -30,6 +30,25 @@ export type PromptPackInternalMaterialKind = (typeof PROMPT_PACK_INTERNAL_MATERI
 export type PromptPackMaterialKind = PromptPackInternalMaterialKind | "tool-summary" | "command-injection";
 export type PromptPackMaterialSourceCategory = "declared-built-in" | "process-product" | "user-request";
 
+export const PROMPT_PACK_SEGMENT_KINDS = [
+  "stableSystemCore",
+  "declaredRuntimeContext",
+  "toolDeclarations",
+  "projectContext",
+  "sessionSummary",
+  "memoryContext",
+  "retrievedContext",
+  "observations",
+  "userTurn",
+  "assistantScratchpadPlan",
+] as const;
+
+export type PromptPackSegmentKind = (typeof PROMPT_PACK_SEGMENT_KINDS)[number];
+
+export const PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS = PROMPT_PACK_SEGMENT_KINDS.filter(
+  (segmentKind) => segmentKind !== "assistantScratchpadPlan",
+);
+
 export const BASIC_CORE_PROMPT_MATERIAL_ID = "praxis:basic-core-prompt" as const;
 export const BASIC_CORE_PROMPT_SOURCE = "runtime.basicCorePrompt" as const;
 
@@ -82,6 +101,8 @@ export type PromptPackMaterialDraft = {
   estimatedTokens?: number;
   trusted?: boolean;
   scope?: string;
+  promptSegmentKind?: PromptPackSegmentKind;
+  internalOnly?: boolean;
   metadata?: Readonly<Record<string, string | number | boolean | object>>;
 };
 
@@ -95,6 +116,8 @@ export type DefinedPromptMaterial = {
   estimatedTokens: number;
   trusted: boolean;
   scope?: string;
+  promptSegmentKind: PromptPackSegmentKind;
+  internalOnly: boolean;
   metadata: Readonly<Record<string, string | number | boolean | object>>;
 };
 
@@ -130,6 +153,8 @@ export type PromptPackDefinition = {
   materials: readonly DefinedPromptMaterial[];
   materialKinds: readonly PromptPackMaterialKind[];
   materialSourceCategories: readonly PromptPackMaterialSourceCategory[];
+  orderedSegmentKinds: readonly PromptPackSegmentKind[];
+  providerVisibleSegmentKinds: readonly PromptPackSegmentKind[];
   basicCorePromptMaterialId: typeof BASIC_CORE_PROMPT_MATERIAL_ID;
   budget: PromptPackBudget;
   requestedScopes: readonly string[];
@@ -156,6 +181,8 @@ export const promptPackDefinerDescriptor = {
   purpose: "define Praxis internal PromptPack constructs and the protected basic core prompt head",
   internalMaterialKinds: PROMPT_PACK_INTERNAL_MATERIAL_KINDS,
   sourceCategories: ["declared-built-in", "process-product", "user-request"],
+  orderedSegmentKinds: PROMPT_PACK_SEGMENT_KINDS,
+  providerVisibleSegmentKinds: PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
   basicCorePromptMaterialId: BASIC_CORE_PROMPT_MATERIAL_ID,
   providerPayloadCreated: false,
   unsafeSideEffects: false,
@@ -228,6 +255,72 @@ export function inferPromptMaterialSourceCategory(
   }
 
   return "declared-built-in";
+}
+
+function readPromptSegmentMetadata(
+  material: Pick<PromptPackMaterialDraft, "promptSegmentKind" | "metadata">,
+): PromptPackSegmentKind | undefined {
+  if (material.promptSegmentKind !== undefined) {
+    return material.promptSegmentKind;
+  }
+
+  const value = material.metadata?.promptSegmentKind;
+  return typeof value === "string" && PROMPT_PACK_SEGMENT_KINDS.includes(value as PromptPackSegmentKind)
+    ? (value as PromptPackSegmentKind)
+    : undefined;
+}
+
+export function inferPromptPackSegmentKind(material: PromptPackMaterialDraft): PromptPackSegmentKind {
+  const explicit = readPromptSegmentMetadata(material);
+  if (explicit !== undefined) {
+    return explicit;
+  }
+
+  if (material.id?.trim() === BASIC_CORE_PROMPT_MATERIAL_ID || material.metadata?.protected === true) {
+    return "stableSystemCore";
+  }
+
+  const toolType = typeof material.metadata?.toolMaterialType === "string" ? material.metadata.toolMaterialType : undefined;
+  if (material.kind === "tool" && (toolType === "declaration" || toolType === "policy" || toolType === undefined)) {
+    return "toolDeclarations";
+  }
+
+  if (material.kind === "user" || material.source?.trim() === "user") {
+    return "userTurn";
+  }
+
+  if (material.kind === "cmp") {
+    return "sessionSummary";
+  }
+
+  if (material.kind === "memory") {
+    return "memoryContext";
+  }
+
+  if (material.kind === "retrieval" || material.kind === "file") {
+    return "retrievedContext";
+  }
+
+  if (
+    material.kind === "event" ||
+    material.kind === "runtime" ||
+    material.kind === "tool-summary" ||
+    material.kind === "command" ||
+    material.kind === "command-injection" ||
+    material.source?.startsWith("observation.")
+  ) {
+    return "observations";
+  }
+
+  if (material.kind === "system" && material.source?.startsWith("manifest.")) {
+    return "declaredRuntimeContext";
+  }
+
+  if (material.kind === "system") {
+    return "stableSystemCore";
+  }
+
+  return "projectContext";
 }
 
 export function estimatePromptTokens(text: string): number {
@@ -361,6 +454,8 @@ export function definePromptPack(request?: PromptPackDefinitionRequest): PromptP
       estimatedTokens,
       trusted: material.trusted === true,
       scope: material.scope?.trim() || undefined,
+      promptSegmentKind: inferPromptPackSegmentKind(material),
+      internalOnly: material.internalOnly === true || inferPromptPackSegmentKind(material) === "assistantScratchpadPlan",
       metadata: material.metadata ?? {},
     });
   }
@@ -390,6 +485,8 @@ export function definePromptPack(request?: PromptPackDefinitionRequest): PromptP
       materials: definedMaterials,
       materialKinds: [...new Set(definedMaterials.map((material) => material.kind))],
       materialSourceCategories: [...new Set(definedMaterials.map((material) => material.sourceCategory))],
+      orderedSegmentKinds: PROMPT_PACK_SEGMENT_KINDS,
+      providerVisibleSegmentKinds: PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
       basicCorePromptMaterialId: BASIC_CORE_PROMPT_MATERIAL_ID,
       budget: request.budget ?? {},
       requestedScopes: cleanList(request.requestedScopes),

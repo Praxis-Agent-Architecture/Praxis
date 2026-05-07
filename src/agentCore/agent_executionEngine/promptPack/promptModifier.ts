@@ -12,6 +12,7 @@ import {
   BASIC_CORE_PROMPT_MATERIAL_ID,
   detectPromptInjectionRisk,
   estimatePromptTokens,
+  inferPromptPackSegmentKind,
   inferPromptMaterialSourceCategory,
   type DefinedPromptMaterial,
   type PromptPackBoundary,
@@ -119,6 +120,7 @@ function createAddedMaterial(material: PromptPackMaterialDraft, index: number): 
   const id = material.id?.trim() || `added:${index + 1}`;
   const source = material.source?.trim() || "runtime";
   const trusted = material.trusted === true;
+  const promptSegmentKind = inferPromptPackSegmentKind({ ...material, source });
 
   return {
     id,
@@ -130,6 +132,8 @@ function createAddedMaterial(material: PromptPackMaterialDraft, index: number): 
     estimatedTokens: material.estimatedTokens ?? estimatePromptTokens(text),
     trusted,
     scope: material.scope?.trim() || undefined,
+    promptSegmentKind,
+    internalOnly: material.internalOnly === true || promptSegmentKind === "assistantScratchpadPlan",
     metadata: material.metadata ?? {},
     protected: false,
     modifierRecords: ["added"],

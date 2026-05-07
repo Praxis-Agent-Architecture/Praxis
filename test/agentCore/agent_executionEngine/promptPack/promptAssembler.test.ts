@@ -8,6 +8,7 @@ import {
 } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptAssembler.js";
 import {
   BASIC_CORE_PROMPT_MATERIAL_ID,
+  PROMPT_PACK_SEGMENT_KINDS,
   definePromptPack,
 } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
 
@@ -90,11 +91,18 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
   );
   assert.deepEqual(
     result.promptPack.segments.map((segment) => segment.segmentKind),
-    ["core-static", "capability-static"],
+    PROMPT_PACK_SEGMENT_KINDS,
   );
-  assert.deepEqual(result.promptPack.cachePlan.cacheablePrefixSegmentKinds, ["core-static", "capability-static"]);
+  assert.deepEqual(result.promptPack.cachePlan.cacheablePrefixSegmentKinds, [
+    "stableSystemCore",
+    "declaredRuntimeContext",
+    "toolDeclarations",
+    "projectContext",
+  ]);
+  assert.equal(result.promptPack.cachePlan.cacheUnit, "prompt-pack-section");
+  assert.deepEqual(result.promptPack.cachePlan.cachePriority, ["context-quality", "cost", "latency"]);
   assert.equal(result.promptPack.cachePlan.providerPayloadCreated, false);
-  assert.match(result.promptPack.cacheTelemetry.segmentHashes["core-static"], /^[a-f0-9]{64}$/);
+  assert.match(result.promptPack.cacheTelemetry.segmentHashes.stableSystemCore, /^[a-f0-9]{64}$/);
   assert.equal(result.promptPack.toolPack.declarations[0]?.name, "workspace_read");
   assert.match(result.promptPack.renderedText, /Praxis root head/);
   assert.deepEqual(
@@ -112,7 +120,7 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
   );
 });
 
-test("assemblePromptPack keeps stable segments before dynamic material and preserves capability provider order", () => {
+test("assemblePromptPack keeps ten-section order and preserves capability provider order", () => {
   const defined = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
@@ -124,7 +132,7 @@ test("assemblePromptPack keeps stable segments before dynamic material and prese
         text: "Inspect this repo.",
         source: "user",
         priority: 100,
-        metadata: { promptSegmentKind: "turn-dynamic" },
+        promptSegmentKind: "userTurn",
       },
       {
         id: "mcp",
@@ -133,7 +141,8 @@ test("assemblePromptPack keeps stable segments before dynamic material and prese
         source: "runtime.tool",
         priority: 99,
         trusted: true,
-        metadata: { promptSegmentKind: "capability-static", toolMaterialType: "declaration", toolProviderKind: "mcp-static" },
+        promptSegmentKind: "toolDeclarations",
+        metadata: { toolMaterialType: "declaration", toolProviderKind: "mcp-static" },
       },
       {
         id: "base",
@@ -142,7 +151,8 @@ test("assemblePromptPack keeps stable segments before dynamic material and prese
         source: "runtime.tool",
         priority: 1,
         trusted: true,
-        metadata: { promptSegmentKind: "capability-static", toolMaterialType: "declaration", toolProviderKind: "baseTool" },
+        promptSegmentKind: "toolDeclarations",
+        metadata: { toolMaterialType: "declaration", toolProviderKind: "baseTool" },
       },
       {
         id: "summary",
@@ -151,7 +161,54 @@ test("assemblePromptPack keeps stable segments before dynamic material and prese
         source: "cmp.summary",
         priority: 50,
         trusted: true,
-        metadata: { promptSegmentKind: "session-summary" },
+        promptSegmentKind: "sessionSummary",
+      },
+      {
+        id: "memory-index",
+        kind: "memory",
+        text: "Layered memory summary index.",
+        source: "mp.memory.index",
+        trusted: true,
+        promptSegmentKind: "memoryContext",
+      },
+      {
+        id: "retrieved-memory",
+        kind: "retrieval",
+        text: "Concrete memory truth retrieved by MP later.",
+        source: "mp.retrieved",
+        trusted: true,
+        promptSegmentKind: "retrievedContext",
+      },
+      {
+        id: "observation",
+        kind: "event",
+        text: "Previous assistant visible output and runtime event.",
+        source: "observation.assistant",
+        promptSegmentKind: "observations",
+      },
+      {
+        id: "runtime-context",
+        kind: "system",
+        text: "AgentManifest and HarnessSpec runtime declarations.",
+        source: "manifest.runtime",
+        trusted: true,
+        promptSegmentKind: "declaredRuntimeContext",
+      },
+      {
+        id: "project-context",
+        kind: "file",
+        text: "Project index and dependency map.",
+        source: "project.index",
+        trusted: true,
+        promptSegmentKind: "projectContext",
+      },
+      {
+        id: "scratchpad",
+        kind: "command",
+        text: "{\"root\":\"plan\",\"alternatives\":[\"json-tool-plan\"]}",
+        source: "assistant.internal",
+        promptSegmentKind: "assistantScratchpadPlan",
+        internalOnly: true,
       },
     ],
   });
@@ -169,11 +226,40 @@ test("assemblePromptPack keeps stable segments before dynamic material and prese
 
   assert.deepEqual(
     result.promptPack.materials.map((material) => material.id),
-    [BASIC_CORE_PROMPT_MATERIAL_ID, "base", "mcp", "summary", "task"],
+    [
+      BASIC_CORE_PROMPT_MATERIAL_ID,
+      "runtime-context",
+      "base",
+      "mcp",
+      "project-context",
+      "summary",
+      "memory-index",
+      "retrieved-memory",
+      "observation",
+      "task",
+      "scratchpad",
+    ],
   );
   assert.deepEqual(
     result.promptPack.cachePlan.dynamicSegmentKinds,
-    ["turn-dynamic"],
+    ["retrievedContext", "observations", "userTurn", "assistantScratchpadPlan"],
+  );
+  assert.equal(result.promptPack.materials.at(-1)?.internalOnly, true);
+  assert.deepEqual(result.promptPack.cachePlan.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
+  assert.deepEqual(
+    result.promptPack.segments.map((segment) => segment.materialRefs),
+    [
+      [BASIC_CORE_PROMPT_MATERIAL_ID],
+      ["runtime-context"],
+      ["base", "mcp"],
+      ["project-context"],
+      ["summary"],
+      ["memory-index"],
+      ["retrieved-memory"],
+      ["observation"],
+      ["task"],
+      ["scratchpad"],
+    ],
   );
 });
 
@@ -189,7 +275,7 @@ test("assemblePromptPack preserves developer input order inside the same segment
         text: "First project rule from prompt package.",
         source: "prompt.package.first",
         trusted: true,
-        metadata: { promptSegmentKind: "project-static" },
+        promptSegmentKind: "projectContext",
       },
       {
         id: "project-rule-first-id",
@@ -197,7 +283,7 @@ test("assemblePromptPack preserves developer input order inside the same segment
         text: "Second project rule from prompt package.",
         source: "prompt.package.second",
         trusted: true,
-        metadata: { promptSegmentKind: "project-static" },
+        promptSegmentKind: "projectContext",
       },
     ],
   });
@@ -241,6 +327,8 @@ test("assemblePromptPack rejects missing materials, bad budgets, and unsafe inje
         priority: 0,
         estimatedTokens: 2,
         trusted: false,
+        promptSegmentKind: "userTurn",
+        internalOnly: false,
         metadata: {},
       },
     ],

@@ -162,14 +162,14 @@ test("prepareMainLoopTurn assembles PromptPack and cache plan for a formal turn"
         text: "You are a repo inspector.",
         source: "agent.prompt",
         trusted: true,
-        metadata: { promptSegmentKind: "agent-base-static" },
+        promptSegmentKind: "declaredRuntimeContext",
       },
       {
         id: "task",
         kind: "user",
         text: "Read package.json",
         source: "user",
-        metadata: { promptSegmentKind: "turn-dynamic" },
+        promptSegmentKind: "userTurn",
       },
     ],
   });
@@ -179,7 +179,18 @@ test("prepareMainLoopTurn assembles PromptPack and cache plan for a formal turn"
   assert.equal(result.promptPackId, "prompt-1");
   assert.deepEqual(
     result.cachePlan.segments.map((segment) => segment.segmentKind),
-    ["core-static", "agent-base-static", "turn-dynamic"],
+    [
+      "stableSystemCore",
+      "declaredRuntimeContext",
+      "toolDeclarations",
+      "projectContext",
+      "sessionSummary",
+      "memoryContext",
+      "retrievedContext",
+      "observations",
+      "userTurn",
+      "assistantScratchpadPlan",
+    ],
   );
   assert.deepEqual(
     result.turnRecord.stepRecords.map((record) => record.actionPrimitive),

@@ -25,6 +25,27 @@ export type PromptLoweringMaterialKind =
   | (string & {});
 
 export type PromptLoweringSourceCategory = "declared-built-in" | "process-product" | "user-request";
+export type PromptLoweringSegmentKind =
+  | "stableSystemCore"
+  | "declaredRuntimeContext"
+  | "toolDeclarations"
+  | "projectContext"
+  | "sessionSummary"
+  | "memoryContext"
+  | "retrievedContext"
+  | "observations"
+  | "userTurn"
+  | "assistantScratchpadPlan";
+
+export type PromptLoweringFallbackMode = "none" | "json-tool-plan";
+export type PromptLoweringPolicyFailureKind =
+  | "safety"
+  | "permission"
+  | "tool-semantics"
+  | "cache"
+  | "formatting"
+  | "provider-feature";
+export type PromptLoweringPolicyDisposition = "fail-closed" | "best-effort";
 
 export type PromptLoweringBoundary =
   | "input"
@@ -43,7 +64,8 @@ export type PromptLoweringErrorCode =
   | "MISSING_TARGET_CAPABILITY"
   | "RUNTIME_NOT_READY"
   | "CONTRACT_REJECTED"
-  | "GOVERNANCE_REJECTED";
+  | "GOVERNANCE_REJECTED"
+  | "LOWERING_POLICY_REJECTED";
 
 export type PromptLoweringError = {
   code: PromptLoweringErrorCode;
@@ -57,6 +79,7 @@ export type PromptLoweringMaterialInput = {
   ref?: string;
   text?: string;
   sourceCategory?: PromptLoweringSourceCategory;
+  promptSegmentKind?: PromptLoweringSegmentKind;
   priority?: number;
   metadata?: Readonly<Record<string, unknown>>;
 };
@@ -73,6 +96,12 @@ export type PromptLoweringTarget = {
   outputMode?: "single" | "stream" | "batch" | (string & {});
 };
 
+export type PromptLoweringPolicyIssue = {
+  kind: PromptLoweringPolicyFailureKind;
+  accepted: boolean;
+  reason?: string;
+};
+
 export type PromptLoweringRequest = {
   runtimeId?: string;
   caller?: ModelAdapterRuntimeCaller;
@@ -81,6 +110,8 @@ export type PromptLoweringRequest = {
   runtimeReady?: boolean;
   contract?: ModelAdapterRuntimeGate;
   governance?: ModelAdapterRuntimeGate;
+  fallbackMode?: PromptLoweringFallbackMode;
+  loweringPolicyIssues?: readonly PromptLoweringPolicyIssue[];
 };
 
 export type LoweredPromptMaterial = {
@@ -89,6 +120,7 @@ export type LoweredPromptMaterial = {
   ref?: string;
   text?: string;
   sourceCategory?: PromptLoweringSourceCategory;
+  promptSegmentKind?: PromptLoweringSegmentKind;
   priority: number;
   sequence: number;
   metadata: Readonly<Record<string, unknown>>;
@@ -110,6 +142,16 @@ export type LoweredPromptEnvelope = {
   materials: readonly LoweredPromptMaterial[];
   materialRefs: readonly string[];
   materialKinds: readonly PromptLoweringMaterialKind[];
+  providerVisibleSegmentKinds: readonly PromptLoweringSegmentKind[];
+  hiddenInternalSegmentKinds: readonly PromptLoweringSegmentKind[];
+  fallbackMode: PromptLoweringFallbackMode;
+  visibleFallbackCreated: boolean;
+  policy: {
+    failClosedKinds: readonly ["safety", "permission", "tool-semantics"];
+    bestEffortKinds: readonly ["cache", "formatting", "provider-feature"];
+    degradationRecords: readonly PromptLoweringPolicyIssue[];
+    degraded: boolean;
+  };
   metadata: Readonly<Record<string, unknown>>;
   contractChecked: true;
   governanceChecked: true;
@@ -164,15 +206,40 @@ function failure(
   };
 }
 
+function readPromptSegmentKind(material: PromptLoweringMaterialInput): PromptLoweringSegmentKind | undefined {
+  if (material.promptSegmentKind !== undefined) {
+    return material.promptSegmentKind;
+  }
+  const value = material.metadata?.promptSegmentKind;
+  return typeof value === "string" ? (value as PromptLoweringSegmentKind) : undefined;
+}
+
+function isFailClosedKind(kind: PromptLoweringPolicyFailureKind): boolean {
+  return kind === "safety" || kind === "permission" || kind === "tool-semantics";
+}
+
+function rejectedPolicyIssue(issues: readonly PromptLoweringPolicyIssue[] | undefined): PromptLoweringPolicyIssue | undefined {
+  return (issues ?? []).find((issue) => issue.accepted === false && isFailClosedKind(issue.kind));
+}
+
+function bestEffortDegradations(issues: readonly PromptLoweringPolicyIssue[] | undefined): readonly PromptLoweringPolicyIssue[] {
+  return (issues ?? []).filter((issue) => issue.accepted === false && !isFailClosedKind(issue.kind));
+}
+
 function normalizeMaterials(
   promptPackId: string,
   materials: readonly PromptLoweringMaterialInput[] | undefined,
+  fallbackMode: PromptLoweringFallbackMode,
 ): readonly LoweredPromptMaterial[] {
   return (materials ?? [])
     .map((material, index) => {
       const kind = material.kind?.trim();
       const ref = material.ref?.trim();
       const text = material.text?.trim();
+      const promptSegmentKind = readPromptSegmentKind(material);
+      if (promptSegmentKind === "assistantScratchpadPlan" && fallbackMode !== "json-tool-plan") {
+        return undefined;
+      }
       if (kind === undefined || kind.length === 0 || ((ref ?? "").length === 0 && (text ?? "").length === 0)) {
         return undefined;
       }
@@ -181,6 +248,7 @@ function normalizeMaterials(
         materialId: ref !== undefined && ref.length > 0 ? ref : `${promptPackId}:material:${index + 1}`,
         kind,
         sourceCategory: material.sourceCategory ?? "process-product",
+        promptSegmentKind,
         priority: Number.isFinite(material.priority) ? Number(material.priority) : 0,
         sequence: index,
         metadata: material.metadata ?? {},
@@ -248,9 +316,19 @@ export function lowerPromptForModelAdapter(request?: PromptLoweringRequest): Pro
     );
   }
 
+  const policyRejection = rejectedPolicyIssue(request.loweringPolicyIssues);
+  if (policyRejection !== undefined) {
+    return failure(
+      "LOWERING_POLICY_REJECTED",
+      policyRejection.reason ?? `prompt lowering failed closed for ${policyRejection.kind}`,
+      policyRejection.kind === "tool-semantics" ? "prompt-pack" : "governance",
+    );
+  }
+
   const runtimeId = request.runtimeId.trim();
   const promptPackId = request.promptPack.id.trim();
-  const materials = normalizeMaterials(promptPackId, request.promptPack.materials);
+  const fallbackMode = request.fallbackMode ?? "none";
+  const materials = normalizeMaterials(promptPackId, request.promptPack.materials, fallbackMode);
 
   if (materials.length === 0) {
     return failure(
@@ -271,6 +349,18 @@ export function lowerPromptForModelAdapter(request?: PromptLoweringRequest): Pro
     target.carrierId = carrierId;
   }
 
+  const degradationRecords = bestEffortDegradations(request.loweringPolicyIssues);
+  const hiddenInternalSegmentKinds = [...new Set(
+    (request.promptPack.materials ?? [])
+      .map((material) => readPromptSegmentKind(material))
+      .filter((segmentKind): segmentKind is PromptLoweringSegmentKind => segmentKind === "assistantScratchpadPlan"),
+  )];
+  const providerVisibleSegmentKinds = [...new Set(
+    materials
+      .map((material) => material.promptSegmentKind)
+      .filter((segmentKind): segmentKind is PromptLoweringSegmentKind => segmentKind !== undefined),
+  )];
+
   return {
     ok: true,
     loweredPrompt: {
@@ -283,12 +373,24 @@ export function lowerPromptForModelAdapter(request?: PromptLoweringRequest): Pro
       materials,
       materialRefs: materials.map((material) => material.materialId),
       materialKinds: [...new Set(materials.map((material) => material.kind))],
+      providerVisibleSegmentKinds,
+      hiddenInternalSegmentKinds,
+      fallbackMode,
+      visibleFallbackCreated: fallbackMode === "json-tool-plan" && materials.some((material) => material.promptSegmentKind === "assistantScratchpadPlan"),
+      policy: {
+        failClosedKinds: ["safety", "permission", "tool-semantics"],
+        bestEffortKinds: ["cache", "formatting", "provider-feature"],
+        degradationRecords,
+        degraded: degradationRecords.length > 0,
+      },
       metadata: request.promptPack.metadata ?? {},
       contractChecked: true,
       governanceChecked: true,
       dryRun: true,
       unsafeSideEffects: false,
     },
-    events: ["runtime.modelAdapter.promptLoweringRuntime.lowered"],
+    events: degradationRecords.length > 0
+      ? ["runtime.modelAdapter.promptLoweringRuntime.lowered", "runtime.modelAdapter.promptLoweringRuntime.degraded"]
+      : ["runtime.modelAdapter.promptLoweringRuntime.lowered"],
   };
 }
