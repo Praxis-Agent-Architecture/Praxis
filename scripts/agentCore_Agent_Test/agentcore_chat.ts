@@ -1,9 +1,12 @@
 import { readFileSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import type { OpenAIV1ResponsesProviderCaller } from "../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import { invokeChatGPTCodexResponses } from "../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+import type { AuthEnvelope } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
 import { resolveAuthEnvelope } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
 import { createCredentialRef } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
 import { createProviderCaller } from "../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
@@ -27,6 +30,9 @@ import { createInvocationResultSurface } from "../../src/agentCore/agent_runtime
 import { openModelInvocationEntrypoint } from "../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
 import { planModelInvocation } from "../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
 import { lowerPromptForModelAdapter } from "../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
+import { createRuntimeBaseToolExecutorPort } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import { invokeMountedBaseTool } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
+import { praxis, type AgentManifest } from "../../src/agentCore/index.js";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -44,7 +50,13 @@ type LiveToolCall = {
   arguments: Readonly<Record<string, unknown>>;
 };
 
-const args = new Set(process.argv.slice(2));
+type FallbackToolCall = {
+  toolId: string;
+  arguments: Readonly<Record<string, unknown>>;
+};
+
+const argv = process.argv.slice(2);
+const args = new Set(argv);
 const verbose = args.has("--verbose");
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
@@ -59,6 +71,136 @@ const reasoningEffort =
   process.env.OPENAI_REASONING_EFFORT ??
   "low";
 const modelProfile = `${model}-${reasoningEffort}`;
+
+type RaxProjectDescriptor = {
+  entry?: string;
+  export?: string;
+};
+
+type CompiledChatAgent = {
+  manifest: AgentManifest;
+  agentPath: string;
+  projectRoot?: string;
+};
+
+type RealtestLiveProvider = {
+  auth: AuthEnvelope;
+  providerCaller: OpenAIV1ResponsesProviderCaller;
+  authSource: string;
+};
+
+function argValue(name: string): string | undefined {
+  const index = argv.indexOf(name);
+  if (index < 0) return undefined;
+  return argv[index + 1];
+}
+
+function resolveAgentTarget(): string | undefined {
+  const explicit = argValue("--agent") ?? argValue("--project") ?? argValue("--realtest");
+  if (explicit !== undefined && explicit.trim().length > 0) {
+    return explicit.trim();
+  }
+
+  const positional = argv.find((value) => !value.startsWith("-"));
+  if (positional === "minimal" || positional === "fullstack") {
+    return `realtest/${positional}`;
+  }
+  return undefined;
+}
+
+async function pathExists(pathname: string): Promise<boolean> {
+  try {
+    await stat(pathname);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function resolveAgentEntry(inputPath: string): Promise<{ agentPath: string; exportName?: string; projectRoot?: string }> {
+  const normalized = inputPath === "minimal" || inputPath === "fullstack" ? `realtest/${inputPath}` : inputPath;
+  const absolute = path.resolve(architectureRoot, normalized);
+  const info = await stat(absolute);
+  if (!info.isDirectory()) {
+    return { agentPath: absolute };
+  }
+
+  const descriptorPath = path.join(absolute, "rax.project.json");
+  if (await pathExists(descriptorPath)) {
+    const descriptor = JSON.parse(await readFile(descriptorPath, "utf8")) as RaxProjectDescriptor;
+    if (typeof descriptor.entry === "string" && descriptor.entry.trim().length > 0) {
+      return {
+        agentPath: path.resolve(absolute, descriptor.entry),
+        exportName: descriptor.export,
+        projectRoot: absolute,
+      };
+    }
+  }
+
+  for (const entry of ["praxis.agent.ts", "agents/mainAgent.ts", "agents/repoInspectorAgent.ts"]) {
+    const candidate = path.join(absolute, entry);
+    if (await pathExists(candidate)) {
+      return { agentPath: candidate, projectRoot: absolute };
+    }
+  }
+
+  throw new Error(`no Praxis agent entry found in ${normalized}`);
+}
+
+async function compileRealtestAgent(target: string): Promise<CompiledChatAgent> {
+  const entry = await resolveAgentEntry(target);
+  const module = await import(pathToFileURL(entry.agentPath).href) as Record<string, unknown>;
+  const candidate = entry.exportName !== undefined && entry.exportName.trim().length > 0
+    ? module[entry.exportName]
+    : module.default;
+  const compiled = praxis.compileAgent(candidate as never);
+  if (!compiled.ok) {
+    throw new Error(`compile ${target} failed: ${compiled.error.message}`);
+  }
+  return { manifest: compiled.manifest, agentPath: entry.agentPath, projectRoot: entry.projectRoot };
+}
+
+function createRealtestLiveProvider(manifest: AgentManifest): RealtestLiveProvider {
+  const credentialRef = createCredentialRef({
+    id: `agentcore-chat:${manifest.identity.id}:chatgpt-codex`,
+    provider: "openai",
+    credentialType: "chatgpt_codex_oauth",
+    source: { kind: "codex-auth-file", filePath: codexAuthPath },
+  });
+  if (!credentialRef.ok) {
+    throw new Error(`credentialRef failed: ${JSON.stringify(credentialRef.error)}`);
+  }
+
+  const auth = resolveAuthEnvelope({
+    credentialRef: credentialRef.credentialRef,
+    readFile: (filePath) => readFileSync(filePath, "utf8"),
+  });
+  if (!auth.ok) {
+    throw new Error(`auth failed: ${JSON.stringify(auth.error)}`);
+  }
+
+  const carrier = createChatGPTCodexResponsesCarrier({
+    carrierId: manifest.model.carrierId,
+    model: manifest.model.model,
+    reasoning: { effort: reasoningEffort },
+    credentialRef: credentialRef.credentialRef,
+    clientName: manifest.model.clientName ?? "praxis-agentcore-realtest-chat",
+    clientVersion: manifest.model.clientVersion ?? chatgptCodexClientVersion,
+  });
+  if (!carrier.ok) {
+    throw new Error(`carrier failed: ${JSON.stringify(carrier.error)}`);
+  }
+
+  return {
+    auth: auth.resolved.envelope,
+    providerCaller: createProviderCaller({
+      transport: fetchProviderTransport,
+      authMaterial: auth.resolved.privateMaterial,
+      timeoutMs: 60_000,
+    }),
+    authSource: codexAuthPath,
+  };
+}
 
 function assertOk<T extends { ok: boolean }>(label: string, result: T): Extract<T, { ok: true }> {
   if (result.ok) {
@@ -218,6 +360,196 @@ function tryParseToolCall(text: string, context: RuntimeContext): LiveToolCall |
   } catch {
     return undefined;
   }
+}
+
+function normalizeFallbackToolId(raw: string): string {
+  return raw.trim().replace(/^tool:/u, "");
+}
+
+function inferPathFromText(text: string): string | undefined {
+  return /(?:[\w.-]+\/)+[\w.-]+(?:\.[\w.-]+)?/u.exec(text)?.[0];
+}
+
+function firstNonBlankString(...values: readonly unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+function normalizeFallbackToolArguments(toolId: string, argsValue: unknown, userText = ""): Readonly<Record<string, unknown>> {
+  const argsRecord = isRecord(argsValue) ? { ...argsValue } : {};
+  const context = isRecord(argsRecord.context) ? { ...argsRecord.context } : {};
+  context.dryRun = false;
+  context.guard = { allowed: true, accepted: true, reason: "agentCore realtest chat text fallback" };
+  context.grantedPermissions = ["filesystem:read", "git:read", "tool.execute"];
+  argsRecord.context = context;
+  if (toolId === "code.read") {
+    const targetPath = firstNonBlankString(argsRecord.targetPath, argsRecord.path, argsRecord.file, inferPathFromText(userText));
+    if (targetPath !== undefined) {
+      argsRecord.targetPath = targetPath;
+    }
+  }
+  if (toolId === "code.scan") {
+    const directoryPath = firstNonBlankString(argsRecord.directoryPath, argsRecord.path, inferPathFromText(userText)?.split("/").slice(0, -1).join("/"));
+    if (directoryPath !== undefined) {
+      argsRecord.directoryPath = directoryPath;
+    }
+  }
+  if (toolId === "git.getRepositoryStatus") {
+    const target = isRecord(argsRecord.target) ? { ...argsRecord.target } : {};
+    target.repositoryPath ??= architectureRoot;
+    argsRecord.target = target;
+    const context = isRecord(argsRecord.context) ? { ...argsRecord.context } : {};
+    context.grantedPermissions ??= ["git:read", "filesystem:read"];
+    argsRecord.context = context;
+  }
+  return argsRecord;
+}
+
+function parseFallbackToolCalls(text: string, mountedToolIds: readonly string[], userText = ""): readonly FallbackToolCall[] {
+  const mounted = new Set(mountedToolIds);
+  const calls: FallbackToolCall[] = [];
+  const tagPattern = /<tool_call([^>]*)>([\s\S]*?)<\/tool_call>|<tool_call([^>]*?)\/>/giu;
+  for (const match of text.matchAll(tagPattern)) {
+    const attrs = match[1] ?? match[3] ?? "";
+    const inner = match[2] ?? "";
+    const toolMatch = /\b(?:name|tool)=["']([^"']+)["']/iu.exec(attrs);
+    const argsMatch = /\barguments=(["'])([\s\S]*?)\1/iu.exec(attrs);
+    const toolId = normalizeFallbackToolId(toolMatch?.[1] ?? "");
+    if (!mounted.has(toolId)) continue;
+    let parsedArgs: unknown = {};
+    try {
+      parsedArgs = JSON.parse(argsMatch?.[2] ?? "{}") as unknown;
+    } catch {
+      parsedArgs = {};
+    }
+    if (argsMatch === null && inner.trim().length > 0) {
+      const pathMatch = /<path>([\s\S]*?)<\/path>/iu.exec(inner);
+      const fileMatch = /<file>([\s\S]*?)<\/file>/iu.exec(inner);
+      parsedArgs = {
+        path: (pathMatch?.[1] ?? fileMatch?.[1] ?? "").trim(),
+      };
+    }
+    calls.push({ toolId, arguments: normalizeFallbackToolArguments(toolId, parsedArgs, userText) });
+  }
+
+  const namespacedTagPattern = /<tool:([\w.-]+)>([\s\S]*?)<\/tool:\1>/giu;
+  for (const match of text.matchAll(namespacedTagPattern)) {
+    const toolId = normalizeFallbackToolId(match[1] ?? "");
+    if (!mounted.has(toolId)) continue;
+    let parsedArgs: unknown = {};
+    try {
+      parsedArgs = JSON.parse((match[2] ?? "{}").trim()) as unknown;
+    } catch {
+      parsedArgs = {};
+    }
+    calls.push({ toolId, arguments: normalizeFallbackToolArguments(toolId, parsedArgs, userText) });
+  }
+
+  const requestTagPattern = /<tool_request([^>]*)>([\s\S]*?)<\/tool_request>/giu;
+  for (const match of text.matchAll(requestTagPattern)) {
+    const attrs = match[1] ?? "";
+    const inner = match[2] ?? "";
+    const toolMatch = /\b(?:name|tool)=["']([^"']+)["']/iu.exec(attrs);
+    const toolId = normalizeFallbackToolId(toolMatch?.[1] ?? "");
+    if (!mounted.has(toolId)) continue;
+    const argsText = /<arguments>([\s\S]*?)<\/arguments>/iu.exec(inner)?.[1] ?? "{}";
+    let parsedArgs: unknown = {};
+    try {
+      parsedArgs = JSON.parse(argsText.trim()) as unknown;
+    } catch {
+      parsedArgs = {};
+    }
+    calls.push({ toolId, arguments: normalizeFallbackToolArguments(toolId, parsedArgs, userText) });
+  }
+
+  try {
+    const parsed = parseJsonObject(text);
+    if (isRecord(parsed) && Array.isArray(parsed.tool_calls)) {
+      for (const item of parsed.tool_calls) {
+        if (!isRecord(item)) continue;
+        const toolId = normalizeFallbackToolId(String(item.tool ?? item.name ?? item.toolId ?? ""));
+        if (!mounted.has(toolId)) continue;
+        calls.push({ toolId, arguments: normalizeFallbackToolArguments(toolId, item.arguments ?? {}, userText) });
+      }
+    }
+  } catch {
+    // Text answers that are not JSON may still contain XML-ish tool_call tags.
+  }
+
+  const seen = new Set<string>();
+  return calls.filter((call) => {
+    const key = `${call.toolId}:${JSON.stringify(call.arguments)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function inferFallbackToolCallsFromUserText(userText: string, mountedToolIds: readonly string[]): readonly FallbackToolCall[] {
+  const mounted = new Set(mountedToolIds);
+  const inferredPath = inferPathFromText(userText);
+  if (inferredPath !== undefined && mounted.has("code.read")) {
+    return [{
+      toolId: "code.read",
+      arguments: normalizeFallbackToolArguments("code.read", { targetPath: inferredPath }, userText),
+    }];
+  }
+  return [];
+}
+
+async function invokeFallbackTool(
+  compiled: CompiledChatAgent,
+  toolCall: FallbackToolCall,
+  sessionId: string,
+) {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: `runtime.agentcore.chat.${compiled.manifest.identity.id}`,
+    sessionId,
+    policy: {
+      workspaceRoot: architectureRoot,
+      allowedRoots: [architectureRoot],
+      allowGitExecution: true,
+      allowRipgrep: true,
+      allowShellExecution: false,
+      allowFilesystemWrite: false,
+      allowFilesystemDelete: false,
+    },
+    sandbox: {
+      providerFamily: compiled.manifest.sandbox.providerFamily,
+      profile: compiled.manifest.sandbox.profile,
+      isolationLevel: compiled.manifest.sandbox.isolationLevel,
+      ready: true,
+      probe: { status: "available" },
+    },
+  });
+
+  return await invokeMountedBaseTool({
+    runtimeId: `runtime.agentcore.chat.${compiled.manifest.identity.id}`,
+    sessionId,
+    toolId: toolCall.toolId,
+    toolCallId: `${sessionId}:fallback:${toolCall.toolId}:${Date.now()}`,
+    input: toolCall.arguments,
+    executor,
+    runtimeReady: true,
+    governance: { accepted: true },
+    contract: { accepted: true },
+    allowedScopes: [
+      "agent.invoke",
+      "promptPack.define",
+      "tool.execute",
+      `tool.${toolCall.toolId}`,
+      toolCall.toolId,
+      "code.read",
+      "git:read",
+      "filesystem:read",
+    ],
+    metadata: {
+      mountedVia: "agentcore_chat.textToolFallback",
+      realtestAgent: compiled.manifest.identity.id,
+    },
+  });
 }
 
 function truncateForPrompt(value: unknown, maxChars = 6_000): string {
@@ -602,7 +934,147 @@ async function runChat(): Promise<void> {
   }
 }
 
-runChat().catch((error: unknown) => {
+function renderRealtestTask(history: readonly ChatMessage[], userText: string): string {
+  const transcript = history.slice(-8)
+    .map((message) => `${message.role === "user" ? "用户" : "agent"}: ${message.content}`)
+    .join("\n");
+  return [
+    "这是 Praxis realtest 最小交互对话。请保持简洁、直接、可执行。",
+    "如果需要工具，只能通过当前 AgentManifest 声明的 runtime/baseTool 链路。",
+    transcript.length > 0 ? `已有对话：\n${transcript}` : "",
+    `当前用户输入：\n${userText}`,
+  ].filter((part) => part.length > 0).join("\n\n");
+}
+
+function printRealtestBanner(target: string, compiled: CompiledChatAgent, provider: RealtestLiveProvider): void {
+  console.log("Praxis realtest chat is ready");
+  console.log(`target=${target}`);
+  console.log(`agent=${compiled.manifest.identity.id}`);
+  console.log(`model=${compiled.manifest.model.model}`);
+  console.log(`auth=${provider.authSource}`);
+  console.log(`entry=${compiled.agentPath}`);
+  console.log("commands: /exit, /quit, /status, /clear");
+  console.log("");
+}
+
+async function runRealtestChat(target: string): Promise<void> {
+  const compiled = await compileRealtestAgent(target);
+  const provider = createRealtestLiveProvider(compiled.manifest);
+  const runtime = praxis.runtime.createPraxisRuntimeKernel({
+    runtimeId: `runtime.agentcore.chat.${compiled.manifest.identity.id}`,
+    store: praxis.runtime.createInMemorySessionStateEventStore(),
+  });
+  const history: ChatMessage[] = [];
+  printRealtestBanner(target, compiled, provider);
+
+  const rl = readline.createInterface({ input, output });
+  output.write(`${path.basename(target)}> `);
+
+  try {
+    for await (const line of rl) {
+      const userText = line.trim();
+      if (userText.length === 0) {
+        output.write(`${path.basename(target)}> `);
+        continue;
+      }
+      if (userText === "/exit" || userText === "/quit") {
+        break;
+      }
+      if (userText === "/clear") {
+        history.length = 0;
+        console.log("history cleared");
+        output.write(`${path.basename(target)}> `);
+        continue;
+      }
+      if (userText === "/status") {
+        console.log(JSON.stringify({
+          target,
+          agent: compiled.manifest.identity.id,
+          model: compiled.manifest.model.model,
+          promptPack: compiled.manifest.promptPack.promptPackId,
+          tools: compiled.manifest.harness.tools.map((tool) => tool.toolId),
+          auth: provider.authSource,
+          turns: history.length / 2,
+        }, null, 2));
+        output.write(`${path.basename(target)}> `);
+        continue;
+      }
+
+      const result = await runtime.runManifest(compiled.manifest, renderRealtestTask(history, userText), {
+        dryRun: false,
+        allowProviderCall: true,
+        allowToolExecution: true,
+        auth: provider.auth,
+        providerCaller: provider.providerCaller,
+        storage: { cwd: architectureRoot, initMode: "on-run" },
+        sandbox: { cwd: architectureRoot, failOnUnavailable: false },
+        exposeProviderTools: false,
+      });
+
+      if (result.ok) {
+        let finalOutput = result.finalOutput;
+        const mountedToolIds = compiled.manifest.harness.tools.map((tool) => tool.toolId);
+        const parsedFallbackToolCalls = parseFallbackToolCalls(
+          result.finalOutput,
+          mountedToolIds,
+          userText,
+        );
+        const fallbackToolCalls = parsedFallbackToolCalls.length > 0
+          ? parsedFallbackToolCalls
+          : inferFallbackToolCallsFromUserText(userText, mountedToolIds);
+        if (fallbackToolCalls.length > 0) {
+          const toolResults = [];
+          for (const toolCall of fallbackToolCalls.slice(0, compiled.manifest.harness.loop.maxToolCalls ?? 4)) {
+            toolResults.push({
+              toolCall,
+              result: await invokeFallbackTool(compiled, toolCall, result.sessionId),
+            });
+          }
+          if (verbose) {
+            console.error(JSON.stringify({ fallbackToolCalls, toolResults }, null, 2));
+          }
+          const summaryResult = await runtime.runManifest(compiled.manifest, [
+            "你刚才请求了 Praxis baseTool。agentCore 已通过 text JSON tool fallback 执行了这些工具。",
+            "请根据工具结果直接回答用户。不要再输出 tool_call 标签。",
+            `用户原始输入：\n${userText}`,
+            `工具结果：\n${truncateForPrompt(toolResults, 12000)}`,
+          ].join("\n\n"), {
+            dryRun: false,
+            allowProviderCall: true,
+            allowToolExecution: false,
+            auth: provider.auth,
+            providerCaller: provider.providerCaller,
+            storage: { cwd: architectureRoot, initMode: "on-run" },
+            sandbox: { cwd: architectureRoot, failOnUnavailable: false },
+            exposeProviderTools: false,
+          });
+          finalOutput = summaryResult.ok
+            ? summaryResult.finalOutput
+            : `工具已执行，但总结失败：${summaryResult.error.message}`;
+        }
+        history.push({ role: "user", content: userText }, { role: "assistant", content: finalOutput });
+        console.log(`agent> ${finalOutput}`);
+      } else {
+        console.error(`agent error> ${result.error.code}: ${result.error.message}`);
+      }
+      if (verbose) {
+        console.error(JSON.stringify({
+          sessionId: result.sessionId,
+          modelCalls: result.ok ? result.modelCalls.length : 0,
+          toolCalls: result.ok ? result.toolCalls.length : 0,
+          events: result.events.length,
+        }, null, 2));
+      }
+      output.write(`${path.basename(target)}> `);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+const agentTarget = resolveAgentTarget();
+
+(agentTarget === undefined ? runChat() : runRealtestChat(agentTarget)).catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`agentCore fatal> ${message}`);
   process.exitCode = 1;

@@ -341,6 +341,28 @@ export {
   type BaseToolStorageRealityStatus,
 } from "./agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 
+export {
+  createProviderToolMappings,
+  createPraxisToolDeclarations,
+  lowerPraxisToolsForProvider,
+  lowerProviderToolResult,
+  normalizeProviderInputSchema,
+  providerToolName,
+  raiseProviderToolCalls,
+  type LowerProviderToolResultRequest,
+  type LowerPraxisToolsForProviderRequest,
+  type ProviderCacheHintPlan,
+  type ProviderToolCallEnvelope,
+  type ProviderToolDeclarationBundle,
+  type ProviderToolNameMapping,
+  type ProviderToolResultContentBlock,
+  type ProviderToolResultEnvelope,
+  type ProviderToolSchemaFamily,
+  type PraxisToolDeclaration,
+  type PraxisToolProviderKind,
+  type RaiseProviderToolCallsRequest,
+} from "./agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+
 /**
  * Recommended developer authoring boxes.
  *

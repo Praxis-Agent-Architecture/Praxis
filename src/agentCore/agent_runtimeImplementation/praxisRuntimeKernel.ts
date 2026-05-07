@@ -12,6 +12,13 @@ import type { AuthEnvelope } from "../agent_modelAdapter/authProfileLayer/authEn
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { OpenAIV1ResponsesProviderCaller } from "../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import {
+  createProviderToolMappings,
+  lowerPraxisToolsForProvider,
+  providerToolName,
+  type ProviderToolDeclarationBundle,
+  type ProviderToolNameMapping,
+} from "../agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 import type { BaseToolExecutorPort } from "../agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { receiveTextInput } from "../agent_executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
 import { exposeTextOutput } from "../agent_executionEngine/IOTransceiver/outputExposer/textExposer.js";
@@ -210,10 +217,7 @@ export type AgentRunResult =
       state?: RuntimeSessionSnapshot;
     };
 
-type ProviderToolMapping = {
-  providerName: string;
-  toolId: string;
-};
+type ProviderToolMapping = ProviderToolNameMapping;
 
 function hasText(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -289,27 +293,8 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function providerToolName(toolId: string): string {
-  const normalized = toolId.replace(/[^a-zA-Z0-9_-]/gu, "_").replace(/^_+/u, "");
-  return `praxis_tool_${normalized || "tool"}`;
-}
-
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
-  const usedProviderNames = new Set<string>();
-  return manifest.harness.tools.map((tool) => {
-    const baseProviderName = providerToolName(tool.toolId);
-    let providerName = baseProviderName;
-    let suffix = 2;
-    while (usedProviderNames.has(providerName)) {
-      providerName = `${baseProviderName}_${suffix}`;
-      suffix += 1;
-    }
-    usedProviderNames.add(providerName);
-    return {
-      providerName,
-      toolId: tool.toolId,
-    };
-  });
+  return createProviderToolMappings(manifest.harness.tools);
 }
 
 function enrichToolArguments(
@@ -364,6 +349,15 @@ function toolProviderSortWeight(kind: ReturnType<typeof toolProviderKind>): numb
   return 3;
 }
 
+const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
+  "Praxis BaseTool calling protocol:",
+  "Use mounted BaseTools through declared function calls when the task needs current workspace, filesystem, git, shell, search, skill, MCP, computer-use, media, or external-resource evidence.",
+  "Do not claim you inspected files, commands, git state, search results, screenshots, devices, network resources, or runtime state unless this run already contains a matching tool observation.",
+  "If one BaseTool is not enough, request praxis_ephemeral_procedure to orchestrate existing mounted BaseTools; do not invent a new tool.",
+  "If policy, sandbox, dependency, budget, or approval blocks the action, request praxis_request_approval or report the public-safe blocker after the runtime returns it.",
+  "If the prompt already contains enough evidence and no runtime action is needed, answer directly.",
+].join("\n");
+
 function promptMaterialsForTurn(input: {
   manifest: AgentManifest;
   task: string;
@@ -415,6 +409,21 @@ function promptMaterialsForTurn(input: {
       metadata: { turnIndex: input.turnIndex },
     },
     {
+      id: `runtime:base-tool-protocol:${input.turnIndex}`,
+      kind: "runtime",
+      text: PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+      source: "runtime.baseToolCallingProtocol",
+      priority: 95,
+      trusted: true,
+      scope: "runtime.toolCalling",
+      promptSegmentKind: "stableSystemCore",
+      metadata: {
+        promptSegmentKind: "stableSystemCore",
+        turnIndex: input.turnIndex,
+        mountedToolCount: input.manifest.harness.tools.length,
+      },
+    },
+    {
       id: `runtime:${input.turnIndex}`,
       kind: "runtime",
       text: [
@@ -451,7 +460,10 @@ function buildCodexResponsesBodyFromPromptPack(
         role: "developer",
         content: [{
           type: "input_text",
-          text: "You are running inside PraxisRuntimeKernel. Use the Praxis PromptPack as current situation context; request mounted BaseTools only through declared function calls.",
+          text: [
+            "You are running inside PraxisRuntimeKernel. Use the Praxis PromptPack as current situation context.",
+            PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+          ].join("\n\n"),
         }],
       },
       {
@@ -465,68 +477,13 @@ function buildCodexResponsesBodyFromPromptPack(
   };
 
   if (options.exposeProviderTools !== false) {
-    const baseToolDeclarations = manifest.harness.tools.map((tool) => ({
-      type: "function",
-      name: mappings.find((mapping) => mapping.toolId === tool.toolId)?.providerName ?? providerToolName(tool.toolId),
-      description: tool.description ?? `Praxis baseTool ${tool.toolId}`,
-      parameters: tool.inputSchema ?? { type: "object", additionalProperties: true },
-    }));
-    const runtimeDecisionDeclarations = [
-      {
-        type: "function",
-        name: "praxis_ephemeral_procedure",
-        description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability.",
-        parameters: {
-          type: "object",
-          additionalProperties: true,
-          required: ["procedureId", "purpose", "steps"],
-          properties: {
-            procedureId: { type: "string" },
-            purpose: { type: "string" },
-            executionMode: { type: "string", enum: ["serial", "parallel", "mixed"] },
-            approval: {
-              type: "object",
-              additionalProperties: true,
-              properties: {
-                required: { type: "boolean" },
-                reason: { type: "string" },
-              },
-            },
-            steps: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: true,
-                required: ["stepId", "baseToolId", "input"],
-                properties: {
-                  stepId: { type: "string" },
-                  baseToolId: { type: "string" },
-                  input: { type: "object", additionalProperties: true },
-                  dependsOn: { type: "array", items: { type: "string" } },
-                  riskLevel: { type: "string", enum: ["low", "medium", "high"] },
-                  outputRef: { type: "string" },
-                },
-              },
-            },
-          },
-        },
-      },
-      {
-        type: "function",
-        name: "praxis_request_approval",
-        description: "Ask the Praxis runtime for approval before continuing a governed model/tool action.",
-        parameters: {
-          type: "object",
-          additionalProperties: true,
-          properties: {
-            reason: { type: "string" },
-            requestedScopes: { type: "array", items: { type: "string" } },
-            riskLevel: { type: "string" },
-          },
-        },
-      },
-    ];
-    body.tools = [...baseToolDeclarations, ...runtimeDecisionDeclarations];
+    const bundle = lowerPraxisToolsForProvider({
+      providerFamily: "openaiResponses",
+      manifest,
+      mappings,
+      includeRuntimeDecisionTools: true,
+    });
+    body.tools = bundle.tools;
   }
 
   return body;
@@ -859,6 +816,7 @@ async function buildPromptPackAndLower(input: {
       promptPackId: string;
       promptPack: StandardPromptPack;
       loweredPrompt: LoweredPromptEnvelope;
+      providerToolBundle: ProviderToolDeclarationBundle;
       turnRecord: MainLoopTurnRecord;
       events: readonly string[];
     }
@@ -895,6 +853,13 @@ async function buildPromptPackAndLower(input: {
     };
   }
 
+  const providerToolBundle = lowerPraxisToolsForProvider({
+    providerFamily: "openaiResponses",
+    manifest: input.manifest,
+    mappings: input.toolMappings,
+    includeRuntimeDecisionTools: true,
+  });
+
   const lowered = lowerPromptForModelAdapter({
     runtimeId: input.runtimeId,
     caller: input.modelCaller,
@@ -913,6 +878,8 @@ async function buildPromptPackAndLower(input: {
       carrierId: input.manifest.model.carrierId,
       outputMode: "single",
     },
+    providerToolBundle,
+    providerCacheHintPlan: providerToolBundle.cacheHintPlan,
     runtimeReady: true,
     contract: { accepted: true },
     governance: { accepted: true },
@@ -930,6 +897,7 @@ async function buildPromptPackAndLower(input: {
     promptPackId,
     promptPack: preparedTurn.promptPack,
     loweredPrompt: lowered.loweredPrompt,
+    providerToolBundle,
     turnRecord: preparedTurn.turnRecord,
     events: [...preparedTurn.events, ...lowered.events],
   };
@@ -1717,7 +1685,7 @@ export class PraxisRuntimeKernel {
         allowProviderCall: options.allowProviderCall ?? manifest.harness.policy.allowProviderCall ?? !dryRun,
         auth: options.auth,
         providerCaller: options.providerCaller,
-        providerBody: buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, toolMappings, {
+        providerBody: buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
           exposeProviderTools: options.exposeProviderTools,
         }),
         governance: { accepted: true },
@@ -1805,6 +1773,7 @@ export class PraxisRuntimeKernel {
         raw: modelResult.raw,
         sessionId,
         turnIndex: turn,
+        providerFamily: "openaiResponses",
         providerToolMappings: toolMappings,
         providerRawRef: modelInvocationId,
       });

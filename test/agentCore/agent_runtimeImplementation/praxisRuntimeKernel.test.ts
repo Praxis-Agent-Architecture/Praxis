@@ -429,7 +429,17 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
   assert.equal(result.ok, true);
   assert.equal(typeof capturedBody, "object");
   assert.notEqual(capturedBody, null);
-  const body = capturedBody as { tools?: readonly { name?: string }[] };
+  const body = capturedBody as {
+    input?: readonly {
+      role?: string;
+      content?: readonly { text?: string }[];
+    }[];
+    tools?: readonly { name?: string }[];
+  };
+  const providerBodyText = JSON.stringify(body);
+  assert.match(providerBodyText, /Praxis BaseTool calling protocol/);
+  assert.match(providerBodyText, /declared function calls/);
+  assert.match(providerBodyText, /runtime mounted BaseTools=code\.read, code_read/);
   assert.deepEqual(body.tools?.map((item) => item.name), [
     "praxis_tool_code_read",
     "praxis_tool_code_read_2",

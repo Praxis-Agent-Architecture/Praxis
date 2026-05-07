@@ -10,6 +10,11 @@ import {
   normalizeEphemeralProcedurePlan,
   type EphemeralProcedurePlan,
 } from "./ephemeralProcedure.js";
+import {
+  raiseProviderToolCalls,
+  type ProviderToolNameMapping,
+  type ProviderToolSchemaFamily,
+} from "../../agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 
 export type ModelDecisionKind =
   | "finalOutput"
@@ -49,16 +54,14 @@ export type ModelDecision = {
   metadata: Readonly<Record<string, unknown>>;
 };
 
-export type ProviderToolMapping = {
-  providerName: string;
-  toolId: string;
-};
+export type ProviderToolMapping = ProviderToolNameMapping;
 
 export type ModelDecisionInterpretRequest = {
   raw: unknown;
   sessionId: string;
   turnIndex: number;
   providerToolMappings?: readonly ProviderToolMapping[];
+  providerFamily?: ProviderToolSchemaFamily;
   providerRawRef?: string;
 };
 
@@ -74,36 +77,12 @@ export type ModelDecisionInterpretResult =
       events: readonly string[];
     };
 
-type NormalizedProviderToolCall = {
-  callId: string;
-  name: string;
-  arguments: Readonly<Record<string, unknown>>;
-  malformedArguments?: string;
-};
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function parseArguments(value: unknown): { ok: true; arguments: Readonly<Record<string, unknown>> } | { ok: false; message: string } {
-  if (isRecord(value)) {
-    return { ok: true, arguments: value };
-  }
-  if (typeof value !== "string" || value.trim().length === 0) {
-    return { ok: true, arguments: {} };
-  }
-  try {
-    const parsed: unknown = JSON.parse(value);
-    return isRecord(parsed)
-      ? { ok: true, arguments: parsed }
-      : { ok: false, message: "provider tool arguments must decode to an object" };
-  } catch {
-    return { ok: false, message: "provider tool arguments are not valid JSON" };
-  }
 }
 
 function sseDataObjects(text: string): readonly unknown[] {
@@ -160,58 +139,6 @@ function extractText(raw: unknown): string {
     }
   }
   return chunks.join("\n").trim();
-}
-
-function dedupeToolCalls(calls: readonly NormalizedProviderToolCall[]): readonly NormalizedProviderToolCall[] {
-  const byId = new Map<string, NormalizedProviderToolCall>();
-  const order: string[] = [];
-  for (const call of calls) {
-    if (!byId.has(call.callId)) order.push(call.callId);
-    byId.set(call.callId, call);
-  }
-  return order.map((callId) => byId.get(callId)).filter((call): call is NormalizedProviderToolCall => call !== undefined);
-}
-
-function extractToolCalls(raw: unknown): readonly NormalizedProviderToolCall[] {
-  if (typeof raw === "string") {
-    return dedupeToolCalls(sseDataObjects(raw).flatMap((object) => {
-      if (!isRecord(object)) return [];
-      const eventType = readString(object.type);
-      const fromResponse = object.response === undefined ? [] : extractToolCalls(object.response);
-      const fromItem = eventType === "response.output_item.done" && object.item !== undefined
-        ? extractToolCalls({ output: [object.item] })
-        : [];
-      return [...fromResponse, ...fromItem];
-    }));
-  }
-
-  if (!isRecord(raw)) return [];
-  const candidates = [raw.tool_calls, raw.toolCalls, raw.output].filter(Array.isArray) as unknown[][];
-  const calls: NormalizedProviderToolCall[] = [];
-  for (const list of candidates) {
-    for (const item of list) {
-      if (!isRecord(item)) continue;
-      const functionRecord = isRecord(item.function) ? item.function : undefined;
-      const type = readString(item.type);
-      const name = readString(item.toolId) ?? readString(item.name) ?? readString(functionRecord?.name);
-      if (name === undefined) continue;
-      if (type !== undefined && !["function_call", "tool_call", "function"].includes(type) && item.toolId === undefined) {
-        continue;
-      }
-      const parsedArguments = parseArguments(item.arguments ?? functionRecord?.arguments ?? item.input ?? {});
-      calls.push({
-        callId: readString(item.call_id) ?? readString(item.id) ?? `${name}:${calls.length + 1}`,
-        name,
-        arguments: parsedArguments.ok ? parsedArguments.arguments : {},
-        malformedArguments: parsedArguments.ok ? undefined : parsedArguments.message,
-      });
-    }
-  }
-  return dedupeToolCalls(calls);
-}
-
-function runtimeToolIdFor(providerName: string, mappings: readonly ProviderToolMapping[] | undefined): string {
-  return mappings?.find((mapping) => mapping.providerName === providerName)?.toolId ?? providerName;
 }
 
 function failure(
@@ -274,7 +201,14 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
   }
 
   const decisions: ModelDecision[] = [];
-  for (const [index, call] of extractToolCalls(request.raw).entries()) {
+  const providerToolCalls = raiseProviderToolCalls({
+    raw: request.raw,
+    providerFamily: request.providerFamily,
+    mappings: request.providerToolMappings,
+    providerRawRef: rawRef,
+  });
+
+  for (const [index, call] of providerToolCalls.entries()) {
     if (call.malformedArguments !== undefined) {
       decisions.push({
         decisionId: `${sessionId}:turn:${request.turnIndex}:decision:${index + 1}`,
@@ -286,12 +220,12 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
         },
         providerRawRef: rawRef,
         observationRefs: [],
-        metadata: { providerFunctionName: call.name, callId: call.callId },
+        metadata: { providerFunctionName: call.providerName, callId: call.callId, providerFamily: call.providerFamily },
       });
       continue;
     }
 
-    if (call.name === "praxis_ephemeral_procedure") {
+    if (call.providerName === "praxis_ephemeral_procedure") {
       const procedure = normalizeEphemeralProcedurePlan(call.arguments);
       if (!procedure.ok) {
         decisions.push({
@@ -304,7 +238,7 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
           },
           providerRawRef: rawRef,
           observationRefs: [],
-          metadata: { providerFunctionName: call.name, callId: call.callId },
+          metadata: { providerFunctionName: call.providerName, callId: call.callId, providerFamily: call.providerFamily },
         });
         continue;
       }
@@ -314,12 +248,12 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
         ephemeralProcedurePlan: procedure.plan,
         providerRawRef: rawRef,
         observationRefs: [],
-        metadata: { providerFunctionName: call.name, callId: call.callId },
+        metadata: { providerFunctionName: call.providerName, callId: call.callId, providerFamily: call.providerFamily },
       });
       continue;
     }
 
-    if (call.name === "praxis_request_approval") {
+    if (call.providerName === "praxis_request_approval") {
       decisions.push({
         decisionId: `${sessionId}:turn:${request.turnIndex}:decision:${index + 1}`,
         kind: "requestApproval",
@@ -332,7 +266,7 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
         },
         providerRawRef: rawRef,
         observationRefs: [],
-        metadata: { providerFunctionName: call.name, callId: call.callId },
+        metadata: { providerFunctionName: call.providerName, callId: call.callId, providerFamily: call.providerFamily },
       });
       continue;
     }
@@ -342,13 +276,13 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
       kind: "toolCall",
       toolCall: {
         callId: call.callId,
-        providerToolName: call.name,
-        toolId: runtimeToolIdFor(call.name, request.providerToolMappings),
+        providerToolName: call.providerName,
+        toolId: call.toolId,
         arguments: call.arguments,
       },
       providerRawRef: rawRef,
       observationRefs: [],
-      metadata: { providerFunctionName: call.name },
+      metadata: { providerFunctionName: call.providerName, providerFamily: call.providerFamily },
     });
   }
 

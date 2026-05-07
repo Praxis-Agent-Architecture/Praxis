@@ -12,6 +12,10 @@ import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
 } from "./modelAdapterRuntime.js";
+import type {
+  ProviderCacheHintPlan,
+  ProviderToolDeclarationBundle,
+} from "../../agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 
 export type PromptLoweringMaterialKind =
   | "system"
@@ -107,6 +111,8 @@ export type PromptLoweringRequest = {
   caller?: ModelAdapterRuntimeCaller;
   promptPack?: PromptLoweringPackInput;
   target?: PromptLoweringTarget;
+  providerToolBundle?: ProviderToolDeclarationBundle;
+  providerCacheHintPlan?: ProviderCacheHintPlan;
   runtimeReady?: boolean;
   contract?: ModelAdapterRuntimeGate;
   governance?: ModelAdapterRuntimeGate;
@@ -146,6 +152,8 @@ export type LoweredPromptEnvelope = {
   hiddenInternalSegmentKinds: readonly PromptLoweringSegmentKind[];
   fallbackMode: PromptLoweringFallbackMode;
   visibleFallbackCreated: boolean;
+  providerToolBundle?: ProviderToolDeclarationBundle;
+  providerCacheHintPlan?: ProviderCacheHintPlan;
   policy: {
     failClosedKinds: readonly ["safety", "permission", "tool-semantics"];
     bestEffortKinds: readonly ["cache", "formatting", "provider-feature"];
@@ -377,6 +385,8 @@ export function lowerPromptForModelAdapter(request?: PromptLoweringRequest): Pro
       hiddenInternalSegmentKinds,
       fallbackMode,
       visibleFallbackCreated: fallbackMode === "json-tool-plan" && materials.some((material) => material.promptSegmentKind === "assistantScratchpadPlan"),
+      providerToolBundle: request.providerToolBundle,
+      providerCacheHintPlan: request.providerCacheHintPlan ?? request.providerToolBundle?.cacheHintPlan,
       policy: {
         failClosedKinds: ["safety", "permission", "tool-semantics"],
         bestEffortKinds: ["cache", "formatting", "provider-feature"],
