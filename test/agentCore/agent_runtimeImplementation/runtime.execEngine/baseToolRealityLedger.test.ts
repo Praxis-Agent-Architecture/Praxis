@@ -35,7 +35,7 @@ test("baseToolRealityLedger covers all mounted storage-owned tools with canonica
   assert.equal(codeRead.stages.contractReady, "ready");
   assert.deepEqual(codeRead.requiredPorts, ["filesystem.readText"]);
   assert.equal(codeRead.liveStatus, "notProven");
-  assert.equal(codeRead.developerReadiness, "adapterRequired");
+  assert.equal(codeRead.developerReadiness, "usableWithApproval");
 
   assert.equal(snapshot.stageCounts.mounted, 175);
   assert.equal(snapshot.stageCounts.contractReady, 175);
@@ -59,9 +59,9 @@ test("baseToolRealityLedger distinguishes host-ready ports from adapter-required
 
   const mcpConnect = ledger.find((entry) => entry.toolId === "mcp.connect");
   assert.ok(mcpConnect);
-  assert.equal(mcpConnect.executorSupport, "adapterRequired");
-  assert.equal(mcpConnect.dependencyStatus, "providerUnavailable");
-  assert.ok(mcpConnect.missingPorts.includes("mcp.connect"));
+  assert.equal(mcpConnect.executorSupport, "hostReady");
+  assert.equal(mcpConnect.dependencyStatus, "requiresApproval");
+  assert.deepEqual(mcpConnect.missingPorts, []);
 });
 
 test("baseToolRealityLedger records live proof only when the runtime passes smoke evidence", () => {

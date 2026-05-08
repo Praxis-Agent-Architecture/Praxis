@@ -299,26 +299,63 @@ function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMap
 
 function enrichToolArguments(
   manifest: AgentManifest,
+  toolId: string,
   args: Readonly<Record<string, unknown>>,
+  runtimeContext: {
+    runtimeId: string;
+    sessionId: string;
+    invocationId: string;
+    workspaceRoot?: string;
+    allowedRoots?: readonly string[];
+  },
 ): Readonly<Record<string, unknown>> {
   const rawContext = isRecord(args.context) ? args.context : {};
-  const workspaceRoot = readString(args.workspaceRoot) ?? manifest.harness.policy.workspaceRoot;
+  const workspaceRoot = readString(args.workspaceRoot) ?? runtimeContext.workspaceRoot ?? manifest.harness.policy.workspaceRoot;
   const allowedRoots = Array.isArray(args.allowedRoots)
     ? args.allowedRoots
-    : manifest.harness.policy.allowedRoots;
+    : runtimeContext.allowedRoots ?? manifest.harness.policy.allowedRoots;
+  const grantedPermissions = Array.isArray(rawContext.grantedPermissions)
+    ? rawContext.grantedPermissions
+    : [
+        "tool.execute",
+        ...(toolId.startsWith("git.") ? ["git:read", "filesystem:read"] : []),
+        ...(toolId.startsWith("code.") || toolId.startsWith("skill.") ? ["filesystem:read"] : []),
+        ...(toolId.startsWith("search.") ? ["network:read", "search:fetch", "network:egress", "network:search"] : []),
+        ...(toolId.startsWith("shell.") ? ["shell:execute"] : []),
+      ];
+  const allowedRepositoryRoots = Array.isArray(rawContext.allowedRepositoryRoots)
+    ? rawContext.allowedRepositoryRoots
+    : [workspaceRoot, ...(allowedRoots ?? [])].filter((root): root is string => typeof root === "string" && root.trim().length > 0);
+  const rawTarget = isRecord(args.target) ? args.target : {};
+  let target = rawTarget;
+  if (toolId.startsWith("git.") && workspaceRoot !== undefined) {
+    const rawRepositoryPath = readString(rawTarget.repositoryPath);
+    const repositoryPath = rawRepositoryPath === undefined
+      ? workspaceRoot
+      : path.isAbsolute(rawRepositoryPath)
+        ? rawRepositoryPath
+        : path.resolve(workspaceRoot, rawRepositoryPath);
+    target = { ...rawTarget, repositoryPath };
+  }
 
   return {
     ...args,
+    ...(Object.keys(target).length === 0 ? {} : { target }),
     ...(args.dryRun === undefined ? { dryRun: false } : {}),
     ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
     context: {
       ...rawContext,
+      runtimeId: readString(rawContext.runtimeId) ?? runtimeContext.runtimeId,
+      sessionId: readString(rawContext.sessionId) ?? runtimeContext.sessionId,
+      invocationId: readString(rawContext.invocationId) ?? runtimeContext.invocationId,
       dryRun: rawContext.dryRun ?? args.dryRun ?? false,
       guard: isRecord(rawContext.guard)
         ? { accepted: true, allowed: true, ...rawContext.guard }
         : { accepted: true, allowed: true },
       ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
       ...(allowedRoots === undefined ? {} : { allowedRoots }),
+      ...(allowedRepositoryRoots.length === 0 ? {} : { allowedRepositoryRoots }),
+      grantedPermissions,
     },
   };
 }
@@ -396,6 +433,28 @@ function promptMaterialsForTurn(input: {
   });
 
   const observationMaterials = input.observations.map((observation) => observation.material);
+  const observationAnswerGuard: PromptPackMaterialDraft[] = input.observations.length === 0
+    ? []
+    : [{
+        id: `runtime:observation-answer-guard:${input.turnIndex}`,
+        kind: "command-injection",
+        text: [
+          "Runtime already contains tool observations from earlier turns in this same agent run.",
+          "Use those observations to answer the user now.",
+          "Do not repeat a tool call that already produced the requested evidence unless a new missing fact is explicitly required.",
+          "If the available observation is enough, return final text instead of another tool call.",
+        ].join("\n"),
+        source: "runtime.observationAnswerGuard",
+        priority: 101,
+        trusted: true,
+        scope: "runtime.mainLoop",
+        promptSegmentKind: "userTurn",
+        metadata: {
+          promptSegmentKind: "userTurn",
+          turnIndex: input.turnIndex,
+          observationCount: input.observations.length,
+        },
+      }];
   return [
     {
       id: `task:${input.turnIndex}`,
@@ -444,6 +503,7 @@ function promptMaterialsForTurn(input: {
     },
     ...toolMaterials,
     ...observationMaterials,
+    ...observationAnswerGuard,
   ];
 }
 
@@ -912,6 +972,8 @@ async function executeBaseToolDecision(input: {
   toolId: string;
   providerToolName?: string;
   args: Readonly<Record<string, unknown>>;
+  workspaceRoot?: string;
+  allowedRoots?: readonly string[];
   allowToolExecution?: boolean;
   dependencyRuntime?: NonNullable<PraxisRuntimeKernelOptions["baseToolDependencyRuntime"]>;
   store: RuntimeSessionStateEventStore;
@@ -924,7 +986,13 @@ async function executeBaseToolDecision(input: {
   events: readonly string[];
   governance: BaseToolRuntimeGovernanceDecision;
 }> {
-  const toolArguments = enrichToolArguments(input.manifest, input.args);
+  const toolArguments = enrichToolArguments(input.manifest, input.toolId, input.args, {
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    invocationId: input.toolCallId,
+    workspaceRoot: input.workspaceRoot,
+    allowedRoots: input.allowedRoots,
+  });
   const runtimeReadiness = evaluateBaseToolRuntimeReadiness({
     toolId: input.toolId,
     executor: input.executor,
@@ -1154,7 +1222,12 @@ async function executeBaseToolDecision(input: {
     readinessMode: "observe",
     implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
     requestedScopes: ["tool.execute", `tool.${input.toolId}`],
-    allowedScopes: input.manifest.harness.policy.scopes,
+    allowedScopes: [
+      ...(input.manifest.harness.policy.scopes ?? []),
+      "tool.execute",
+      `tool.${input.toolId}`,
+      input.toolId,
+    ],
     governance: { accepted: input.allowToolExecution ?? input.manifest.harness.policy.allowToolExecution ?? true },
     contract: { accepted: true },
     metadata: {
@@ -1375,6 +1448,11 @@ export class PraxisRuntimeKernel {
     }
     const storageRuntime = storageRuntimeResult.runtime;
     events.push(...storageRuntimeResult.events);
+    const toolWorkspaceRoot = path.resolve(options.sandbox?.cwd ?? options.storage?.cwd ?? process.cwd());
+    const toolAllowedRoots = Array.from(new Set([
+      toolWorkspaceRoot,
+      storageRuntime.layout.workspace.root,
+    ]));
 
     const shouldUseWorkspaceSqlite = options.store === undefined &&
       !this.storeProvided &&
@@ -1999,6 +2077,8 @@ export class PraxisRuntimeKernel {
             toolId: decision.toolCall.toolId,
             providerToolName: decision.toolCall.providerToolName,
             args: decision.toolCall.arguments,
+            workspaceRoot: toolWorkspaceRoot,
+            allowedRoots: toolAllowedRoots,
             allowToolExecution: options.allowToolExecution,
             store,
             approvalResolver: options.approvalResolver,

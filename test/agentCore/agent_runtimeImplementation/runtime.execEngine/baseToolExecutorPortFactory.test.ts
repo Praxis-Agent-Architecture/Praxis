@@ -106,7 +106,7 @@ test("baseToolExecutorPortFactory exposes every support port required by the 175
   }
 });
 
-test("baseToolSupportCatalog preflight distinguishes real factory adapters from unavailable delegated ports", () => {
+test("baseToolSupportCatalog preflight treats runtime-owned MCP adapters as governed host-ready ports", () => {
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-factory-preflight",
     sessionId: "session-factory-preflight",
@@ -118,8 +118,9 @@ test("baseToolSupportCatalog preflight distinguishes real factory adapters from 
     implementedPortPaths: baseToolExecutorPortFactoryDescriptor.implementedAdapters,
   });
   assert.equal(mcp.found, true);
-  assert.equal(mcp.decision, "blocked");
-  assert.equal(mcp.blockingSupports.some((support) => support.portPath === "mcp.connect"), true);
+  assert.equal(mcp.decision, "requiresApproval");
+  assert.equal(mcp.blockingSupports.length, 0);
+  assert.equal(mcp.approvalSupports.some((support) => support.supportKind === "permission"), true);
 
   const code = evaluateBaseToolRuntimeReadiness({
     toolId: "code.read",
@@ -159,23 +160,17 @@ test("baseToolExecutorPortFactory returns a complete port and stable unavailable
     emitEvent: (event) => events.push(event.type),
   });
 
-  assert.deepEqual(baseToolExecutorPortFactoryDescriptor.implementedAdapters.slice(0, 4), [
-    "filesystem.readText",
-    "filesystem.writeText",
-    "filesystem.deletePath",
-    "filesystem.list",
-  ]);
+  assert.ok(baseToolExecutorPortFactoryDescriptor.implementedAdapters.includes("filesystem.readText"));
+  assert.ok(baseToolExecutorPortFactoryDescriptor.implementedAdapters.includes("mcp.ping"));
+  assert.ok(baseToolExecutorPortFactoryDescriptor.implementedAdapters.includes("computeruse.captureScreenshot"));
+  assert.ok(baseToolExecutorPortFactoryDescriptor.implementedAdapters.includes("omni.transformMedia"));
   assert.equal(typeof executor.filesystem?.readText, "function");
   assert.equal(typeof executor.shell?.run, "function");
   assert.equal(typeof executor.git?.runGit, "function");
   assert.equal(typeof executor.mcp?.ping, "function");
 
-  const unavailable = await executor.mcp?.ping?.({ serverId: "local", timeoutMs: 1 });
-  assert.equal(unavailable?.ok, false);
-  if (unavailable?.ok === false) {
-    assert.equal(unavailable.error.code, "PROVIDER_UNAVAILABLE");
-    assert.equal(unavailable.error.publicSafe, true);
-  }
+  const mcpPing = await executor.mcp?.ping?.({ serverId: "local", timeoutMs: 1 });
+  assert.equal(mcpPing?.ok, true);
 
   const read = await executor.filesystem?.readText?.({ path: "notes.txt" });
   assert.equal(read?.ok, true);

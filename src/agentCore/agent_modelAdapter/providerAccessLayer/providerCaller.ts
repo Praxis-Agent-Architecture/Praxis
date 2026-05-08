@@ -51,9 +51,34 @@ function mergeHeaders(
   };
 }
 
+function providerErrorSummary(body: unknown): string | undefined {
+  if (typeof body === "string") {
+    return body.trim().slice(0, 500) || undefined;
+  }
+  if (body !== null && typeof body === "object" && !Array.isArray(body)) {
+    const record = body as Record<string, unknown>;
+    const error = record.error;
+    if (error !== null && typeof error === "object" && !Array.isArray(error)) {
+      const message = (error as Record<string, unknown>).message;
+      if (typeof message === "string" && message.trim().length > 0) {
+        return message.trim().slice(0, 500);
+      }
+    }
+    const message = record.message;
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message.trim().slice(0, 500);
+    }
+  }
+  return undefined;
+}
+
 function assertSuccess(response: ProviderTransportResponse): void {
   if (response.status >= 400) {
-    throw { status: response.status, code: "provider_http_error" };
+    throw {
+      status: response.status,
+      code: "provider_http_error",
+      providerMessage: providerErrorSummary(response.body),
+    };
   }
 }
 

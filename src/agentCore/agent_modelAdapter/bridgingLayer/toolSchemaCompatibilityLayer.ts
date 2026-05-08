@@ -153,6 +153,9 @@ export function createProviderToolMappings(
 }
 
 function sanitizeNestedSchema(schema: unknown): unknown {
+  if (schema === true || schema === false) {
+    return {};
+  }
   if (Array.isArray(schema)) {
     return schema.map((item) => sanitizeNestedSchema(item));
   }
@@ -167,6 +170,12 @@ function sanitizeNestedSchema(schema: unknown): unknown {
   if (output.const !== undefined && output.enum === undefined) {
     output.enum = [output.const];
     delete output.const;
+  }
+  if (output.type === "array" && output.items === undefined) {
+    output.items = { type: "string" };
+  }
+  if (output.type === "object" && output.properties === undefined) {
+    output.properties = {};
   }
   return output;
 }

@@ -88,7 +88,28 @@ test("toolSchemaCompatibilityLayer normalizes loose schemas and raises provider 
     type: "object",
     properties: { input: "raw" },
     required: ["input"],
-    additionalProperties: false,
+      additionalProperties: false,
+  });
+  assert.deepEqual(normalizeProviderInputSchema({
+    type: "object",
+    properties: {
+      target: {
+        type: "object",
+        properties: {
+          availableDevices: { type: "array" },
+        },
+      },
+    },
+  }), {
+    type: "object",
+    properties: {
+      target: {
+        type: "object",
+        properties: {
+          availableDevices: { type: "array", items: { type: "string" } },
+        },
+      },
+    },
   });
 
   const mappings = [{ providerName: "praxis_tool_code_read", toolId: "code.read" }];

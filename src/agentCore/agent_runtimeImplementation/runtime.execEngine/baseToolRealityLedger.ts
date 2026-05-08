@@ -192,17 +192,18 @@ function missingPortsFor(entry: BaseToolSupportCatalogEntry): readonly string[] 
 
 function executorSupportFor(entry: BaseToolSupportCatalogEntry, missingPorts: readonly string[]): BaseToolExecutorSupportRealityStatus {
   const requiredPorts = requiredPortsFor(entry);
-  if (requiredPorts.length === 0) return "adapterRequired";
+  if (requiredPorts.length === 0) return missingPorts.length === 0 ? "hostReady" : "adapterRequired";
   if (missingPorts.length === 0) return "hostReady";
   if (requiredPorts.length === missingPorts.length) return "adapterRequired";
   return "notReady";
 }
 
 function dependencyStatusFor(entry: BaseToolSupportCatalogEntry, missingPorts: readonly string[]): BaseToolDependencyRealityStatus {
-  if (entry.requiredSupports.some((support) => support.status === "disabled")) return "blocked";
+  const requiredSupports = entry.requiredSupports.filter((support) => support.required);
+  if (requiredSupports.some((support) => support.status === "disabled")) return "blocked";
   if (missingPorts.length > 0) return "providerUnavailable";
-  if (entry.requiredSupports.some((support) => support.status === "requiresApproval")) return "requiresApproval";
-  if (entry.requiredSupports.some((support) => support.supportKind === "host-dependency" && support.status === "unavailable")) {
+  if (requiredSupports.some((support) => support.status === "requiresApproval")) return "requiresApproval";
+  if (requiredSupports.some((support) => support.supportKind === "host-dependency" && support.status === "unavailable")) {
     return "missing";
   }
   return "available";

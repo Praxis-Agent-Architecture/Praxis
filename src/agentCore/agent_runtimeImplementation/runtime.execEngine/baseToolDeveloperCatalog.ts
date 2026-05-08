@@ -5,6 +5,7 @@
  */
 
 import type { BaseToolFamily, BaseToolRiskLevel } from "../../agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import { createBaseToolRegistry } from "../../agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { tool, tools, type ToolSpec } from "../runtimeAgentManifest.js";
 import {
   createBaseToolRealityLedger,
@@ -51,6 +52,23 @@ export type CodingToolSetOptions = {
   includeShell?: boolean;
 };
 
+let cachedRegistry: ReturnType<typeof createBaseToolRegistry> | undefined;
+
+function baseToolRegistry(): ReturnType<typeof createBaseToolRegistry> {
+  cachedRegistry ??= createBaseToolRegistry();
+  return cachedRegistry;
+}
+
+function registryInputSchema(toolId: string): Readonly<Record<string, unknown>> | undefined {
+  const lookup = baseToolRegistry().lookup(toolId);
+  if (!lookup.ok) return undefined;
+  const schema = lookup.definition.inputSchema;
+  if (schema.kind !== "json-schema" || typeof schema.schema !== "object" || schema.schema === null || Array.isArray(schema.schema)) {
+    return undefined;
+  }
+  return schema.schema as Readonly<Record<string, unknown>>;
+}
+
 const ledgerByToolId = (): ReadonlyMap<string, BaseToolRealityLedgerEntry> => {
   return new Map(createBaseToolRealityLedger().map((entry) => [entry.toolId, entry]));
 };
@@ -75,6 +93,7 @@ function toToolSpec(entry: BaseToolRealityLedgerEntry, input: BaseToolSpecInput 
     family: entry.storageFamily,
     group: entry.group,
     description: input.description ?? entry.title,
+    inputSchema: input.inputSchema ?? registryInputSchema(entry.toolId),
     metadata: {
       authoringSurface: "runtime.execEngine.baseToolDeveloperCatalog",
       baseToolFamily: entry.family,

@@ -76,7 +76,7 @@ test("baseToolRuntimeMount invokes a registry handler through BaseToolExecutorPo
   ]);
 });
 
-test("baseToolRuntimeMount preflight blocks tools whose executor support is not really implemented", async () => {
+test("baseToolRuntimeMount can invoke governed runtime-owned MCP adapters", async () => {
   let dispatched = false;
   const executor: BaseToolExecutorPort = {
     mcp: {
@@ -96,7 +96,7 @@ test("baseToolRuntimeMount preflight blocks tools whose executor support is not 
     toolId: "mcp.connect",
     toolCallId: "mcp-connect-call-1",
     input: {
-      target: { serverId: "local", transport: "stdio" },
+      target: { serverId: "local", transport: "stdio", command: "node" },
       context: {
         dryRun: false,
         guard: { accepted: true },
@@ -106,14 +106,11 @@ test("baseToolRuntimeMount preflight blocks tools whose executor support is not 
     runtimeReady: true,
   });
 
-  assert.equal(result.ok, false);
-  assert.equal(dispatched, false);
-  if (!result.ok) {
-    assert.equal(result.error.code, "RUNTIME_SUPPORT_UNAVAILABLE");
-    assert.equal(result.error.boundary, "runtime-state");
-    assert.equal(result.runtimeReadiness?.decision, "blocked");
-    assert.equal(result.runtimeReadiness?.blockingSupports.some((support) => support.portPath === "mcp.connect"), true);
-  }
+  assert.equal(result.ok, true);
+  assert.equal(dispatched, true);
+  if (!result.ok) throw new Error("expected runtime-owned MCP mount to succeed");
+  assert.equal(result.invocation.runtimeReadiness.decision, "requiresApproval");
+  assert.equal(result.toolResult.ok, true);
 });
 
 test("baseToolRuntimeMount rejects missing executors and missing handlers before dispatch", async () => {

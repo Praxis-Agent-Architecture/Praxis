@@ -231,6 +231,17 @@ function providerCode(error: unknown): string {
   return typeof code === "string" ? code.toLowerCase() : "";
 }
 
+function providerErrorMessage(error: unknown): string | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+
+  const message = error.message ?? error.providerMessage;
+  return typeof message === "string" && message.trim().length > 0
+    ? message.trim().slice(0, 500)
+    : undefined;
+}
+
 function inferRawShape(operation: string, raw: unknown): OpenAIV1ResponsesCapabilitySignal["rawShape"] {
   if (operation === "list" || (isRecord(raw) && Array.isArray(raw.data))) {
     return "response-list";
@@ -425,9 +436,10 @@ export async function invokeOpenAIV1Responses(
     };
   } catch (error) {
     const code = classifyOpenAIV1ResponsesProviderError(error);
+    const detail = providerErrorMessage(error);
     return failure(
       code,
-      `OpenAI v1 responses provider caller failed with ${code}`,
+      `OpenAI v1 responses provider caller failed with ${code}${detail === undefined ? "" : `: ${detail}`}`,
       code === "RESPONSE_FORMAT_DRIFT" ? "response" : "provider",
       code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_TIMEOUT" || code === "PROVIDER_UNAVAILABLE",
       request,

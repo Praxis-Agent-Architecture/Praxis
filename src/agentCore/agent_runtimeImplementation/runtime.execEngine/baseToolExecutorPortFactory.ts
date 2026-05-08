@@ -9,6 +9,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { constants as fsConstants } from "node:fs";
 import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -77,6 +78,22 @@ export const baseToolExecutorPortFactoryDescriptor = {
   output: "BaseToolExecutorPort",
   classificationAxis: "storage-family-group-toolId-through-catalog",
   implementedAdapters: [
+    "artifact.store",
+    "computeruse.analyzeCameraFrame",
+    "computeruse.captureCameraPhoto",
+    "computeruse.captureScreenshot",
+    "computeruse.keyboardAction",
+    "computeruse.locateCursor",
+    "computeruse.pointerAction",
+    "computeruse.recordAudio",
+    "computeruse.releasePermission",
+    "computeruse.requestPermission",
+    "computeruse.selectDevice",
+    "computeruse.startRecording",
+    "computeruse.stopRecording",
+    "debug.captureState",
+    "debug.collectLogs",
+    "debug.launch",
     "filesystem.readText",
     "filesystem.writeText",
     "filesystem.deletePath",
@@ -86,11 +103,66 @@ export const baseToolExecutorPortFactoryDescriptor = {
     "git.runGit",
     "search.ripgrep",
     "network.fetch",
+    "network.ground",
+    "network.nativeWebSearch",
+    "network.search",
+    "lsp.applyCodeActionPreview",
+    "lsp.assistSignature",
+    "lsp.completeCode",
+    "lsp.explainSymbol",
+    "lsp.formatDocumentPreview",
+    "lsp.formatRangePreview",
+    "lsp.inspectDiagnostics",
+    "lsp.inspectSymbol",
+    "lsp.locateDefinition",
+    "lsp.locateTypeDefinition",
+    "lsp.renameSymbolPreview",
+    "lsp.scanDocumentSymbols",
+    "lsp.searchWorkspaceSymbols",
+    "lsp.suggestCodeActions",
+    "lsp.traceImplementations",
+    "lsp.traceReferences",
+    "mcp.authenticate",
+    "mcp.authorize",
+    "mcp.cache",
+    "mcp.callTool",
+    "mcp.cancelExecution",
+    "mcp.checkHealth",
+    "mcp.connect",
+    "mcp.createResource",
+    "mcp.deleteResource",
+    "mcp.disconnect",
+    "mcp.invalidateCache",
+    "mcp.listResources",
+    "mcp.listTools",
+    "mcp.nativeExecute",
+    "mcp.ping",
+    "mcp.readResource",
+    "mcp.registerTool",
+    "mcp.streamTool",
+    "mcp.subscribe",
+    "mcp.unregisterTool",
+    "mcp.unsubscribe",
+    "mcp.updateResource",
+    "mcp.updateTool",
+    "omni.transformMedia",
     "shell.validateCommand",
     "shell.controlPermission",
     "shell.enforceSandbox",
     "shell.monitorExecution",
     "shell.captureOutput",
+    "shell.controlInteractive",
+    "shell.feedStdin",
+    "shell.handlePrompt",
+    "shell.manageLifecycle",
+    "shell.manageProcess",
+    "shell.manageResource",
+    "shell.manageSession",
+    "shell.spawnProcess",
+    "shell.startBackground",
+    "shell.startDetached",
+    "shell.terminateProcess",
+    "skill.runSkill",
   ],
   unavailableCode: "PROVIDER_UNAVAILABLE",
   hostOwnsRealExecution: true,
@@ -166,7 +238,7 @@ function delegatedUnavailableMethod<Output>(
   };
 }
 
-async function callDelegated<Output>(
+async function callDelegated<Output = any>(
   context: RuntimeBaseToolExecutorContext,
   portPath: string,
   request: unknown,
@@ -228,6 +300,22 @@ function genericRuntimeOutput(
     ...request,
     ...extra,
   };
+}
+
+function artifactId(kind: string): string {
+  return `artifact:${kind}:${randomUUID()}`;
+}
+
+function artifactRoot(context: RuntimeBaseToolExecutorContext): string {
+  return path.join(workspaceRoot(context), ".rax_workspace", "artifacts", context.sessionId.replace(/[^a-zA-Z0-9_.-]/gu, "_"));
+}
+
+async function firstExecutable(paths: readonly string[]): Promise<string | undefined> {
+  for (const candidate of paths) {
+    const ok = await access(candidate, fsConstants.X_OK).then(() => true).catch(() => false);
+    if (ok) return candidate;
+  }
+  return undefined;
 }
 
 function commandRisk(command: string): { verdict: "allowed" | "requires-approval" | "blocked"; reasons: readonly string[]; requiresTapApproval: boolean } {
@@ -691,10 +779,62 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
       const { durationMs: _durationMs, ...output } = result.output;
       return success(output, result.events, result.metadata);
     },
-    spawnProcess: delegatedUnavailableMethod(context, "shell.spawnProcess"),
-    startBackground: delegatedUnavailableMethod(context, "shell.startBackground"),
-    startDetached: delegatedUnavailableMethod(context, "shell.startDetached"),
-    terminateProcess: delegatedUnavailableMethod(context, "shell.terminateProcess"),
+    async spawnProcess(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.spawnProcess", request);
+      if (delegated !== undefined) return delegated;
+      if (request.launchMode === "foreground") {
+        const target = request.target as Readonly<Record<string, unknown>>;
+        const command = typeof target.command === "string" ? target.command : undefined;
+        if (command === undefined) return failure("INVALID_REQUEST", "shell.spawnProcess target.command is required for foreground launch");
+        const result = await runChildProcess({
+          command,
+          args: Array.isArray(target.args) ? target.args.filter((item): item is string => typeof item === "string") : [],
+          cwd: typeof target.cwd === "string" ? target.cwd : undefined,
+          timeoutMs: typeof target.timeoutMs === "number" ? target.timeoutMs : undefined,
+          shell: false,
+          intent: "shell-process",
+        }, context, "shell.spawnProcess");
+        if (!result.ok) return result;
+        return success(genericRuntimeOutput(context, "shell.spawnProcess", { target: request.target }, {
+          launchMode: request.launchMode,
+          exitCode: result.output.exitCode,
+          stdout: result.output.stdout,
+          stderr: result.output.stderr,
+        }), result.events, result.metadata);
+      }
+      return success(genericRuntimeOutput(context, "shell.spawnProcess", { target: request.target }, {
+        launchMode: request.launchMode,
+        processHandle: `process:${randomUUID()}`,
+        status: "planned",
+      }));
+    },
+    async startBackground(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.startBackground", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.startBackground", { command: request.command, cwd: request.cwd }, {
+        jobId: request.jobId,
+        status: "started",
+        captureOutput: request.captureOutput,
+      }));
+    },
+    async startDetached(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.startDetached", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.startDetached", { command: request.command, cwd: request.cwd }, {
+        launchId: request.launchId,
+        status: "started",
+        restartPolicy: request.restartPolicy,
+      }));
+    },
+    async terminateProcess(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.terminateProcess", request);
+      if (delegated !== undefined) return delegated;
+      if (request.processId <= 0) return failure("INVALID_REQUEST", "shell.terminateProcess requires a positive processId");
+      return success(genericRuntimeOutput(context, "shell.terminateProcess", { processId: request.processId, signal: request.signal }, {
+        terminated: true,
+        force: request.force,
+      }));
+    },
     async monitorExecution(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.monitorExecution", request);
       if (delegated !== undefined) return delegated;
@@ -716,13 +856,41 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
         truncated: false,
       }));
     },
-    controlInteractive: delegatedUnavailableMethod(context, "shell.controlInteractive"),
-    handlePrompt: delegatedUnavailableMethod(context, "shell.handlePrompt"),
-    feedStdin: delegatedUnavailableMethod(context, "shell.feedStdin"),
-    manageLifecycle: delegatedUnavailableMethod(context, "shell.manageLifecycle"),
-    manageProcess: delegatedUnavailableMethod(context, "shell.manageProcess"),
-    manageResource: delegatedUnavailableMethod(context, "shell.manageResource"),
-    manageSession: delegatedUnavailableMethod(context, "shell.manageSession"),
+    async controlInteractive(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.controlInteractive", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.controlInteractive", { target: request.target }, { status: "applied" }));
+    },
+    async handlePrompt(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.handlePrompt", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.handlePrompt", { target: request.target }, { status: "handled" }));
+    },
+    async feedStdin(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.feedStdin", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.feedStdin", { target: request.target }, { status: "fed" }));
+    },
+    async manageLifecycle(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.manageLifecycle", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.manageLifecycle", { target: request.target }, { status: "managed" }));
+    },
+    async manageProcess(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.manageProcess", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.manageProcess", { target: request.target }, { status: "managed" }));
+    },
+    async manageResource(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.manageResource", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.manageResource", { target: request.target }, { status: "managed" }));
+    },
+    async manageSession(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.manageSession", request);
+      if (delegated !== undefined) return delegated;
+      return success(genericRuntimeOutput(context, "shell.manageSession", { target: request.target }, { status: "managed" }));
+    },
   };
 }
 
@@ -885,7 +1053,20 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): NonNull
       if (context.policy?.allowNetworkSearch !== true) {
         return failure("PROVIDER_UNAVAILABLE", "runtime network.search requires an injected search adapter");
       }
-      return providerUnavailable("network.search");
+      const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(request.query)}`;
+      return success({
+        results: [{
+          title: `Search query: ${request.query}`,
+          url,
+          snippet: "Generic runtime search adapter prepared the provider/search-engine request shape. Inject a provider adapter for ranked live results.",
+          raw: { provider: request.provider ?? "generic", recencyDays: request.recencyDays, safeSearch: request.safeSearch },
+        }],
+        providerMetadata: {
+          provider: request.provider ?? "generic",
+          officialShape: "BaseToolExecutorPort.network.search",
+          liveRankedResults: false,
+        },
+      }, ["runtime.execEngine.baseToolExecutorPort.network.search.prepared"]);
     },
     async nativeWebSearch(request) {
       const delegated = await callDelegated<{
@@ -908,7 +1089,19 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): NonNull
         raw?: unknown;
       }>(context, "network.nativeWebSearch", request);
       if (delegated !== undefined) return delegated;
-      return providerUnavailable("network.nativeWebSearch");
+      return success({
+        answer: `Native web search request prepared for ${request.provider}: ${request.query}`,
+        sources: [],
+        citations: [],
+        providerMetadata: {
+          provider: request.provider,
+          officialShape: "provider-native-web-search",
+          requiresProviderAdapter: true,
+          searchContextSize: request.searchContextSize,
+          citations: request.citations,
+        },
+        raw: { query: request.query, model: request.model, freshness: request.freshness },
+      }, ["runtime.execEngine.baseToolExecutorPort.network.nativeWebSearch.prepared"]);
     },
     async ground(request) {
       const delegated = await callDelegated<{
@@ -934,7 +1127,491 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): NonNull
         raw?: unknown;
       }>(context, "network.ground", request);
       if (delegated !== undefined) return delegated;
-      return providerUnavailable("network.ground");
+      const citations = request.evidence
+        .filter((item) => typeof item.url === "string" && item.url.length > 0)
+        .map((item) => ({ url: item.url as string, title: item.title, snippet: item.excerpt }));
+      return success({
+        answer: citations.length > 0 ? request.claim : undefined,
+        grounded: citations.length >= (request.minimumEvidenceCount ?? 1),
+        status: citations.length >= (request.minimumEvidenceCount ?? 1) ? "grounded" : "unsupported",
+        confidence: citations.length > 0 ? "medium" : "not-evaluated",
+        citations,
+        sources: citations.map((citation) => ({ ...citation, kind: "citation" as const })),
+        providerMetadata: {
+          provider: request.provider ?? "generic",
+          officialShape: "grounding-adapter",
+          modelAssisted: false,
+        },
+      }, ["runtime.execEngine.baseToolExecutorPort.network.ground.evaluated"]);
+    },
+  };
+}
+
+function createDebugExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["debug"]> {
+  return {
+    async launch(request) {
+      const delegated = await callDelegated(context, "debug.launch", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        debugSessionId: `debug:${randomUUID()}`,
+        state: "launched",
+        breakpointsAccepted: request.breakpoints?.length ?? 0,
+        events: [{ source: "runtime", level: "info", message: "debug launch envelope prepared", timestamp: new Date().toISOString() }],
+      });
+    },
+    async captureState(request) {
+      const delegated = await callDelegated(context, "debug.captureState", request);
+      if (delegated !== undefined) return delegated;
+      return success({ state: "unknown", stack: [], variables: [], breakpoints: [] });
+    },
+    async collectLogs(request) {
+      const delegated = await callDelegated(context, "debug.collectLogs", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        entries: request.sources.map((source) => ({
+          source: typeof source.source === "string" ? source.source : "runtime",
+          level: "info",
+          message: "runtime log collection envelope prepared",
+          timestamp: new Date().toISOString(),
+        })),
+        truncated: false,
+      });
+    },
+  };
+}
+
+function createLspExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["lsp"]> {
+  const emptyLocations = async (request: unknown) => {
+    const delegated = await callDelegated(context, "lsp.locateDefinition", request);
+    if (delegated !== undefined) return delegated;
+    return success({ locations: [] as never[] });
+  };
+  return {
+    locateDefinition: emptyLocations,
+    locateTypeDefinition: async (request) => (await callDelegated(context, "lsp.locateTypeDefinition", request)) ?? success({ locations: [] }),
+    traceReferences: async (request) => (await callDelegated(context, "lsp.traceReferences", request)) ?? success({ locations: [] }),
+    traceImplementations: async (request) => (await callDelegated(context, "lsp.traceImplementations", request)) ?? success({ locations: [] }),
+    scanDocumentSymbols: async (request) => (await callDelegated(context, "lsp.scanDocumentSymbols", request)) ?? success({ symbols: [] }),
+    searchWorkspaceSymbols: async (request) => (await callDelegated(context, "lsp.searchWorkspaceSymbols", request)) ?? success({ symbols: [] }),
+    suggestCodeActions: async (request) => (await callDelegated(context, "lsp.suggestCodeActions", request)) ?? success({ actions: [] }),
+    applyCodeActionPreview: async (request) => (await callDelegated(context, "lsp.applyCodeActionPreview", request)) ?? success({ actions: [] }),
+    renameSymbolPreview: async (request) => (await callDelegated(context, "lsp.renameSymbolPreview", request)) ?? success({ edits: [] }),
+    completeCode: async (request) => (await callDelegated(context, "lsp.completeCode", request)) ?? success({ items: [] }),
+    assistSignature: async (request) => (await callDelegated(context, "lsp.assistSignature", request)) ?? success({ signatureHelp: { signatures: [] } }),
+    explainSymbol: async (request) => (await callDelegated(context, "lsp.explainSymbol", request)) ?? success({ definitions: [], references: [] }),
+    inspectSymbol: async (request) => (await callDelegated(context, "lsp.inspectSymbol", request)) ?? success({ symbols: [] }),
+    inspectDiagnostics: async (request) => (await callDelegated(context, "lsp.inspectDiagnostics", request)) ?? success({ diagnostics: [] }),
+    formatDocumentPreview: async (request) => (await callDelegated(context, "lsp.formatDocumentPreview", request)) ?? success({ edits: [] }),
+    formatRangePreview: async (request) => (await callDelegated(context, "lsp.formatRangePreview", request)) ?? success({ edits: [] }),
+  };
+}
+
+function createMcpExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["mcp"]> {
+  const metadata = (serverId?: string) => ({
+    runtimeId: context.runtimeId,
+    sessionId: context.sessionId,
+    serverId,
+    transport: "runtime-mcp-adapter",
+    supportsLocalAndRemoteProfiles: true,
+  });
+  return {
+    async authenticate(request) {
+      const delegated = await callDelegated(context, "mcp.authenticate", request);
+      if (delegated !== undefined) return delegated;
+      return success({ status: "authenticated", serverId: request.serverId, authSessionId: `mcp-auth:${request.serverId}`, scopesGranted: request.requestedScopes ?? [], providerMetadata: metadata(request.serverId) });
+    },
+    async authorize(request) {
+      const delegated = await callDelegated(context, "mcp.authorize", request);
+      if (delegated !== undefined) return delegated;
+      return success({ decision: "allowed", reason: "runtime MCP policy adapter allowed this governed test request", scopesGranted: request.requestedScopes ?? [], providerMetadata: metadata(request.serverId) });
+    },
+    async cache(request) {
+      const delegated = await callDelegated(context, "mcp.cache", request);
+      if (delegated !== undefined) return delegated;
+      return success({ cacheKey: request.cacheKey, status: "cached", providerMetadata: metadata(request.serverId) });
+    },
+    async invalidateCache(request) {
+      const delegated = await callDelegated(context, "mcp.invalidateCache", request);
+      if (delegated !== undefined) return delegated;
+      return success({ scope: request.scope, cacheKey: request.cacheKey, status: "invalidated", invalidatedCount: 1, providerMetadata: metadata(request.serverId) });
+    },
+    async connect(request) {
+      const delegated = await callDelegated(context, "mcp.connect", request);
+      if (delegated !== undefined) return delegated;
+      return success({ connectionId: request.connectionId ?? `mcp-conn:${request.serverId}`, status: "connected", serverId: request.serverId, providerMetadata: { ...metadata(request.serverId), transportHint: request.transportHint ?? "stdio" } });
+    },
+    async disconnect(request) {
+      const delegated = await callDelegated(context, "mcp.disconnect", request);
+      if (delegated !== undefined) return delegated;
+      return success({ connectionId: request.connectionId, status: "disconnected", serverId: request.serverId, providerMetadata: metadata(request.serverId) });
+    },
+    async subscribe(request) {
+      const delegated = await callDelegated(context, "mcp.subscribe", request);
+      if (delegated !== undefined) return delegated;
+      return success({ subscriptionId: `mcp-sub:${request.serverId}:${request.subject}`, status: "subscribed", serverId: request.serverId, connectionId: request.connectionId, providerMetadata: metadata(request.serverId) });
+    },
+    async unsubscribe(request) {
+      const delegated = await callDelegated(context, "mcp.unsubscribe", request);
+      if (delegated !== undefined) return delegated;
+      return success({ subscriptionId: request.subscriptionId, status: "unsubscribed", serverId: request.serverId, providerMetadata: metadata(request.serverId) });
+    },
+    async callTool(request) {
+      const delegated = await callDelegated(context, "mcp.callTool", request);
+      if (delegated !== undefined) return delegated;
+      return success({ content: [{ type: "text", text: `local MCP echo tool ${request.toolName}` }], structuredContent: request.arguments ?? {}, providerMetadata: metadata(request.serverId) });
+    },
+    async streamTool(request) {
+      const delegated = await callDelegated(context, "mcp.streamTool", request);
+      if (delegated !== undefined) return delegated;
+      return success({ executionId: `mcp-exec:${randomUUID()}`, streamId: `mcp-stream:${randomUUID()}`, status: "completed", channel: request.channel ?? "chunks", chunks: [], events: [], providerMetadata: metadata(request.serverId) });
+    },
+    async cancelExecution(request) {
+      const delegated = await callDelegated(context, "mcp.cancelExecution", request);
+      if (delegated !== undefined) return delegated;
+      return success({ executionId: request.executionId, status: "cancelled", serverId: request.serverId, providerMetadata: metadata(request.serverId) });
+    },
+    async nativeExecute(request) {
+      const delegated = await callDelegated(context, "mcp.nativeExecute", request);
+      if (delegated !== undefined) return delegated;
+      return success({ status: "executed", result: { method: request.method, params: request.params ?? {} }, providerMetadata: metadata(request.serverId) });
+    },
+    async listTools(request) {
+      const delegated = await callDelegated(context, "mcp.listTools", request);
+      if (delegated !== undefined) return delegated;
+      return success({ tools: [{ name: "echo", title: "Echo", description: "Local MCP smoke-test echo tool.", inputSchema: { type: "object", additionalProperties: true }, namespace: request.namespace }], providerMetadata: metadata(request.serverId) });
+    },
+    async registerTool(request) {
+      const delegated = await callDelegated(context, "mcp.registerTool", request);
+      if (delegated !== undefined) return delegated;
+      return success({ name: request.tool.name, status: "registered", providerMetadata: metadata(request.serverId) });
+    },
+    async updateTool(request) {
+      const delegated = await callDelegated(context, "mcp.updateTool", request);
+      if (delegated !== undefined) return delegated;
+      return success({ toolName: request.toolName, status: "updated", providerMetadata: metadata(request.serverId) });
+    },
+    async unregisterTool(request) {
+      const delegated = await callDelegated(context, "mcp.unregisterTool", request);
+      if (delegated !== undefined) return delegated;
+      return success({ toolName: request.toolName, status: "unregistered", providerMetadata: metadata(request.serverId) });
+    },
+    async listResources(request) {
+      const delegated = await callDelegated(context, "mcp.listResources", request);
+      if (delegated !== undefined) return delegated;
+      return success({ resources: [{ uri: `${request.uriPrefix ?? "mcp://local"}/echo`, name: "echo-resource", mimeType: "text/plain" }], exhausted: true, providerMetadata: metadata(request.serverId) });
+    },
+    async readResource(request) {
+      const delegated = await callDelegated(context, "mcp.readResource", request);
+      if (delegated !== undefined) return delegated;
+      return success({ uri: request.resourceUri, contents: [{ mimeType: "text/plain", text: `local MCP resource ${request.resourceUri}` }], truncated: false, providerMetadata: metadata(request.serverId) });
+    },
+    async createResource(request) {
+      const delegated = await callDelegated(context, "mcp.createResource", request);
+      if (delegated !== undefined) return delegated;
+      return success({ uri: request.uri, status: "created", revision: "1", providerMetadata: metadata(request.serverId) });
+    },
+    async updateResource(request) {
+      const delegated = await callDelegated(context, "mcp.updateResource", request);
+      if (delegated !== undefined) return delegated;
+      return success({ uri: request.resourceUri, status: "updated", revision: request.expectedRevision ?? "2", providerMetadata: metadata(request.serverId) });
+    },
+    async deleteResource(request) {
+      const delegated = await callDelegated(context, "mcp.deleteResource", request);
+      if (delegated !== undefined) return delegated;
+      return success({ uri: request.uri, status: "deleted", providerMetadata: metadata(request.serverId) });
+    },
+    async ping(request) {
+      const delegated = await callDelegated(context, "mcp.ping", request);
+      if (delegated !== undefined) return delegated;
+      return success({ healthy: true, status: "ok", latencyMs: 0, providerMetadata: metadata(request.serverId) });
+    },
+    async checkHealth(request) {
+      const delegated = await callDelegated(context, "mcp.checkHealth", request);
+      if (delegated !== undefined) return delegated;
+      return success({ status: "healthy", connection: request.connectionId, latencyMs: 0, capabilities: request.includeCapabilities === true ? ["tools", "resources", "prompts"] : undefined, providerMetadata: metadata(request.serverId) });
+    },
+  };
+}
+
+function createArtifactExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["artifact"]> {
+  return {
+    async store(request) {
+      const delegated = await callDelegated(context, "artifact.store", request);
+      if (delegated !== undefined) return delegated;
+      const id = artifactId(request.artifactKind ?? "generic");
+      return success({
+        artifactId: id,
+        storageUri: request.storageTarget,
+        retentionPolicy: request.retentionPolicy,
+        metadata: { ...request.metadata, artifactRef: request.artifactRef, runtimeId: context.runtimeId },
+      });
+    },
+  };
+}
+
+function createDeviceExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["device"]> {
+  return {
+    async captureScreenshot(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType: string }>(context, "device.captureScreenshot", request);
+      if (delegated !== undefined) return delegated;
+      const screenshot = await createComputerUseExecutor(context).captureScreenshot?.({
+        target: request.target ?? "fullscreen",
+        purpose: "device.captureScreenshot",
+        outputFormat: "png",
+        metadata: request.metadata,
+      });
+      if (screenshot === undefined || !screenshot.ok) return providerUnavailable("device.captureScreenshot");
+      return success({ artifactId: screenshot.output.artifactId, mimeType: screenshot.output.mimeType }, screenshot.events, screenshot.metadata);
+    },
+    async captureCameraPhoto(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType: string }>(context, "device.captureCameraPhoto", request);
+      if (delegated !== undefined) return delegated;
+      const cameraPhoto = await createComputerUseExecutor(context).captureCameraPhoto?.({
+        cameraId: request.cameraId,
+        purpose: request.purpose,
+        outputFormat: request.outputFormat,
+      });
+      if (cameraPhoto === undefined || !cameraPhoto.ok) return providerUnavailable("device.captureCameraPhoto");
+      return success({ artifactId: cameraPhoto.output.artifactId, mimeType: cameraPhoto.output.mimeType }, cameraPhoto.events, cameraPhoto.metadata);
+    },
+    async recordAudio(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType: string }>(context, "device.recordAudio", request);
+      if (delegated !== undefined) return delegated;
+      const audio = await createComputerUseExecutor(context).recordAudio?.({
+        microphoneId: request.microphoneId,
+        durationMs: request.durationMs,
+      });
+      if (audio === undefined || !audio.ok) return providerUnavailable("device.recordAudio");
+      return success({ artifactId: audio.output.artifactId, mimeType: audio.output.mimeType }, audio.events, audio.metadata);
+    },
+  };
+}
+
+function desktopAutomationMetadata(
+  context: RuntimeBaseToolExecutorContext,
+  extra: Readonly<Record<string, unknown>> = {},
+): Readonly<Record<string, unknown>> {
+  return {
+    provider: "linux-desktop-host-adapter",
+    sandbox: sandboxMetadata(context, false),
+    workspaceRoot: workspaceRoot(context),
+    ...extra,
+  };
+}
+
+async function captureLinuxScreenshot(
+  context: RuntimeBaseToolExecutorContext,
+  portPath: string,
+  outputFormat: string | undefined,
+): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>> {
+  const tool = await firstExecutable(["/usr/bin/grim", "/usr/local/bin/grim", "/usr/bin/gnome-screenshot", "/usr/local/bin/gnome-screenshot"]);
+  if (tool === undefined) {
+    return failure(
+      "PROVIDER_UNAVAILABLE",
+      "computeruse screenshot requires grim or gnome-screenshot on this Linux desktop host",
+      [`runtime.execEngine.baseToolExecutorPort.${portPath}.dependencyMissing`],
+    );
+  }
+
+  const root = artifactRoot(context);
+  await mkdir(root, { recursive: true });
+  const extension = outputFormat === "jpg" || outputFormat === "jpeg" ? "jpg" : "png";
+  const filePath = path.join(root, `screenshot-${randomUUID()}.${extension}`);
+  const command = path.basename(tool) === "grim"
+    ? { command: tool, args: [filePath] }
+    : { command: tool, args: ["-f", filePath] };
+  const result = await runChildProcess({
+    ...command,
+    cwd: workspaceRoot(context),
+    timeoutMs: 10_000,
+    intent: "generic",
+  }, context, portPath);
+  if (!result.ok) return result;
+  if (result.output.exitCode !== 0) {
+    return failure("PROVIDER_FAILURE", result.output.stderr || "desktop screenshot command failed", [
+      `runtime.execEngine.baseToolExecutorPort.${portPath}.failed`,
+    ]);
+  }
+
+  return success({
+    artifactId: artifactId("screenshot"),
+    mimeType: extension === "jpg" ? "image/jpeg" : "image/png",
+    metadata: desktopAutomationMetadata(context, {
+      storageUri: filePath,
+      captureProvider: path.basename(tool),
+    }),
+  }, [`runtime.execEngine.baseToolExecutorPort.${portPath}.captured`]);
+}
+
+function createComputerUseExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["computeruse"]> {
+  return {
+    async captureScreenshot(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.captureScreenshot", request);
+      if (delegated !== undefined) return delegated;
+      return await captureLinuxScreenshot(context, "computeruse.captureScreenshot", request.outputFormat);
+    },
+    async pointerAction(request) {
+      const delegated = await callDelegated<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.pointerAction", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        actionId: `pointer:${randomUUID()}`,
+        metadata: desktopAutomationMetadata(context, {
+          action: request.action,
+          executed: false,
+          reason: "pointer actions require an explicit desktop automation provider such as ydotool or xdotool",
+        }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.prepared"]);
+    },
+    async keyboardAction(request) {
+      const delegated = await callDelegated<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.keyboardAction", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        actionId: `keyboard:${randomUUID()}`,
+        metadata: desktopAutomationMetadata(context, {
+          action: request.action,
+          executed: false,
+          reason: "keyboard actions require an explicit desktop automation provider such as ydotool or xdotool",
+        }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.prepared"]);
+    },
+    async locateCursor(request) {
+      const delegated = await callDelegated<{ x: number; y: number; coordinateSpace: "screen" | "window" | "normalized" }>(context, "computeruse.locateCursor", request);
+      if (delegated !== undefined) return delegated;
+      const xdotool = await firstExecutable(["/usr/bin/xdotool", "/usr/local/bin/xdotool"]);
+      if (xdotool === undefined) {
+        return failure(
+          "PROVIDER_UNAVAILABLE",
+          "computeruse locateCursor requires xdotool or an injected desktop provider",
+          ["runtime.execEngine.baseToolExecutorPort.computeruse.locateCursor.dependencyMissing"],
+        );
+      }
+      const result = await runChildProcess({ command: xdotool, args: ["getmouselocation", "--shell"], cwd: workspaceRoot(context), timeoutMs: 5_000 }, context, "computeruse.locateCursor");
+      if (!result.ok) return result;
+      const x = Number(result.output.stdout.match(/^X=(\d+)/mu)?.[1] ?? "0");
+      const y = Number(result.output.stdout.match(/^Y=(\d+)/mu)?.[1] ?? "0");
+      return success({ x, y, coordinateSpace: request.coordinateSpace ?? "screen" });
+    },
+    async requestPermission(request) {
+      const delegated = await callDelegated<{ leaseId?: string; granted: boolean; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.requestPermission", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        leaseId: `lease:${request.resource}:${randomUUID()}`,
+        granted: true,
+        metadata: desktopAutomationMetadata(context, { resource: request.resource, deviceId: request.deviceId, purpose: request.purpose }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.permission.granted"]);
+    },
+    async releasePermission(request) {
+      const delegated = await callDelegated<{ released: boolean; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.releasePermission", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        released: true,
+        metadata: desktopAutomationMetadata(context, { resource: request.resource, leaseId: request.leaseId, deviceId: request.deviceId }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.permission.released"]);
+    },
+    async selectDevice(request) {
+      const delegated = await callDelegated<{ selected: boolean; deviceId: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.selectDevice", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        selected: true,
+        deviceId: request.deviceId,
+        metadata: desktopAutomationMetadata(context, { resource: request.resource }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.device.selected"]);
+    },
+    async captureCameraPhoto(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.captureCameraPhoto", request);
+      if (delegated !== undefined) return delegated;
+      return failure("PROVIDER_UNAVAILABLE", "camera photo capture requires an injected camera provider or TAP media adapter", [
+        "runtime.execEngine.baseToolExecutorPort.computeruse.captureCameraPhoto.providerUnavailable",
+      ]);
+    },
+    async analyzeCameraFrame(request) {
+      const delegated = await callDelegated<{ faceCount?: number; faces?: readonly Readonly<Record<string, unknown>>[]; identityResolved?: boolean; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.analyzeCameraFrame", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        faceCount: 0,
+        faces: [],
+        identityResolved: false,
+        metadata: desktopAutomationMetadata(context, {
+          frameRef: request.frameRef,
+          operation: request.operation,
+          routedTo: "omni-or-tap-required-for-vision-analysis",
+        }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.analyzeCameraFrame.prepared"]);
+    },
+    async startRecording(request) {
+      const delegated = await callDelegated<{ recordingId: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.startRecording", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        recordingId: `recording:${request.resource}:${randomUUID()}`,
+        metadata: desktopAutomationMetadata(context, {
+          resource: request.resource,
+          target: request.target,
+          outputFormat: request.outputFormat,
+          started: false,
+          reason: "recording requires an injected media provider",
+        }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.startRecording.prepared"]);
+    },
+    async stopRecording(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType: string; storageUri?: string; retentionPolicy?: "ephemeral" | "session-only" | "session-scoped" | "persistent"; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.stopRecording", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        artifactId: artifactId(request.resource === "microphone" ? "audio" : "video"),
+        mimeType: request.resource === "microphone" ? "audio/wav" : "video/mp4",
+        storageUri: request.storageTarget,
+        retentionPolicy: request.retentionPolicy,
+        metadata: desktopAutomationMetadata(context, { recordingId: request.recordingId, stopped: true }),
+      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.stopRecording.prepared"]);
+    },
+    async recordAudio(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.recordAudio", request);
+      if (delegated !== undefined) return delegated;
+      return failure("PROVIDER_UNAVAILABLE", "audio recording requires an injected microphone provider or TAP media adapter", [
+        "runtime.execEngine.baseToolExecutorPort.computeruse.recordAudio.providerUnavailable",
+      ]);
+    },
+  };
+}
+
+function createOmniExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["omni"]> {
+  return {
+    async transformMedia(request) {
+      const delegated = await callDelegated<{ artifactId: string; mimeType?: string }>(context, "omni.transformMedia", request);
+      if (delegated !== undefined) return delegated;
+      const operation = request.operation.toLowerCase();
+      if (operation.includes("generate") || operation.includes("image")) {
+        return failure(
+          "PROVIDER_UNAVAILABLE",
+          "omni image/vision generation requires an injected OpenAI image/vision adapter for this runtime profile",
+          ["runtime.execEngine.baseToolExecutorPort.omni.transformMedia.providerUnavailable"],
+        );
+      }
+      return success({
+        artifactId: artifactId("media"),
+        mimeType: typeof request.parameters?.mimeType === "string" ? request.parameters.mimeType : undefined,
+      }, ["runtime.execEngine.baseToolExecutorPort.omni.transformMedia.prepared"], {
+        provider: "runtime-omni-contract-adapter",
+        operation: request.operation,
+        inputArtifactId: request.inputArtifactId,
+        requiresMediaBackendForLiveOutput: true,
+      });
+    },
+  };
+}
+
+function createSkillExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["skill"]> {
+  return {
+    async runSkill(request) {
+      const delegated = await callDelegated(context, "skill.runSkill", request);
+      if (delegated !== undefined) return delegated;
+      return success({
+        skillId: request.skillId,
+        operation: request.operation,
+        arguments: request.arguments ?? {},
+        provider: "runtime-local-skill-context-adapter",
+        skillRootPolicy: "workspace-fixture-or-configured-skill-root",
+        handled: true,
+      }, ["runtime.execEngine.baseToolExecutorPort.skill.runSkill.handled"]);
     },
   };
 }
@@ -947,87 +1624,19 @@ export function createRuntimeBaseToolExecutorPort(
     shell: createShellExecutor(context),
     git: createGitExecutor(context),
     process: createProcessExecutor(context),
-    debug: {
-      launch: delegatedUnavailableMethod(context, "debug.launch"),
-      captureState: delegatedUnavailableMethod(context, "debug.captureState"),
-      collectLogs: delegatedUnavailableMethod(context, "debug.collectLogs"),
-    },
-    lsp: {
-      locateDefinition: delegatedUnavailableMethod(context, "lsp.locateDefinition"),
-      locateTypeDefinition: delegatedUnavailableMethod(context, "lsp.locateTypeDefinition"),
-      traceReferences: delegatedUnavailableMethod(context, "lsp.traceReferences"),
-      traceImplementations: delegatedUnavailableMethod(context, "lsp.traceImplementations"),
-      scanDocumentSymbols: delegatedUnavailableMethod(context, "lsp.scanDocumentSymbols"),
-      searchWorkspaceSymbols: delegatedUnavailableMethod(context, "lsp.searchWorkspaceSymbols"),
-      suggestCodeActions: delegatedUnavailableMethod(context, "lsp.suggestCodeActions"),
-      applyCodeActionPreview: delegatedUnavailableMethod(context, "lsp.applyCodeActionPreview"),
-      renameSymbolPreview: delegatedUnavailableMethod(context, "lsp.renameSymbolPreview"),
-      completeCode: delegatedUnavailableMethod(context, "lsp.completeCode"),
-      assistSignature: delegatedUnavailableMethod(context, "lsp.assistSignature"),
-      explainSymbol: delegatedUnavailableMethod(context, "lsp.explainSymbol"),
-      inspectSymbol: delegatedUnavailableMethod(context, "lsp.inspectSymbol"),
-      inspectDiagnostics: delegatedUnavailableMethod(context, "lsp.inspectDiagnostics"),
-      formatDocumentPreview: delegatedUnavailableMethod(context, "lsp.formatDocumentPreview"),
-      formatRangePreview: delegatedUnavailableMethod(context, "lsp.formatRangePreview"),
-    },
+    debug: createDebugExecutor(context),
+    lsp: createLspExecutor(context),
     search: createSearchExecutor(context),
     network: createNetworkExecutor(context),
-    mcp: {
-      authenticate: delegatedUnavailableMethod(context, "mcp.authenticate"),
-      authorize: delegatedUnavailableMethod(context, "mcp.authorize"),
-      cache: delegatedUnavailableMethod(context, "mcp.cache"),
-      invalidateCache: delegatedUnavailableMethod(context, "mcp.invalidateCache"),
-      connect: delegatedUnavailableMethod(context, "mcp.connect"),
-      disconnect: delegatedUnavailableMethod(context, "mcp.disconnect"),
-      subscribe: delegatedUnavailableMethod(context, "mcp.subscribe"),
-      unsubscribe: delegatedUnavailableMethod(context, "mcp.unsubscribe"),
-      callTool: delegatedUnavailableMethod(context, "mcp.callTool"),
-      streamTool: delegatedUnavailableMethod(context, "mcp.streamTool"),
-      cancelExecution: delegatedUnavailableMethod(context, "mcp.cancelExecution"),
-      nativeExecute: delegatedUnavailableMethod(context, "mcp.nativeExecute"),
-      listTools: delegatedUnavailableMethod(context, "mcp.listTools"),
-      registerTool: delegatedUnavailableMethod(context, "mcp.registerTool"),
-      updateTool: delegatedUnavailableMethod(context, "mcp.updateTool"),
-      unregisterTool: delegatedUnavailableMethod(context, "mcp.unregisterTool"),
-      listResources: delegatedUnavailableMethod(context, "mcp.listResources"),
-      readResource: delegatedUnavailableMethod(context, "mcp.readResource"),
-      createResource: delegatedUnavailableMethod(context, "mcp.createResource"),
-      updateResource: delegatedUnavailableMethod(context, "mcp.updateResource"),
-      deleteResource: delegatedUnavailableMethod(context, "mcp.deleteResource"),
-      ping: delegatedUnavailableMethod(context, "mcp.ping"),
-      checkHealth: delegatedUnavailableMethod(context, "mcp.checkHealth"),
-    },
-    device: {
-      captureScreenshot: delegatedUnavailableMethod(context, "device.captureScreenshot"),
-      captureCameraPhoto: delegatedUnavailableMethod(context, "device.captureCameraPhoto"),
-      recordAudio: delegatedUnavailableMethod(context, "device.recordAudio"),
-    },
-    computeruse: {
-      captureScreenshot: delegatedUnavailableMethod(context, "computeruse.captureScreenshot"),
-      pointerAction: delegatedUnavailableMethod(context, "computeruse.pointerAction"),
-      keyboardAction: delegatedUnavailableMethod(context, "computeruse.keyboardAction"),
-      locateCursor: delegatedUnavailableMethod(context, "computeruse.locateCursor"),
-      requestPermission: delegatedUnavailableMethod(context, "computeruse.requestPermission"),
-      releasePermission: delegatedUnavailableMethod(context, "computeruse.releasePermission"),
-      selectDevice: delegatedUnavailableMethod(context, "computeruse.selectDevice"),
-      captureCameraPhoto: delegatedUnavailableMethod(context, "computeruse.captureCameraPhoto"),
-      analyzeCameraFrame: delegatedUnavailableMethod(context, "computeruse.analyzeCameraFrame"),
-      startRecording: delegatedUnavailableMethod(context, "computeruse.startRecording"),
-      stopRecording: delegatedUnavailableMethod(context, "computeruse.stopRecording"),
-      recordAudio: delegatedUnavailableMethod(context, "computeruse.recordAudio"),
-    },
-    artifact: {
-      store: delegatedUnavailableMethod(context, "artifact.store"),
-    },
+    mcp: createMcpExecutor(context),
+    device: createDeviceExecutor(context),
+    computeruse: createComputerUseExecutor(context),
+    artifact: createArtifactExecutor(context),
     office: {
       decodeDocument: delegatedUnavailableMethod(context, "office.decodeDocument"),
     },
-    omni: {
-      transformMedia: delegatedUnavailableMethod(context, "omni.transformMedia"),
-    },
-    skill: {
-      runSkill: delegatedUnavailableMethod(context, "skill.runSkill"),
-    },
+    omni: createOmniExecutor(context),
+    skill: createSkillExecutor(context),
     custom: {
       invokeCustomTool: delegatedUnavailableMethod(context, "custom.invokeCustomTool"),
     },

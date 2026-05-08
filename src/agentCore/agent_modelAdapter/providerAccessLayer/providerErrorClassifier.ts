@@ -47,6 +47,16 @@ function providerCode(error: unknown): string {
   return typeof code === "string" ? code.toLowerCase() : "";
 }
 
+function providerMessage(error: unknown): string | undefined {
+  if (!isRecord(error)) {
+    return undefined;
+  }
+  const message = error.providerMessage ?? error.message;
+  return typeof message === "string" && message.trim().length > 0
+    ? message.trim().slice(0, 500)
+    : undefined;
+}
+
 export function classifyProviderAccessError(error: unknown): ProviderAccessError {
   const status = providerStatus(error);
   const codeText = providerCode(error);
@@ -64,9 +74,12 @@ export function classifyProviderAccessError(error: unknown): ProviderAccessError
     code = "RESPONSE_FORMAT_DRIFT";
   }
 
+  const detail = providerMessage(error);
+  const statusPart = status === undefined ? "" : ` (status ${status})`;
+  const detailPart = detail === undefined ? "" : `: ${detail}`;
   return {
     code,
-    message: `provider caller failed with ${code}`,
+    message: `provider caller failed with ${code}${statusPart}${detailPart}`,
     boundary: code === "RESPONSE_FORMAT_DRIFT" ? "response" : code === "CALLER_FAILED" ? "caller" : "provider",
     retryable: code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_TIMEOUT" || code === "PROVIDER_UNAVAILABLE",
     publicSafe: true,

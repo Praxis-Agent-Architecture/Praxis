@@ -58,6 +58,7 @@ type FallbackToolCall = {
 const argv = process.argv.slice(2);
 const args = new Set(argv);
 const verbose = args.has("--verbose");
+const exposeProviderTools = !args.has("--no-provider-tools");
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
 const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
@@ -108,6 +109,20 @@ function resolveAgentTarget(): string | undefined {
   return undefined;
 }
 
+function realtestAgentOptions(): Readonly<Record<string, unknown>> {
+  return {
+    mode: args.has("--deep") || args.has("--all-testable") ? "deep" : "quick",
+    policyProfile: argValue("--policy") ?? (args.has("--all-testable") ? "permissive" : "standard"),
+    sandboxProfile: argValue("--sandbox") ?? "hostObserved",
+    persistence: args.has("--sqlite") ? "sqlite" : "memory",
+    includeShell: args.has("--shell") || args.has("--all-testable"),
+    includeSkillAuthoring: args.has("--skill-authoring") || args.has("--all-testable"),
+    includeOmni: args.has("--omni") || args.has("--all-testable"),
+    includeComputerUse: args.has("--computeruse") || args.has("--all-testable"),
+    includeAllTestable: args.has("--all-testable"),
+  };
+}
+
 async function pathExists(pathname: string): Promise<boolean> {
   try {
     await stat(pathname);
@@ -153,7 +168,10 @@ async function compileRealtestAgent(target: string): Promise<CompiledChatAgent> 
   const candidate = entry.exportName !== undefined && entry.exportName.trim().length > 0
     ? module[entry.exportName]
     : module.default;
-  const compiled = praxis.compileAgent(candidate as never);
+  const agentInput = entry.projectRoot?.endsWith(path.join("realtest", "fullstack")) === true && typeof candidate === "function"
+    ? new (candidate as new (options: Readonly<Record<string, unknown>>) => unknown)(realtestAgentOptions())
+    : candidate;
+  const compiled = praxis.compileAgent(agentInput as never);
   if (!compiled.ok) {
     throw new Error(`compile ${target} failed: ${compiled.error.message}`);
   }
@@ -953,6 +971,7 @@ function printRealtestBanner(target: string, compiled: CompiledChatAgent, provid
   console.log(`model=${compiled.manifest.model.model}`);
   console.log(`auth=${provider.authSource}`);
   console.log(`entry=${compiled.agentPath}`);
+  console.log(`providerTools=${exposeProviderTools ? "enabled" : "disabled"}`);
   console.log("commands: /exit, /quit, /status, /clear");
   console.log("");
 }
@@ -993,6 +1012,7 @@ async function runRealtestChat(target: string): Promise<void> {
           model: compiled.manifest.model.model,
           promptPack: compiled.manifest.promptPack.promptPackId,
           tools: compiled.manifest.harness.tools.map((tool) => tool.toolId),
+          providerTools: exposeProviderTools,
           auth: provider.authSource,
           turns: history.length / 2,
         }, null, 2));
@@ -1008,7 +1028,7 @@ async function runRealtestChat(target: string): Promise<void> {
         providerCaller: provider.providerCaller,
         storage: { cwd: architectureRoot, initMode: "on-run" },
         sandbox: { cwd: architectureRoot, failOnUnavailable: false },
-        exposeProviderTools: false,
+        exposeProviderTools,
       });
 
       if (result.ok) {
@@ -1056,12 +1076,22 @@ async function runRealtestChat(target: string): Promise<void> {
         console.log(`agent> ${finalOutput}`);
       } else {
         console.error(`agent error> ${result.error.code}: ${result.error.message}`);
+        if (verbose) {
+          console.error(JSON.stringify({
+            error: result.error,
+            mainLoopSteps: result.mainLoopSteps,
+            stateErrors: result.state?.errors,
+            invocations: result.state?.invocations,
+            events: result.events,
+          }, null, 2));
+        }
       }
       if (verbose) {
         console.error(JSON.stringify({
           sessionId: result.sessionId,
           modelCalls: result.ok ? result.modelCalls.length : 0,
           toolCalls: result.ok ? result.toolCalls.length : 0,
+          toolCallRecords: result.ok ? result.toolCalls : undefined,
           events: result.events.length,
         }, null, 2));
       }

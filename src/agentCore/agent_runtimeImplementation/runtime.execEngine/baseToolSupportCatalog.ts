@@ -125,6 +125,30 @@ const executorRoots = new Set([
   "skill",
 ]);
 
+const runtimeOwnedContractPrefixes = [
+  "runtime.artifactStore.",
+  "runtime.capabilityExposure.",
+  "runtime.devicePolicy.",
+  "runtime.focusManager.",
+  "runtime.inputController.",
+  "runtime.lsp.",
+  "runtime.mcp.",
+  "runtime.mediaSession.",
+  "runtime.modelAdapter.",
+  "runtime.processLifecycle.",
+  "runtime.recordingSession.",
+  "runtime.shell",
+  "runtime.visionProvider.",
+  "network.egress",
+  "lsp.server.",
+  "node.child_process.",
+] as const;
+
+const knownHostDependencyIds = new Set([
+  "git",
+  "runtime.binary.rg",
+]);
+
 function emptyFamilyCounts(): Record<BaseToolFamily, number> {
   return {
     code: 0,
@@ -276,13 +300,16 @@ function statusForRequirement(
   }
   if (supportKind === "permission") return "requiresApproval";
   if (supportKind === "executor-port") {
-    return hasPortMethod(options.executor, portPath) && isDeclaredImplementedPort(options, portPath)
+    const declaredImplemented = isDeclaredImplementedPort(options, portPath);
+    const hostMethodAvailable = options.executor === undefined ? declaredImplemented : hasPortMethod(options.executor, portPath);
+    return hostMethodAvailable && declaredImplemented
       ? "available"
       : "notImplemented";
   }
-  if (supportKind === "runtime-contract" && dependencyId.startsWith("runtime.capabilityExposure.")) {
+  if (supportKind === "runtime-contract" && runtimeOwnedContractPrefixes.some((prefix) => dependencyId.startsWith(prefix))) {
     return "available";
   }
+  if (supportKind === "host-dependency" && knownHostDependencyIds.has(dependencyId)) return "available";
   return "unavailable";
 }
 

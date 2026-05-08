@@ -3,7 +3,13 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 
-import { listBaseToolDeveloperCatalog } from "../../src/agentCore/index.js";
+import {
+  listBaseToolDeveloperCatalog,
+  lowerPraxisToolsForProvider,
+  snapshotBaseToolRealityLedger,
+  tryBaseToolById,
+  type ProviderToolSchemaFamily,
+} from "../../src/agentCore/index.js";
 
 type MatrixScript = {
   readonly family: string;
@@ -17,6 +23,21 @@ type MatrixRunSummary = {
   readonly passed?: number;
   readonly failed?: number;
   readonly failedTools?: readonly string[];
+};
+
+type RealityMatrixRow = {
+  readonly toolId: string;
+  readonly family: string;
+  readonly group: string;
+  readonly catalogMounted: boolean;
+  readonly providerSchemaReady: boolean;
+  readonly modelCallable: boolean;
+  readonly governanceReady: boolean;
+  readonly dependencyReady: boolean;
+  readonly hostAdapterReady: boolean;
+  readonly liveSmokeReady: boolean;
+  readonly officialShape: string;
+  readonly missingReason?: string;
 };
 
 const args = process.argv.slice(2);
@@ -124,6 +145,8 @@ async function runMatrix(script: MatrixScript): Promise<MatrixRunSummary> {
 async function main(): Promise<void> {
   const catalog = listBaseToolDeveloperCatalog();
   const catalogIds = catalog.map((tool) => tool.toolId).sort();
+  const reality = snapshotBaseToolRealityLedger();
+  const realityByToolId = new Map(reality.entries.map((entry) => [entry.toolId, entry]));
   const catalogByFamily: Record<string, number> = {};
   for (const tool of catalog) {
     catalogByFamily[tool.family] = (catalogByFamily[tool.family] ?? 0) + 1;
@@ -146,11 +169,97 @@ async function main(): Promise<void> {
     }
   }
 
+  const providerFamilies: readonly ProviderToolSchemaFamily[] = ["openaiResponses", "anthropicMessages", "geminiGenerateContent"];
+  const realityMatrix: RealityMatrixRow[] = catalog.map((tool) => {
+    const lookup = tryBaseToolById(tool.toolId);
+    const entry = realityByToolId.get(tool.toolId);
+    let schemaReady = lookup.ok;
+    let schemaError: string | undefined;
+    if (lookup.ok) {
+      for (const providerFamily of providerFamilies) {
+        try {
+          const lowered = lowerPraxisToolsForProvider({
+            providerFamily,
+            tools: [lookup.tool],
+            includeRuntimeDecisionTools: false,
+          });
+          if (lowered.tools.length !== 1 || lowered.mappings[0]?.toolId !== tool.toolId) {
+            schemaReady = false;
+            schemaError = `${providerFamily} lowering did not preserve tool mapping`;
+            break;
+          }
+        } catch (error) {
+          schemaReady = false;
+          schemaError = error instanceof Error ? error.message : `${providerFamily} lowering failed`;
+          break;
+        }
+      }
+    }
+
+    const catalogMounted = entry?.registry === "mounted";
+    const hostAdapterReady = entry?.stages.hostReady === "ready";
+    const dependencyReady = entry?.stages.dependencyReady === "ready" || entry?.stages.dependencyReady === "requiresApproval";
+    const governanceReady = entry?.stages.mounted === "ready" && entry?.stages.contractReady === "ready";
+    const liveSmokeReady = coveredIds.includes(tool.toolId);
+    const missingReason = [
+      catalogMounted ? undefined : "not mounted in registry",
+      schemaReady ? undefined : `provider schema not ready${schemaError === undefined ? "" : `: ${schemaError}`}`,
+      governanceReady ? undefined : "governance/contract not ready",
+      dependencyReady ? undefined : "dependency preflight not ready",
+      hostAdapterReady ? undefined : "host adapter not ready",
+      liveSmokeReady ? undefined : "not yet covered by repeatable live/no-model matrix",
+    ].filter((item): item is string => item !== undefined).join("; ") || undefined;
+
+    return {
+      toolId: tool.toolId,
+      family: tool.family,
+      group: tool.group,
+      catalogMounted,
+      providerSchemaReady: schemaReady,
+      modelCallable: schemaReady,
+      governanceReady,
+      dependencyReady,
+      hostAdapterReady,
+      liveSmokeReady,
+      officialShape: tool.family === "search"
+        ? "search.fetch/searchEngine/nativeSearch/ground"
+        : tool.family === "mcp"
+          ? "mcp.local+remote/native+custom"
+          : tool.family === "omni"
+            ? "runtime.omni+provider-media-adapter"
+            : tool.family === "computeruse"
+              ? "linux-desktop-host-adapter"
+              : tool.family === "skill"
+                ? "local-context-skill-injection"
+                : "BaseToolExecutorPort",
+      missingReason,
+    };
+  }).sort((left, right) => left.toolId.localeCompare(right.toolId));
+
+  const runtimeReadyRows = realityMatrix.filter((row) => (
+    row.catalogMounted &&
+    row.providerSchemaReady &&
+    row.modelCallable &&
+    row.governanceReady &&
+    row.dependencyReady &&
+    row.hostAdapterReady
+  ));
+
   const summary = {
-    ok: missingMatrixCoverage.length === 0 && Object.values(matrixRuns).every((run) => run.ok !== false),
+    ok: runtimeReadyRows.length === catalogIds.length && Object.values(matrixRuns).every((run) => run.ok !== false),
     catalog: {
       total: catalogIds.length,
       byFamily: catalogByFamily,
+    },
+    realityMatrixCoverage: {
+      covered: runtimeReadyRows.length,
+      missing: catalogIds.length - runtimeReadyRows.length,
+      liveSmokeCovered: realityMatrix.filter((row) => row.liveSmokeReady).length,
+      liveSmokeMissing: realityMatrix.filter((row) => !row.liveSmokeReady).length,
+      byExecutorSupport: reality.byExecutorSupport,
+      byDependencyStatus: reality.byDependencyStatus,
+      missingToolIds: realityMatrix.filter((row) => row.missingReason !== undefined && !runtimeReadyRows.some((ready) => ready.toolId === row.toolId)).map((row) => row.toolId),
+      rows: realityMatrix,
     },
     matrixCoverage: {
       covered: coveredIds.length,
@@ -160,7 +269,7 @@ async function main(): Promise<void> {
       unknownCoveredIds,
     },
     matrixRuns,
-    note: "This script runs existing safe no-model matrices and reports coverage gaps. Missing coverage means no repeatable matrix case exists yet, not necessarily that the tool handler is absent.",
+    note: "realityMatrixCoverage is the 175-tool runtime readiness ledger. matrixCoverage is the stricter repeatable smoke coverage and may lag behind host readiness.",
   };
 
   console.log(JSON.stringify(summary, null, 2));
