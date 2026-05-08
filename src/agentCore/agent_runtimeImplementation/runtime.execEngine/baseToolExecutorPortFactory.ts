@@ -10,7 +10,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, mkdirSync } from "node:fs";
 import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
@@ -53,6 +53,14 @@ export type RuntimeBaseToolExecutorSandbox = {
   profile?: string;
   isolationLevel?: string;
   ready?: boolean;
+  policyProfile?: string;
+  mountPolicy?: {
+    readonlyRoot?: boolean;
+    allowedWriteRoots?: readonly string[];
+  };
+  networkPolicy?: {
+    outbound?: string;
+  };
   probe?: {
     status?: string;
     publicSafeMessage?: string;
@@ -341,9 +349,12 @@ function sandboxMetadata(context: RuntimeBaseToolExecutorContext, applied: boole
   return {
     providerFamily: sandboxFamily(context),
     profile: context.sandbox?.profile ?? "host-observed",
+    policyProfile: context.sandbox?.policyProfile,
     isolationLevel: context.sandbox?.isolationLevel ?? (applied ? "process-namespace" : "none"),
     ready: context.sandbox?.ready ?? true,
     applied,
+    networkMode: context.sandbox?.networkPolicy?.outbound ?? "provider-policy",
+    readonlyRoot: context.sandbox?.mountPolicy?.readonlyRoot,
     probeStatus: context.sandbox?.probe?.status,
     smokeStatus: context.sandbox?.smoke?.status,
   };
@@ -375,6 +386,97 @@ function sandboxCwd(cwd: string, context: RuntimeBaseToolExecutorContext): BaseT
   return success(`/workspace/${relative.split(path.sep).join("/")}`);
 }
 
+function linuxBubblewrapPaths(context: RuntimeBaseToolExecutorContext): {
+  workspace: string;
+  raxWorkspace: string;
+  sandboxRoot: string;
+  home: string;
+  tmp: string;
+  artifacts: string;
+} {
+  const workspace = workspaceRoot(context);
+  const raxWorkspace = path.join(workspace, ".rax_workspace");
+  const sandboxRoot = path.join(raxWorkspace, "sandbox");
+  const home = path.join(sandboxRoot, "home");
+  const tmp = path.join(sandboxRoot, "tmp");
+  const artifacts = path.join(sandboxRoot, "artifacts");
+  for (const directory of [home, tmp, artifacts]) {
+    mkdirSync(directory, { recursive: true });
+  }
+  return { workspace, raxWorkspace, sandboxRoot, home, tmp, artifacts };
+}
+
+function relaxedPolicyProfile(context: RuntimeBaseToolExecutorContext): boolean {
+  const profile = context.sandbox?.policyProfile;
+  return profile === "bapr" || profile === "yolo";
+}
+
+function linuxBubblewrapNetworkArgs(context: RuntimeBaseToolExecutorContext): readonly string[] {
+  const outbound = context.sandbox?.networkPolicy?.outbound;
+  const profile = context.sandbox?.policyProfile;
+  if (outbound === "allow" || relaxedPolicyProfile(context) || profile === "permissive") return [];
+  return ["--unshare-net"];
+}
+
+function linuxBubblewrapDeviceArgs(context: RuntimeBaseToolExecutorContext): readonly string[] {
+  if (relaxedPolicyProfile(context)) return ["--dev", "/dev"];
+  return [
+    "--dir",
+    "/dev",
+    "--dev-bind",
+    "/dev/null",
+    "/dev/null",
+    "--dev-bind",
+    "/dev/zero",
+    "/dev/zero",
+    "--dev-bind",
+    "/dev/random",
+    "/dev/random",
+    "--dev-bind",
+    "/dev/urandom",
+    "/dev/urandom",
+  ];
+}
+
+function linuxBubblewrapSystemMountArgs(): readonly string[] {
+  const args: string[] = [];
+  for (const directory of ["/usr", "/bin", "/lib", "/lib64", "/etc", "/opt", "/nix"]) {
+    args.push("--ro-bind-try", directory, directory);
+  }
+  return args;
+}
+
+function linuxBubblewrapWorkspaceArgs(context: RuntimeBaseToolExecutorContext): readonly string[] {
+  const paths = linuxBubblewrapPaths(context);
+  const workspaceWritable = context.sandbox?.mountPolicy?.readonlyRoot === false || relaxedPolicyProfile(context);
+  return [
+    workspaceWritable ? "--bind" : "--ro-bind",
+    paths.workspace,
+    "/workspace",
+    "--bind",
+    paths.raxWorkspace,
+    "/workspace/.rax_workspace",
+    "--bind",
+    paths.home,
+    "/sandbox-home",
+    "--bind",
+    paths.tmp,
+    "/tmp",
+    "--bind",
+    paths.artifacts,
+    "/artifacts",
+    "--setenv",
+    "HOME",
+    "/sandbox-home",
+    "--setenv",
+    "TMPDIR",
+    "/tmp",
+    "--setenv",
+    "PRAXIS_SANDBOX",
+    "linux-bubblewrap",
+  ];
+}
+
 function linuxBubblewrapProcessCommand(
   request: {
     command: string;
@@ -396,29 +498,16 @@ function linuxBubblewrapProcessCommand(
   return success({
     command: "bwrap",
     args: [
-      "--unshare-all",
+      "--unshare-pid",
+      "--unshare-ipc",
+      "--unshare-uts",
+      ...linuxBubblewrapNetworkArgs(context),
       "--die-with-parent",
-      "--ro-bind",
-      "/usr",
-      "/usr",
-      "--ro-bind",
-      "/bin",
-      "/bin",
-      "--ro-bind",
-      "/lib",
-      "/lib",
-      "--ro-bind",
-      "/lib64",
-      "/lib64",
+      ...linuxBubblewrapSystemMountArgs(),
       "--proc",
       "/proc",
-      "--dev",
-      "/dev",
-      "--tmpfs",
-      "/tmp",
-      "--bind",
-      workspaceRoot(context),
-      "/workspace",
+      ...linuxBubblewrapDeviceArgs(context),
+      ...linuxBubblewrapWorkspaceArgs(context),
       "--chdir",
       insideCwd.output,
       "/usr/bin/env",

@@ -453,3 +453,63 @@ test("runtime factory executor runs process-backed ports through linux bubblewra
     assert.equal(asRecord(asRecord(processResult.metadata).sandbox).applied, true);
   }
 });
+
+test("linux bubblewrap defaults writes to sandbox storage until five-mode policy relaxes workspace writes", async () => {
+  const workspace = await makeWorkspace();
+  const prepared = await prepareSandboxRuntime(sandbox.linuxBubblewrap({
+    resourceLimits: { timeoutMs: 5_000, maxOutputBytes: 16_000 },
+  }), {
+    cwd: workspace,
+    runSmoke: true,
+  });
+
+  const defaultExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-sandbox-default-write",
+    sessionId: "session-factory-sandbox-default-write",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowShellExecution: true,
+      allowProcessExecution: true,
+    },
+    sandbox: prepared,
+  });
+
+  const defaultWrite = await defaultExecutor.shell?.run?.({
+    command: "touch /workspace/should-not-write && touch /artifacts/should-write",
+    cwd: workspace,
+  });
+  if (!prepared.ready) {
+    assert.equal(defaultWrite?.ok, false);
+    if (defaultWrite?.ok === false) assert.equal(defaultWrite.error.code, "SANDBOX_UNAVAILABLE");
+    return;
+  }
+
+  assert.equal(defaultWrite?.ok, true);
+  assert.notEqual(defaultWrite?.output.exitCode, 0);
+
+  const yoloExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-sandbox-yolo-write",
+    sessionId: "session-factory-sandbox-yolo-write",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowShellExecution: true,
+      allowProcessExecution: true,
+    },
+    sandbox: {
+      ...prepared,
+      policyProfile: "yolo",
+    },
+  });
+  const yoloWrite = await yoloExecutor.shell?.run?.({
+    command: "touch /workspace/yolo-write-ok && test -f /workspace/yolo-write-ok",
+    cwd: workspace,
+  });
+
+  assert.equal(yoloWrite?.ok, true);
+  assert.equal(yoloWrite?.output.exitCode, 0);
+  if (yoloWrite?.ok) {
+    assert.equal(asRecord(asRecord(yoloWrite.metadata).sandbox).policyProfile, "yolo");
+  }
+});

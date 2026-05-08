@@ -24,7 +24,7 @@ export type FrameworkInspectionFindingSeverity = "info" | "warning" | "error";
 export type FrameworkInspectionFinding = {
   findingId: string;
   severity: FrameworkInspectionFindingSeverity;
-  section: "manifest" | "policy" | "tools" | "provider" | "promptPack" | "mainLoop" | "dependency" | "storage" | "selfRepair";
+  section: "manifest" | "policy" | "tools" | "provider" | "promptPack" | "mainLoop" | "dependency" | "storage" | "selfRepair" | "sandbox";
   message: string;
   remediation?: string;
 };
@@ -59,6 +59,16 @@ export type FrameworkDependencyInput = {
   reason?: string;
 };
 
+export type FrameworkSandboxReadinessInput = {
+  ready?: boolean;
+  required?: boolean;
+  reason?: string;
+  probeStatus?: string;
+  smokeStatus?: string;
+  missingDependencies?: readonly string[];
+  selfRepairHints?: readonly string[];
+};
+
 export type FrameworkPromptPackPreviewInput = {
   promptPackId: string;
   cachePlan?: PromptPackCachePlan;
@@ -85,6 +95,7 @@ export type FrameworkInspectionReportRequest = {
   tools?: readonly FrameworkToolReadinessInput[];
   providers?: readonly FrameworkProviderReadinessInput[];
   dependencies?: readonly FrameworkDependencyInput[];
+  sandbox?: FrameworkSandboxReadinessInput;
   promptPackPreview?: FrameworkPromptPackPreviewInput;
   mainLoopSteps?: readonly MainLoopStepRecord[];
   selfRepairSignal?: RuntimeFaultSignal;
@@ -108,6 +119,38 @@ export type FrameworkInspectionReport = {
     profile: string;
     sandbox: string;
     approvalSurface: "interface/application";
+  };
+  sandbox: {
+    sandboxId: string;
+    profile: string;
+    providerFamily: string;
+    isolationLevel: string;
+    realIsolation: boolean;
+    filesystem: string;
+    network: string;
+    shell: string;
+    dependencyRefs: readonly string[];
+    mountPolicy?: AgentManifest["sandbox"]["mountPolicy"];
+    networkPolicy?: AgentManifest["sandbox"]["networkPolicy"];
+    processPolicy?: AgentManifest["sandbox"]["processPolicy"];
+    platformSupport?: AgentManifest["sandbox"]["platformSupport"];
+    readiness: {
+      ready?: boolean;
+      reason?: string;
+      probeStatus?: string;
+      smokeStatus?: string;
+      missingDependencies: readonly string[];
+      selfRepairHints: readonly string[];
+    };
+    linuxBubblewrap?: {
+      providerVersion?: unknown;
+      fallback?: unknown;
+      home?: unknown;
+      tmp?: unknown;
+      artifacts?: unknown;
+      networkMode: string;
+      deviceExposure: "minimal-by-default" | "bapr-yolo-broad" | "provider-policy";
+    };
   };
   toolReadiness: {
     total: number;
@@ -337,6 +380,46 @@ function storageSummary(storageRuntime: StoragePlaneRuntime): FrameworkInspectio
   };
 }
 
+function sandboxSummary(manifest: AgentManifest, readiness: FrameworkSandboxReadinessInput | undefined): FrameworkInspectionReport["sandbox"] {
+  const spec = manifest.sandbox;
+  const providerFamily = spec.providerFamily ?? spec.profile;
+  const isLinuxBubblewrap = providerFamily === "linux-bubblewrap";
+  const toolPolicyProfile = manifest.toolPolicy.profile;
+  const broadDevice = toolPolicyProfile === "bapr" || toolPolicyProfile === "yolo";
+  return {
+    sandboxId: spec.sandboxId,
+    profile: spec.profile,
+    providerFamily,
+    isolationLevel: spec.isolationLevel ?? "custom",
+    realIsolation: isLinuxBubblewrap,
+    filesystem: spec.filesystem,
+    network: spec.network,
+    shell: spec.shell,
+    dependencyRefs: spec.dependencyRefs ?? [],
+    mountPolicy: spec.mountPolicy,
+    networkPolicy: spec.networkPolicy,
+    processPolicy: spec.processPolicy,
+    platformSupport: spec.platformSupport,
+    readiness: {
+      ready: readiness?.ready,
+      reason: readiness?.reason,
+      probeStatus: readiness?.probeStatus,
+      smokeStatus: readiness?.smokeStatus,
+      missingDependencies: readiness?.missingDependencies ?? [],
+      selfRepairHints: readiness?.selfRepairHints ?? [],
+    },
+    linuxBubblewrap: !isLinuxBubblewrap ? undefined : {
+      providerVersion: spec.metadata?.providerVersion,
+      fallback: spec.metadata?.fallback,
+      home: spec.metadata?.home,
+      tmp: spec.metadata?.tmp,
+      artifacts: spec.metadata?.artifacts,
+      networkMode: spec.networkPolicy?.outbound ?? "provider-policy",
+      deviceExposure: broadDevice ? "bapr-yolo-broad" : "minimal-by-default",
+    },
+  };
+}
+
 function emptyToolDeveloperReadinessCounts(): Record<BaseToolDeveloperReadiness, number> {
   return {
     ready: 0,
@@ -445,6 +528,12 @@ export function createFrameworkInspectionReport(
     required: dependency.required,
     reason: dependency.reason,
   }));
+  const sandboxSignals: readonly RuntimeReadinessSignal[] = request.sandbox === undefined ? [] : [{
+    signalId: `sandbox:${request.manifest.sandbox.providerFamily ?? request.manifest.sandbox.profile}`,
+    ready: request.sandbox.ready,
+    required: request.sandbox.required,
+    reason: request.sandbox.reason,
+  }];
   const missingStorageDirectories = storageRuntime.runtime.initPlan.directories.filter((directory) => !directory.existing);
   const storageSignals = [
     {
@@ -471,6 +560,7 @@ export function createFrameworkInspectionReport(
       { signalId: "mainLoop", ready: true, required: true },
       { signalId: "sessionStateEvent", ready: true, required: true },
       ...storageSignals,
+      ...sandboxSignals,
       ...providerSignals,
       ...toolSignals,
     ]),
@@ -487,6 +577,7 @@ export function createFrameworkInspectionReport(
   const toolMissing = requestedTools.filter((tool) => tool.ready === false);
   const providerMissing = (request.providers ?? []).filter((provider) => provider.ready === false);
   const dependencySummary = summarizeMissing(request.dependencies ?? [], (dependency) => dependency.dependencyId);
+  const sandbox = sandboxSummary(request.manifest, request.sandbox);
   const promptCacheWarnings = request.promptPackPreview?.cachePlan?.cacheRiskWarnings ?? [];
   const dependencyOwners = Object.fromEntries(
     [...new Set((request.dependencies ?? []).map((dependency) => dependency.owner))].map((owner) => [
@@ -514,6 +605,20 @@ export function createFrameworkInspectionReport(
       section: "storage" as const,
       message: "Praxis workspace storage is not initialized yet; an init plan is available and writes no secrets.",
       remediation: "Run storage init from runtime or rax before durable SQLite sessions.",
+    }] : []),
+    ...(request.manifest.sandbox.profile === "host-observed" ? [{
+      findingId: "sandbox.hostObserved.policyOnly",
+      severity: "info" as const,
+      section: "sandbox" as const,
+      message: "host-observed sandbox records and governs actions but does not isolate host execution.",
+      remediation: "Use linuxBubblewrap on Linux when real process isolation is required.",
+    }] : []),
+    ...(request.sandbox?.ready === false ? [{
+      findingId: "sandbox.provider.not-ready",
+      severity: request.sandbox.required === false ? "warning" as const : "error" as const,
+      section: "sandbox" as const,
+      message: request.sandbox.reason ?? "sandbox provider is not ready",
+      remediation: request.sandbox.selfRepairHints?.[0] ?? "Resolve sandbox provider dependencies or choose another profile.",
     }] : []),
     ...toolMissing.map((tool) => readinessFinding("tools", tool.toolId, tool.reason, tool.required !== false)),
     ...providerMissing.map((provider) =>
@@ -547,6 +652,7 @@ export function createFrameworkInspectionReport(
         sandbox: manifest.governance.sandboxProfile,
         approvalSurface: "interface/application",
       },
+      sandbox,
       toolReadiness: {
         total: requestedTools.length,
         ready: requestedTools.length - toolMissing.length,

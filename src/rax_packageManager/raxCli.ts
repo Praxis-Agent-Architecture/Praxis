@@ -34,6 +34,10 @@ import {
   type RaxBuildInitPreset,
 } from "./raxBuildInit.js";
 import { planRaxDeveloperCommand } from "./raxDeveloperCommandContract.js";
+import {
+  runSelfRepairRuntime,
+  type SelfRepairRuntimeResult,
+} from "../agentCore/agent_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.js";
 
 export type RaxCliResult = {
   exitCode: number;
@@ -68,6 +72,27 @@ type LiveProviderBinding =
       authSource?: string;
       events: readonly string[];
     };
+
+type RaxCliSelfRepairFault = {
+  faultId: string;
+  kind: string;
+  source: string;
+  message: string;
+  repairability?: string;
+  nextStep?: string;
+  planId?: string;
+  stepSummaries: readonly string[];
+};
+
+type RaxCliSelfRepairPreflightReport = {
+  mode: "test-auto-plan" | "run-report-only";
+  status: "not-needed" | "plan-ready" | "approval-required" | "escalated" | "failed";
+  dryRun: true;
+  modelUsed: false;
+  unsafeSideEffects: false;
+  faults: readonly RaxCliSelfRepairFault[];
+  publicSafeMessages: readonly string[];
+};
 
 function argValue(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
@@ -628,6 +653,130 @@ function createCliBaseToolReadiness(input: {
   });
 }
 
+function summarizeSelfRepairResult(result: SelfRepairRuntimeResult): RaxCliSelfRepairFault {
+  if (!result.ok) {
+    return {
+      faultId: `selfRepair:${result.error.code}`,
+      kind: result.error.code,
+      source: `runtime.selfRepair.${result.error.boundary}`,
+      message: result.error.message,
+      stepSummaries: [],
+    };
+  }
+
+  return {
+    faultId: result.outcome.classification.faultId,
+    kind: result.outcome.classification.kind,
+    source: result.outcome.classification.source,
+    message: result.outcome.classification.reason,
+    repairability: result.outcome.classification.repairability,
+    nextStep: result.outcome.nextStep,
+    planId: result.outcome.plan?.planId,
+    stepSummaries: result.outcome.plan?.steps.map((step) => step.summary) ?? [],
+  };
+}
+
+function createCliSelfRepairPreflightReport(input: {
+  command: "test" | "run";
+  manifest: AgentManifest;
+  sandbox: Awaited<ReturnType<typeof praxis.sandboxPlane.prepareSandboxRuntime>>;
+  runtimeDryRun?: AgentRunResult;
+}): RaxCliSelfRepairPreflightReport {
+  const mode = input.command === "test" ? "test-auto-plan" : "run-report-only";
+  const publicSafeMessages: string[] = [];
+  const outcomes: SelfRepairRuntimeResult[] = [];
+
+  const runRepairPlan = input.command === "test";
+  const sandboxFaultNeeded = !input.sandbox.ready ||
+    input.sandbox.probe.status !== "available" ||
+    input.sandbox.probe.missingDependencies.length > 0;
+  if (sandboxFaultNeeded) {
+    const message = input.sandbox.probe.publicSafeMessage ||
+      `sandbox ${input.sandbox.profile} is not ready for runtime use`;
+    publicSafeMessages.push(message);
+    for (const hint of input.sandbox.probe.selfRepairHints) {
+      publicSafeMessages.push(hint.message);
+    }
+
+    if (runRepairPlan) {
+      outcomes.push(runSelfRepairRuntime({
+        runtimeId: "runtime.rax.cli.test",
+        runtimeReady: true,
+        signal: {
+          faultId: `${input.manifest.identity.id}:sandbox-preflight`,
+          kind: "runtime-state.dependency-preflight",
+          source: "rax.test.sandbox",
+          message,
+          severity: "recoverable",
+          retryable: true,
+          runtimeReady: input.sandbox.ready,
+          tags: [
+            "dependency-preflight",
+            input.sandbox.profile,
+            input.sandbox.providerFamily,
+            ...input.sandbox.probe.missingDependencies,
+          ],
+        },
+        allowedFaultKinds: ["runtime-state.dependency-preflight", "runtime-state.runManifest"],
+        allowedStepKinds: ["observe", "restart-surface"],
+        contract: { accepted: true },
+        governance: { accepted: true },
+      }));
+    }
+  }
+
+  if (input.runtimeDryRun !== undefined && !input.runtimeDryRun.ok) {
+    const message = input.runtimeDryRun.error.message;
+    publicSafeMessages.push(message);
+    if (runRepairPlan) {
+      outcomes.push(runSelfRepairRuntime({
+        runtimeId: "runtime.rax.cli.test",
+        runtimeReady: true,
+        signal: {
+          faultId: `${input.manifest.identity.id}:runManifest:${input.runtimeDryRun.error.code}`,
+          kind: "runtime-state.runManifest",
+          source: "rax.test.runManifest",
+          message,
+          severity: "recoverable",
+          retryable: true,
+          runtimeReady: false,
+          executionPhase: "runManifest",
+          tags: ["runtime-dry-run", input.runtimeDryRun.error.code],
+        },
+        allowedFaultKinds: ["runtime-state.dependency-preflight", "runtime-state.runManifest"],
+        allowedStepKinds: ["observe", "restart-surface"],
+        contract: { accepted: true },
+        governance: { accepted: true },
+      }));
+    }
+  }
+
+  const faults = outcomes.map(summarizeSelfRepairResult);
+  const failed = outcomes.some((outcome) => !outcome.ok);
+  const approvalRequired = outcomes.some((outcome) => outcome.ok && outcome.outcome.status === "approval-required");
+  const escalated = outcomes.some((outcome) => outcome.ok && outcome.outcome.status === "escalated");
+  const planReady = outcomes.some((outcome) => outcome.ok && outcome.outcome.status === "plan-ready");
+  const status: RaxCliSelfRepairPreflightReport["status"] = failed
+    ? "failed"
+    : escalated
+      ? "escalated"
+      : approvalRequired
+        ? "approval-required"
+        : planReady
+          ? "plan-ready"
+          : "not-needed";
+
+  return {
+    mode,
+    status,
+    dryRun: true,
+    modelUsed: false,
+    unsafeSideEffects: false,
+    faults,
+    publicSafeMessages: [...new Set(publicSafeMessages.filter(Boolean))],
+  };
+}
+
 function formatReadinessConsole(input: {
   command: "inspect" | "test";
   manifest: ReturnType<typeof praxis.inspectAgentManifest>;
@@ -640,6 +789,7 @@ function formatReadinessConsole(input: {
     cacheRiskWarnings: readonly string[];
   };
   runtimeDryRun?: AgentRunResult;
+  selfRepairPreflight?: RaxCliSelfRepairPreflightReport;
 }): string {
   const hints = input.sandbox.probe.selfRepairHints.map((hint) => `  - ${hint.message}`).join("\n") || "  - none";
   const missing = input.sandbox.probe.missingDependencies.join(", ") || "none";
@@ -662,8 +812,10 @@ function formatReadinessConsole(input: {
     `prompt cache prefix: ${input.promptCache?.cacheablePrefixSegmentKinds.join(", ") || "none"}`,
     `prompt cache dynamic: ${input.promptCache?.dynamicSegmentKinds.join(", ") || "none"}`,
     `prompt cache warnings: ${input.promptCache?.cacheRiskWarnings.join(", ") || "none"}`,
+    `self-repair preflight: ${input.selfRepairPreflight?.status ?? "not-run"}`,
+    `self-repair mode: ${input.selfRepairPreflight?.mode ?? "none"}`,
     "self-repair hints:",
-    hints,
+    input.selfRepairPreflight?.publicSafeMessages.map((message) => `  - ${message}`).join("\n") || hints,
     "",
     JSON.stringify({ inspection: input.inspection }, null, 2),
     "",
@@ -817,6 +969,14 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
           exposeProviderTools: !live,
         })
       : undefined;
+    const selfRepairPreflight = command === "test"
+      ? createCliSelfRepairPreflightReport({
+          command: "test",
+          manifest: compiled.manifest,
+          sandbox: sandboxReadiness,
+          runtimeDryRun,
+        })
+      : undefined;
     const payload = {
       command,
       plan: plan.plan,
@@ -824,6 +984,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
       sandbox: sandboxReadiness,
       readiness: report.ok ? report.report : report.error,
       runtimeDryRun,
+      selfRepairPreflight,
       liveProvider: liveProvider === undefined
         ? undefined
         : liveProvider.ok
@@ -842,6 +1003,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
             inspection: report.ok ? report.report : report.error,
             promptCache: report.ok ? report.report.promptPackPreview?.cachePlan : undefined,
             runtimeDryRun,
+            selfRepairPreflight,
           }),
     };
   }
@@ -870,10 +1032,21 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
     providerCaller: liveProvider?.ok === true ? liveProvider.providerCaller : undefined,
     exposeProviderTools: !live,
   });
+  const selfRepairReport = result.ok
+    ? undefined
+    : createCliSelfRepairPreflightReport({
+        command: "run",
+        manifest: compiled.manifest,
+        sandbox: await praxis.sandboxPlane.prepareSandboxRuntime(compiled.manifest.sandbox, {
+          cwd: process.cwd(),
+          runSmoke: false,
+        }),
+        runtimeDryRun: result,
+      });
   return {
     exitCode: result.ok ? 0 : 1,
     output: hasFlag(args, "--json")
-      ? `${JSON.stringify(result, null, 2)}\n`
+      ? `${JSON.stringify({ ...result, selfRepairReport }, null, 2)}\n`
       : formatRunConsole(result),
   };
 }

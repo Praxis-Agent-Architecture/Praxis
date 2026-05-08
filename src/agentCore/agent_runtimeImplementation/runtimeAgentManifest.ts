@@ -270,6 +270,11 @@ export type SandboxResourceLimits = {
   maxProcesses?: number;
   maxMemoryMb?: number;
   maxOutputBytes?: number;
+  maxFileBytes?: number;
+  cpuTimeMs?: number;
+  memoryWarningPercent?: number;
+  memoryAlertPercent?: number;
+  memoryThrottlePercent?: number;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
@@ -1080,6 +1085,13 @@ export const sandbox = {
     sandboxId?: string;
     resourceLimits?: SandboxResourceLimits;
   } = {}): SandboxSpec {
+    const resourceLimits = {
+      maxProcesses: 8192,
+      memoryWarningPercent: 85,
+      memoryAlertPercent: 90,
+      memoryThrottlePercent: 100,
+      ...(input.resourceLimits ?? {}),
+    };
     return {
       ...sandbox.workspaceOnly(input),
       sandboxId: input.sandboxId ?? "sandbox.linuxBubblewrap",
@@ -1087,6 +1099,14 @@ export const sandbox = {
       providerFamily: "linux-bubblewrap",
       isolationLevel: "process-namespace",
       dependencyRefs: input.dependencyRefs ?? ["binary:bwrap"],
+      mountPolicy: input.mountPolicy ?? {
+        workspaceRootRef: "rax.workspace",
+        allowedReadRoots: ["workspace", ".rax_workspace"],
+        allowedWriteRoots: [".rax_workspace/sandbox", ".rax_workspace/sandbox/artifacts"],
+        readonlyRoot: true,
+      },
+      networkPolicy: input.networkPolicy ?? { outbound: "provider-policy" },
+      resourceLimits,
       platformSupport: input.platformSupport ?? {
         linux: "supported",
         macos: "unsupported",
@@ -1094,10 +1114,62 @@ export const sandbox = {
       },
       metadata: {
         provider: "bubblewrap",
+        providerVersion: "v2",
         flatpakCompatible: true,
+        fallback: "explicit-only",
+        home: ".rax_workspace/sandbox/home",
+        tmp: ".rax_workspace/sandbox/tmp",
+        artifacts: ".rax_workspace/sandbox/artifacts",
+        governanceOwner: "toolPolicy",
         ...(input.metadata ?? {}),
       },
     };
+  },
+  linuxBubblewrapReadonly(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return sandbox.linuxBubblewrap({
+      ...input,
+      sandboxId: input.sandboxId ?? "sandbox.linuxBubblewrap.readonly",
+      mountPolicy: {
+        workspaceRootRef: "rax.workspace",
+        allowedReadRoots: ["workspace", ".rax_workspace"],
+        allowedWriteRoots: [".rax_workspace/sandbox", ".rax_workspace/artifacts"],
+        readonlyRoot: true,
+        ...(input.mountPolicy ?? {}),
+      },
+      networkPolicy: input.networkPolicy ?? { outbound: "deny" },
+      metadata: { profileVariant: "readonly", ...(input.metadata ?? {}) },
+    });
+  },
+  linuxBubblewrapWorkspaceWrite(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return sandbox.linuxBubblewrap({
+      ...input,
+      sandboxId: input.sandboxId ?? "sandbox.linuxBubblewrap.workspaceWrite",
+      mountPolicy: {
+        workspaceRootRef: "rax.workspace",
+        allowedReadRoots: ["workspace", ".rax_workspace"],
+        allowedWriteRoots: ["workspace", ".rax_workspace"],
+        readonlyRoot: false,
+        ...(input.mountPolicy ?? {}),
+      },
+      metadata: { profileVariant: "workspace-write", ...(input.metadata ?? {}) },
+    });
+  },
+  linuxBubblewrapNetworked(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
+    sandboxId?: string;
+    resourceLimits?: SandboxResourceLimits;
+  } = {}): SandboxSpec {
+    return sandbox.linuxBubblewrap({
+      ...input,
+      sandboxId: input.sandboxId ?? "sandbox.linuxBubblewrap.networked",
+      networkPolicy: input.networkPolicy ?? { outbound: "allow" },
+      metadata: { profileVariant: "networked", ...(input.metadata ?? {}) },
+    });
   },
   rootlessContainer(input: Partial<Omit<SandboxSpec, "sandboxId" | "profile" | "providerFamily" | "isolationLevel" | "resourceLimits">> & {
     sandboxId?: string;

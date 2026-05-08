@@ -33,6 +33,52 @@ export type EphemeralProcedureStep = {
   outputRef: string;
 };
 
+export type EphemeralProcedureStepExecutionStatus =
+  | "ready"
+  | "waitingDependency"
+  | "waitingApproval"
+  | "running"
+  | "completed"
+  | "failed"
+  | "fallback";
+
+export type EphemeralProcedurePartialStatus =
+  | "ready"
+  | "partialWaiting"
+  | "partialCompleted"
+  | "partialFailed"
+  | "partialFallback"
+  | "completed"
+  | "failed";
+
+export type EphemeralProcedureStepExecutionState = {
+  stepId: string;
+  baseToolId: string;
+  status: EphemeralProcedureStepExecutionStatus;
+  dependsOn: readonly string[];
+  blockedBy: readonly string[];
+  canContinueInParallel: boolean;
+  mustUseBaseToolRegistry: true;
+  riskLevel: EphemeralProcedureRiskLevel;
+  outputRef: string;
+  metadata: Readonly<Record<string, unknown>>;
+};
+
+export type EphemeralProcedureExecutionState = {
+  procedureId: string;
+  executionMode: EphemeralProcedureExecutionMode;
+  partialStatus: EphemeralProcedurePartialStatus;
+  steps: readonly EphemeralProcedureStepExecutionState[];
+  readyStepIds: readonly string[];
+  waitingStepIds: readonly string[];
+  completedStepIds: readonly string[];
+  failedStepIds: readonly string[];
+  fallbackStepIds: readonly string[];
+  registryInvocationRequired: true;
+  metadata: Readonly<Record<string, unknown>>;
+  publicSafe: true;
+};
+
 export type EphemeralProcedurePlan = {
   kind: "praxis.ephemeralProcedurePlan";
   procedureId: string;
@@ -61,6 +107,7 @@ export type EphemeralProcedureValidationError = {
     | "MISSING_BASE_TOOL"
     | "DUPLICATE_STEP_ID"
     | "UNKNOWN_DEPENDENCY"
+    | "TOO_MANY_STEPS"
     | "TAP_NOT_ALLOWED";
   message: string;
   publicSafe: true;
@@ -134,6 +181,11 @@ export function normalizeEphemeralProcedurePlan(input: unknown): EphemeralProced
   if (rawSteps.length === 0) {
     return failure("EMPTY_STEPS", "EphemeralProcedure requires at least one BaseTool step");
   }
+  const resourceLimits = readResourceHints(input.resourceLimits);
+  const maxSteps = resourceLimits.maxSteps ?? 128;
+  if (rawSteps.length > maxSteps || rawSteps.length > 128) {
+    return failure("TOO_MANY_STEPS", "EphemeralProcedure cannot exceed 128 BaseTool calls in one procedure package");
+  }
 
   const seen = new Set<string>();
   const steps: EphemeralProcedureStep[] = [];
@@ -192,7 +244,7 @@ export function normalizeEphemeralProcedurePlan(input: unknown): EphemeralProced
         required: Boolean(isRecord(input.approval) ? input.approval.required : input.approvalRequired),
         reason: isRecord(input.approval) ? readString(input.approval.reason) : readString(input.approvalReason),
       },
-      resourceLimits: readResourceHints(input.resourceLimits),
+      resourceLimits,
       expectedOutputs: Array.isArray(input.expectedOutputs)
         ? input.expectedOutputs.filter(isRecord).map((output, index) => ({
             outputRef: readString(output.outputRef) ?? `${procedureId}:expected:${index + 1}`,
@@ -204,5 +256,97 @@ export function normalizeEphemeralProcedurePlan(input: unknown): EphemeralProced
       metadata: isRecord(input.metadata) ? input.metadata : {},
     },
     events: ["agentCore.execution.ephemeralProcedure.accepted"],
+  };
+}
+
+function cleanStepIdSet(stepIds: readonly string[] | undefined): ReadonlySet<string> {
+  return new Set(readStringArray(stepIds));
+}
+
+function partialStatus(input: {
+  total: number;
+  ready: number;
+  waiting: number;
+  completed: number;
+  failed: number;
+  fallback: number;
+}): EphemeralProcedurePartialStatus {
+  if (input.completed === input.total) return "completed";
+  if (input.failed === input.total) return "failed";
+  if (input.fallback > 0) return "partialFallback";
+  if (input.failed > 0) return "partialFailed";
+  if (input.completed > 0) return "partialCompleted";
+  if (input.waiting > 0 && input.ready > 0) return "partialWaiting";
+  if (input.waiting > 0) return "partialWaiting";
+  return "ready";
+}
+
+export function createEphemeralProcedureExecutionState(input: {
+  plan: EphemeralProcedurePlan;
+  runningStepIds?: readonly string[];
+  completedStepIds?: readonly string[];
+  failedStepIds?: readonly string[];
+  fallbackStepIds?: readonly string[];
+  approvalPendingStepIds?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
+}): EphemeralProcedureExecutionState {
+  const running = cleanStepIdSet(input.runningStepIds);
+  const completed = cleanStepIdSet(input.completedStepIds);
+  const failed = cleanStepIdSet(input.failedStepIds);
+  const fallback = cleanStepIdSet(input.fallbackStepIds);
+  const approvalPending = cleanStepIdSet(input.approvalPendingStepIds);
+
+  const states = input.plan.steps.map((step): EphemeralProcedureStepExecutionState => {
+    const blockedBy = step.dependsOn.filter((dependency) => !completed.has(dependency));
+    const status: EphemeralProcedureStepExecutionStatus =
+      completed.has(step.stepId) ? "completed" :
+        failed.has(step.stepId) ? "failed" :
+          fallback.has(step.stepId) ? "fallback" :
+            running.has(step.stepId) ? "running" :
+              approvalPending.has(step.stepId) || (input.plan.approval.required && step.riskLevel === "high") ? "waitingApproval" :
+                blockedBy.length > 0 ? "waitingDependency" :
+                  "ready";
+    return {
+      stepId: step.stepId,
+      baseToolId: step.baseToolId,
+      status,
+      dependsOn: step.dependsOn,
+      blockedBy,
+      canContinueInParallel: input.plan.executionMode !== "serial" && status === "ready",
+      mustUseBaseToolRegistry: true,
+      riskLevel: step.riskLevel,
+      outputRef: step.outputRef,
+      metadata: {},
+    };
+  });
+
+  const readyStepIds = states.filter((step) => step.status === "ready").map((step) => step.stepId);
+  const waitingStepIds = states
+    .filter((step) => step.status === "waitingApproval" || step.status === "waitingDependency")
+    .map((step) => step.stepId);
+  const completedStepIds = states.filter((step) => step.status === "completed").map((step) => step.stepId);
+  const failedStepIds = states.filter((step) => step.status === "failed").map((step) => step.stepId);
+  const fallbackStepIds = states.filter((step) => step.status === "fallback").map((step) => step.stepId);
+
+  return {
+    procedureId: input.plan.procedureId,
+    executionMode: input.plan.executionMode,
+    partialStatus: partialStatus({
+      total: states.length,
+      ready: readyStepIds.length,
+      waiting: waitingStepIds.length,
+      completed: completedStepIds.length,
+      failed: failedStepIds.length,
+      fallback: fallbackStepIds.length,
+    }),
+    steps: states,
+    readyStepIds,
+    waitingStepIds,
+    completedStepIds,
+    failedStepIds,
+    fallbackStepIds,
+    registryInvocationRequired: true,
+    metadata: input.metadata ?? {},
+    publicSafe: true,
   };
 }

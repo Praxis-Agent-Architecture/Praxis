@@ -8,6 +8,7 @@ import {
   harness,
   loop,
   model,
+  sandbox,
   tool,
   tools,
 } from "../../../../src/agentCore/index.js";
@@ -141,6 +142,53 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
   assert.equal(result.report.storage.writesSecrets, false);
   assert.equal(result.report.storage.initPlanDirectoryCount > 0, true);
   assert.equal(result.report.selfRepair?.unsafeSideEffects, false);
+});
+
+test("frameworkInspectionReport exposes linux bubblewrap sandbox readiness and isolation details", () => {
+  class BubblewrapInspectableAgent extends PraxisAgent {
+    identity = "agent.inspectable.bwrap";
+    model = model("gpt-5.4");
+    sandbox = sandbox.linuxBubblewrapReadonly();
+    harness = harness({
+      tools: tools([
+        tool("shell.commandExecution", { family: "shellBase", group: "shellExecution" }),
+      ]),
+      loop: loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(BubblewrapInspectableAgent, {
+    compiledAt: "2026-05-04T00:00:00.000Z",
+    manifestId: "manifest.inspectable.bwrap",
+  });
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+
+  const result = createFrameworkInspectionReport({
+    runtimeId: "runtime.inspect.bwrap",
+    manifest: compiled.manifest,
+    sandbox: {
+      ready: false,
+      required: true,
+      reason: "binary:bwrap is missing",
+      probeStatus: "missingDependency",
+      smokeStatus: "skipped",
+      missingDependencies: ["binary:bwrap"],
+      selfRepairHints: ["Install bubblewrap through the system package manager, then rerun rax test."],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.report.status, "blocked");
+  assert.equal(result.report.sandbox.realIsolation, true);
+  assert.equal(result.report.sandbox.linuxBubblewrap?.providerVersion, "v2");
+  assert.equal(result.report.sandbox.linuxBubblewrap?.fallback, "explicit-only");
+  assert.equal(result.report.sandbox.linuxBubblewrap?.home, ".rax_workspace/sandbox/home");
+  assert.equal(result.report.sandbox.linuxBubblewrap?.networkMode, "deny");
+  assert.equal(result.report.sandbox.linuxBubblewrap?.deviceExposure, "minimal-by-default");
+  assert.deepEqual(result.report.sandbox.readiness.missingDependencies, ["binary:bwrap"]);
+  assert.equal(result.report.findings.some((finding) => finding.findingId === "sandbox.provider.not-ready"), true);
 });
 
 test("frameworkInspectionReport rejects missing public inputs without leaking internals", () => {

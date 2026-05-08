@@ -39,6 +39,9 @@
 - 定义 riskLevel、approval、resourceLimits、expectedOutputs、mergeObservationPolicy。
 - 校验 stepId、baseToolId、dependsOn 和 TAP 禁入边界。
 - 自动汇总 requiredBaseTools。
+- 单个 procedure 包默认最多 128 个 BaseTool call。
+- 生成 `EphemeralProcedureExecutionState`，表达 ready、waitingDependency、waitingApproval、completed、failed、fallback 等 partial 状态。
+- 并行或混合计划里，某个 risky step 等待人类审批时，其他不依赖它的 ready step 可以继续。
 
 ## 6. 输入边界
 
@@ -49,6 +52,7 @@
 ## 7. 输出边界
 
 - 输出标准化后的 `EphemeralProcedurePlan` 或 public-safe validation error。
+- 输出标准化后的 partial execution state，供 runtime 判断哪些 step 可继续、哪些 step 等待审批或依赖。
 - 输出计划必须仍然通过 runtime 的 `invokeMountedBaseTool` 执行。
 - 输出不包含 provider client、raw secret 或 TAP 安装行为。
 
@@ -79,7 +83,7 @@
 ## 12. 最小实现建议
 
 - 保持归一化函数可复用、可测试。
-- serial/parallel/mixed 只描述计划模式，实际调度由 runtime 执行层负责。
+- serial/parallel/mixed 只描述计划模式和 partial state，实际调度由 runtime 执行层负责。
 - 风险、审批和资源字段先作为合同保存，后续接入治理面时复用。
 
 ## 13. 最小测试建议
@@ -88,6 +92,9 @@
 - 测 TAP 禁入。
 - 测未知依赖和重复 step。
 - 测 requiredBaseTools 自动汇总。
+- 测 128 call 上限。
+- 测 partial waiting/completed/failed/fallback。
+- 测 risky step 等待审批时 parallel ready step 可继续。
 
 ## 14. 与系统链路的关系
 

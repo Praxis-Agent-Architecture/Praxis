@@ -202,6 +202,46 @@ test("rax test executes a runtime dry-run after readiness checks", async () => {
   assert.equal(payload.runtimeDryRun?.finalOutput, "PraxisRuntimeKernel dry-run completed.");
 });
 
+test("rax test attaches a non-intelligent self-repair preflight plan for unavailable runtime surfaces", async () => {
+  const targetDir = path.join(scratchRoot, "self-repair-preflight");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const agentPath = path.join(targetDir, "selfRepairAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "export class SelfRepairAgent extends praxis.Agent {",
+    "  identity = \"agent.self-repair-preflight\";",
+    "  model = praxis.model(\"gpt-5.4\");",
+    "  storage = praxis.storage.memory();",
+    "  sandbox = praxis.sandbox.rootlessContainer();",
+    "  harness = praxis.harness({ loop: praxis.loop.single() });",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli(["test", agentPath, "--json"]);
+
+  assert.equal(result.exitCode, 1);
+  const payload = JSON.parse(result.output) as {
+    selfRepairPreflight?: {
+      mode?: string;
+      status?: string;
+      dryRun?: boolean;
+      modelUsed?: boolean;
+      unsafeSideEffects?: boolean;
+      faults?: { stepSummaries?: readonly string[] }[];
+      publicSafeMessages?: readonly string[];
+    };
+  };
+  assert.equal(payload.selfRepairPreflight?.mode, "test-auto-plan");
+  assert.equal(payload.selfRepairPreflight?.dryRun, true);
+  assert.equal(payload.selfRepairPreflight?.modelUsed, false);
+  assert.equal(payload.selfRepairPreflight?.unsafeSideEffects, false);
+  assert.ok((payload.selfRepairPreflight?.faults?.length ?? 0) > 0);
+  assert.ok((payload.selfRepairPreflight?.publicSafeMessages?.length ?? 0) > 0);
+  assert.ok(payload.selfRepairPreflight?.status === "plan-ready" || payload.selfRepairPreflight?.status === "escalated");
+});
+
 test("rax inspect reports selected BaseTools through CLI host adapter readiness", async () => {
   const targetDir = path.join(scratchRoot, "basetool-host-readiness");
   await rm(targetDir, { recursive: true, force: true });

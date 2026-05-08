@@ -129,6 +129,13 @@ function statusFromDecision(
   return "allow";
 }
 
+function filesystemCreateCanRelaxApproval(request: BaseToolRuntimeGovernanceRequest, matchedRule: BaseToolPolicyRule | undefined): boolean {
+  if (request.metadata?.filesystemAction !== "create") return false;
+  if (request.policyMatrix.profile === "restricted") return false;
+  if (matchedRule !== undefined && matchedRule.scope !== "action") return false;
+  return true;
+}
+
 export function evaluateBaseToolRuntimeGovernance(
   request: BaseToolRuntimeGovernanceRequest,
 ): BaseToolRuntimeGovernanceDecision {
@@ -142,6 +149,9 @@ export function evaluateBaseToolRuntimeGovernance(
   });
   const decision = matchedRule?.decision ?? request.policyMatrix.defaultDecision;
   let status = statusFromDecision(decision, risk);
+  if (status === "requiresApproval" && filesystemCreateCanRelaxApproval(request, matchedRule)) {
+    status = "allow";
+  }
   if (request.readiness?.decision === "blocked") {
     status = "deny";
   }

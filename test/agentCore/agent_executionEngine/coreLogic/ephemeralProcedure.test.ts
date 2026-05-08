@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { normalizeEphemeralProcedurePlan } from "../../../../src/agentCore/agent_executionEngine/coreLogic/ephemeralProcedure.js";
+import {
+  createEphemeralProcedureExecutionState,
+  normalizeEphemeralProcedurePlan,
+} from "../../../../src/agentCore/agent_executionEngine/coreLogic/ephemeralProcedure.js";
 
 defineAgentCoreContractTest({
   sourcePath: "src/agentCore/agent_executionEngine/coreLogic/ephemeralProcedure.ts",
@@ -68,4 +71,78 @@ test("normalizeEphemeralProcedurePlan rejects unknown dependencies", () => {
   assert.equal(result.ok, false);
   if (result.ok) return;
   assert.equal(result.error.code, "UNKNOWN_DEPENDENCY");
+});
+
+test("normalizeEphemeralProcedurePlan caps one procedure package at 128 BaseTool calls", () => {
+  const result = normalizeEphemeralProcedurePlan({
+    procedureId: "too-many",
+    purpose: "too many calls",
+    steps: Array.from({ length: 129 }, (_, index) => ({
+      stepId: `step-${index}`,
+      baseToolId: "code.read",
+      input: {},
+    })),
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "TOO_MANY_STEPS");
+});
+
+test("createEphemeralProcedureExecutionState supports partial waiting, completed, failed, fallback, and parallel continuation", () => {
+  const normalized = normalizeEphemeralProcedurePlan({
+    procedureId: "parallel-plan",
+    purpose: "scan and summarize",
+    executionMode: "parallel",
+    approval: { required: true, reason: "high risk shell step" },
+    steps: [
+      {
+        stepId: "safe-read",
+        baseToolId: "code.read",
+        input: { path: "package.json" },
+        riskLevel: "low",
+      },
+      {
+        stepId: "risky-shell",
+        baseToolId: "shell.commandExecution",
+        input: { command: "du -ah ." },
+        riskLevel: "high",
+      },
+      {
+        stepId: "summarize",
+        baseToolId: "code.exec",
+        input: { language: "python", code: "print('summary')" },
+        dependsOn: ["safe-read"],
+      },
+      {
+        stepId: "fallback",
+        baseToolId: "search.ripgrep",
+        input: { pattern: "TODO" },
+      },
+      {
+        stepId: "failed",
+        baseToolId: "git.getRepositoryStatus",
+        input: {},
+      },
+    ],
+  });
+  assert.equal(normalized.ok, true);
+  if (!normalized.ok) return;
+
+  const state = createEphemeralProcedureExecutionState({
+    plan: normalized.plan,
+    completedStepIds: ["safe-read"],
+    failedStepIds: ["failed"],
+    fallbackStepIds: ["fallback"],
+  });
+
+  assert.equal(state.registryInvocationRequired, true);
+  assert.equal(state.partialStatus, "partialFallback");
+  assert.deepEqual(state.completedStepIds, ["safe-read"]);
+  assert.deepEqual(state.failedStepIds, ["failed"]);
+  assert.deepEqual(state.fallbackStepIds, ["fallback"]);
+  assert.equal(state.steps.find((step) => step.stepId === "risky-shell")?.status, "waitingApproval");
+  assert.equal(state.steps.find((step) => step.stepId === "summarize")?.status, "ready");
+  assert.equal(state.steps.find((step) => step.stepId === "summarize")?.canContinueInParallel, true);
+  assert.equal(state.steps.every((step) => step.mustUseBaseToolRegistry), true);
 });

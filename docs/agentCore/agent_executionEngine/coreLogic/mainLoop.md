@@ -22,6 +22,13 @@
 - 工程含义：这是执行核心逻辑的一处能力点，重点是主循环、状态机、复用或事件暴露的窄职责。
 - 第一实现重点：先把状态输入、状态输出、事件和调用下一跳定义清楚。
 - 当前正式动作原语包括 promptPack handoff、model invocation handoff、ModelDecision handoff、BaseTool handoff、EphemeralProcedure handoff、approval wait/resume、interrupt、retry/timeout、event/session record 等。Kernel 可以继续保留兼容 shim，但这些动作应逐步成为主循环语义入口。
+- 当前 MainLoop 领域模型分成 `MainLoopRun`、`UserTurn`、`LoopTick`、`MainLoopStepRecord`、`MainLoopCheckpoint`、`MainLoopTimelineRef`：
+  - `MainLoopRun` 表达一个 Agent 在一个 session 内的完整生命周期。
+  - `UserTurn` 表达一次用户输入到最终输出。
+  - `LoopTick` 表达一次 `model -> action -> observation` 小循环。
+  - `MainLoopStepRecord` 是日志、恢复、审批、debug、replay 的共同粒度。
+  - `MainLoopCheckpoint` 是 resume/replay/rollback 的定位点。
+  - `MainLoopTimelineRef` 是 run/turn/tick/step/checkpoint 的统一时间轴引用。
 
 ## 3. 目录语义
 
@@ -58,6 +65,24 @@
 - “驱动 Agent 执行主循环”后形成的状态变化、下一跳调用意图、事件材料或执行结果。
 - 可被 runtime.execEngine、behaviorExposure 和 debug/inspection 继续消费的标准结构。
 - `planFrameworkMainLoopHandoff` 输出 `praxis.mainLoopHandoffPlan`，每个 model/tool/procedure/approval/failure tick 都有 `MainLoopStepRecord`，并保持 dry-run、无副作用、可审计。
+- `createMainLoopRun`、`createUserTurn`、`createLoopTick`、`createMainLoopCheckpoint`、`createMainLoopSessionTimeline` 输出 MainLoop 的正式时间轴模型，供后续 Kernel 迁移、状态恢复、debug/replay 使用。
+- `runMainLoop` 是 MainLoop 的基础运行入口，负责生成 run/userTurn/loopTick/timeline，并调用 `prepareMainLoopTurn` 接住 PromptPack 与 cache plan。
+- `runMainLoopRunner` 是正式主循环 runner，拥有 `prepare -> invoke model -> interpret decision -> tool/procedure/approval/final` 的循环控制权。Kernel 只注入 runtime 回调：模型调用、工具执行、审批、持久化和错误记录，不再自己展开 provider/tool/observation for-loop。
+- `MainLoopRuntimeContext` 是 Kernel/application 给 MainLoop 的窄上下文，只声明 runtimeId、sessionId、manifestRef、callerRef 和可用 runtime surfaces，避免 MainLoop 吞掉整个 Kernel。
+- `createMainLoopApprovalEnvelope` 把 runtime 判定为需要人类介入的动作转成 public-safe 审批信封，CLI/TUI/Raxode/Raxos/application surface 都可以接走。
+- `resolveMainLoopApproval` 只接受外部 surface 返回的 approve/deny；deny 会回到模型重新规划，approve 会 resume，人工意见可以给模型看，但默认不能直接改工具参数。
+- `createMainLoopControlAction` 记录 pause/resume/interrupt 这类控制动作。它同时表达 MainLoop 状态和 Runtime 状态，并可携带 cancel token，保证长动作被打断时能溯源。
+- `createMainLoopRollbackPoint` 只记录 rollback 定位点，不直接执行 rollback。真正回滚由 runtime-control-surface、tool、storage 或上层控制台执行。
+- `replayMainLoopStep`、`replayMainLoopTick`、`replayUserTurn` 生成 dry-run replay plan，复用 step record、PromptPack refs、observation refs 和 provider raw refs，服务断点调试和可追溯复盘。
+- `createMainLoopBehaviorRegistry` 和 `resolveMainLoopBehaviorRef` 定义 MainLoop hooker/behavior refs 的唯一入口。behavior 可以来自 application、rax project、signed package、future DSL 或 runtime builtin，但运行时只认 registry 中注册过的 handlerRef，并受治理、冲突检测、timeout/sandbox/resource 合同约束。
+- `resolveMainLoopBudgetExhaustion` 把预算耗尽归一成 fail、partial final、request approval、summary current state 或 write resume checkpoint，避免预算超限时只能粗暴失败。
+- `analyzeMainLoopCacheHealth` 读取 PromptPack cache plan，输出 stable prefix、capability、session summary、observation hash、provider cache telemetry 和 cache miss warning。MainLoop 只解释 cache health，不写 provider 私有缓存字段。
+- `resolveMainLoopToolChoice` 表达 auto、none、required、force tool、force group、force procedure。默认交给模型自由选择；Repo/Coding 的 evidence rule 只作为 PromptPack 规则引用，不变成 MainLoop 硬编码任务策略。
+- `createMainLoopInputMaterial` 统一承接 text/image/audio/video 输入，并转成 PromptPack material / observation ref，不生成 provider payload。
+- `createMainLoopOutputEnvelope` 统一表达 text、structured、artifact ref、multimodal、stream chunk 和 trace summary 输出。Streaming 默认流完一段再记录，避免 token 级事件把前端或日志系统打爆。
+- `createMainLoopAgentInterfacePrimitive` 只生成 agent interface handoff，不直接嵌套调用另一个 Agent。未来 multiagent 只能规模化接管 interface primitive，不能绕开 agentCore/MainLoop 合同。
+- `createMainLoopStateProgressionRecord` 记录 receive input、model invoked、tool running、approval pending、observation integrated、final output、failure、interrupt、resume 等关键动作如何推进 state/event。
+- `decideMainLoopPromptPackRebuild` 统一判断 PromptPack 是否需要重建：新用户输入、observation 变化、memory/context 变化、capability set 变化、model family 切换、compression/summary 完成、behavior ref 请求都能成为 trigger。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 
@@ -111,3 +136,8 @@
 它属于 agentCore 内部工程骨架的一处能力点，需要和相邻模块通过窄契约连接。
 
 这份文档服务后续编码：当实现该文件时，应先回看本文件说明，再决定类型、函数、类和测试如何落位。
+
+## 15. 后续任务
+
+- `memoryBase` 暂不并入 MainLoop。本轮只保留 session-local fallback memory 与 `SummaryAgentRef`，后续应以 skillBase 风格设计一个可索引的 markdown memory 库，并允许 MP 接管。
+- 如果新增 `memoryBase` BaseTool，必须继续走 BaseTool registry/handler/executor，不得让 MainLoop 直接读写长期记忆。
