@@ -8,7 +8,8 @@
     "access": "public"
   },
   "bin": {
-    "rax": "./bin/rax"
+    "rax": "./bin/rax",
+    "raxode-cli": "./bin/raxode-cli"
   },
   "exports": {
     ".": "./src/agentCore/index.ts",
@@ -41,7 +42,8 @@
     "smoke:agentCore": "node --import tsx scripts/agentCore_Agent_Test/agentcore_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
     "test:agentCore": "find test/agentCore -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
-    "tasks:agentCore": "node tasks/scripts/agentcore_workflow.mjs"
+    "tasks:agentCore": "node tasks/scripts/agentcore_workflow.mjs",
+    "raxode:legacy-tui": "PRAXIS_BOOTSTRAP_MODE=off RAXODE_RENDER_FPS=120 node --import tsx raxode-cli/frontend/legacy-src/agent_core/direct-tui.tsx"
   },
   "devDependencies": {
     "@types/node": "^24.12.0",
@@ -54,6 +56,20 @@
     "@huggingface/transformers": "^4.2.0"
   },
   "dependencies": {
-    "tsx": "^4.21.0"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.138",
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@google/adk": "^0.5.0",
+    "@google/genai": "^1.52.0",
+    "@lancedb/lancedb": "^0.27.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openai/agents": "^0.7.2",
+    "@types/react": "^18.3.28",
+    "apache-arrow": "^18.1.0",
+    "ink": "^5.2.1",
+    "openai": "^6.37.0",
+    "react": "^18.3.1",
+    "string-width": "^7.2.0",
+    "tsx": "^4.21.0",
+    "zod": "^4.4.3"
   }
 }
