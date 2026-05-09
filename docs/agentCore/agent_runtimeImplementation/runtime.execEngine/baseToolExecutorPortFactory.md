@@ -42,7 +42,7 @@
 
 - `createRuntimeBaseToolExecutorPort(context)` 返回完整 `BaseToolExecutorPort`。
 - `listRuntimeBaseToolImplementedPortPaths(context)` 返回当前 runtime 内建 adapter 加注入 backend adapter 的真实 port 列表，供 support catalog / mount preflight 使用。
-- 第一批真实 adapter：filesystem read/write/delete/list、shell.run、process.run、git.runGit、search.ripgrep、network.fetch、shell validate/control/sandbox/monitor/capture。
+- 第一批真实 adapter：filesystem read/write/delete/list、shell.run、process.run、git.runGit、search.ripgrep、network.fetch、MCP HTTP/SSE configured runtime profiles、computeruse keyboard target gate、shell validate/control/sandbox/monitor/capture。
 - 未实现 adapter 若有 `context.adapters` 注入 backend，则先委托 backend；否则返回 public-safe `PROVIDER_UNAVAILABLE`。
 - 对 shell/process/git/filesystem write/delete/ripgrep 做最小 runtime policy gate。
 - 发出 runtime event，供后续审计、检查、debug 串接。
@@ -52,6 +52,7 @@
 - `runtimeId`、`sessionId`。
 - runtime policy：workspaceRoot、allowedRoots、是否允许 shell/git/process/filesystem write/delete/ripgrep。
 - resource limits：timeout、输出字节数、读取字节数、目录列举数量。
+- mcpServers：可选 runtime-owned MCP server profiles，用于把 stdio/http/sse MCP server 接入 `mcpRuntimeAdapter`。
 - adapters：可选 backend port 注入，用来承托 MCP、LSP、computeruse、omni、skill 等需要专门 runtime surface 的能力。
 - event sink：只接收 public-safe runtime executor event。
 
@@ -100,7 +101,8 @@
 - 先创建完整 port shape，保证缺能力是稳定 unavailable，而不是 undefined。
 - 第一批 adapter 只接 OS/filesystem/process/git/ripgrep 的最小安全路径。
 - 所有真实副作用都经过 context policy 和 allowedRoots。
-- 后续再把 MCP、LSP、computeruse、omni 等接入专用 runtime surface；factory 已经提供 backend adapter 委托入口。
+- MCP 可通过 `mcpServers` 接入 runtime-owned stdio/http/sse adapter；LSP、omni、office 等仍按专用 runtime surface 逐步补齐。
+- computeruse keyboard 输入必须有明确 target：managed terminal 用 `tmux:<session>`，桌面 GUI 用 `window:active` 或 `gui:<id>`。Wayland 文本优先 `wtype`，按键可用 `ydotool`；无明确 target 时返回 unavailable，不对 ambient focus 盲打。
 
 ## 13. 最小测试建议
 

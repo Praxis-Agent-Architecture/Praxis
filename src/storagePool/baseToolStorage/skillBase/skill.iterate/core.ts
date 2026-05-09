@@ -205,8 +205,9 @@ export async function executeSkillIterate(request: SkillIterateRequest = {}): Pr
       audit: [createAuditEvent("skill.iterate", "agentCore.basicTool.skill.iterate.executed", context, target.skillPath, { appliedFiles })],
       events: ["basicTool.skill.iterate.executed"],
     };
-  } catch {
-    return failure("skill.iterate", "PROVIDER_REJECTED", "skill.iterate provider failed while applying operations", "provider", context, target.skillPath);
+  } catch (error) {
+    const reason = error instanceof Error && error.message.trim().length > 0 ? `: ${error.message}` : "";
+    return failure("skill.iterate", "PROVIDER_REJECTED", `skill.iterate provider failed while applying operations${reason}`, "provider", context, target.skillPath);
   }
 }
 

@@ -559,7 +559,26 @@ export async function executeKeyboardInputEmulation(request: unknown = {}): Prom
     const normalizedResult = normalizeProviderResult(result, context, target);
     if ("ok" in normalizedResult) return normalizedResult;
     providerResult = normalizedResult;
-  } catch {
+  } catch (error) {
+    const providerMessage = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+    const failed = failure(
+      "PROVIDER_FAILURE",
+      "computeruse.keyboardInputEmulation runtime provider failed without exposing private details",
+      "provider",
+      context,
+      target.targetHint,
+    );
+    if (!failed.ok && providerMessage !== undefined) {
+      return {
+        ...failed,
+        audit: [
+          auditEvent("agentCore.basicTool.computeruse.keyboardInputEmulation.providerFailed", context, target.targetHint, {
+            code: "PROVIDER_FAILURE",
+            providerMessage,
+          }),
+        ],
+      };
+    }
     return failure(
       "PROVIDER_FAILURE",
       "computeruse.keyboardInputEmulation runtime provider failed without exposing private details",

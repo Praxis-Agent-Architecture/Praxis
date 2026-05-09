@@ -20,7 +20,7 @@ const chatgptCodexClientVersion = process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? 
 const model = process.env.AGENTCORE_CODEX_MODEL
   ?? process.env.OPENAI_AGENTCORE_MODEL
   ?? process.env.OPENAI_SMOKE_MODEL
-  ?? "gpt-5.4";
+  ?? "gpt-5.5";
 const reasoningEffort =
   process.env.AGENTCORE_CODEX_REASONING_EFFORT ??
   process.env.OPENAI_AGENTCORE_REASONING_EFFORT ??
@@ -487,6 +487,9 @@ async function main(): Promise<void> {
         "这是普通用户话术，用户不会自己写工具参数。你要像 agent 一样自己选择最合适的 omniBase 工具。",
         "可用工具只有：omni.viewImage, omni.generateImage, omni.imageCompressor, omni.imageFormatConversion, omni.listenAudio, omni.generateAudio, omni.audioCompressor, omni.audioFormatConversion, omni.audioLyricsGeneration, omni.viewVideo, omni.generateVideo, omni.videoCompressor, omni.videoFormatConversion, omni.videoSubtitleGeneration。",
         "不要选择 shell、code 或 provider SDK。omniBase 只负责转交 runtime；参数里必须包含 target 和 context。",
+        `测试工作区已经准备好的具体资源和参数锚点：${JSON.stringify(testCase.input)}`,
+        "你必须基于这些真实 fixture 参数组织 arguments；target 是对象时要保留为对象，尤其是 outputPath、inputPath、prompt、targetFormat、durationSeconds。",
+        "不要把 outputPath 放进 context，也不要把对象 target 改成纯字符串 target。",
         `期望的任务类别是 ${testCase.toolId}，但你仍然需要根据用户请求组织参数。`,
         "context 必须设置 dryRun:false 和 guard:{allowed:true, accepted:true}。",
         "只返回：{\"tool_calls\":[{\"tool\":\"...\",\"arguments\":{...}}]}",

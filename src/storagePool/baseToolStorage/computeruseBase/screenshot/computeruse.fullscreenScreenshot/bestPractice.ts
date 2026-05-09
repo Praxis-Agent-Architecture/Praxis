@@ -165,6 +165,13 @@ export const fullscreenScreenshotBaseToolDefinition = createComputerUseBaseToolD
     storesAudit: true,
     reusable: false,
   },
+  metadata: {
+    invocationEntryPath:
+      "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.fullscreenScreenshot.ts",
+    runtimeProviderDependencies: {
+      linux: ["runtime.desktop.screenshotProvider.linux"],
+    },
+  },
 });
 
 export const fullscreenScreenshotHandler: BaseToolHandler<FullscreenScreenshotHandlerInput, FullscreenScreenshotOutput> =

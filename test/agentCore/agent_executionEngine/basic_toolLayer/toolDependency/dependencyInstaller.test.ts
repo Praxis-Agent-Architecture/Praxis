@@ -68,3 +68,60 @@ await fs.writeFile(path.join(managedRoot, "installed.txt"), "ok\\n", "utf8");
     await rm(managedRoot, { recursive: true, force: true });
   }
 });
+
+test("ensureDependencyAvailable probes npm --prefix executables from node_modules .bin", async () => {
+  const managedRoot = await mkdtemp(path.join(tmpdir(), "praxis-tool-deps-npm-"));
+  const fakePackageManager = path.join(managedRoot, "fake-npm.js");
+  const executableName = "fake-npm-language-server";
+
+  await writeFile(
+    fakePackageManager,
+    `#!/usr/bin/env node
+const fs = await import("node:fs/promises");
+const path = await import("node:path");
+const prefixIndex = process.argv.indexOf("--prefix");
+const managedRoot = process.argv[prefixIndex + 1];
+const binDir = path.join(managedRoot, "node_modules", ".bin");
+await fs.mkdir(binDir, { recursive: true });
+await fs.writeFile(
+  path.join(binDir, "${executableName}"),
+  "#!/usr/bin/env node\\nif (process.argv.includes('--version')) { console.log('fake-npm-language-server 2.0.0'); process.exit(0); }\\n",
+  "utf8",
+);
+await fs.chmod(path.join(binDir, "${executableName}"), 0o755);
+`,
+    "utf8",
+  );
+  await chmod(fakePackageManager, 0o755);
+
+  try {
+    const result = await ensureDependencyAvailable({
+      dependencyId: "lsp.server.fake-npm-language-server",
+      managedRoot,
+      source: {
+        dependencyId: "lsp.server.fake-npm-language-server",
+        sourceId: "test:fake-npm-language-server",
+        displayName: "Fake npm language server",
+        safety: "trusted-managed",
+        packageManager: "npm",
+        executableName,
+        versionCommand: { command: executableName, args: ["--version"] },
+        managedInstall: {
+          command: process.execPath,
+          args: [fakePackageManager, "install", "--prefix", "{managedRoot}", "fake-npm-language-server"],
+        },
+      },
+    });
+
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    assert.equal(result.availability.installedNow, true);
+    assert.equal(
+      result.availability.resolvedPath,
+      path.join(managedRoot, "node_modules", ".bin", executableName),
+    );
+  } finally {
+    await rm(managedRoot, { recursive: true, force: true });
+  }
+});

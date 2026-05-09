@@ -172,6 +172,13 @@ export const windowScreenshotBaseToolDefinition = createComputerUseBaseToolDefin
     storesAudit: true,
     reusable: false,
   },
+  metadata: {
+    invocationEntryPath:
+      "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.windowScreenshot.ts",
+    runtimeProviderDependencies: {
+      linux: ["runtime.desktop.screenshotProvider.linux"],
+    },
+  },
 });
 
 export const windowScreenshotHandler: BaseToolHandler<WindowScreenshotHandlerInput, WindowScreenshotOutput> =

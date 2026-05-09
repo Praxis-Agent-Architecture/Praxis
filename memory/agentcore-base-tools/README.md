@@ -98,6 +98,22 @@ This keeps provider routing meaningful: the model-facing practice can follow Cod
 - `inputSchema` and `outputSchema` are still `pending-schema` placeholders. Real schemas should be filled while implementing each tool.
 - Most remaining builtin tool files still expose dry-run plans. Real execution should be added through `BaseToolHandler.invoke()` plus `BaseToolExecutorPort`, not by embedding ungoverned side effects directly in each entry file.
 
+## 2026-05-09 Realtest Proof Notes
+
+The `realtest/minimal`, `realtest/fullstack`, and `realtest/caonima` agents were used as the current framework proof suite.
+
+- `rax run --live` must expose provider-native tools by default. A live model tool call followed by a final answer needs at least two model turns in minimal test agents.
+- Session persistence must tolerate concurrent live runs. The SQLite session/state/event store now requires WAL mode, a nonzero `busy_timeout`, and normal sync to avoid `SQLITE_BUSY` under parallel agent runs.
+- Dependency readiness must check managed dependency roots, including `managedRoot/node_modules/.bin`; checking only PATH makes dependency auto-install look unavailable after it actually succeeds.
+- `runtime.generationPlane.*` support entries are runtime-owned surfaces, not external provider dependencies, and should be recognized as available by the support catalog.
+- Model-facing prompts should not claim that a declared tool is verified merely because it is mounted. Readiness and actual invocation evidence must stay separate.
+- Desktop keyboard injection and managed terminal input are separate concerns. For reliable terminal work, route through a runtime-owned PTY/tmux session so input is focus-independent and IME-bypassing; invasive desktop keyboard providers such as `ydotool` remain host-provider capabilities.
+- Managed terminal input should stay inside the existing `computeruse.keyboard* -> BaseToolExecutorPort.computeruse.keyboardAction` route for now. It must require an explicit `tmux:<session>`, `pty:<session>`, `terminal:<session>`, `metadata.tmuxSession`, or `PRAXIS_DESKTOP_TMUX_SESSION`; do not hardcode a project-specific session name.
+- On Ubuntu GNOME Wayland, `ydotool` needs the separate `ydotoold` package and a service/socket permission setup. The verified local setup uses `/etc/systemd/system/ydotoold.service`, keeps `/tmp/.ydotool_socket` at `root:plugdev 0660`, and lets non-sudo framework processes use the `ydotoold` backend.
+- GNOME Wayland screenshot capture is not equivalent to keyboard injection. In the current host session, `grim` is blocked by missing `wlr-screencopy-unstable-v1`, GNOME Shell screenshot DBus returns AccessDenied, and pure background XDG portal callers fail because only a focused app may show the system access dialog. The working provider path is a runtime-owned GTK/libportal helper launched through a matching `.desktop` identity via `gtk-launch`; this provides a valid focused app/parent window and returns a real PNG artifact through `BaseToolExecutorPort.computeruse.captureScreenshot`.
+- Public-safe provider failures must not expose private backend paths or raw provider messages. Keep detailed provider diagnostics in audit metadata or saved logs, while the model/user-facing error remains stable.
+- Current proof artifacts live under `realtest/caonima/reports/`, but `realtest/` is ignored by the root `.gitignore`; decide explicitly before relying on those reports as versioned regression evidence.
+
 ## First Provider Practice Sample
 
 `code.lsp_locateDefinition` is the first sample tool moved onto the provider practice shape.
@@ -430,3 +446,25 @@ Design decisions:
 - `dependencyIterationManager.ts` attaches trusted managed install plans to missing/stale registered dependencies.
 - `_shared/runtime.ts` now consumes the LSP resolver for default server selection; explicit `runtime.server` remains available for tests and advanced overrides.
 - `_shared/runtime.ts` also exposes runtime helpers for completion, signature help, hover, document formatting, range formatting, code actions, and diagnostics notification capture.
+
+## Computeruse Linux Desktop Providers
+
+The screenshot tools should depend on a generic Linux desktop screenshot capability instead of hardcoding one desktop command.
+
+Current decision:
+
+- `runtime.desktop.screenshotProvider.linux` is the dependency id for Linux screenshot readiness.
+- It is a `trusted-detect-only` source, not a silent auto-install recipe.
+- The dependency/runtime layer probes available stacks and reports missing/available state before the screenshot baseTool executes.
+- `computeruse.fullscreenScreenshot`, `windowScreenshot`, `rectangularSelectionScreenshot`, and `freeformScreenshot` remain the only semantic invocation entries.
+- Their required BaseTool dependencies stay limited to `BaseToolExecutorPort.computeruse.captureScreenshot`, governance approval, and artifact storage.
+- Linux provider readiness is recorded under `BaseToolDefinition.metadata.runtimeProviderDependencies.linux`, not as a separate model-callable tool or universal required dependency gate.
+
+Provider order used by the runtime adapter:
+
+- GTK/libportal through `gtk-launch` and a valid `.desktop` identity for GNOME Wayland portal capture.
+- `grim` for wlroots compositors.
+- GNOME Shell DBus and `gnome-screenshot` as GNOME fallbacks.
+- X11 tools such as `xwd` or ImageMagick `import` are dependency-probe candidates and can be expanded into runtime fallbacks.
+
+The important boundary is that baseTools only declare this dependency and call the executor port. Runtime/dependency management owns OS packages, provider probes, desktop identity helpers, and platform-specific fallback selection.

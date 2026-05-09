@@ -800,6 +800,71 @@ test("PraxisRuntimeKernel.runManifest sanitizes omni governance context before p
   assert.doesNotMatch(JSON.stringify(result.toolCalls[0]), /INVALID_CONTEXT|malformed governance/);
 });
 
+test("PraxisRuntimeKernel.runManifest defaults omni provider permissions for permissive runtime profiles", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-omni-permissions-"));
+  const outputPath = path.join(workspace, "generated.png");
+
+  class OmniGenerateAgent extends PraxisAgent {
+    identity = "agent.omni-generate";
+    model = model("gpt-5.4", { carrierId: "carrier.omni-generate" });
+    toolPolicy = toolPolicies.permissive();
+    harness = harness({
+      tools: tools([tool("omni.generateImage")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-omni-generate" }).run(
+    new OmniGenerateAgent(),
+    "generate a test image",
+    {
+      sessionId: "session-omni-generate",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "omni.generateImage",
+              call_id: "omni-generate-image-call",
+              arguments: JSON.stringify({
+                target: { prompt: "A small test image", outputPath, mimeType: "image/png" },
+                context: { grantedPermissions: ["tool.execute"] },
+              }),
+            }],
+          };
+        }
+        return { output_text: "generation provider was reached" };
+      },
+      now: () => "2026-05-09T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, false);
+  const toolError = result.toolCalls[0]?.error as { code?: string } | undefined;
+  assert.equal(toolError?.code, "PROVIDER_REJECTED");
+  const grantedPermissions = (result.toolCalls[0]?.arguments as { context?: { grantedPermissions?: readonly string[] } } | undefined)
+    ?.context
+    ?.grantedPermissions;
+  assert.equal(grantedPermissions?.includes("provider:invoke"), true);
+  assert.equal(grantedPermissions?.includes("omni:image:write"), true);
+  assert.notEqual(toolError?.code, "PERMISSION_DENIED");
+});
+
 test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for replanning", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-tool-failure-"));
 

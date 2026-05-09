@@ -78,6 +78,7 @@ import {
 import {
   compileAgent,
   type AgentManifest,
+  type BaseToolPolicyProfile,
   type PraxisAgent,
   type PraxisAgentInput,
 } from "./runtimeAgentManifest.js";
@@ -355,7 +356,11 @@ function mergeStringLists(...lists: readonly (readonly string[] | undefined)[]):
   return merged;
 }
 
-function runtimeGrantedPermissionsForTool(toolId: string): readonly string[] {
+function omniProviderPermissionsCanDefault(profile: BaseToolPolicyProfile): boolean {
+  return profile === "bapr" || profile === "yolo" || profile === "permissive";
+}
+
+function runtimeGrantedPermissionsForTool(toolId: string, profile: BaseToolPolicyProfile): readonly string[] {
   if (toolId.startsWith("git.")) return ["git:read", "filesystem:read"];
   if (toolId.startsWith("code.")) return ["filesystem:read", "filesystem:write"];
   if (toolId.startsWith("skill.")) return ["skill:read", "skill:write", "filesystem:read", "filesystem:write"];
@@ -390,13 +395,29 @@ function runtimeGrantedPermissionsForTool(toolId: string): readonly string[] {
     ];
   }
   if (toolId === "omni.viewImage") return ["filesystem:read", "omni:image:view"];
-  if (toolId.startsWith("omni.")) return ["filesystem:read", "filesystem:write", "omni:media:transform", "omni:image:generate"];
+  if (toolId.startsWith("omni.")) {
+    const basePermissions = ["filesystem:read", "filesystem:write", "omni:media:transform"];
+    if (!omniProviderPermissionsCanDefault(profile)) return basePermissions;
+    return [
+      ...basePermissions,
+      "provider:invoke",
+      "omni:image:read",
+      "omni:image:write",
+      "omni:image:generate",
+      "omni:audio:read",
+      "omni:audio:write",
+      "omni:audio:generate",
+      "omni:video:read",
+      "omni:video:write",
+      "omni:video:generate",
+    ];
+  }
   if (toolId.startsWith("computeruse.")) return ["computeruse:read", "computeruse:device:read", "computeruse:screenshot"];
   return ["tool.execute"];
 }
 
-function grantedPermissionsForTool(toolId: string, rawPermissions: unknown): readonly string[] {
-  const merged = mergeStringLists(readStringArray(rawPermissions), runtimeGrantedPermissionsForTool(toolId));
+function grantedPermissionsForTool(toolId: string, rawPermissions: unknown, profile: BaseToolPolicyProfile): readonly string[] {
+  const merged = mergeStringLists(readStringArray(rawPermissions), runtimeGrantedPermissionsForTool(toolId, profile));
   if (toolId === "omni.viewImage") {
     return merged.filter((permission) => permission === "filesystem:read" || permission === "omni:image:view");
   }
@@ -429,7 +450,7 @@ function enrichToolArguments(
   const allowedRoots = Array.isArray(args.allowedRoots)
     ? args.allowedRoots
     : manifest.harness.policy.allowedRoots ?? runtimeContext.allowedRoots;
-  const grantedPermissions = grantedPermissionsForTool(toolId, rawContext.grantedPermissions);
+  const grantedPermissions = grantedPermissionsForTool(toolId, rawContext.grantedPermissions, manifest.toolPolicy.profile);
   const requestedScopes = mergeStringLists(readStringArray(rawContext.requestedScopes), ["tool.execute", `tool.${toolId}`]);
   const allowedScopes = mergeStringLists(readStringArray(rawContext.allowedScopes), manifest.harness.policy.scopes, ["tool.execute", `tool.${toolId}`, toolId]);
   const allowedRepositoryRoots = Array.isArray(rawContext.allowedRepositoryRoots)
@@ -1976,6 +1997,7 @@ export class PraxisRuntimeKernel {
         allowGitExecution: manifest.harness.policy.allowToolExecution ?? options.allowToolExecution,
         allowProcessExecution: manifest.harness.policy.allowToolExecution ?? options.allowToolExecution,
         allowFilesystemWrite: manifest.harness.policy.allowToolExecution ?? options.allowToolExecution,
+        allowFilesystemDelete: manifest.harness.policy.allowToolExecution ?? options.allowToolExecution,
         allowRipgrep: true,
         allowNetworkFetch: true,
         ...(options.baseToolPolicy ?? {}),

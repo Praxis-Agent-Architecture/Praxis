@@ -48,6 +48,37 @@ test("baseToolDependencyRuntime reports ready dependencies after governance appr
   assert.ok(result.events.includes("runtime.execEngine.baseToolDependencyRuntime.ready"));
 });
 
+test("baseToolDependencyRuntime treats generationPlane contracts as runtime-owned support", async () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-dependency-generation-plane",
+    sessionId: "session-dependency-generation-plane",
+  });
+  const implementedPortPaths = listRuntimeBaseToolImplementedPortPaths();
+  const readiness = evaluateBaseToolRuntimeReadiness({
+    toolId: "shell.invocationConstruction",
+    executor,
+    implementedPortPaths,
+  });
+
+  const result = await preflightBaseToolDependencies({
+    executor,
+    readiness,
+    catalogEntry: readiness.entry,
+    implementedPortPaths,
+    context: {
+      runtimeId: "runtime-dependency-generation-plane",
+      sessionId: "session-dependency-generation-plane",
+      invocationId: "tool-call-generation-plane",
+      toolId: "shell.invocationConstruction",
+      governanceAccepted: true,
+    },
+  });
+
+  assert.equal(result.decision, "ready");
+  assert.equal(result.status, "available");
+  assert.deepEqual(result.missingDependencies, []);
+});
+
 test("baseToolDependencyRuntime exposes approval and provider-unavailable dependency boundaries", async () => {
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-dependency-boundary",
@@ -248,4 +279,52 @@ test("baseToolDependencyRuntime treats unknown dependencies as unsatisfied inste
   assert.equal(result.status, "unknown");
   assert.deepEqual(result.missingDependencies, ["unknown.runtime.contract"]);
   assert.match(result.reason, /unsatisfied dependencies/u);
+});
+
+test("baseToolDependencyRuntime live-probes registered detect-only desktop dependencies", async () => {
+  const managedRoot = await mkdtemp(path.join(os.tmpdir(), "praxis-dependency-runtime-detect-"));
+  const binDir = path.join(managedRoot, "bin");
+  await mkdir(binDir, { recursive: true });
+  const python = path.join(binDir, "python3");
+  await writeFile(python, "#!/usr/bin/env sh\necho gtk-launch-xdg-desktop-portal\n", "utf8");
+  await chmod(python, 0o755);
+
+  const screenshotEntry: BaseToolSupportCatalogEntry = {
+    toolId: "computeruse.fullscreenScreenshot",
+    family: "computeruse",
+    storageFamily: "computeruseBase",
+    group: "screenshot",
+    title: "Fullscreen Screenshot",
+    riskLevel: "risky",
+    permissionHints: [],
+    dependencies: [{
+      dependencyId: "runtime.desktop.screenshotProvider.linux",
+      kind: "package",
+      required: true,
+      description: "Linux desktop runtime must expose a real screenshot provider stack.",
+    }],
+    requiredSupports: [],
+    readiness: "available",
+    storageDocPath: "computeruse.fullscreenScreenshot.md",
+  };
+
+  const result = await preflightBaseToolDependencies({
+    catalogEntry: screenshotEntry,
+    context: {
+      runtimeId: "runtime-dependency-detect",
+      sessionId: "session-dependency-detect",
+      invocationId: "tool-call-detect",
+      toolId: "computeruse.fullscreenScreenshot",
+      governanceAccepted: true,
+      managedRoot,
+      env: {
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+      },
+    },
+  });
+
+  assert.equal(result.decision, "ready");
+  assert.equal(result.status, "available");
+  assert.deepEqual(result.missingDependencies, []);
+  assert.equal(result.report?.resolutions[0]?.observedVersion, "gtk-launch-xdg-desktop-portal");
 });

@@ -251,6 +251,31 @@ test("computeruseBase canonical starter handlers are mounted in builtin registry
   }
 });
 
+test("computeruse screenshot entry remains the only invocation surface while Linux providers stay dependency metadata", () => {
+  const registry = createBaseToolRegistry();
+  for (const tool of canonicalTools.filter((candidate) => candidate.group === "screenshot" && candidate.id !== "computeruse.screenshotStorage")) {
+    const lookup = registry.lookupHandler(tool.id);
+    assert.equal(lookup.ok, true, tool.id + " should resolve a registry handler");
+    if (!lookup.ok) continue;
+
+    assert.equal(
+      lookup.handler.definition.sourcePath?.endsWith(`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/${tool.id}.ts`),
+      true,
+      tool.id + " must publish the computeruseBase entry as its invocation path",
+    );
+    assert.equal(
+      lookup.handler.definition.dependencies.some((dependency) => dependency.dependencyId === "runtime.desktop.screenshotProvider.linux"),
+      false,
+      tool.id + " must not treat Linux screenshot provider selection as a model-callable dependency gate",
+    );
+
+    const runtimeProviderDependencies = (lookup.handler.definition.metadata as Record<string, unknown> | undefined)?.runtimeProviderDependencies as
+      | Record<string, unknown>
+      | undefined;
+    assert.deepEqual(runtimeProviderDependencies?.linux, ["runtime.desktop.screenshotProvider.linux"]);
+  }
+});
+
 test("computeruseBase screenshot handlers classify malformed handler input without raw TypeError", async () => {
   const registry = createBaseToolRegistry();
   const malformedInputs = [null, "bad", 1, []] as const;

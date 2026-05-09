@@ -1187,7 +1187,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
     allowProviderCall: live,
     auth: liveProvider?.ok === true ? liveProvider.auth : undefined,
     providerCaller: liveProvider?.ok === true ? liveProvider.providerCaller : undefined,
-    exposeProviderTools: !live,
+    exposeProviderTools: !hasFlag(args, "--no-provider-tools"),
   });
   const selfRepairReport = result.ok
     ? undefined

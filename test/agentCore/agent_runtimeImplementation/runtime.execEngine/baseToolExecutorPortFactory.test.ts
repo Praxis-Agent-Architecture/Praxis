@@ -205,7 +205,78 @@ test("baseToolExecutorPortFactory delegates injected backend adapters before una
   }
 });
 
-test("baseToolExecutorPortFactory reports Linux desktop Wayland and X11 readiness metadata", async () => {
+test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provider", async () => {
+  const seenMethods: string[] = [];
+  const server = createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/sse") {
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "close",
+      });
+      response.end("event: ready\ndata: {}\n\n");
+      return;
+    }
+    if (request.method !== "POST" || request.url !== "/rpc") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const payload = JSON.parse(body) as { id?: string | number; method?: string; params?: Record<string, unknown> };
+      seenMethods.push(payload.method ?? "");
+      const result = payload.method === "tools/list"
+        ? { tools: [{ name: "echo", description: "HTTP MCP echo", inputSchema: { type: "object" } }] }
+        : payload.method === "tools/call"
+          ? { content: [{ type: "text", text: `echo:${String((payload.params?.arguments as Record<string, unknown> | undefined)?.message ?? "")}` }] }
+          : { ok: true };
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result }));
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as AddressInfo;
+    const baseUrl = `http://127.0.0.1:${address.port}`;
+    const executor = createRuntimeBaseToolExecutorPort({
+      runtimeId: "runtime-factory-mcp-http-sse",
+      sessionId: "session-factory-mcp-http-sse",
+      mcpServers: [{
+        serverId: "http-sse-mcp",
+        transport: "sse",
+        url: `${baseUrl}/rpc`,
+        sseUrl: `${baseUrl}/sse`,
+        timeoutMs: 3_000,
+      }],
+    });
+
+    const connected = await executor.mcp?.connect?.({ serverId: "http-sse-mcp", transportHint: "sse" });
+    assert.equal(connected?.ok, true);
+    if (connected?.ok) assert.equal(connected.output.providerMetadata?.transport, "sse");
+
+    const listed = await executor.mcp?.listTools?.({ serverId: "http-sse-mcp" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "echo");
+
+    const called = await executor.mcp?.callTool?.({
+      serverId: "http-sse-mcp",
+      toolName: "echo",
+      arguments: { message: "hello" },
+    });
+    assert.equal(called?.ok, true);
+    if (called?.ok) assert.match(JSON.stringify(called.output), /echo:hello/u);
+    assert.deepEqual(seenMethods, ["initialize", "tools/list", "tools/call"]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("baseToolExecutorPortFactory blocks Linux desktop pointer and keyboard actions without injected provider", async () => {
   const waylandExecutor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-factory-wayland",
     sessionId: "session-factory-wayland",
@@ -223,11 +294,11 @@ test("baseToolExecutorPortFactory reports Linux desktop Wayland and X11 readines
       coordinateSpace: "screen",
     },
   });
-  assert.equal(wayland?.ok, true);
-  if (wayland?.ok) {
-    const metadata = wayland.output.metadata as { desktop?: { displayServer?: string; pointerProviders?: string[] } };
-    assert.equal(metadata.desktop?.displayServer, "wayland");
-    assert.deepEqual(metadata.desktop?.pointerProviders, ["ydotool"]);
+  assert.equal(wayland?.ok, false);
+  if (wayland?.ok === false) {
+    assert.equal(wayland.error.code, "PROVIDER_UNAVAILABLE");
+    assert.match(wayland.error.message, /ydotool/u);
+    assert.match(wayland.error.message, /no pointer action was executed/u);
   }
 
   const x11Executor = createRuntimeBaseToolExecutorPort({
@@ -242,11 +313,59 @@ test("baseToolExecutorPortFactory reports Linux desktop Wayland and X11 readines
     action: "press",
     keys: ["Escape"],
   });
-  assert.equal(x11?.ok, true);
-  if (x11?.ok) {
-    const metadata = x11.output.metadata as { desktop?: { displayServer?: string; pointerProviders?: string[] } };
-    assert.equal(metadata.desktop?.displayServer, "x11");
-    assert.deepEqual(metadata.desktop?.pointerProviders, ["xdotool"]);
+  assert.equal(x11?.ok, false);
+  if (x11?.ok === false) {
+    assert.equal(x11.error.code, "PROVIDER_UNAVAILABLE");
+    assert.match(x11.error.message, /xdotool/u);
+    assert.match(x11.error.message, /no keyboard input was executed/u);
+  }
+});
+
+test("baseToolExecutorPortFactory requires explicit managed terminal session targets", async () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-managed-terminal",
+    sessionId: "session-factory-managed-terminal",
+    environment: {
+      XDG_SESSION_TYPE: "wayland",
+      WAYLAND_DISPLAY: "wayland-0",
+      PRAXIS_ENABLE_DESKTOP_AUTOMATION: "1",
+    },
+  });
+
+  const missingSession = await executor.computeruse?.keyboardAction?.({
+    action: "type",
+    text: "hello",
+    metadata: { targetHint: "managed terminal" },
+  });
+  assert.equal(missingSession?.ok, false);
+  if (missingSession?.ok === false) {
+    assert.equal(missingSession.error.code, "PROVIDER_UNAVAILABLE");
+    assert.match(missingSession.error.message, /explicit tmux\/pty\/terminal session/u);
+    assert.doesNotMatch(missingSession.error.message, /praxis-caonima-work/u);
+  }
+});
+
+test("baseToolExecutorPortFactory refuses non-ASCII desktop keyboard text without stable target", async () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-nonascii-keyboard",
+    sessionId: "session-factory-nonascii-keyboard",
+    environment: {
+      XDG_SESSION_TYPE: "wayland",
+      WAYLAND_DISPLAY: "wayland-0",
+      PRAXIS_ENABLE_DESKTOP_AUTOMATION: "1",
+    },
+  });
+
+  const result = await executor.computeruse?.keyboardAction?.({
+    action: "type",
+    text: "今天的金价是多少",
+  });
+  assert.equal(result?.ok, false);
+  if (result?.ok === false) {
+    assert.equal(result.error.code, "PROVIDER_UNAVAILABLE");
+    assert.match(result.error.message, /explicit bound target/u);
+    assert.match(result.error.message, /window:active/u);
+    assert.match(result.error.message, /tmux:<session>/u);
   }
 });
 

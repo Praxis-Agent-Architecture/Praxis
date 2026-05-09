@@ -52,6 +52,8 @@ The handler injects `runtimeId`, `sessionId`, and `toolCallId` into runtime invo
 
 - `target.inputMode` or top-level `inputMode`: `text` or `paste`; defaults to `text`. The runtime port still receives the primitive `type` action.
 - `target.targetHint` or top-level `targetHint`: public-safe description of the intended focus target.
+  - For a runtime-managed terminal/PTY, use an explicit target such as `tmux:praxis-work`, `pty:praxis-work`, or `terminal:praxis-work`.
+  - The runtime may also accept `metadata.tmuxSession` or `PRAXIS_DESKTOP_TMUX_SESSION`, but the baseTool itself does not invent a default terminal session.
 - `target.maxTextLength` or top-level `maxTextLength`: bounded per-call text limit; defaults to `4096`.
 - `context.invocationId`: defaults to `toolCallId` when invoked through the handler.
 - `context.sessionId`: defaults to `BaseToolInvokeRequest.sessionId` when invoked through the handler.
@@ -68,6 +70,10 @@ Dry-run is the default. Dry-run returns a metadata-only keyboard action plan and
 Real execution dispatches only through `BaseToolExecutorPort.computeruse.keyboardAction` with `action: "type"` and the normalized text. If `executor.computeruse` or `keyboardAction` is absent, the tool returns `PROVIDER_UNAVAILABLE`.
 
 Runtime owns focus boundaries, OS keyboard APIs, accessibility or portal backends, input method behavior, clipboard use when supported, event emission, permission prompts, cancellation, and cleanup. The baseTool only declares the contract and normalizes the runtime result.
+
+For governed terminal work, runtime may route this same keyboard primitive to a managed PTY/tmux adapter. That route is intentionally focus-independent and IME-bypassing, but it still lives behind `BaseToolExecutorPort.computeruse.keyboardAction`; it is not a separate model-facing terminal strategy and it requires an explicit managed session target.
+
+For governed desktop work, runtime may route the same primitive to a bound GUI input adapter. Linux Wayland text input prefers `wtype`; key events may use `ydotool`; X11 may use `xdotool`. The request must still name an explicit runtime target such as `window:active`, `gui:<id>`, or `tmux:<session>` through metadata/target hint. Without that target, runtime refuses to type into whichever app happens to be focused.
 
 Provider practice files are evidence and optional provider factories. They may describe Claude/Codex/Gemini lessons, but they do not turn browser-use, shell commands, clipboard tools, portals, or OS automation libraries into hidden baseTool behavior.
 

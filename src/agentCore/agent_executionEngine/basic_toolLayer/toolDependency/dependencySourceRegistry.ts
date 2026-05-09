@@ -173,6 +173,41 @@ export const builtinDependencySources = [
     versionCommand: { command: "ydotool", args: ["--version"] },
   },
   {
+    dependencyId: "runtime.desktop.screenshotProvider.linux",
+    sourceId: "detect:linux-desktop-screenshot-provider",
+    displayName: "Linux desktop screenshot provider stack",
+    safety: "trusted-detect-only",
+    packageManager: "detect-only",
+    executableName: "python3",
+    versionCommand: {
+      command: "python3",
+      args: [
+        "-c",
+        [
+          "import importlib.util, shutil, sys",
+          "providers=[]",
+          "if shutil.which('gtk-launch') and importlib.util.find_spec('gi'): providers.append('gtk-launch-xdg-desktop-portal')",
+          "if shutil.which('grim'): providers.append('grim')",
+          "if shutil.which('gnome-screenshot'): providers.append('gnome-screenshot')",
+          "if shutil.which('maim') or shutil.which('scrot') or shutil.which('xwd') or shutil.which('import'): providers.append('x11-screenshot-cli')",
+          "print(','.join(providers) or 'missing-linux-screenshot-provider')",
+          "sys.exit(0 if providers else 1)",
+        ].join("\n"),
+      ],
+    },
+    metadata: {
+      platform: "linux",
+      providerCandidates: [
+        "gtk-launch + GTK4/libportal + xdg-desktop-portal",
+        "grim/slurp for wlroots compositors",
+        "gnome-screenshot for GNOME fallback",
+        "maim/scrot/xwd/ImageMagick import for X11 fallback",
+      ],
+      installHint:
+        "Install a Linux screenshot provider stack through the host dependency manager, for example xdg-desktop-portal, xdg-desktop-portal-gnome or gtk, python3-gi, gir1.2-gtk-4.0, gir1.2-xdp-1.0, gir1.2-xdpgtk4-1.0, grim, slurp, gnome-screenshot, maim, or scrot depending on the desktop session.",
+    },
+  },
+  {
     dependencyId: "mcp.testServer.echo",
     sourceId: "builtin:mcp-test-server:echo",
     displayName: "Praxis MCP echo test server",

@@ -80,6 +80,7 @@
 - trusted managed 生成无审批安装计划。
 - detect-only 不生成自动安装。
 - 未注册源返回 public-safe 错误。
+- Linux 桌面截图这类复合能力用一个 detect-only dependency id 表示，由 probe 检查 portal、Wayland CLI、GNOME CLI、X11 CLI 等可用 Provider，而不是让 baseTool 或提示词写死某个工具。
 
 ## 14. 与系统链路的关系
 

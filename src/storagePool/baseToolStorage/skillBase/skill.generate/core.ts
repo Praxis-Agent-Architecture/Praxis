@@ -202,8 +202,9 @@ export async function executeSkillGenerate(request: SkillGenerateRequest = {}): 
       audit: [createAuditEvent("skill.generate", "agentCore.basicTool.skill.generate.executed", context, target.skillName, { writtenFiles })],
       events: ["basicTool.skill.generate.executed"],
     };
-  } catch {
-    return failure("skill.generate", "PROVIDER_REJECTED", "skill.generate provider failed while writing skill files", "provider", context, target.skillName);
+  } catch (error) {
+    const reason = error instanceof Error && error.message.trim().length > 0 ? `: ${error.message}` : "";
+    return failure("skill.generate", "PROVIDER_REJECTED", `skill.generate provider failed while writing skill files${reason}`, "provider", context, target.skillName);
   }
 }
 

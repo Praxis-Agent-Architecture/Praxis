@@ -5,6 +5,7 @@
  */
 
 import path from "node:path";
+import { spawn } from "node:child_process";
 
 import type { BaseToolDependencyDeclaration } from "../../agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import {
@@ -30,6 +31,8 @@ import {
   lookupDependencySource,
   managedBinDir,
   planDependencyInstallation,
+  type ToolDependencyProbeCommand,
+  type ToolDependencySourceEntry,
 } from "../../agent_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.js";
 import { readManagedDependencyRecord } from "../../agent_executionEngine/basic_toolLayer/toolDependency/dependencyManagedState.js";
 import {
@@ -238,6 +241,93 @@ function catalogSupportSatisfiesDependency(input: {
     });
 }
 
+async function runDependencyProbeCommand(
+  command: ToolDependencyProbeCommand,
+  context: BaseToolDependencyRuntimeContext,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  return await new Promise((resolve, reject) => {
+    const child = spawn(command.command, [...(command.args ?? [])], {
+      env: {
+        ...process.env,
+        ...(context.env ?? {}),
+      },
+      stdio: "pipe",
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, context.timeoutMs ?? 10_000);
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(new Error(`dependency probe timed out: ${command.command}`));
+        return;
+      }
+      resolve({
+        exitCode: code ?? 1,
+        stdout: stdout.trim(),
+        stderr: stderr.trim(),
+      });
+    });
+  });
+}
+
+async function probeDetectOnlyDependency(input: {
+  dependencyId: string;
+  source: ToolDependencySourceEntry;
+  context: BaseToolDependencyRuntimeContext;
+}): Promise<ToolDependencyProbe | undefined> {
+  if (input.source.safety !== "trusted-detect-only") return undefined;
+  const probeCommand = input.source.versionCommand ?? {
+    command: input.source.executableName,
+    args: ["--version"],
+  };
+  if (probeCommand.command.trim().length === 0) return undefined;
+
+  try {
+    const result = await runDependencyProbeCommand(probeCommand, input.context);
+    const available = result.exitCode === 0;
+    const detail = result.stdout.split(/\r?\n/u)[0]?.trim() || result.stderr.split(/\r?\n/u)[0]?.trim() || undefined;
+    return {
+      dependencyId: input.dependencyId,
+      available,
+      version: available ? detail : undefined,
+      resolvedPath: probeCommand.command,
+      observedAt: new Date().toISOString(),
+      detail: detail ?? (available ? "detect-only dependency probe succeeded" : "detect-only dependency probe failed"),
+      metadata: {
+        dependencySource: input.source.sourceId,
+        probeKind: "detect-only-live",
+      },
+    };
+  } catch (error) {
+    return {
+      dependencyId: input.dependencyId,
+      available: false,
+      detail: error instanceof Error ? error.message : "detect-only dependency probe failed",
+      metadata: {
+        dependencySource: input.source.sourceId,
+        probeKind: "detect-only-live",
+      },
+    };
+  }
+}
+
 async function probesForDeclarations(input: {
   declarations: readonly ToolDependencyDeclaration[];
   entry: BaseToolSupportCatalogEntry;
@@ -295,6 +385,16 @@ async function probesForDeclarations(input: {
 
     const source = lookupDependencySource(dependencyId);
     if (source.ok) {
+      const detected = await probeDetectOnlyDependency({
+        dependencyId,
+        source: source.source,
+        context: input.context,
+      });
+      if (detected !== undefined) {
+        probes.push(detected);
+        continue;
+      }
+
       const record = await readManagedDependencyRecord(managedRoot, dependencyId);
       probes.push({
         dependencyId,

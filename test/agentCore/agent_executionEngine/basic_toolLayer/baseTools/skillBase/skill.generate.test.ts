@@ -62,3 +62,25 @@ test("skill.generate handler writes through runtime provider when guarded", asyn
   assert.equal(result.ok, true);
   assert.deepEqual(writes, ["/workspace/.agents/skills/repo-auditor/SKILL.md"]);
 });
+
+test("skill.generate preserves public-safe provider failure reason", async () => {
+  const result = await skillGenerateHandler.invoke({
+    toolCallId: "tool-1",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    input: {
+      target: { skillName: "repo-auditor", purpose: "Generate", destinationRoot: "/workspace/.agents/skills" },
+      context: { dryRun: false, guard: { accepted: true }, grantedPermissions: ["skill:write", "filesystem:write"] },
+    },
+    executor: {
+      filesystem: {
+        async writeText() {
+          return { ok: false, error: { code: "GOVERNANCE_REJECTED", message: "runtime filesystem write requires allowFilesystemWrite=true", publicSafe: true } };
+        },
+      },
+    },
+  });
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "PROVIDER_REJECTED");
+  assert.match(result.error.message, /allowFilesystemWrite=true/u);
+});

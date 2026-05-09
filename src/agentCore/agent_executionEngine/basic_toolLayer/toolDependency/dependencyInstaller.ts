@@ -175,22 +175,26 @@ async function probeDependency(
   managedRoot: string,
   source: ToolDependencySourceEntry,
 ): Promise<{ resolvedPath: string; version?: string } | undefined> {
+  const binDir = managedBinDir({ ...request, managedRoot });
+  const managedExecutableDirs = source.packageManager === "npm"
+    ? [path.join(managedRoot, "node_modules", ".bin"), binDir]
+    : [binDir];
   const probePlan = source.executableName.trim().length > 0
     ? {
         candidates: [
-          {
-            command: path.join(managedBinDir({ ...request, managedRoot }), source.executableName),
+          ...managedExecutableDirs.map((directory) => ({
+            command: path.join(directory, source.executableName),
             args: source.versionCommand?.args ?? ["--version"],
-          },
+          })),
           {
             command: source.executableName,
             args: source.versionCommand?.args ?? ["--version"],
           },
           ...(source.alternateExecutableNames ?? []).flatMap((name) => [
-            {
-              command: path.join(managedBinDir({ ...request, managedRoot }), name),
+            ...managedExecutableDirs.map((directory) => ({
+              command: path.join(directory, name),
               args: source.versionCommand?.args ?? ["--version"],
-            },
+            })),
             {
               command: name,
               args: source.versionCommand?.args ?? ["--version"],

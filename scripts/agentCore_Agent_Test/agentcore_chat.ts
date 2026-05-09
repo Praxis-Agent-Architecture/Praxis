@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import type { OpenAIV1ResponsesProviderCaller } from "../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import { invokeChatGPTCodexResponses } from "../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
@@ -33,7 +35,7 @@ import { lowerPromptForModelAdapter } from "../../src/agentCore/agent_runtimeImp
 import { createRuntimeBaseToolExecutorPort } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import { invokeMountedBaseTool } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
 import { decideTextToolFallback } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/textFallbackPolicy.js";
-import { praxis, type AgentManifest } from "../../src/agentCore/index.js";
+import { praxis, type AgentManifest, type RuntimeApprovalResolver } from "../../src/agentCore/index.js";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -60,6 +62,8 @@ const argv = process.argv.slice(2);
 const args = new Set(argv);
 const verbose = args.has("--verbose");
 const exposeProviderTools = !args.has("--no-provider-tools");
+const autoApprovePublicSafe = args.has("--auto-approve-public-safe");
+const oneShot = args.has("--one-shot");
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
 const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
@@ -73,6 +77,8 @@ const reasoningEffort =
   process.env.OPENAI_REASONING_EFFORT ??
   "low";
 const modelProfile = `${model}-${reasoningEffort}`;
+const execFileAsync = promisify(execFile);
+const managedTerminalWaitMs = Number(process.env.AGENTCORE_CHAT_TERMINAL_WAIT_MS ?? "240000");
 
 type RaxProjectDescriptor = {
   entry?: string;
@@ -576,6 +582,175 @@ function truncateForPrompt(value: unknown, maxChars = 6_000): string {
   return text.length > maxChars ? `${text.slice(0, maxChars)}\n...<truncated>` : text;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractManagedTmuxSessions(value: unknown): readonly string[] {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  if (text === undefined) return [];
+
+  const sessions = new Set<string>();
+  const patterns = [
+    /\btmux:([A-Za-z0-9_.:@-]+)/gu,
+    /\btmuxSession["']?\s*[:=]\s*["']([A-Za-z0-9_.:@-]+)["']/gu,
+    /\bsession["']?\s*[:=]\s*["']([A-Za-z0-9_.:@-]+)["']/gu,
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const session = match[1]?.trim();
+      if (session !== undefined && session.length > 0) {
+        sessions.add(session);
+      }
+    }
+  }
+
+  return [...sessions];
+}
+
+async function captureTmuxPane(session: string): Promise<string | undefined> {
+  try {
+    await execFileAsync("tmux", ["has-session", "-t", session], { timeout: 5_000 });
+    const { stdout } = await execFileAsync("tmux", ["capture-pane", "-t", session, "-p", "-S", "-500"], {
+      timeout: 5_000,
+      maxBuffer: 2_000_000,
+    });
+    return stdout;
+  } catch {
+    return undefined;
+  }
+}
+
+function managedTerminalLooksBusy(capture: string): boolean {
+  const tail = capture.split(/\r?\n/u).slice(-80).join("\n");
+  return /(?:^|\n)\s*[◦•]\s*(?:Working|Searching the web)\b/u.test(tail)
+    || /\bWorking \(\d+s\b/u.test(tail)
+    || /\besc to interrupt\b/u.test(tail);
+}
+
+function managedTerminalLooksSettled(capture: string): boolean {
+  const tail = capture.split(/\r?\n/u).slice(-80).join("\n");
+  return /(?:^|\n)\s*›\s+(?:Use \/skills|Find and fix|$)/u.test(tail)
+    || /(?:^|\n)\s*─ Worked for\b/u.test(tail);
+}
+
+type ManagedTerminalObservation = {
+  session: string;
+  capture: string;
+  busy: boolean;
+  settled: boolean;
+};
+
+async function waitForManagedTerminals(
+  sessions: readonly string[],
+): Promise<{ waited: boolean; observations: readonly ManagedTerminalObservation[] }> {
+  const uniqueSessions = [...new Set(sessions)].filter((session) => session.length > 0);
+  if (uniqueSessions.length === 0 || managedTerminalWaitMs <= 0) {
+    return { waited: false, observations: [] };
+  }
+
+  const deadline = Date.now() + managedTerminalWaitMs;
+  let waited = false;
+  let observations: ManagedTerminalObservation[] = [];
+
+  while (true) {
+    observations = [];
+    for (const session of uniqueSessions) {
+      const capture = await captureTmuxPane(session);
+      if (capture === undefined) continue;
+      observations.push({
+        session,
+        capture,
+        busy: managedTerminalLooksBusy(capture),
+        settled: managedTerminalLooksSettled(capture),
+      });
+    }
+
+    const busy = observations.some((observation) => observation.busy && !observation.settled);
+    if (!busy || Date.now() >= deadline) {
+      return { waited, observations };
+    }
+
+    if (!waited) {
+      console.error(`terminal-watch> waiting for managed terminal(s): ${uniqueSessions.join(", ")}`);
+    }
+    waited = true;
+    await sleep(10_000);
+  }
+}
+
+async function summarizeManagedTerminalFollowup(
+  compiled: CompiledChatAgent,
+  runtime: ReturnType<typeof praxis.runtime.createPraxisRuntimeKernel>,
+  provider: RealtestLiveProvider,
+  userText: string,
+  priorFinalOutput: string,
+  observations: readonly ManagedTerminalObservation[],
+): Promise<string> {
+  const summaryResult = await runtime.runManifest(compiled.manifest, [
+    "你刚才的 realtest 回合涉及一个或多个受控可视化 tmux 终端。agentCore 测试 TUI 在最终输出前额外抓取了这些终端，避免父 agent 在子 Codex 仍 Working 时提前结束。",
+    "请基于下面的终端观察给用户一个直接结论：如果子 Codex 已经完成，摘出它的关键答案和证据；如果仍在运行，明确说还没完成并给 session。",
+    "不要声称只要启动命令成功就算完成。",
+    `用户原始输入：\n${userText}`,
+    `父 agent 原始输出：\n${priorFinalOutput}`,
+    `受控终端观察：\n${truncateForPrompt(observations.map((observation) => ({
+      session: observation.session,
+      busy: observation.busy,
+      settled: observation.settled,
+      tail: observation.capture.split(/\r?\n/u).slice(-140).join("\n"),
+    })), 18000)}`,
+  ].join("\n\n"), {
+    dryRun: false,
+    allowProviderCall: true,
+    allowToolExecution: false,
+    auth: provider.auth,
+    providerCaller: provider.providerCaller,
+    storage: { cwd: architectureRoot, initMode: "on-run" },
+    sandbox: { cwd: architectureRoot, failOnUnavailable: false },
+    exposeProviderTools: false,
+  });
+
+  return summaryResult.ok
+    ? summaryResult.finalOutput
+    : `${priorFinalOutput}\n\nterminal-watch 总结失败：${summaryResult.error.message}`;
+}
+
+async function summarizeNativeToolNoTextOutput(
+  compiled: CompiledChatAgent,
+  runtime: ReturnType<typeof praxis.runtime.createPraxisRuntimeKernel>,
+  provider: RealtestLiveProvider,
+  userText: string,
+  toolCalls: readonly unknown[],
+): Promise<string> {
+  const summaryResult = await runtime.runManifest(compiled.manifest, [
+    "上一轮 realtest 回合已经发生了 provider-native Praxis baseTool 调用，但模型最终没有输出可读正文。",
+    "这是测试 TUI 的证据恢复路径：请只根据用户原始任务和工具调用记录总结真实完成情况。",
+    "如果工具记录不足以证明任务完成，请明确说证据不足；不要补编不存在的结果。",
+    "请用中文输出 pass/fail/needs-review、关键文件或命令、以及还缺什么证据。",
+    `用户原始输入：\n${userText}`,
+    `provider-native tool call records：\n${truncateForPrompt(toolCalls, 20000)}`,
+  ].join("\n\n"), {
+    dryRun: false,
+    allowProviderCall: true,
+    allowToolExecution: false,
+    auth: provider.auth,
+    providerCaller: provider.providerCaller,
+    storage: { cwd: architectureRoot, initMode: "on-run" },
+    sandbox: { cwd: architectureRoot, failOnUnavailable: false },
+    exposeProviderTools: false,
+  });
+
+  return summaryResult.ok
+    ? summaryResult.finalOutput
+    : [
+      "PraxisRuntimeKernel completed without text output.",
+      "",
+      `native-tool-summary failed: ${summaryResult.error.message}`,
+      `native tool call count: ${toolCalls.length}`,
+    ].join("\n");
+}
+
 function renderPrompt(history: readonly ChatMessage[], userText: string): string {
   const recentHistory = history.slice(-8);
   const transcript = recentHistory
@@ -960,6 +1135,22 @@ function renderRealtestTask(history: readonly ChatMessage[], userText: string): 
   return [
     "这是 Praxis realtest 最小交互对话。请保持简洁、直接、可执行。",
     "如果需要工具，只能通过当前 AgentManifest 声明的 runtime/baseTool 链路。",
+    "当前 agent 若处于 bapr/yolo policy，用户已经把开发实测授权给 runtime；遇到可执行工具时直接调用工具，不要先用 praxis_request_approval 自我阻塞。",
+    "重要边界：AgentManifest 中的工具表示“已声明/已挂载”，不等于当前宿主已经具备真实 provider 或依赖。",
+    "当用户询问“可以正常使用的工具”时，必须区分 mounted/catalog tools 与 verified executable tools；不能把未验证的 computeruse、omni、mcp、GUI 自动化能力说成已经正常可用。",
+    "只有工具观察结果明确 ok 且没有 providerUnavailable、approvalRequired、executed:false、dry-run、prepared-only 等语义时，才可以说动作已经完成。",
+    "对于打开 GUI 应用、向窗口输入、鼠标键盘模拟、摄像头/麦克风/屏幕录制等桌面动作，必须先调用对应工具并根据工具结果报告；没有真实 provider 时要报告缺口，不得声称已打开或已输入。",
+    "当用户要求“可视化终端/工作焦点/输入命令”时，启动动作必须获得或记录一个可寻址的 runtime 终端目标；如果只有 GUI 终端窗口但没有 session/pty/terminal id，后续不能当作稳定输入目标。",
+    "在当前 Linux runtime 中，如果还没有专门的 terminal.openManagedSession 工具，但 shell.commandExecution 和 computeruse.keyboard* 可用，可用 shell 创建唯一 tmux session 并启动 GUI 终端 attach 到该 session；后续用同一个 targetHint（如 tmux:<session>）输入，并用 tmux capture-pane 观察终端输出。",
+    "创建受控可视化终端时只允许启动一个空 shell/交互 shell 会话，不要在创建命令里直接运行 codex、编辑器或用户后续命令；创建后必须先 capture-pane 验证该 tmux session 存在且仍在 shell prompt，再继续输入。",
+    "执行用户给出的终端步骤必须严格按顺序：先确认 shell prompt，再输入 cd/目录命令并提交，再 capture 验证目录已切换，再输入 codex --yolo 并提交，再处理 Codex UI 提示，最后才向 Codex 输入问题。任何一步 capture 失败或 target 不存在，都要停下报错，不要继续向不确定目标输入。",
+    "用户要求“键入/输入/Enter/提交”时，shell 只可负责创建/观察受控会话；实际文字输入和 Enter 必须优先调用 computeruse.keyboardInputEmulation / computeruse.keyboardSubmitInput，不要用 `tmux send-keys` 替代 keyboard BaseTool。",
+    "如果终端里出现数字菜单或升级提示，优先用 keyboardInputEmulation 输入菜单数字，再用 keyboardSubmitInput 提交；只有需要方向键等快捷键时才使用 keyboardEmulation，并且 actions 必须是对象数组。",
+    "受控终端输入必须带同一个显式 targetHint（例如 runtime 返回的 tmux:<session>、pty:<session> 或 terminal:<session>）；输入应保持原文、绕过输入法和焦点漂移，具体 provider、session、终端应用和平台命令由 runtime 工具发现/返回结果决定，不要在 prompt 中臆造固定实现。",
+    "如果你在受控终端里启动了 Codex、Claude、编辑器、测试进程或任何长任务，看到 capture-pane 尾部仍有 Working、Searching、Running、esc to interrupt 等进行中标记时，本轮还没有完成；必须继续观察或明确报告仍在运行，禁止输出空结果或说已完成。",
+    "对子 Codex 的问答/比对任务，最终答复必须包含从受控终端抓到的子 Codex 完整答案或明确说明仍未完成；不能只说命令已发送。",
+    "实时行情、新闻、价格等必须有真实来源证据；search.nativeSearch/search.searchEngine 如果只返回 prepared、sources 为空或 liveRankedResults:false，不算完成。此时应改用 search.fetch 抓取明确 URL，或用 shell.commandExecution 调用公开 HTTPS API 并引用返回字段。",
+    "如果只能使用桌面键鼠模拟，必须明确说明它依赖当前焦点和系统输入法；如果需要稳定工作终端但 runtime 没有受控 PTY/terminal provider，应报告缺口。",
     transcript.length > 0 ? `已有对话：\n${transcript}` : "",
     `当前用户输入：\n${userText}`,
   ].filter((part) => part.length > 0).join("\n\n");
@@ -973,13 +1164,40 @@ function printRealtestBanner(target: string, compiled: CompiledChatAgent, provid
   console.log(`auth=${provider.authSource}`);
   console.log(`entry=${compiled.agentPath}`);
   console.log(`providerTools=${exposeProviderTools ? "enabled" : "disabled"}`);
+  console.log(`autoApprovePublicSafe=${autoApprovePublicSafe ? "enabled" : "disabled"}`);
+  console.log(`oneShot=${oneShot ? "enabled" : "disabled"}`);
   console.log("commands: /exit, /quit, /status, /clear");
   console.log("");
+}
+
+const autoApprovePublicSafeResolver: RuntimeApprovalResolver = async (approval) => {
+  const status = approval.publicSafe ? "approved" : "denied";
+  console.log(`approval> ${status} ${approval.approvalId}: ${approval.reason}`);
+  return {
+    status,
+    resolvedBy: "agentcore-chat.autoApprovePublicSafe",
+    reason: approval.publicSafe
+      ? "agentcore_chat --auto-approve-public-safe approved a public-safe approval envelope"
+      : "agentcore_chat --auto-approve-public-safe denied a non-public-safe approval envelope",
+  };
+};
+
+function printVerboseRealtestResult(result: Awaited<ReturnType<ReturnType<typeof praxis.runtime.createPraxisRuntimeKernel>["runManifest"]>>): void {
+  if (!verbose) return;
+  console.error(JSON.stringify({
+    sessionId: result.sessionId,
+    modelCalls: result.ok ? result.modelCalls.length : 0,
+    toolCalls: result.ok ? result.toolCalls.length : 0,
+    toolCallRecords: result.ok ? result.toolCalls : undefined,
+    events: result.events.length,
+  }, null, 2));
 }
 
 async function runRealtestChat(target: string): Promise<void> {
   const compiled = await compileRealtestAgent(target);
   const provider = createRealtestLiveProvider(compiled.manifest);
+  const baprLikePolicy = compiled.manifest.toolPolicy.profile === "bapr" || compiled.manifest.toolPolicy.profile === "yolo";
+  const approvalResolver = autoApprovePublicSafe || baprLikePolicy ? autoApprovePublicSafeResolver : undefined;
   const runtime = praxis.runtime.createPraxisRuntimeKernel({
     runtimeId: `runtime.agentcore.chat.${compiled.manifest.identity.id}`,
     store: praxis.runtime.createInMemorySessionStateEventStore(),
@@ -1030,6 +1248,7 @@ async function runRealtestChat(target: string): Promise<void> {
         storage: { cwd: architectureRoot, initMode: "on-run" },
         sandbox: { cwd: architectureRoot, failOnUnavailable: false },
         exposeProviderTools,
+        approvalResolver,
       });
 
       if (result.ok) {
@@ -1094,10 +1313,55 @@ async function runRealtestChat(target: string): Promise<void> {
             inferredFallbackToolCalls,
           }, null, 2));
         }
+
+        if (
+          finalOutput.includes("PraxisRuntimeKernel completed without text output")
+          && result.toolCalls.length > 0
+        ) {
+          finalOutput = await summarizeNativeToolNoTextOutput(
+            compiled,
+            runtime,
+            provider,
+            userText,
+            result.toolCalls,
+          );
+        }
+
+        const managedSessions = extractManagedTmuxSessions({
+          finalOutput,
+          toolCalls: result.toolCalls,
+        });
+        const terminalFollowup = await waitForManagedTerminals(managedSessions);
+        if (terminalFollowup.observations.length > 0) {
+          const shouldSummarizeTerminalState =
+            terminalFollowup.waited
+            || finalOutput.includes("PraxisRuntimeKernel completed without text output")
+            || finalOutput.includes("仍在")
+            || finalOutput.includes("Working")
+            || terminalFollowup.observations.some((observation) => observation.settled);
+          if (shouldSummarizeTerminalState) {
+            finalOutput = await summarizeManagedTerminalFollowup(
+              compiled,
+              runtime,
+              provider,
+              userText,
+              finalOutput,
+              terminalFollowup.observations,
+            );
+          }
+        }
         history.push({ role: "user", content: userText }, { role: "assistant", content: finalOutput });
         console.log(`agent> ${finalOutput}`);
+        printVerboseRealtestResult(result);
+        if (oneShot) {
+          break;
+        }
       } else {
         console.error(`agent error> ${result.error.code}: ${result.error.message}`);
+        printVerboseRealtestResult(result);
+        if (oneShot) {
+          break;
+        }
         if (verbose) {
           console.error(JSON.stringify({
             error: result.error,
@@ -1107,15 +1371,6 @@ async function runRealtestChat(target: string): Promise<void> {
             events: result.events,
           }, null, 2));
         }
-      }
-      if (verbose) {
-        console.error(JSON.stringify({
-          sessionId: result.sessionId,
-          modelCalls: result.ok ? result.modelCalls.length : 0,
-          toolCalls: result.ok ? result.toolCalls.length : 0,
-          toolCallRecords: result.ok ? result.toolCalls : undefined,
-          events: result.events.length,
-        }, null, 2));
       }
       output.write(`${path.basename(target)}> `);
     }

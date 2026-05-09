@@ -150,8 +150,9 @@ export async function executeSkillRemove(request: SkillRemoveRequest = {}): Prom
       audit: [createAuditEvent("skill.remove", "agentCore.basicTool.skill.remove.executed", context, target.skillId)],
       events: ["basicTool.skill.remove.executed"],
     };
-  } catch {
-    return failure("skill.remove", "PROVIDER_REJECTED", "skill.remove provider failed while removing skill", "provider", context, target.skillId);
+  } catch (error) {
+    const reason = error instanceof Error && error.message.trim().length > 0 ? `: ${error.message}` : "";
+    return failure("skill.remove", "PROVIDER_REJECTED", `skill.remove provider failed while removing skill${reason}`, "provider", context, target.skillId);
   }
 }
 

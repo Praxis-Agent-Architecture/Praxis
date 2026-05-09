@@ -171,6 +171,13 @@ export const rectangularSelectionScreenshotBaseToolDefinition = createComputerUs
     storesAudit: true,
     reusable: false,
   },
+  metadata: {
+    invocationEntryPath:
+      "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.rectangularSelectionScreenshot.ts",
+    runtimeProviderDependencies: {
+      linux: ["runtime.desktop.screenshotProvider.linux"],
+    },
+  },
 });
 
 export const rectangularSelectionScreenshotHandler: BaseToolHandler<RectangularSelectionScreenshotHandlerInput, RectangularSelectionScreenshotOutput> =

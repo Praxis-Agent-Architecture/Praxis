@@ -95,6 +95,7 @@ test("common BaseTool host dependencies are registered without silent system ins
     "runtime.binary.imagemagick",
     "runtime.binary.xdotool",
     "runtime.binary.ydotool",
+    "runtime.desktop.screenshotProvider.linux",
     "mcp.testServer.echo",
   ];
 
@@ -119,5 +120,29 @@ test("common BaseTool host dependencies are registered without silent system ins
   assert.equal(rgPlan.ok, false);
   if (!rgPlan.ok) {
     assert.equal(rgPlan.error.code, "INSTALL_RECIPE_UNAVAILABLE");
+  }
+});
+
+test("Linux desktop screenshot provider is registered as a generic detect-only dependency", () => {
+  const source = lookupDependencySource("runtime.desktop.screenshotProvider.linux");
+  assert.equal(source.ok, true);
+  if (!source.ok) {
+    return;
+  }
+
+  assert.equal(source.source.safety, "trusted-detect-only");
+  assert.equal(source.source.packageManager, "detect-only");
+  assert.equal(source.source.executableName, "python3");
+  assert.match(source.source.versionCommand?.args?.join(" ") ?? "", /gtk-launch/u);
+  assert.match(source.source.versionCommand?.args?.join(" ") ?? "", /grim/u);
+  assert.match(source.source.versionCommand?.args?.join(" ") ?? "", /gnome-screenshot/u);
+
+  const plan = planDependencyInstallation({
+    dependencyId: "runtime.desktop.screenshotProvider.linux",
+    managedRoot: "/tmp/praxis-tool-deps",
+  });
+  assert.equal(plan.ok, false);
+  if (!plan.ok) {
+    assert.equal(plan.error.code, "INSTALL_RECIPE_UNAVAILABLE");
   }
 });

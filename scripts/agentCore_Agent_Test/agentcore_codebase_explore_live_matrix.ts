@@ -161,6 +161,8 @@ const codeBaseExploreCases: readonly CodeBaseExploreCase[] = [
   })),
 ] as const;
 
+const codeBaseExploreToolIds = [...new Set(codeBaseExploreCases.map((testCase) => testCase.toolId))].join(", ");
+
 function argValue(name: string): string | undefined {
   const prefix = `${name}=`;
   return args.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
@@ -448,6 +450,7 @@ function withRuntimeGovernance(tool: string, toolArguments: Readonly<Record<stri
   const context = typeof input.context === "object" && input.context !== null && !Array.isArray(input.context)
     ? input.context as Record<string, unknown>
     : {};
+  input.dryRun ??= false;
 
   if (tool === "code.read") {
     input.targetPath ??= input.path ?? input.file;
@@ -526,10 +529,14 @@ async function main(): Promise<void> {
       const prompt = [
         "请模拟一次真实 agentCore 对话里的工具选择。",
         `用户请求：${testCase.userPrompt}`,
-        "这是普通用户话术，用户不会自己写工具参数。你要像 agent 一样自己选择最合适的 codeBase explore 工具。",
-        "可用工具只有：code.read, code.scan, code.search_Ripgrep。不要选择 shell，也不要输出解释。",
+        "这是普通用户话术，用户不会自己写工具参数。你要像 agent 一样自己选择最合适的 codeBase/code.lsp/debug 工具。",
+        `本轮是覆盖率回归测试，正在验证的 capability 是 ${testCase.toolId}。如果用户请求与该 capability 兼容，必须调用这个 exact tool id。`,
+        `可用 code 工具全集：${codeBaseExploreToolIds}。不要选择 shell，也不要输出解释。`,
+        `测试工作区已经准备好的具体资源和参数锚点：${JSON.stringify(testCase.input)}`,
+        "你必须基于这些真实 fixture 参数组织 arguments；字段名和值都要尽量原样保留，尤其是 code.replaceFile 的 newContent、code.overwrite 的 content、command、benchmarkTarget。",
+        "不要发明 /tmp/workspace、placeholder、<file path> 或其他不存在的路径，不要把 newContent 改名为 content，也不要把 benchmarkTarget 改名为 target。",
         "参数字段提示：code.read 用 targetPath/range；code.scan 用 directoryPath/depth/maxEntries；code.search_Ripgrep 用 query/directoryPath/fileGlob/maxMatches。",
-        `期望的任务类别是 ${testCase.toolId}，但你仍然需要根据用户请求组织参数。`,
+        "编辑类工具用 workspaceRoot/targetPath/content 或 searchText/replacementText；debug 工具用 target/sources/capture；code.lsp_* 工具用 target/documentUri/workspaceRoot/position/range/query/newName/actionTitle。",
         "只返回：{\"tool_calls\":[{\"tool\":\"...\",\"arguments\":{...}}]}",
       ].join("\n");
       try {

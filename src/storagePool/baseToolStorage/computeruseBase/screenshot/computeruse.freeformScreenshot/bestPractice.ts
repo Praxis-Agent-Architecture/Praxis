@@ -169,6 +169,13 @@ export const freeformScreenshotBaseToolDefinition = createComputerUseBaseToolDef
     storesAudit: true,
     reusable: false,
   },
+  metadata: {
+    invocationEntryPath:
+      "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.freeformScreenshot.ts",
+    runtimeProviderDependencies: {
+      linux: ["runtime.desktop.screenshotProvider.linux"],
+    },
+  },
 });
 
 export const freeformScreenshotHandler: BaseToolHandler<FreeformScreenshotHandlerInput, FreeformScreenshotOutput> =

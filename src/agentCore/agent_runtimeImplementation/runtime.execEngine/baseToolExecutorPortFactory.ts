@@ -11,7 +11,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants, mkdirSync } from "node:fs";
-import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -19,6 +19,12 @@ import type {
   BaseToolExecutorPort,
   BaseToolExecutorResult,
 } from "../../agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import {
+  createMcpRuntimeAdapter,
+  type McpRuntimeServerProfile,
+} from "./mcpRuntimeAdapter.js";
+
+type ComputerUseKeyboardActionRequest = Parameters<NonNullable<NonNullable<BaseToolExecutorPort["computeruse"]>["keyboardAction"]>>[0];
 
 export type RuntimeBaseToolExecutorEvent = {
   type: string;
@@ -77,6 +83,7 @@ export type RuntimeBaseToolExecutorContext = {
   policy?: RuntimeBaseToolExecutorPolicy;
   resourceLimits?: RuntimeBaseToolExecutorResourceLimits;
   sandbox?: RuntimeBaseToolExecutorSandbox;
+  mcpServers?: readonly McpRuntimeServerProfile[];
   environment?: Readonly<Record<string, string | undefined>>;
   adapters?: Partial<BaseToolExecutorPort>;
   emitEvent?: (event: RuntimeBaseToolExecutorEvent) => void;
@@ -1297,6 +1304,14 @@ function createLspExecutor(context: RuntimeBaseToolExecutorContext): NonNullable
 }
 
 function createMcpExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["mcp"]> {
+  const configuredMcp = context.mcpServers !== undefined && context.mcpServers.length > 0
+    ? createMcpRuntimeAdapter({ servers: context.mcpServers })
+    : undefined;
+  const callConfigured = async <Output>(method: keyof NonNullable<BaseToolExecutorPort["mcp"]>, request: unknown): Promise<BaseToolExecutorResult<Output> | undefined> => {
+    const handler = configuredMcp?.[method];
+    if (typeof handler !== "function") return undefined;
+    return await (handler as (value: unknown) => Promise<BaseToolExecutorResult<Output>> | BaseToolExecutorResult<Output>)(request);
+  };
   const metadata = (serverId?: string) => ({
     runtimeId: context.runtimeId,
     sessionId: context.sessionId,
@@ -1308,116 +1323,162 @@ function createMcpExecutor(context: RuntimeBaseToolExecutorContext): NonNullable
     async authenticate(request) {
       const delegated = await callDelegated(context, "mcp.authenticate", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("authenticate", request);
+      if (configured !== undefined) return configured;
       return success({ status: "authenticated", serverId: request.serverId, authSessionId: `mcp-auth:${request.serverId}`, scopesGranted: request.requestedScopes ?? [], providerMetadata: metadata(request.serverId) });
     },
     async authorize(request) {
       const delegated = await callDelegated(context, "mcp.authorize", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("authorize", request);
+      if (configured !== undefined) return configured;
       return success({ decision: "allowed", reason: "runtime MCP policy adapter allowed this governed test request", scopesGranted: request.requestedScopes ?? [], providerMetadata: metadata(request.serverId) });
     },
     async cache(request) {
       const delegated = await callDelegated(context, "mcp.cache", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("cache", request);
+      if (configured !== undefined) return configured;
       return success({ cacheKey: request.cacheKey, status: "cached", providerMetadata: metadata(request.serverId) });
     },
     async invalidateCache(request) {
       const delegated = await callDelegated(context, "mcp.invalidateCache", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("invalidateCache", request);
+      if (configured !== undefined) return configured;
       return success({ scope: request.scope, cacheKey: request.cacheKey, status: "invalidated", invalidatedCount: 1, providerMetadata: metadata(request.serverId) });
     },
     async connect(request) {
       const delegated = await callDelegated(context, "mcp.connect", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("connect", request);
+      if (configured !== undefined) return configured;
       return success({ connectionId: request.connectionId ?? `mcp-conn:${request.serverId}`, status: "connected", serverId: request.serverId, providerMetadata: { ...metadata(request.serverId), transportHint: request.transportHint ?? "stdio" } });
     },
     async disconnect(request) {
       const delegated = await callDelegated(context, "mcp.disconnect", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("disconnect", request);
+      if (configured !== undefined) return configured;
       return success({ connectionId: request.connectionId, status: "disconnected", serverId: request.serverId, providerMetadata: metadata(request.serverId) });
     },
     async subscribe(request) {
       const delegated = await callDelegated(context, "mcp.subscribe", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("subscribe", request);
+      if (configured !== undefined) return configured;
       return success({ subscriptionId: `mcp-sub:${request.serverId}:${request.subject}`, status: "subscribed", serverId: request.serverId, connectionId: request.connectionId, providerMetadata: metadata(request.serverId) });
     },
     async unsubscribe(request) {
       const delegated = await callDelegated(context, "mcp.unsubscribe", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("unsubscribe", request);
+      if (configured !== undefined) return configured;
       return success({ subscriptionId: request.subscriptionId, status: "unsubscribed", serverId: request.serverId, providerMetadata: metadata(request.serverId) });
     },
     async callTool(request) {
       const delegated = await callDelegated(context, "mcp.callTool", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("callTool", request);
+      if (configured !== undefined) return configured;
       return success({ content: [{ type: "text", text: `local MCP echo tool ${request.toolName}` }], structuredContent: request.arguments ?? {}, providerMetadata: metadata(request.serverId) });
     },
     async streamTool(request) {
       const delegated = await callDelegated(context, "mcp.streamTool", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("streamTool", request);
+      if (configured !== undefined) return configured;
       return success({ executionId: `mcp-exec:${randomUUID()}`, streamId: `mcp-stream:${randomUUID()}`, status: "completed", channel: request.channel ?? "chunks", chunks: [], events: [], providerMetadata: metadata(request.serverId) });
     },
     async cancelExecution(request) {
       const delegated = await callDelegated(context, "mcp.cancelExecution", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("cancelExecution", request);
+      if (configured !== undefined) return configured;
       return success({ executionId: request.executionId, status: "cancelled", serverId: request.serverId, providerMetadata: metadata(request.serverId) });
     },
     async nativeExecute(request) {
       const delegated = await callDelegated(context, "mcp.nativeExecute", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("nativeExecute", request);
+      if (configured !== undefined) return configured;
       return success({ status: "executed", result: { method: request.method, params: request.params ?? {} }, providerMetadata: metadata(request.serverId) });
     },
     async listTools(request) {
       const delegated = await callDelegated(context, "mcp.listTools", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("listTools", request);
+      if (configured !== undefined) return configured;
       return success({ tools: [{ name: "echo", title: "Echo", description: "Local MCP smoke-test echo tool.", inputSchema: { type: "object", additionalProperties: true }, namespace: request.namespace }], providerMetadata: metadata(request.serverId) });
     },
     async registerTool(request) {
       const delegated = await callDelegated(context, "mcp.registerTool", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("registerTool", request);
+      if (configured !== undefined) return configured;
       return success({ name: request.tool.name, status: "registered", providerMetadata: metadata(request.serverId) });
     },
     async updateTool(request) {
       const delegated = await callDelegated(context, "mcp.updateTool", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("updateTool", request);
+      if (configured !== undefined) return configured;
       return success({ toolName: request.toolName, status: "updated", providerMetadata: metadata(request.serverId) });
     },
     async unregisterTool(request) {
       const delegated = await callDelegated(context, "mcp.unregisterTool", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("unregisterTool", request);
+      if (configured !== undefined) return configured;
       return success({ toolName: request.toolName, status: "unregistered", providerMetadata: metadata(request.serverId) });
     },
     async listResources(request) {
       const delegated = await callDelegated(context, "mcp.listResources", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("listResources", request);
+      if (configured !== undefined) return configured;
       return success({ resources: [{ uri: `${request.uriPrefix ?? "mcp://local"}/echo`, name: "echo-resource", mimeType: "text/plain" }], exhausted: true, providerMetadata: metadata(request.serverId) });
     },
     async readResource(request) {
       const delegated = await callDelegated(context, "mcp.readResource", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("readResource", request);
+      if (configured !== undefined) return configured;
       return success({ uri: request.resourceUri, contents: [{ mimeType: "text/plain", text: `local MCP resource ${request.resourceUri}` }], truncated: false, providerMetadata: metadata(request.serverId) });
     },
     async createResource(request) {
       const delegated = await callDelegated(context, "mcp.createResource", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("createResource", request);
+      if (configured !== undefined) return configured;
       return success({ uri: request.uri, status: "created", revision: "1", providerMetadata: metadata(request.serverId) });
     },
     async updateResource(request) {
       const delegated = await callDelegated(context, "mcp.updateResource", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("updateResource", request);
+      if (configured !== undefined) return configured;
       return success({ uri: request.resourceUri, status: "updated", revision: request.expectedRevision ?? "2", providerMetadata: metadata(request.serverId) });
     },
     async deleteResource(request) {
       const delegated = await callDelegated(context, "mcp.deleteResource", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("deleteResource", request);
+      if (configured !== undefined) return configured;
       return success({ uri: request.uri, status: "deleted", providerMetadata: metadata(request.serverId) });
     },
     async ping(request) {
       const delegated = await callDelegated(context, "mcp.ping", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("ping", request);
+      if (configured !== undefined) return configured;
       return success({ healthy: true, status: "ok", latencyMs: 0, providerMetadata: metadata(request.serverId) });
     },
     async checkHealth(request) {
       const delegated = await callDelegated(context, "mcp.checkHealth", request);
       if (delegated !== undefined) return delegated;
+      const configured = await callConfigured<any>("checkHealth", request);
+      if (configured !== undefined) return configured;
       return success({ status: "healthy", connection: request.connectionId, latencyMs: 0, capabilities: request.includeCapabilities === true ? ["tools", "resources", "prompts"] : undefined, providerMetadata: metadata(request.serverId) });
     },
   };
@@ -1522,50 +1583,530 @@ function detectLinuxDesktopHost(context: RuntimeBaseToolExecutorContext): Readon
   };
 }
 
+function desktopAutomationEnabled(context: RuntimeBaseToolExecutorContext): boolean {
+  const env = context.environment ?? process.env;
+  if (env.PRAXIS_ENABLE_DESKTOP_AUTOMATION === "1" || env.PRAXIS_ENABLE_DESKTOP_AUTOMATION === "true") return true;
+  const profile = context.sandbox?.policyProfile;
+  return profile === "bapr" || profile === "yolo";
+}
+
 async function captureLinuxScreenshot(
   context: RuntimeBaseToolExecutorContext,
   portPath: string,
   outputFormat: string | undefined,
 ): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>> {
-  const tool = await firstExecutable(["/usr/bin/grim", "/usr/local/bin/grim", "/usr/bin/gnome-screenshot", "/usr/local/bin/gnome-screenshot"]);
-  if (tool === undefined) {
-    const desktop = detectLinuxDesktopHost(context);
-    const displayServer = typeof desktop.displayServer === "string" ? desktop.displayServer : "unknown";
+  const desktop = detectLinuxDesktopHost(context);
+  const displayServer = typeof desktop.displayServer === "string" ? desktop.displayServer : "unknown";
+  const root = artifactRoot(context);
+  await mkdir(root, { recursive: true });
+  const extension = outputFormat === "jpg" || outputFormat === "jpeg" ? "jpg" : "png";
+  const providers = await screenshotProviderCommands();
+  if (providers.length === 0) {
     return failure(
       "PROVIDER_UNAVAILABLE",
-      `computeruse screenshot requires grim or gnome-screenshot on this Linux desktop host; detected display server: ${displayServer}`,
+      `computeruse screenshot requires xdg-desktop-portal, grim, gdbus, or gnome-screenshot on this Linux desktop host; detected display server: ${displayServer}`,
       [`runtime.execEngine.baseToolExecutorPort.${portPath}.dependencyMissing`],
     );
   }
 
-  const root = artifactRoot(context);
-  await mkdir(root, { recursive: true });
-  const extension = outputFormat === "jpg" || outputFormat === "jpeg" ? "jpg" : "png";
-  const filePath = path.join(root, `screenshot-${randomUUID()}.${extension}`);
-  const command = path.basename(tool) === "grim"
-    ? { command: tool, args: [filePath] }
-    : { command: tool, args: ["-f", filePath] };
-  const result = await runChildProcess({
-    ...command,
-    cwd: workspaceRoot(context),
-    timeoutMs: 10_000,
-    intent: "generic",
-  }, context, portPath);
-  if (!result.ok) return result;
-  if (result.output.exitCode !== 0) {
-    return failure("PROVIDER_FAILURE", result.output.stderr || "desktop screenshot command failed", [
-      `runtime.execEngine.baseToolExecutorPort.${portPath}.failed`,
+  const failures: string[] = [];
+  for (const provider of providers) {
+    const filePath = path.join(root, `screenshot-${randomUUID()}.${extension}`);
+    const result = await runChildProcess({
+      command: provider.command,
+      args: provider.args(filePath),
+      cwd: workspaceRoot(context),
+      timeoutMs: provider.timeoutMs,
+      intent: "generic",
+    }, context, portPath);
+    if (!result.ok) {
+      failures.push(`${provider.name}: ${result.error.message}`);
+      continue;
+    }
+    if (result.output.exitCode !== 0) {
+      failures.push(`${provider.name}: ${result.output.stderr || result.output.stdout || `exit ${result.output.exitCode}`}`);
+      continue;
+    }
+    const hasFile = await access(filePath, fsConstants.R_OK).then(() => true).catch(() => false);
+    if (!hasFile) {
+      failures.push(`${provider.name}: provider exited successfully but produced no screenshot artifact`);
+      continue;
+    }
+
+    return success({
+      artifactId: artifactId("screenshot"),
+      mimeType: extension === "jpg" ? "image/jpeg" : "image/png",
+      metadata: desktopAutomationMetadata(context, {
+        storageUri: filePath,
+        captureProvider: provider.name,
+        attemptedProviders: providers.map((candidate) => candidate.name),
+      }),
+    }, [`runtime.execEngine.baseToolExecutorPort.${portPath}.captured`]);
+  }
+
+  return failure("PROVIDER_FAILURE", failures.join("; ") || "desktop screenshot command failed", [
+    `runtime.execEngine.baseToolExecutorPort.${portPath}.failed`,
+  ]);
+}
+
+type ScreenshotProviderCommand = {
+  name: string;
+  command: string;
+  timeoutMs: number;
+  args: (filePath: string) => readonly string[];
+};
+
+async function screenshotProviderCommands(): Promise<readonly ScreenshotProviderCommand[]> {
+  const providers: ScreenshotProviderCommand[] = [];
+  const gtkLaunchProvider = await gtkPortalScreenshotProviderCommand();
+  if (gtkLaunchProvider !== undefined) providers.push(gtkLaunchProvider);
+
+  const python = await firstExecutable(["/usr/bin/python3", "/usr/local/bin/python3"]);
+  if (python !== undefined) {
+    providers.push({
+      name: "xdg-desktop-portal-screenshot",
+      command: python,
+      timeoutMs: 20_000,
+      args: (filePath) => ["-c", xdgPortalScreenshotPythonScript, filePath],
+    });
+  }
+
+  const grim = await firstExecutable(["/usr/bin/grim", "/usr/local/bin/grim"]);
+  if (grim !== undefined) {
+    providers.push({
+      name: "grim",
+      command: grim,
+      timeoutMs: 10_000,
+      args: (filePath) => [filePath],
+    });
+  }
+
+  const gdbus = await firstExecutable(["/usr/bin/gdbus", "/usr/local/bin/gdbus", "/home/linuxbrew/.linuxbrew/bin/gdbus"]);
+  if (gdbus !== undefined) {
+    providers.push({
+      name: "gnome-shell-screenshot-dbus",
+      command: gdbus,
+      timeoutMs: 10_000,
+      args: (filePath) => [
+        "call",
+        "--session",
+        "--dest",
+        "org.gnome.Shell.Screenshot",
+        "--object-path",
+        "/org/gnome/Shell/Screenshot",
+        "--method",
+        "org.gnome.Shell.Screenshot.Screenshot",
+        "false",
+        "false",
+        filePath,
+      ],
+    });
+  }
+
+  const gnomeScreenshot = await firstExecutable(["/usr/bin/gnome-screenshot", "/usr/local/bin/gnome-screenshot"]);
+  if (gnomeScreenshot !== undefined) {
+    providers.push({
+      name: "gnome-screenshot",
+      command: gnomeScreenshot,
+      timeoutMs: 10_000,
+      args: (filePath) => ["-f", filePath],
+    });
+  }
+
+  return providers;
+}
+
+async function gtkPortalScreenshotProviderCommand(): Promise<ScreenshotProviderCommand | undefined> {
+  const gtkLaunch = await firstExecutable(["/usr/bin/gtk-launch", "/usr/local/bin/gtk-launch"]);
+  const python = await firstExecutable(["/usr/bin/python3", "/usr/local/bin/python3"]);
+  const env = await firstExecutable(["/usr/bin/env", "/usr/local/bin/env"]);
+  if (gtkLaunch === undefined || python === undefined || env === undefined) return undefined;
+  const home = process.env.HOME?.trim();
+  if (home === undefined || home.length === 0) return undefined;
+
+  const appId = "org.praxis.AgentScreenshotProvider";
+  const binDir = path.join(home, ".local", "bin");
+  const applicationsDir = path.join(home, ".local", "share", "applications");
+  const helperPath = path.join(binDir, "praxis-portal-screenshot-helper");
+  const desktopPath = path.join(applicationsDir, `${appId}.desktop`);
+  await mkdir(binDir, { recursive: true });
+  await mkdir(applicationsDir, { recursive: true });
+  await writeFile(helperPath, gtkPortalScreenshotHelperPythonScript, "utf8");
+  await chmod(helperPath, 0o755);
+  await writeFile(desktopPath, [
+    "[Desktop Entry]",
+    "Type=Application",
+    "Name=Praxis Screenshot Provider",
+    `Exec=${helperPath}`,
+    "Icon=applications-system",
+    "Terminal=false",
+    "Categories=Utility;",
+    "StartupNotify=true",
+    "DBusActivatable=false",
+    "",
+  ].join("\n"), "utf8");
+
+  return {
+    name: "gtk-launch-xdg-desktop-portal-screenshot",
+    command: env,
+    timeoutMs: 35_000,
+    args: (filePath) => [`PRAXIS_SCREENSHOT_OUTPUT=${filePath}`, gtkLaunch, appId],
+  };
+}
+
+const gtkPortalScreenshotHelperPythonScript = String.raw`#!/usr/bin/python3
+import gi
+import os
+import shutil
+import sys
+import urllib.parse
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Xdp", "1.0")
+gi.require_version("XdpGtk4", "1.0")
+from gi.repository import GLib, Gtk, Xdp, XdpGtk4
+
+output_path = os.environ.get("PRAXIS_SCREENSHOT_OUTPUT") or (sys.argv[1] if len(sys.argv) > 1 else "")
+if not output_path:
+    print("PRAXIS_SCREENSHOT_OUTPUT is required", file=sys.stderr, flush=True)
+    raise SystemExit(2)
+
+app = Gtk.Application(application_id="org.praxis.AgentScreenshotProvider")
+app.exit_status = 1
+
+def on_activate(application):
+    window = Gtk.ApplicationWindow(application=application, title="Praxis Screenshot Provider")
+    window.set_default_size(360, 120)
+    window.set_modal(True)
+    window.set_child(Gtk.Label(label="Praxis screenshot provider"))
+    window.present()
+
+    def start_request():
+        parent = XdpGtk4.parent_new_gtk(window)
+        portal = Xdp.Portal.new()
+
+        def done(portal, result, _data):
+            try:
+                uri = portal.take_screenshot_finish(result)
+                if not uri or not uri.startswith("file://"):
+                    print(f"portal returned no file URI: {uri!r}", file=sys.stderr, flush=True)
+                    application.exit_status = 3
+                else:
+                    source = urllib.parse.unquote(urllib.parse.urlparse(uri).path)
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                    shutil.copyfile(source, output_path)
+                    print(f"OUTPUT {output_path}", flush=True)
+                    application.exit_status = 0
+            except Exception as exc:
+                print(f"portal screenshot failed: {exc!r}", file=sys.stderr, flush=True)
+                application.exit_status = 4
+            finally:
+                application.quit()
+
+        portal.take_screenshot(parent, Xdp.ScreenshotFlags.NONE, None, done, None)
+        return False
+
+    GLib.timeout_add(700, start_request)
+    GLib.timeout_add_seconds(30, lambda: (print("portal screenshot timed out", file=sys.stderr, flush=True), setattr(application, "exit_status", 124), application.quit(), False)[-1])
+
+app.connect("activate", on_activate)
+app.run([])
+raise SystemExit(app.exit_status)
+`;
+
+const xdgPortalScreenshotPythonScript = String.raw`
+import asyncio
+import json
+import os
+import shutil
+import sys
+import urllib.parse
+
+from dbus_next import Message, MessageType, Variant
+from dbus_next.aio import MessageBus
+
+async def main():
+    output_path = sys.argv[1]
+    bus = await MessageBus().connect()
+    loop = asyncio.get_event_loop()
+    response_future = loop.create_future()
+
+    def on_message(message):
+        if (
+            message.message_type == MessageType.SIGNAL
+            and message.interface == "org.freedesktop.portal.Request"
+            and message.member == "Response"
+            and not response_future.done()
+        ):
+            response_future.set_result(message)
+
+    bus.add_message_handler(on_message)
+    reply = await bus.call(Message(
+        destination="org.freedesktop.portal.Desktop",
+        path="/org/freedesktop/portal/desktop",
+        interface="org.freedesktop.portal.Screenshot",
+        member="Screenshot",
+        signature="sa{sv}",
+        body=["", {"interactive": Variant("b", False), "modal": Variant("b", False)}],
+    ))
+    if reply.message_type != MessageType.METHOD_RETURN:
+        print(json.dumps({"error": reply.error_name, "body": reply.body}), file=sys.stderr)
+        return 2
+
+    handle = reply.body[0]
+    await bus.call(Message(
+        destination="org.freedesktop.DBus",
+        path="/org/freedesktop/DBus",
+        interface="org.freedesktop.DBus",
+        member="AddMatch",
+        signature="s",
+        body=[f"type='signal',sender='org.freedesktop.portal.Desktop',path='{handle}',interface='org.freedesktop.portal.Request',member='Response'"],
+    ))
+    try:
+        response_message = await asyncio.wait_for(response_future, timeout=15)
+    finally:
+        bus.disconnect()
+
+    response, results = response_message.body
+    if response != 0:
+        print(json.dumps({"error": "portal response was not success", "response": response}), file=sys.stderr)
+        return 3
+    uri = results.get("uri")
+    if uri is None:
+        print(json.dumps({"error": "portal response did not include uri"}), file=sys.stderr)
+        return 4
+    parsed = urllib.parse.urlparse(uri.value)
+    if parsed.scheme != "file":
+        print(json.dumps({"error": "portal returned non-file uri", "uri": uri.value}), file=sys.stderr)
+        return 5
+    source_path = urllib.parse.unquote(parsed.path)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    shutil.copyfile(source_path, output_path)
+    print(json.dumps({"uri": uri.value, "output": output_path}))
+    return 0
+
+raise SystemExit(asyncio.run(main()))
+`;
+
+function ydotoolKeyCodes(keys: readonly string[] | undefined): readonly string[] | undefined {
+  if (keys === undefined || keys.length === 0) return undefined;
+  const codes: string[] = [];
+  for (const key of keys) {
+    const normalized = key.trim().toLowerCase();
+    const code = normalized === "enter" || normalized === "return"
+      ? "28"
+      : normalized === "escape" || normalized === "esc"
+        ? "1"
+        : normalized === "tab"
+          ? "15"
+          : normalized === "space"
+            ? "57"
+            : undefined;
+    if (code === undefined) return undefined;
+    codes.push(`${code}:1`, `${code}:0`);
+  }
+  return codes;
+}
+
+function readManagedTerminalTarget(
+  context: RuntimeBaseToolExecutorContext,
+  request: ComputerUseKeyboardActionRequest,
+): { requested: boolean; session?: string } {
+  const metadata = request.metadata ?? {};
+  const targetHint = typeof metadata.targetHint === "string" ? metadata.targetHint : undefined;
+  const metadataSession = typeof metadata.tmuxSession === "string" ? metadata.tmuxSession.trim() : undefined;
+  if (metadataSession !== undefined && metadataSession.length > 0) return { requested: true, session: metadataSession };
+  const explicit = targetHint?.match(/\b(?:tmux|pty|terminal):([A-Za-z0-9_.:-]+)/u)?.[1];
+  if (explicit !== undefined && explicit.length > 0) return { requested: true, session: explicit };
+  const env = context.environment ?? process.env;
+  const fromEnv = env.PRAXIS_DESKTOP_TMUX_SESSION?.trim();
+  if (fromEnv !== undefined && fromEnv.length > 0) return { requested: true, session: fromEnv };
+  const genericManagedTerminal = targetHint !== undefined && (
+    /\b(?:managed|controlled|work)[-_ ]?terminal\b/iu.test(targetHint) ||
+    /\bpty\b/iu.test(targetHint)
+  );
+  if (genericManagedTerminal) return { requested: true };
+  return { requested: false };
+}
+
+function readBoundDesktopInputTarget(
+  request: ComputerUseKeyboardActionRequest,
+): { requested: boolean; targetRef?: string } {
+  const metadata = request.metadata ?? {};
+  const targetRef =
+    typeof metadata.windowRef === "string" ? metadata.windowRef.trim()
+      : typeof metadata.desktopTarget === "string" ? metadata.desktopTarget.trim()
+        : typeof metadata.sessionTarget === "string" ? metadata.sessionTarget.trim()
+          : undefined;
+  if (targetRef !== undefined && targetRef.length > 0) return { requested: true, targetRef };
+  const targetHint = typeof metadata.targetHint === "string" ? metadata.targetHint.trim() : undefined;
+  const explicit = targetHint?.match(/\b(?:window|desktop|gui):([A-Za-z0-9_.:-]+)/u)?.[0];
+  if (explicit !== undefined && explicit.length > 0) return { requested: true, targetRef: explicit };
+  if (targetHint !== undefined && /\b(active|focused)[-_ ]?window\b/iu.test(targetHint)) {
+    return { requested: true, targetRef: "window:active" };
+  }
+  return { requested: false };
+}
+
+function containsNonAsciiText(value: string | undefined): boolean {
+  return value !== undefined && /[^\x00-\x7F]/u.test(value);
+}
+
+async function runManagedTmuxKeyboardAction(
+  context: RuntimeBaseToolExecutorContext,
+  request: ComputerUseKeyboardActionRequest,
+): Promise<BaseToolExecutorResult<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }> | undefined> {
+  const managedTarget = readManagedTerminalTarget(context, request);
+  if (!managedTarget.requested) return undefined;
+  if (managedTarget.session === undefined) {
+    return failure("PROVIDER_UNAVAILABLE", "managed terminal input requires an explicit tmux/pty/terminal session target or PRAXIS_DESKTOP_TMUX_SESSION", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.tmuxSessionMissing",
+    ]);
+  }
+  const session = managedTarget.session;
+  const tmux = await firstExecutable(["/usr/bin/tmux", "/usr/local/bin/tmux"]);
+  if (tmux === undefined) {
+    return failure("PROVIDER_UNAVAILABLE", "managed terminal input requires tmux", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.tmuxMissing",
+    ]);
+  }
+  const cwd = workspaceRoot(context);
+  const hasSession = await runChildProcess({ command: tmux, args: ["has-session", "-t", session], cwd, timeoutMs: 3_000, intent: "generic" }, context, "computeruse.keyboardAction");
+  if (!hasSession.ok) return hasSession;
+  if (hasSession.output.exitCode !== 0) {
+    return failure("PROVIDER_UNAVAILABLE", `managed tmux session ${session} is not available`, [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.tmuxSessionMissing",
     ]);
   }
 
+  const target = session;
+  const args = request.action === "type"
+    ? ["send-keys", "-t", target, "-l", request.text ?? ""]
+    : ["send-keys", "-t", target, ...((request.keys ?? (request.action === "submit" ? ["Enter"] : [])).map((key) => key === "Enter" ? "C-m" : key))];
+  if (args.length <= 3) {
+    return failure("INVALID_REQUEST", "managed terminal input requires text or keys", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.tmuxInvalidRequest",
+    ]);
+  }
+  const result = await runChildProcess({ command: tmux, args, cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.keyboardAction");
+  if (!result.ok) return result;
+  if (result.output.exitCode !== 0) {
+    return failure("PROVIDER_FAILURE", result.output.stderr || "tmux managed terminal input failed", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.tmuxFailed",
+    ]);
+  }
   return success({
-    artifactId: artifactId("screenshot"),
-    mimeType: extension === "jpg" ? "image/jpeg" : "image/png",
-    metadata: desktopAutomationMetadata(context, {
-      storageUri: filePath,
-      captureProvider: path.basename(tool),
-    }),
-  }, [`runtime.execEngine.baseToolExecutorPort.${portPath}.captured`]);
+    actionId: `keyboard:${randomUUID()}`,
+    metadata: {
+      provider: "tmux",
+      session,
+      target,
+      executed: true,
+      focusIndependent: true,
+      imeBypassed: true,
+      action: request.action,
+      workspaceRoot: cwd,
+    },
+  }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.tmuxExecuted"]);
+}
+
+async function runLinuxDesktopKeyboardAction(
+  context: RuntimeBaseToolExecutorContext,
+  request: ComputerUseKeyboardActionRequest,
+): Promise<BaseToolExecutorResult<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }> | undefined> {
+  const managedTerminalResult = await runManagedTmuxKeyboardAction(context, request);
+  if (managedTerminalResult !== undefined) return managedTerminalResult;
+
+  if (!desktopAutomationEnabled(context)) return undefined;
+
+  const desktop = detectLinuxDesktopHost(context);
+  const displayServer = typeof desktop.displayServer === "string" ? desktop.displayServer : "unknown";
+  const boundTarget = readBoundDesktopInputTarget(request);
+  const metadata = desktopAutomationMetadata(context, {
+    action: request.action,
+    targetRef: boundTarget.targetRef,
+    targetBindingRequired: true,
+  });
+  const cwd = workspaceRoot(context);
+
+  if (!boundTarget.requested || boundTarget.targetRef === undefined) {
+    return failure("PROVIDER_UNAVAILABLE", "desktop keyboard input requires an explicit bound target such as window:active, gui:<id>, or a managed terminal target such as tmux:<session>; no focus-dependent input was executed", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.boundTargetRequired",
+    ]);
+  }
+
+  if (displayServer === "wayland") {
+    if (request.action === "type") {
+      const wtype = await firstExecutable(["/usr/bin/wtype", "/usr/local/bin/wtype"]);
+      if (wtype !== undefined) {
+        if (request.text === undefined || request.text.length === 0) {
+          return failure("INVALID_REQUEST", "computeruse keyboard type requires text", ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.invalidRequest"]);
+        }
+        const result = await runChildProcess({ command: wtype, args: [request.text], cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.keyboardAction");
+        if (!result.ok) return result;
+        if (result.output.exitCode !== 0) {
+          return failure("PROVIDER_FAILURE", result.output.stderr || "wtype keyboard action failed", [
+            "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.wtypeFailed",
+          ]);
+        }
+        return success({
+          actionId: `keyboard:${randomUUID()}`,
+          metadata: { ...metadata, provider: "wtype", executed: true, unicodeTextSupported: true },
+        }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.executed"]);
+      }
+      if (containsNonAsciiText(request.text)) {
+        return failure("PROVIDER_UNAVAILABLE", "desktop Unicode text injection requires wtype or a managed terminal target; ydotool text mode is not used for non-ASCII text", [
+          "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.wtypeRequired",
+        ]);
+      }
+    }
+
+    const ydotool = await firstExecutable(["/usr/bin/ydotool", "/usr/local/bin/ydotool"]);
+    if (ydotool === undefined) return undefined;
+    const spec = request.action === "type"
+      ? request.text === undefined
+        ? failure<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>("INVALID_REQUEST", "computeruse keyboard type requires text", ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.invalidRequest"])
+        : undefined
+      : undefined;
+    if (spec !== undefined) return spec;
+    const args = request.action === "type"
+      ? ["type", request.text ?? ""]
+      : ["key", ...(ydotoolKeyCodes(request.keys ?? (request.action === "submit" ? ["Enter"] : undefined)) ?? [])];
+    if (args.length <= 1) return undefined;
+    const result = await runChildProcess({ command: ydotool, args, cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.keyboardAction");
+    if (!result.ok) return result;
+    if (result.output.exitCode !== 0) {
+      return failure("PROVIDER_FAILURE", result.output.stderr || "ydotool keyboard action failed", [
+        "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.ydotoolFailed",
+      ]);
+    }
+    return success({
+      actionId: `keyboard:${randomUUID()}`,
+      metadata: { ...metadata, provider: "ydotool", executed: true },
+    }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.executed"]);
+  }
+
+  if (displayServer === "x11") {
+    const xdotool = await firstExecutable(["/usr/bin/xdotool", "/usr/local/bin/xdotool"]);
+    if (xdotool === undefined) return undefined;
+    const args = request.action === "type"
+      ? ["type", "--delay", "1", request.text ?? ""]
+      : ["key", "--clearmodifiers", ...((request.keys ?? (request.action === "submit" ? ["Return"] : [])).map((key) => key === "Enter" ? "Return" : key))];
+    if (args.length <= 2) return undefined;
+    const result = await runChildProcess({ command: xdotool, args, cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.keyboardAction");
+    if (!result.ok) return result;
+    if (result.output.exitCode !== 0) {
+      return failure("PROVIDER_FAILURE", result.output.stderr || "xdotool keyboard action failed", [
+        "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.xdotoolFailed",
+      ]);
+    }
+    return success({
+      actionId: `keyboard:${randomUUID()}`,
+      metadata: { ...metadata, provider: "xdotool", executed: true },
+    }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.executed"]);
+  }
+
+  return undefined;
 }
 
 function createComputerUseExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["computeruse"]> {
@@ -1578,26 +2119,26 @@ function createComputerUseExecutor(context: RuntimeBaseToolExecutorContext): Non
     async pointerAction(request) {
       const delegated = await callDelegated<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.pointerAction", request);
       if (delegated !== undefined) return delegated;
-      return success({
-        actionId: `pointer:${randomUUID()}`,
-        metadata: desktopAutomationMetadata(context, {
-          action: request.action,
-          executed: false,
-          reason: "pointer actions require an explicit desktop automation provider such as ydotool or xdotool",
-        }),
-      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.prepared"]);
+      const desktop = detectLinuxDesktopHost(context);
+      const providers = Array.isArray(desktop.pointerProviders) ? desktop.pointerProviders.join(" or ") : "ydotool or xdotool";
+      return failure(
+        "PROVIDER_UNAVAILABLE",
+        `computeruse pointer actions require an injected desktop automation provider (${providers}); no pointer action was executed`,
+        ["runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.providerUnavailable"],
+      );
     },
     async keyboardAction(request) {
       const delegated = await callDelegated<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.keyboardAction", request);
       if (delegated !== undefined) return delegated;
-      return success({
-        actionId: `keyboard:${randomUUID()}`,
-        metadata: desktopAutomationMetadata(context, {
-          action: request.action,
-          executed: false,
-          reason: "keyboard actions require an explicit desktop automation provider such as ydotool or xdotool",
-        }),
-      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.prepared"]);
+      const hostResult = await runLinuxDesktopKeyboardAction(context, request);
+      if (hostResult !== undefined) return hostResult;
+      const desktop = detectLinuxDesktopHost(context);
+      const providers = Array.isArray(desktop.pointerProviders) ? desktop.pointerProviders.join(" or ") : "ydotool or xdotool";
+      return failure(
+        "PROVIDER_UNAVAILABLE",
+        `computeruse keyboard actions require BAPR/YOLO policy or PRAXIS_ENABLE_DESKTOP_AUTOMATION=1 plus a desktop automation provider (${providers}); no keyboard input was executed`,
+        ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.providerUnavailable"],
+      );
     },
     async locateCursor(request) {
       const delegated = await callDelegated<{ x: number; y: number; coordinateSpace: "screen" | "window" | "normalized" }>(context, "computeruse.locateCursor", request);

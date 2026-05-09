@@ -119,6 +119,14 @@ type SqliteDatabaseSync = {
   close(): void;
 };
 
+function configureSqliteForConcurrentRuntimeAccess(db: SqliteDatabaseSync): void {
+  db.exec(`
+    PRAGMA busy_timeout = 10000;
+    PRAGMA journal_mode = WAL;
+    PRAGMA synchronous = NORMAL;
+  `);
+}
+
 function stableJson(value: unknown): string {
   return JSON.stringify(value ?? {});
 }
@@ -342,6 +350,7 @@ export async function createSqliteSessionStateEventStore(
 ): Promise<RuntimeSessionStateEventStore> {
   const sqlite = await import("node:sqlite");
   const db = new sqlite.DatabaseSync(databasePath) as SqliteDatabaseSync;
+  configureSqliteForConcurrentRuntimeAccess(db);
   installSchema(db);
 
   return {

@@ -130,6 +130,7 @@ const runtimeOwnedContractPrefixes = [
   "runtime.capabilityExposure.",
   "runtime.devicePolicy.",
   "runtime.focusManager.",
+  "runtime.generationPlane.",
   "runtime.inputController.",
   "runtime.lsp.",
   "runtime.mcp.",
