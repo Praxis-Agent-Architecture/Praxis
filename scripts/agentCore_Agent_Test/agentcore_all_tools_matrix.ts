@@ -56,17 +56,24 @@ const matrixScripts: readonly MatrixScript[] = [
   { family: "skill", path: "scripts/agentCore_Agent_Test/agentcore_skill_live_matrix.ts" },
   { family: "omni", path: "scripts/agentCore_Agent_Test/agentcore_omni_live_matrix.ts" },
   { family: "computeruse", path: "scripts/agentCore_Agent_Test/agentcore_computeruse_live_matrix.ts" },
+  { family: "search", path: "scripts/agentCore_Agent_Test/agentcore_search_live_matrix.ts" },
+  { family: "mcp", path: "scripts/agentCore_Agent_Test/agentcore_mcp_live_matrix.ts" },
 ] as const;
 
-function extractCoveredToolIds(filePaths: readonly string[]): string[] {
+function extractCoveredToolIds(filePaths: readonly string[], catalogIds: readonly string[]): string[] {
+  const catalogIdSet = new Set(catalogIds);
   const ids = new Set<string>();
   for (const filePath of filePaths) {
     const content = readFileSync(path.join(architectureRoot, filePath), "utf8");
     for (const match of content.matchAll(/toolId:\s*"([^"]+)"/gu)) {
-      ids.add(match[1] ?? "");
+      const candidate = match[1] ?? "";
+      if (catalogIdSet.has(candidate)) ids.add(candidate);
+    }
+    for (const match of content.matchAll(/"((?:code|computeruse|git|mcp|omni|search|shell|skill)\.[A-Za-z0-9_]+)"/gu)) {
+      const candidate = match[1] ?? "";
+      if (catalogIdSet.has(candidate)) ids.add(candidate);
     }
   }
-  ids.delete("");
   return [...ids].sort();
 }
 
@@ -154,7 +161,7 @@ async function main(): Promise<void> {
 
   const coveredByScript = new Map<string, string[]>();
   for (const script of matrixScripts) {
-    coveredByScript.set(script.family, extractCoveredToolIds(script.coveragePaths ?? [script.path]));
+    coveredByScript.set(script.family, extractCoveredToolIds(script.coveragePaths ?? [script.path], catalogIds));
   }
 
   const coveredIds = [...new Set([...coveredByScript.values()].flat())].sort();

@@ -571,10 +571,15 @@ export async function executeOmniViewImage(request: unknown = {}): Promise<OmniV
       ],
       events: ["basicTool.omni.viewImage.runtimeProvider"],
     };
-  } catch {
+  } catch (error) {
+    const rawCode = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+    const providerCode = rawCode === "PROVIDER_UNAVAILABLE" ? "PROVIDER_UNAVAILABLE" : "PROVIDER_REJECTED";
+    const providerMessage = rawCode === providerCode && error instanceof Error && error.message.trim().length > 0
+      ? error.message
+      : "omni.viewImage runtime provider failed before returning a public-safe image envelope";
     return failure(
-      "PROVIDER_REJECTED",
-      "omni.viewImage runtime provider failed before returning a public-safe image envelope",
+      providerCode,
+      providerMessage,
       "provider",
       context,
       target,

@@ -65,7 +65,9 @@ export function createHostExecutorShellCommandExecutionProvider(
     });
 
     if (!result.ok) {
-      throw new Error(result.error.message);
+      const error = new Error(result.error.message);
+      error.name = result.error.code;
+      throw error;
     }
 
     return result.output;

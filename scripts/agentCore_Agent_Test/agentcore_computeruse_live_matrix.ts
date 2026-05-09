@@ -368,11 +368,118 @@ const cameraCases: readonly ComputerUseMatrixCase[] = [
   },
 ] as const;
 
+const pointerKeyboardCases: readonly ComputerUseMatrixCase[] = [
+  {
+    toolId: "computeruse.cursorLocate",
+    userPrompt: "读取当前鼠标指针位置，只做观察。",
+    input: {
+      purpose: "observe cursor position",
+      target: { coordinateSpace: "screen", displayId: "display-1" },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "locate-cursor:screen",
+  },
+  {
+    toolId: "computeruse.mouseMove",
+    userPrompt: "把鼠标移动到屏幕坐标 10,20。",
+    input: {
+      purpose: "move pointer in deterministic matrix",
+      target: { x: 10, y: 20, coordinateSpace: "screen", durationMs: 0, displayId: "display-1" },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "pointer:move",
+  },
+  {
+    toolId: "computeruse.mouseClick",
+    userPrompt: "在当前光标处执行一次左键点击。",
+    input: {
+      purpose: "click in deterministic matrix",
+      target: { button: "left", clickCount: 1, coordinateSpace: "screen", at: { x: 10, y: 20 } },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "pointer:click",
+  },
+  {
+    toolId: "computeruse.mouseScroll",
+    userPrompt: "在当前光标处向下滚动一点。",
+    input: {
+      purpose: "scroll in deterministic matrix",
+      target: { deltaY: 120, coordinateSpace: "screen", at: { x: 10, y: 20 }, durationMs: 0 },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "pointer:scroll",
+  },
+  {
+    toolId: "computeruse.mouseEmulation",
+    userPrompt: "用鼠标动作序列移动并点击。",
+    input: {
+      purpose: "run pointer sequence in deterministic matrix",
+      steps: [
+        { kind: "move", target: { x: 10, y: 20 }, coordinateSpace: "screen", durationMs: 0 },
+        { kind: "click", button: "left", clickCount: 1, coordinateSpace: "screen", at: { x: 10, y: 20 } },
+      ],
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "pointer:click",
+  },
+  {
+    toolId: "computeruse.checkboxConfirm",
+    userPrompt: "通过鼠标确认一个安全复选框。",
+    input: {
+      purpose: "confirm pointer checkbox in deterministic matrix",
+      target: { label: "I understand", at: { x: 10, y: 20 }, coordinateSpace: "screen" },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "pointer:confirm",
+  },
+  {
+    toolId: "computeruse.keyboardEmulation",
+    userPrompt: "发出一个 Ctrl+L 快捷键。",
+    input: {
+      purpose: "emit keyboard shortcut in deterministic matrix",
+      target: { targetHint: "address bar", actions: [{ kind: "shortcut", keys: ["Control", "L"] }] },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "keyboard:shortcut",
+  },
+  {
+    toolId: "computeruse.keyboardInputEmulation",
+    userPrompt: "向当前输入框键入 matrix-ok。",
+    input: {
+      purpose: "type text in deterministic matrix",
+      target: { text: "matrix-ok", inputMode: "text", targetHint: "focused input", maxTextLength: 64 },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "keyboard:type",
+  },
+  {
+    toolId: "computeruse.keyboardSubmitInput",
+    userPrompt: "提交当前输入框。",
+    input: {
+      purpose: "submit text in deterministic matrix",
+      target: { submitKey: "Enter", targetHint: "focused input" },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "keyboard:submit",
+  },
+  {
+    toolId: "computeruse.inputCheckboxConfirm",
+    userPrompt: "通过键盘确认一个输入复选框。",
+    input: {
+      purpose: "confirm keyboard checkbox in deterministic matrix",
+      target: { label: "I understand", targetHint: "focused checkbox" },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall: "keyboard:confirm",
+  },
+] as const;
+
 const computerUseCases: readonly ComputerUseMatrixCase[] = [
   ...screenshotCases,
   ...screenRecordingCases,
   ...microphoneCases,
   ...cameraCases,
+  ...pointerKeyboardCases,
 ] as const;
 
 function argValue(name: string): string | undefined {
@@ -572,6 +679,56 @@ function createComputerUseExecutor(calls: string[]): BaseToolExecutorPort {
             metadata: {
               runtimeEntry: "BaseToolExecutorPort.computeruse.captureScreenshot",
               labMode: "deterministic-computeruse-screenshot-matrix",
+            },
+          },
+        };
+      },
+      async pointerAction(request) {
+        const action = typeof request.metadata?.sequence === "boolean" && request.metadata.sequence
+          ? "sequence"
+          : request.action;
+        calls.push(`pointer:${action}`);
+        return {
+          ok: true,
+          output: {
+            actionId: `pointer:${action}:live-matrix`,
+            metadata: {
+              runtimeEntry: "BaseToolExecutorPort.computeruse.pointerAction",
+              labMode: "deterministic-computeruse-pointer-matrix",
+              target: request.target,
+            },
+          },
+        };
+      },
+      async keyboardAction(request) {
+        const action = request.action;
+        calls.push(`keyboard:${action}`);
+        return {
+          ok: true,
+          output: {
+            actionId: `keyboard:${action}:live-matrix`,
+            metadata: {
+              runtimeEntry: "BaseToolExecutorPort.computeruse.keyboardAction",
+              labMode: "deterministic-computeruse-keyboard-matrix",
+              keys: request.keys,
+              textLength: request.text?.length,
+            },
+          },
+        };
+      },
+      async locateCursor(request) {
+        calls.push(`locate-cursor:${request.coordinateSpace ?? "screen"}`);
+        return {
+          ok: true,
+          output: {
+            x: 10,
+            y: 20,
+            coordinateSpace: request.coordinateSpace ?? "screen",
+            position: { x: 10, y: 20, coordinateSpace: request.coordinateSpace ?? "screen", displayId: "display-1" },
+            capturedAt: "2026-05-09T00:00:00.000Z",
+            metadata: {
+              runtimeEntry: "BaseToolExecutorPort.computeruse.locateCursor",
+              labMode: "deterministic-computeruse-cursor-matrix",
             },
           },
         };

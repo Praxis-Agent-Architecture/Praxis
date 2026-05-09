@@ -86,3 +86,38 @@ test("unregistered and detect-only dependencies do not get silent automatic inst
     assert.equal(detectOnly.error.code, "INSTALL_RECIPE_UNAVAILABLE");
   }
 });
+
+test("common BaseTool host dependencies are registered without silent system install", () => {
+  const commonDependencyIds = [
+    "runtime.binary.rg",
+    "binary:bwrap",
+    "runtime.binary.ffmpeg",
+    "runtime.binary.imagemagick",
+    "runtime.binary.xdotool",
+    "runtime.binary.ydotool",
+    "mcp.testServer.echo",
+  ];
+
+  for (const dependencyId of commonDependencyIds) {
+    const source = lookupDependencySource(dependencyId);
+    assert.equal(source.ok, true, `${dependencyId} should be registered`);
+  }
+
+  const bwrapPlan = planDependencyInstallation({
+    dependencyId: "binary:bwrap",
+    managedRoot: "/tmp/praxis-tool-deps",
+  });
+  assert.equal(bwrapPlan.ok, false);
+  if (!bwrapPlan.ok) {
+    assert.equal(bwrapPlan.error.code, "INSTALL_RECIPE_UNAVAILABLE");
+  }
+
+  const rgPlan = planDependencyInstallation({
+    dependencyId: "runtime.binary.rg",
+    managedRoot: "/tmp/praxis-tool-deps",
+  });
+  assert.equal(rgPlan.ok, false);
+  if (!rgPlan.ok) {
+    assert.equal(rgPlan.error.code, "INSTALL_RECIPE_UNAVAILABLE");
+  }
+});

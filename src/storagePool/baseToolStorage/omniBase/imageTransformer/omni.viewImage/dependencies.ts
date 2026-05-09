@@ -64,7 +64,7 @@ export function createRuntimeOmniViewImageProvider(
     });
 
     if (!result.ok) {
-      throw new Error(result.error.message);
+      throw Object.assign(new Error(result.error.message), { code: result.error.code });
     }
 
     return {

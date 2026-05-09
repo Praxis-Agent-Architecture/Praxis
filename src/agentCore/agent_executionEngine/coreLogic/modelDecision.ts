@@ -31,6 +31,14 @@ export type ModelDecisionToolCall = {
   arguments: Readonly<Record<string, unknown>>;
 };
 
+export type ModelDecisionToolContextExpansion = {
+  targetKind: "family" | "group" | "tool";
+  family?: string;
+  group?: string;
+  toolId?: string;
+  reason?: string;
+};
+
 export type ModelDecisionFailure = {
   code: string;
   message: string;
@@ -43,6 +51,7 @@ export type ModelDecision = {
   finalOutput?: string;
   toolCall?: ModelDecisionToolCall;
   ephemeralProcedurePlan?: EphemeralProcedurePlan;
+  toolContextExpansion?: ModelDecisionToolContextExpansion;
   approvalRequest?: {
     reason: string;
     requestedScopes: readonly string[];
@@ -149,6 +158,24 @@ function failure(
     ok: false,
     error: { code, message, publicSafe: true },
     events: ["agentCore.execution.modelDecision.rejected"],
+  };
+}
+
+function readToolContextExpansion(value: Readonly<Record<string, unknown>>): ModelDecisionToolContextExpansion | undefined {
+  const targetKind = readString(value.targetKind);
+  if (targetKind !== "family" && targetKind !== "group" && targetKind !== "tool") return undefined;
+  const family = readString(value.family);
+  const group = readString(value.group);
+  const toolId = readString(value.toolId);
+  if (targetKind === "family" && family === undefined) return undefined;
+  if (targetKind === "group" && (family === undefined || group === undefined)) return undefined;
+  if (targetKind === "tool" && toolId === undefined) return undefined;
+  return {
+    targetKind,
+    ...(family === undefined ? {} : { family }),
+    ...(group === undefined ? {} : { group }),
+    ...(toolId === undefined ? {} : { toolId }),
+    ...(readString(value.reason) === undefined ? {} : { reason: readString(value.reason) }),
   };
 }
 
@@ -267,6 +294,33 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
         providerRawRef: rawRef,
         observationRefs: [],
         metadata: { providerFunctionName: call.providerName, callId: call.callId, providerFamily: call.providerFamily },
+      });
+      continue;
+    }
+
+    if (call.providerName === "praxis_expand_tool_context") {
+      const expansion = readToolContextExpansion(call.arguments);
+      decisions.push({
+        decisionId: `${sessionId}:turn:${request.turnIndex}:decision:${index + 1}`,
+        kind: expansion === undefined ? "fail" : "continue",
+        ...(expansion === undefined
+          ? {
+              failure: {
+                code: "INVALID_TOOL_CONTEXT_EXPANSION",
+                message: "praxis_expand_tool_context requires targetKind plus family/group/toolId matching the target kind",
+                publicSafe: true as const,
+              },
+            }
+          : { toolContextExpansion: expansion }),
+        providerRawRef: rawRef,
+        observationRefs: [],
+        metadata: {
+          providerFunctionName: call.providerName,
+          callId: call.callId,
+          providerFamily: call.providerFamily,
+          runtimeDecision: "expandToolContext",
+          ...(expansion === undefined ? {} : { toolContextExpansion: expansion }),
+        },
       });
       continue;
     }

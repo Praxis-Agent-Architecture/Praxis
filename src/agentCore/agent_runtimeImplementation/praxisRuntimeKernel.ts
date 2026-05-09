@@ -14,9 +14,11 @@ import path from "node:path";
 import type { OpenAIV1ResponsesProviderCaller } from "../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import {
   createProviderToolMappings,
+  lowerProviderToolResult,
   lowerPraxisToolsForProvider,
   providerToolName,
   type ProviderToolDeclarationBundle,
+  type ProviderToolResultEnvelope,
   type ProviderToolNameMapping,
 } from "../agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 import type { BaseToolExecutorPort } from "../agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
@@ -24,6 +26,7 @@ import { receiveTextInput } from "../agent_executionEngine/IOTransceiver/inputRe
 import { exposeTextOutput } from "../agent_executionEngine/IOTransceiver/outputExposer/textExposer.js";
 import {
   createMainLoopStepRecord,
+  decideMainLoopFinalAcceptance,
   planFrameworkMainLoopHandoff,
   runMainLoop,
   runMainLoopRunner,
@@ -57,6 +60,14 @@ import {
   preflightBaseToolDependencies,
   type BaseToolDependencyRuntimeMode,
 } from "./runtime.execEngine/baseToolDependencyRuntime.js";
+import {
+  applyBaseToolContextUsage,
+  createBaseToolContextHeatState,
+  createBaseToolContextTree,
+  type BaseToolContextHeatState,
+  type BaseToolContextSelection,
+  type BaseToolContextUsageRecord,
+} from "./runtime.execEngine/baseToolContextFolding.js";
 import { invokeMountedBaseTool } from "./runtime.execEngine/baseToolRuntimeMount.js";
 import { evaluateBaseToolRuntimeReadiness } from "./runtime.execEngine/baseToolSupportCatalog.js";
 import { invokeModelThroughRuntime } from "./runtime.modelAdapter/modelInvocationRuntime.js";
@@ -322,6 +333,81 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function readStringArray(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  const values: string[] = [];
+  for (const item of value) {
+    const text = readString(item);
+    if (text !== undefined && !values.includes(text)) values.push(text);
+  }
+  return values;
+}
+
+function mergeStringLists(...lists: readonly (readonly string[] | undefined)[]): readonly string[] {
+  const merged: string[] = [];
+  for (const list of lists) {
+    if (list === undefined) continue;
+    for (const item of list) {
+      const text = readString(item);
+      if (text !== undefined && !merged.includes(text)) merged.push(text);
+    }
+  }
+  return merged;
+}
+
+function runtimeGrantedPermissionsForTool(toolId: string): readonly string[] {
+  if (toolId.startsWith("git.")) return ["git:read", "filesystem:read"];
+  if (toolId.startsWith("code.")) return ["filesystem:read", "filesystem:write"];
+  if (toolId.startsWith("skill.")) return ["skill:read", "skill:write", "filesystem:read", "filesystem:write"];
+  if (toolId.startsWith("search.")) return ["network:read", "search:fetch", "network:egress", "network:search", "search:native"];
+  if (toolId.startsWith("shell.")) return ["shell:execute", "shell:observe", "shell:validate"];
+  if (toolId.startsWith("mcp.")) {
+    return [
+      "mcp:connect",
+      "mcp:auth",
+      "mcp:read",
+      "mcp:write",
+      "mcp:cache:invalidate",
+      "mcp:disconnect",
+      "mcp:subscription:write",
+      "mcp:call",
+      "mcp:service",
+      "mcp:stream",
+      "mcp:cancel",
+      "mcp:control",
+      "mcp:native-execute",
+      "mcp:raw",
+      "mcp:tool:read",
+      "mcp:tool:write",
+      "mcp:connection:read",
+      "mcp:resource:list",
+      "mcp:resource:read",
+      "mcp:resource:create",
+      "mcp:resource:write",
+      "mcp:resource:delete",
+      "mcp:ping",
+      "mcp:monitor:read",
+    ];
+  }
+  if (toolId === "omni.viewImage") return ["filesystem:read", "omni:image:view"];
+  if (toolId.startsWith("omni.")) return ["filesystem:read", "filesystem:write", "omni:media:transform", "omni:image:generate"];
+  if (toolId.startsWith("computeruse.")) return ["computeruse:read", "computeruse:device:read", "computeruse:screenshot"];
+  return ["tool.execute"];
+}
+
+function grantedPermissionsForTool(toolId: string, rawPermissions: unknown): readonly string[] {
+  const merged = mergeStringLists(readStringArray(rawPermissions), runtimeGrantedPermissionsForTool(toolId));
+  if (toolId === "omni.viewImage") {
+    return merged.filter((permission) => permission === "filesystem:read" || permission === "omni:image:view");
+  }
+  return merged;
+}
+
+function defaultMcpServerId(toolId: string, args: Readonly<Record<string, unknown>>): string | undefined {
+  if (!toolId.startsWith("mcp.")) return undefined;
+  return readString(args.serverId) ?? "local-mcp";
+}
+
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
   return createProviderToolMappings(manifest.harness.tools);
 }
@@ -339,22 +425,18 @@ function enrichToolArguments(
   },
 ): Readonly<Record<string, unknown>> {
   const rawContext = isRecord(args.context) ? args.context : {};
-  const workspaceRoot = readString(args.workspaceRoot) ?? runtimeContext.workspaceRoot ?? manifest.harness.policy.workspaceRoot;
+  const workspaceRoot = readString(args.workspaceRoot) ?? manifest.harness.policy.workspaceRoot ?? runtimeContext.workspaceRoot;
   const allowedRoots = Array.isArray(args.allowedRoots)
     ? args.allowedRoots
-    : runtimeContext.allowedRoots ?? manifest.harness.policy.allowedRoots;
-  const grantedPermissions = Array.isArray(rawContext.grantedPermissions)
-    ? rawContext.grantedPermissions
-    : [
-        "tool.execute",
-        ...(toolId.startsWith("git.") ? ["git:read", "filesystem:read"] : []),
-        ...(toolId.startsWith("code.") || toolId.startsWith("skill.") ? ["filesystem:read"] : []),
-        ...(toolId.startsWith("search.") ? ["network:read", "search:fetch", "network:egress", "network:search"] : []),
-        ...(toolId.startsWith("shell.") ? ["shell:execute"] : []),
-      ];
+    : manifest.harness.policy.allowedRoots ?? runtimeContext.allowedRoots;
+  const grantedPermissions = grantedPermissionsForTool(toolId, rawContext.grantedPermissions);
+  const requestedScopes = mergeStringLists(readStringArray(rawContext.requestedScopes), ["tool.execute", `tool.${toolId}`]);
+  const allowedScopes = mergeStringLists(readStringArray(rawContext.allowedScopes), manifest.harness.policy.scopes, ["tool.execute", `tool.${toolId}`, toolId]);
   const allowedRepositoryRoots = Array.isArray(rawContext.allowedRepositoryRoots)
     ? rawContext.allowedRepositoryRoots
     : [workspaceRoot, ...(allowedRoots ?? [])].filter((root): root is string => typeof root === "string" && root.trim().length > 0);
+  const defaultServerId = defaultMcpServerId(toolId, args);
+  const allowedServerIds = mergeStringLists(readStringArray(rawContext.allowedServerIds), defaultServerId === undefined ? undefined : [defaultServerId]);
   const rawTarget = isRecord(args.target) ? args.target : {};
   let target = rawTarget;
   if (toolId.startsWith("git.") && workspaceRoot !== undefined) {
@@ -365,6 +447,9 @@ function enrichToolArguments(
         ? rawRepositoryPath
         : path.resolve(workspaceRoot, rawRepositoryPath);
     target = { ...rawTarget, repositoryPath };
+  }
+  if (defaultServerId !== undefined) {
+    target = { serverId: defaultServerId, ...target };
   }
 
   return {
@@ -381,9 +466,18 @@ function enrichToolArguments(
       guard: isRecord(rawContext.guard)
         ? { accepted: true, allowed: true, ...rawContext.guard }
         : { accepted: true, allowed: true },
+      governance: isRecord(rawContext.governance)
+        ? { accepted: true, allowed: true, ...rawContext.governance }
+        : { accepted: true, allowed: true },
+      contract: isRecord(rawContext.contract)
+        ? { accepted: true, allowed: true, ...rawContext.contract }
+        : { accepted: true, allowed: true },
       ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
       ...(allowedRoots === undefined ? {} : { allowedRoots }),
       ...(allowedRepositoryRoots.length === 0 ? {} : { allowedRepositoryRoots }),
+      ...(allowedServerIds.length === 0 ? {} : { allowedServerIds }),
+      requestedScopes,
+      allowedScopes,
       grantedPermissions,
     },
   };
@@ -396,6 +490,10 @@ function metadataRecord(value: Readonly<Record<string, unknown>>): Readonly<Reco
       return ["string", "number", "boolean"].includes(typeof candidate) || (typeof candidate === "object" && candidate !== null);
     }),
   );
+}
+
+function dependencyModeCanPrepare(mode: BaseToolDependencyRuntimeMode | undefined): boolean {
+  return mode === "auto" || mode === "full" || mode === "autoInstallTrustedManaged";
 }
 
 function toolProviderKind(tool: AgentManifest["harness"]["tools"][number]): "baseTool" | "tap" | "mcp-static" | "dynamic" {
@@ -419,6 +517,7 @@ const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
   "Praxis BaseTool calling protocol:",
   "Use mounted BaseTools through declared function calls when the task needs current workspace, filesystem, git, shell, search, skill, MCP, computer-use, media, or external-resource evidence.",
   "Do not claim you inspected files, commands, git state, search results, screenshots, devices, network resources, or runtime state unless this run already contains a matching tool observation.",
+  "When BaseTool documentation is folded and you need a more precise family/group/tool manual, request praxis_expand_tool_context before choosing the concrete tool.",
   "If one BaseTool is not enough, request praxis_ephemeral_procedure to orchestrate existing mounted BaseTools; do not invent a new tool.",
   "If policy, sandbox, dependency, budget, or approval blocks the action, request praxis_request_approval or report the public-safe blocker after the runtime returns it.",
   "If the prompt already contains enough evidence and no runtime action is needed, answer directly.",
@@ -431,32 +530,38 @@ function promptMaterialsForTurn(input: {
   toolMappings: readonly ProviderToolMapping[];
   observations: readonly RuntimeObservationMaterial[];
   events: readonly string[];
+  toolContextSelection?: BaseToolContextSelection;
+  toolContextUsage?: readonly BaseToolContextUsageRecord[];
 }): readonly PromptPackMaterialDraft[] {
-  const orderedTools = [...input.manifest.harness.tools].sort((left, right) => {
-    const providerDelta = toolProviderSortWeight(toolProviderKind(left)) - toolProviderSortWeight(toolProviderKind(right));
-    if (providerDelta !== 0) return providerDelta;
-    return left.toolId.localeCompare(right.toolId);
+  const observationUsage = input.observations
+    .map((observation) => {
+      const toolId = typeof observation.material.metadata?.toolId === "string"
+        ? observation.material.metadata.toolId
+        : undefined;
+      return toolId === undefined ? undefined : { toolId };
+    })
+    .filter((usage): usage is { toolId: string } => usage !== undefined);
+  const toolContext = createBaseToolContextTree(input.manifest.harness.tools, {
+    mode: "autoFolded",
+    auto: input.toolContextSelection,
+    usage: input.toolContextUsage ?? observationUsage,
+    keepExpandedScore: 15,
   });
-  const toolMaterials = orderedTools.map((tool, index): PromptPackMaterialDraft => {
-    const providerName = input.toolMappings.find((mapping) => mapping.toolId === tool.toolId)?.providerName ?? providerToolName(tool.toolId);
-    const providerKind = toolProviderKind(tool);
+  const toolMaterials = toolContext.materials.map((materialDraft, index): PromptPackMaterialDraft => {
+    const toolId = typeof materialDraft.metadata?.toolId === "string" ? materialDraft.metadata.toolId : undefined;
+    const providerName = toolId === undefined
+      ? undefined
+      : input.toolMappings.find((mapping) => mapping.toolId === toolId)?.providerName ?? providerToolName(toolId);
+    const providerKind = toolId === undefined
+      ? undefined
+      : toolProviderKind(input.manifest.harness.tools.find((tool) => tool.toolId === toolId) ?? { toolId });
     return {
-      id: `tool:${tool.toolId}`,
-      kind: "tool",
-      text: tool.description ?? `Mounted BaseTool ${tool.toolId}`,
-      source: "runtime.mountedBaseTool",
-      priority: 80 - index,
-      trusted: true,
-      scope: "runtime.toolProjection",
+      ...materialDraft,
+      priority: materialDraft.priority ?? 80 - index,
       metadata: {
-        promptSegmentKind: "toolDeclarations",
-        toolProviderKind: providerKind,
-        toolOrder: index,
-        toolMaterialType: "declaration",
-        toolId: tool.toolId,
-        toolName: providerName,
-        toolDescription: tool.description ?? `Praxis BaseTool ${tool.toolId}`,
-        inputSchema: tool.inputSchema ?? { type: "object", additionalProperties: true },
+        ...(materialDraft.metadata ?? {}),
+        ...(providerKind === undefined ? {} : { toolProviderKind: providerKind }),
+        ...(providerName === undefined ? {} : { toolName: providerName }),
       },
     };
   });
@@ -517,6 +622,8 @@ function promptMaterialsForTurn(input: {
       text: [
         `turnIndex=${input.turnIndex}`,
         `runtime mounted BaseTools=${input.manifest.harness.tools.map((tool) => tool.toolId).join(", ") || "none"}`,
+        `baseTool context mode=${toolContext.mode}`,
+        `baseTool context expanded=${toolContext.expandedNodeIds.join(", ") || "none"}`,
         `recent events=${input.events.slice(-8).join(", ") || "none"}`,
       ].join("\n"),
       source: "runtime.stateProjection",
@@ -536,12 +643,152 @@ function promptMaterialsForTurn(input: {
   ];
 }
 
+function observationPayloadText(observation: RuntimeObservationMaterial): string {
+  if (typeof observation.payload === "string") return observation.payload;
+  try {
+    return JSON.stringify(observation.payload);
+  } catch {
+    return observation.material.text;
+  }
+}
+
+function providerToolResultsFromObservations(
+  observations: readonly RuntimeObservationMaterial[],
+): readonly ProviderToolResultEnvelope[] {
+  return observations
+    .map((observation): ProviderToolResultEnvelope | undefined => {
+      const metadata = observation.material.metadata ?? {};
+      const toolCallId = typeof metadata.toolCallId === "string" && metadata.toolCallId.trim().length > 0
+        ? metadata.toolCallId.trim()
+        : undefined;
+      const toolId = typeof metadata.toolId === "string" && metadata.toolId.trim().length > 0
+        ? metadata.toolId.trim()
+        : undefined;
+      if (toolCallId === undefined || toolId === undefined) return undefined;
+      const providerName = typeof metadata.providerToolName === "string" && metadata.providerToolName.trim().length > 0
+        ? metadata.providerToolName.trim()
+        : providerToolName(toolId);
+      const status = typeof metadata.observationStatus === "string" ? metadata.observationStatus : "completed";
+      const payloadText = observationPayloadText(observation);
+      return {
+        callId: toolCallId,
+        toolId,
+        providerName,
+        isError: status !== "completed",
+        content: [{
+          type: "text",
+          text: payloadText.length === 0 ? observation.material.text : payloadText,
+        }],
+        metadata: {
+          observationId: observation.observationId,
+          observationStatus: status,
+        },
+      };
+    })
+    .filter((result): result is ProviderToolResultEnvelope => result !== undefined);
+}
+
+function kernelSseDataObjects(text: string): readonly unknown[] {
+  const objects: unknown[] = [];
+  for (const line of text.split(/\r?\n/u)) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice("data:".length).trim();
+    if (payload.length === 0 || payload === "[DONE]") continue;
+    try {
+      objects.push(JSON.parse(payload) as unknown);
+    } catch {
+      // Ignore non-JSON stream payloads.
+    }
+  }
+  return objects;
+}
+
+function outputItemKey(item: Readonly<Record<string, unknown>>, index: number): string {
+  const callId = typeof item.call_id === "string" && item.call_id.trim().length > 0 ? item.call_id.trim() : undefined;
+  const id = typeof item.id === "string" && item.id.trim().length > 0 ? item.id.trim() : undefined;
+  const type = typeof item.type === "string" && item.type.trim().length > 0 ? item.type.trim() : "item";
+  return callId ?? id ?? `${type}:${index}`;
+}
+
+function normalizeOpenAIResponseOutputItemForInput(
+  item: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> | undefined {
+  const type = typeof item.type === "string" ? item.type : undefined;
+  if (type !== "function_call") {
+    return undefined;
+  }
+
+  const name = typeof item.name === "string" && item.name.trim().length > 0 ? item.name.trim() : undefined;
+  const callId = typeof item.call_id === "string" && item.call_id.trim().length > 0 ? item.call_id.trim() : undefined;
+  if (name === undefined || callId === undefined) {
+    return undefined;
+  }
+
+  const args = typeof item.arguments === "string" ? item.arguments : "{}";
+  const status = typeof item.status === "string" && item.status.trim().length > 0 ? item.status.trim() : "completed";
+  return {
+    type: "function_call",
+    name,
+    call_id: callId,
+    arguments: args,
+    status,
+  };
+}
+
+function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Record<string, unknown>>[] {
+  if (typeof raw === "string") {
+    const items = kernelSseDataObjects(raw).flatMap((object) => {
+      if (object === null || typeof object !== "object" || Array.isArray(object)) return [];
+      const record = object as Record<string, unknown>;
+      const eventType = typeof record.type === "string" ? record.type : undefined;
+      const fromResponse = record.response === undefined ? [] : extractOpenAIResponseOutputItems(record.response);
+      const fromItem = eventType === "response.output_item.done" &&
+        record.item !== null &&
+        typeof record.item === "object" &&
+        !Array.isArray(record.item)
+        ? [record.item as Readonly<Record<string, unknown>>]
+        : [];
+      return [...fromResponse, ...fromItem];
+    });
+    const seen = new Set<string>();
+    return items.filter((item, index) => {
+      const key = outputItemKey(item, index);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).map(normalizeOpenAIResponseOutputItemForInput)
+      .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
+  }
+
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return [];
+  }
+
+  const output = (raw as { output?: unknown }).output;
+  if (!Array.isArray(output)) {
+    return [];
+  }
+
+  return output
+    .filter((item): item is Readonly<Record<string, unknown>> => {
+      return item !== null && typeof item === "object" && !Array.isArray(item);
+    })
+    .map(normalizeOpenAIResponseOutputItemForInput)
+    .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
+}
+
 function buildCodexResponsesBodyFromPromptPack(
   manifest: AgentManifest,
   promptPack: StandardPromptPack,
   mappings: readonly ProviderToolMapping[],
-  options: { exposeProviderTools?: boolean } = {},
+  options: {
+    exposeProviderTools?: boolean;
+    observations?: readonly RuntimeObservationMaterial[];
+    previousProviderOutputItems?: readonly Readonly<Record<string, unknown>>[];
+  } = {},
 ): Readonly<Record<string, unknown>> {
+  const toolResultInputs = providerToolResultsFromObservations(options.observations ?? [])
+    .map((result) => lowerProviderToolResult({ providerFamily: "openaiResponses", result }));
   const body: Record<string, unknown> = {
     model: manifest.model.model,
     input: [
@@ -562,6 +809,8 @@ function buildCodexResponsesBodyFromPromptPack(
           text: promptPack.renderedText,
         }],
       },
+      ...(options.previousProviderOutputItems ?? []),
+      ...toolResultInputs,
     ],
   };
 
@@ -899,6 +1148,8 @@ async function buildPromptPackAndLower(input: {
   toolMappings: readonly ProviderToolMapping[];
   observations: readonly RuntimeObservationMaterial[];
   events: readonly string[];
+  toolContextSelection?: BaseToolContextSelection;
+  toolContextUsage?: readonly BaseToolContextUsageRecord[];
 }): Promise<
   | {
       ok: true;
@@ -946,6 +1197,8 @@ async function buildPromptPackAndLower(input: {
       toolMappings: input.toolMappings,
       observations: input.observations,
       events: input.events,
+      toolContextSelection: input.toolContextSelection,
+      toolContextUsage: input.toolContextUsage,
     }),
   });
   if (!mainLoopRun.ok) {
@@ -1140,7 +1393,7 @@ async function executeBaseToolDecision(input: {
     }
   }
 
-  const dependencyPreflight = await preflightBaseToolDependencies({
+  let dependencyPreflight = await preflightBaseToolDependencies({
     executor: input.executor,
     implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
     readiness: runtimeReadiness,
@@ -1216,7 +1469,7 @@ async function executeBaseToolDecision(input: {
       return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance };
     }
 
-    if ((input.dependencyRuntime?.mode ?? "observe") !== "autoInstallTrustedManaged") {
+    if (!dependencyModeCanPrepare(input.dependencyRuntime?.mode ?? "observe")) {
       const error = {
         code: "DEPENDENCY_PREPARE_PENDING",
         message: "dependency approval was granted, but automatic trusted managed installation is not enabled for this run",
@@ -1241,6 +1494,33 @@ async function executeBaseToolDecision(input: {
       });
       return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance };
     }
+
+    dependencyPreflight = await preflightBaseToolDependencies({
+      executor: input.executor,
+      implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
+      readiness: runtimeReadiness,
+      catalogEntry: runtimeReadiness.entry,
+      probes: input.dependencyRuntime?.probes,
+      context: {
+        runtimeId: input.runtimeId,
+        sessionId: input.sessionId,
+        invocationId: input.toolCallId,
+        toolId: input.toolId,
+        toolInput: toolArguments,
+        governanceAccepted: true,
+        allowedScopes: input.manifest.harness.policy.scopes,
+        mode: "autoInstallTrustedManaged",
+        managedRoot: input.dependencyRuntime?.managedRoot,
+        env: input.dependencyRuntime?.env,
+        homeDir: input.dependencyRuntime?.homeDir,
+        timeoutMs: input.dependencyRuntime?.timeoutMs,
+      },
+    });
+    input.events.push(...dependencyPreflight.events);
+    await input.store.appendEvent(event(input.sessionId, `event:tool:${input.toolCallId}:dependencies:prepared`, "runtime.baseTool.dependencies.prepared", input.now(), {
+      toolId: input.toolId,
+      dependencyPreflight,
+    }));
   }
 
   if (dependencyPreflight.decision === "blocked") {
@@ -1721,6 +2001,17 @@ export class PraxisRuntimeKernel {
     const maxModelTurns = manifest.harness.loop.maxModelTurns ?? 2;
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;
     const toolMappings = providerToolMappings(manifest);
+    const toolContextSelection: {
+      families: string[];
+      groups: string[];
+      toolIds: string[];
+    } = { families: [], groups: [], toolIds: [] };
+    const providerResponseOutputItems: Readonly<Record<string, unknown>>[] = [];
+    let toolContextHeatState: BaseToolContextHeatState = createBaseToolContextHeatState({
+      agentId: manifest.identity.id,
+      sessionId,
+      updatedAt: createdAt,
+    });
 
     type KernelPromptPackage = Extract<Awaited<ReturnType<typeof buildPromptPackAndLower>>, { ok: true }>;
     let runnerError: PraxisRuntimeKernelError | undefined;
@@ -1742,6 +2033,8 @@ export class PraxisRuntimeKernel {
         toolMappings,
         observations,
         events,
+        toolContextSelection,
+        toolContextUsage: toolContextHeatState.usage,
       });
       events.push(...prompt.events);
       if (!prompt.ok) {
@@ -1833,6 +2126,8 @@ export class PraxisRuntimeKernel {
         providerCaller: options.providerCaller,
         providerBody: buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
           exposeProviderTools: options.exposeProviderTools,
+          observations,
+          previousProviderOutputItems: providerResponseOutputItems,
         }),
         governance: { accepted: true },
         contract: { accepted: true },
@@ -1910,6 +2205,8 @@ export class PraxisRuntimeKernel {
         };
       }
 
+      providerResponseOutputItems.push(...extractOpenAIResponseOutputItems(modelResult.raw));
+
       return {
         ok: true,
         modelCallId: modelInvocationId,
@@ -1974,16 +2271,147 @@ export class PraxisRuntimeKernel {
 
       return { ok: true, decisions: decisionResult.decisions, events: decisionResult.events };
       },
-      acceptFinalOutput: async ({ decision }) => ({
-        ok: true,
-        finalOutput: decision.finalOutput ?? "",
-        events: ["agentCore.execution.mainLoop.runner.finalOutputAccepted"],
-      }),
-      handleContinue: async () => ({
-        ok: true,
-        continueLoop: true,
-        events: ["agentCore.execution.mainLoop.runner.continue"],
-      }),
+      acceptFinalOutput: async ({ turnIndex: turn, decisionIndex, decision }) => {
+        const finalAcceptance = decideMainLoopFinalAcceptance({
+          finalOutput: decision.finalOutput ?? "",
+          fatalFailureRefs: runnerError === undefined ? [] : [runnerError.code],
+        });
+        await recordMainLoopStep({
+          store,
+          sessionId,
+          createdAt: now(),
+          events,
+          mainLoopSteps,
+          step: createMainLoopStepRecord({
+            sessionId,
+            turnIndex: turn,
+            stepIndex: turn * 20 + 60 + decisionIndex,
+            actionPrimitive: "adjudicateDecision",
+            status: finalAcceptance.canBreak ? "completed" : "failed",
+            inputRefs: [decision.decisionId],
+            outputRefs: finalAcceptance.canBreak ? ["runtime.final.accepted"] : finalAcceptance.blockingRefs,
+            error: finalAcceptance.canBreak ? undefined : {
+              code: "FINAL_OUTPUT_REJECTED",
+              message: finalAcceptance.reason,
+              boundary: "output",
+              publicSafe: true,
+            },
+            now: now(),
+            metadata: {
+              decisionKind: decision.kind,
+              finalAcceptanceKind: finalAcceptance.kind,
+              canBreak: finalAcceptance.canBreak,
+            },
+          }),
+        });
+        if (!finalAcceptance.canBreak) {
+          return {
+            ok: false,
+            error: {
+              code: "FINAL_OUTPUT_REJECTED",
+              message: finalAcceptance.reason,
+              boundary: "output",
+              publicSafe: true,
+            },
+            events: ["agentCore.execution.mainLoop.runner.finalOutputRejected"],
+          };
+        }
+        return {
+          ok: true,
+          finalOutput: finalAcceptance.finalOutput ?? "",
+          events: ["agentCore.execution.mainLoop.runner.finalOutputAccepted"],
+        };
+      },
+      handleContinue: async ({ turnIndex: turn, decisionIndex, decision }) => {
+        const expansion = decision.toolContextExpansion;
+        if (expansion === undefined) {
+          return {
+            ok: true,
+            continueLoop: true,
+            events: ["agentCore.execution.mainLoop.runner.continue"],
+          };
+        }
+
+        if (expansion.targetKind === "family" && expansion.family !== undefined && !toolContextSelection.families.includes(expansion.family)) {
+          toolContextSelection.families.push(expansion.family);
+        }
+        if (expansion.targetKind === "group" && expansion.family !== undefined && expansion.group !== undefined) {
+          const groupId = `${expansion.family}/${expansion.group}`;
+          if (!toolContextSelection.groups.includes(groupId)) toolContextSelection.groups.push(groupId);
+        }
+        if (expansion.targetKind === "tool" && expansion.toolId !== undefined && !toolContextSelection.toolIds.includes(expansion.toolId)) {
+          toolContextSelection.toolIds.push(expansion.toolId);
+        }
+
+        const providerCallId = typeof decision.metadata.callId === "string" && decision.metadata.callId.trim().length > 0
+          ? decision.metadata.callId.trim()
+          : undefined;
+        if (providerCallId !== undefined) {
+          observations.push(createObservationMaterial({
+            observationId: `${sessionId}:observation:${providerCallId}:tool-context-expanded`,
+            source: "runtime",
+            status: "completed",
+            title: "BaseTool context expanded",
+            summary: `Expanded ${expansion.targetKind} BaseTool context for the next turn.`,
+            refs: [providerCallId, decision.decisionId],
+            payload: {
+              expanded: expansion,
+              selection: {
+                families: [...toolContextSelection.families],
+                groups: [...toolContextSelection.groups],
+                toolIds: [...toolContextSelection.toolIds],
+              },
+            },
+            trustLevel: "runtimeFact",
+            metadata: metadataRecord({
+              toolCallId: providerCallId,
+              toolId: "praxis_expand_tool_context",
+              providerToolName: "praxis_expand_tool_context",
+              observationStatus: "completed",
+              runtimeDecision: "expandToolContext",
+            }),
+          }));
+        }
+
+        const stepBase = turn * 20 + 2;
+        await recordMainLoopStep({
+          store,
+          sessionId,
+          createdAt: now(),
+          events,
+          mainLoopSteps,
+          step: createMainLoopStepRecord({
+            sessionId,
+            turnIndex: turn,
+            stepIndex: stepBase + 6 + decisionIndex,
+            actionPrimitive: "emitEvent",
+            status: "completed",
+            inputRefs: [decision.decisionId],
+            outputRefs: [
+              ...(expansion.family === undefined ? [] : [`baseToolContext.family:${expansion.family}`]),
+              ...(expansion.group === undefined || expansion.family === undefined ? [] : [`baseToolContext.group:${expansion.family}/${expansion.group}`]),
+              ...(expansion.toolId === undefined ? [] : [`baseToolContext.tool:${expansion.toolId}`]),
+            ],
+            now: now(),
+            metadata: {
+              runtimeDecision: "expandToolContext",
+              expansion,
+              reason: expansion.reason ?? "model requested folded BaseTool documentation",
+              selection: {
+                families: [...toolContextSelection.families],
+                groups: [...toolContextSelection.groups],
+                toolIds: [...toolContextSelection.toolIds],
+              },
+            },
+          }),
+        });
+
+        return {
+          ok: true,
+          continueLoop: true,
+          events: ["agentCore.execution.mainLoop.runner.expandToolContext"],
+        };
+      },
       handleFailure: async ({ turnIndex: turn, decisionIndex, decision }) => {
           const stepBase = turn * 20 + 2;
           const error = kernelError("MODEL_DECISION_FAILED", decision.failure?.message ?? "model decision requested failure", "model");
@@ -2164,6 +2592,15 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(executed.record);
           observations.push(executed.observation);
+          toolContextHeatState = applyBaseToolContextUsage(
+            toolContextHeatState,
+            [{ toolId: executed.record.toolId }],
+            now(),
+          );
+          await store.appendState(state(sessionId, `state:toolContextHeat:${executed.record.callId}`, "toolContextHeat", now(), {
+            agentId: toolContextHeatState.agentId,
+            usage: toolContextHeatState.usage,
+          }));
           await store.appendInvocation(invocation(sessionId, executed.record.callId, "tool", executed.record.toolId, executed.record.ok, now(), {
             ok: executed.record.ok,
             decisionId: decision.decisionId,
@@ -2203,7 +2640,6 @@ export class PraxisRuntimeKernel {
             const error = approvalRequired
               ? kernelError("APPROVAL_REQUIRED", `tool invocation requires approval: ${executed.record.toolId}`, "tool")
               : kernelError("TOOL_INVOCATION_FAILED", `tool invocation failed: ${executed.record.toolId}`, "tool");
-            runnerError = error;
             await recordKernelError({
               store,
               sessionId,
@@ -2216,6 +2652,14 @@ export class PraxisRuntimeKernel {
                 approvalRequired,
               },
             });
+            if (!approvalRequired) {
+              return {
+                ok: true,
+                continueLoop: true,
+                events: [...executed.events, "agentCore.execution.mainLoop.runner.toolFailureObservation"],
+              };
+            }
+            runnerError = error;
             return {
               ok: false,
               error: {
@@ -2302,6 +2746,47 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(...procedureResult.records);
           observations.push(...procedureResult.observations);
+          const providerCallId = typeof decision.metadata.callId === "string" && decision.metadata.callId.trim().length > 0
+            ? decision.metadata.callId.trim()
+            : undefined;
+          if (providerCallId !== undefined) {
+            observations.push(createObservationMaterial({
+              observationId: `${sessionId}:observation:${providerCallId}:ephemeral-procedure`,
+              source: "ephemeralProcedure",
+              status: procedureResult.ok ? "completed" : (procedureResult.error?.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed"),
+              title: `EphemeralProcedure ${decision.ephemeralProcedurePlan.procedureId}`,
+              summary: procedureResult.ok
+                ? "ephemeral procedure completed"
+                : procedureResult.error?.message ?? "ephemeral procedure failed",
+              refs: [providerCallId, decision.decisionId, decision.ephemeralProcedurePlan.procedureId],
+              payload: {
+                ok: procedureResult.ok,
+                procedureId: decision.ephemeralProcedurePlan.procedureId,
+                recordCount: procedureResult.records.length,
+                observationCount: procedureResult.observations.length,
+                error: procedureResult.error,
+              },
+              metadata: metadataRecord({
+                toolCallId: providerCallId,
+                toolId: "praxis_ephemeral_procedure",
+                providerToolName: "praxis_ephemeral_procedure",
+                observationStatus: procedureResult.ok ? "completed" : "failed",
+                procedureId: decision.ephemeralProcedurePlan.procedureId,
+              }),
+            }));
+          }
+          if (procedureResult.records.length > 0) {
+            toolContextHeatState = applyBaseToolContextUsage(
+              toolContextHeatState,
+              procedureResult.records.map((record) => ({ toolId: record.toolId })),
+              now(),
+            );
+            await store.appendState(state(sessionId, `state:toolContextHeat:${decision.ephemeralProcedurePlan.procedureId}`, "toolContextHeat", now(), {
+              agentId: toolContextHeatState.agentId,
+              procedureId: decision.ephemeralProcedurePlan.procedureId,
+              usage: toolContextHeatState.usage,
+            }));
+          }
           for (const record of procedureResult.records) {
             await store.appendInvocation(invocation(sessionId, record.callId, "tool", record.toolId, record.ok, now(), {
               ok: record.ok,
@@ -2341,7 +2826,6 @@ export class PraxisRuntimeKernel {
 
           if (!procedureResult.ok) {
             const error = procedureResult.error ?? kernelError("PROCEDURE_INVOCATION_FAILED", "procedure invocation failed", "tool");
-            runnerError = error;
             await recordKernelError({
               store,
               sessionId,
@@ -2354,6 +2838,14 @@ export class PraxisRuntimeKernel {
                 approvalRequired: error.code === "APPROVAL_REQUIRED",
               },
             });
+            if (error.code !== "APPROVAL_REQUIRED") {
+              return {
+                ok: true,
+                continueLoop: true,
+                events: ["agentCore.execution.mainLoop.runner.procedureFailureObservation"],
+              };
+            }
+            runnerError = error;
             return {
               ok: false,
               error: {

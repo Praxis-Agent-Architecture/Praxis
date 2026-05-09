@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import test from "node:test";
 
@@ -291,6 +291,92 @@ test("rax inspect reports selected BaseTools through CLI host adapter readiness"
     assert.equal(tool.executorSupport, "hostReady", tool.toolId);
     assert.deepEqual(tool.missingPorts, [], tool.toolId);
   }
+});
+
+test("rax test --all-testable reports the full 175 BaseTool readiness matrix", async () => {
+  const targetDir = path.join(scratchRoot, "all-testable-readiness");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const agentPath = path.join(targetDir, "allToolAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "export class AllToolAgent extends praxis.Agent {",
+    "  identity = \"agent.all-testable-readiness\";",
+    "  model = praxis.model(\"gpt-5.5\");",
+    "  storage = praxis.storage.memory();",
+    "  harness = praxis.harness({",
+    "    tools: praxis.tools([praxis.baseTools.code.read()]),",
+    "    loop: praxis.loop.single(),",
+    "  });",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli(["test", agentPath, "--all-testable", "--json"]);
+
+  assert.equal(result.exitCode, 0);
+  const payload = JSON.parse(result.output) as {
+    readiness?: {
+      toolReadiness?: {
+        total?: number;
+        ready?: number;
+        missing?: readonly string[];
+        tools?: { toolId: string; ready?: boolean }[];
+      };
+    };
+  };
+  assert.equal(payload.readiness?.toolReadiness?.total, 175);
+  assert.equal(payload.readiness?.toolReadiness?.ready, 175);
+  assert.deepEqual(payload.readiness?.toolReadiness?.missing, []);
+  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "mcp.call"), true);
+  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "computeruse.mouseClick"), true);
+});
+
+test("rax test can run full dependency preparation for selected LSP tools", async () => {
+  const targetDir = path.join(scratchRoot, "dependency-full");
+  await rm(targetDir, { recursive: true, force: true });
+  await mkdir(targetDir, { recursive: true });
+  const managedRoot = path.join(targetDir, ".rax_workspace", "tool-deps");
+  const binDir = path.join(managedRoot, "bin");
+  await mkdir(binDir, { recursive: true });
+  const executable = path.join(binDir, "typescript-language-server");
+  await writeFile(executable, "#!/usr/bin/env sh\necho 4.0.0\n", "utf8");
+  await chmod(executable, 0o755);
+
+  const agentPath = path.join(targetDir, "lspAgent.ts");
+  await writeFile(agentPath, [
+    "import { praxis } from \"../../../../src/agentCore/index.js\";",
+    "export class LspAgent extends praxis.Agent {",
+    "  identity = \"agent.lsp-dependency-full\";",
+    "  model = praxis.model(\"gpt-5.5\");",
+    "  storage = praxis.storage.memory();",
+    "  harness = praxis.harness({",
+    "    tools: praxis.tools([praxis.tool(\"code.lsp_locateDefinition\")]),",
+    "    loop: praxis.loop.single(),",
+    "  });",
+    "}",
+    "",
+  ].join("\n"), "utf8");
+
+  const result = await runRaxCli(["test", agentPath, "--dependency-mode", "full", "--managed-root", managedRoot, "--json"]);
+
+  assert.equal(result.exitCode, 0);
+  const payload = JSON.parse(result.output) as {
+    dependencyPreparation?: {
+      mode?: string;
+      total?: number;
+      ready?: number;
+      blocked?: number;
+      results?: { toolId: string; decision: string; status: string }[];
+    };
+  };
+  assert.equal(payload.dependencyPreparation?.mode, "full");
+  assert.equal(payload.dependencyPreparation?.total, 1);
+  assert.equal(payload.dependencyPreparation?.ready, 1);
+  assert.equal(payload.dependencyPreparation?.blocked, 0);
+  assert.deepEqual(payload.dependencyPreparation?.results?.map((entry) => [entry.toolId, entry.decision]), [
+    ["code.lsp_locateDefinition", "ready"],
+  ]);
 });
 
 test("rax live mode reports missing Codex auth through public-safe output", async () => {

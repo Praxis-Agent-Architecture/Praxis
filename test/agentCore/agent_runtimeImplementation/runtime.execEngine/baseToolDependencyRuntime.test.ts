@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -14,6 +14,7 @@ import {
 import {
   preflightBaseToolDependencies,
 } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.js";
+import type { BaseToolSupportCatalogEntry } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 
 test("baseToolDependencyRuntime reports ready dependencies after governance approval", async () => {
   const executor = createRuntimeBaseToolExecutorPort({
@@ -152,4 +153,99 @@ test("baseToolDependencyRuntime resolves LSP target dependencies into managed in
   assert.equal(result.status, "installable");
   assert.ok(result.installableDependencies.includes("lsp.server.typescript-language-server"));
   assert.ok(result.approvalRequiredDependencies.includes("lsp.server.typescript-language-server"));
+});
+
+test("baseToolDependencyRuntime auto mode can prepare trusted managed dependencies", async () => {
+  const managedRoot = await mkdtemp(path.join(os.tmpdir(), "praxis-dependency-runtime-auto-"));
+  const binDir = path.join(managedRoot, "bin");
+  await mkdir(binDir, { recursive: true });
+  const executable = path.join(binDir, "typescript-language-server");
+  await writeFile(executable, "#!/usr/bin/env sh\necho 4.0.0\n", "utf8");
+  await chmod(executable, 0o755);
+
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-dependency-auto",
+    sessionId: "session-dependency-auto",
+    adapters: {
+      lsp: {
+        async locateDefinition() {
+          return { ok: true, output: { locations: [] } };
+        },
+      },
+    },
+  });
+  const implementedPortPaths = listRuntimeBaseToolImplementedPortPaths({
+    adapters: {
+      lsp: {
+        async locateDefinition() {
+          return { ok: true, output: { locations: [] } };
+        },
+      },
+    },
+  });
+  const readiness = evaluateBaseToolRuntimeReadiness({
+    toolId: "code.lsp_locateDefinition",
+    executor,
+    implementedPortPaths,
+  });
+
+  const result = await preflightBaseToolDependencies({
+    executor,
+    readiness,
+    catalogEntry: readiness.entry,
+    implementedPortPaths,
+    context: {
+      runtimeId: "runtime-dependency-auto",
+      sessionId: "session-dependency-auto",
+      invocationId: "tool-call-lsp-auto",
+      toolId: "code.lsp_locateDefinition",
+      toolInput: {
+        target: { filePath: "src/index.ts", line: 1, character: 1, languageId: "typescript" },
+      },
+      governanceAccepted: true,
+      managedRoot,
+      mode: "auto",
+    },
+  });
+
+  assert.equal(result.decision, "ready");
+  assert.equal(result.status, "available");
+  assert.ok(result.installResults.some((entry) => entry.ok && entry.availability.dependencyId === "lsp.server.typescript-language-server"));
+});
+
+test("baseToolDependencyRuntime treats unknown dependencies as unsatisfied instead of available", async () => {
+  const unknownEntry: BaseToolSupportCatalogEntry = {
+    toolId: "custom.unknownDependency",
+    family: "custom",
+    storageFamily: "custom",
+    group: "test",
+    title: "Unknown dependency test",
+    riskLevel: "normal",
+    permissionHints: [],
+    dependencies: [{
+      dependencyId: "unknown.runtime.contract",
+      kind: "custom",
+      required: true,
+      description: "Unregistered dependency must not be assumed available.",
+    }],
+    requiredSupports: [],
+    readiness: "available",
+    storageDocPath: "custom.unknownDependency.md",
+  };
+
+  const result = await preflightBaseToolDependencies({
+    catalogEntry: unknownEntry,
+    context: {
+      runtimeId: "runtime-dependency-unknown",
+      sessionId: "session-dependency-unknown",
+      invocationId: "tool-call-unknown",
+      toolId: "custom.unknownDependency",
+      governanceAccepted: true,
+    },
+  });
+
+  assert.equal(result.decision, "blocked");
+  assert.equal(result.status, "unknown");
+  assert.deepEqual(result.missingDependencies, ["unknown.runtime.contract"]);
+  assert.match(result.reason, /unsatisfied dependencies/u);
 });

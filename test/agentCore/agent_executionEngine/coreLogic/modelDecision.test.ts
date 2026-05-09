@@ -120,6 +120,37 @@ test("interpretModelDecision recognizes EphemeralProcedure as a runtime decision
   assert.deepEqual(result.decisions[0]?.ephemeralProcedurePlan?.requiredBaseTools, ["code.read"]);
 });
 
+test("interpretModelDecision recognizes BaseTool context expansion as a runtime decision", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-expand-context",
+    turnIndex: 2,
+    raw: {
+      output: [{
+        type: "function_call",
+        name: "praxis_expand_tool_context",
+        call_id: "expand-shell",
+        arguments: JSON.stringify({
+          targetKind: "group",
+          family: "shellBase",
+          group: "shellExecution",
+          reason: "need shell execution manuals before choosing a concrete tool",
+        }),
+      }],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "continue");
+  assert.deepEqual(result.decisions[0]?.toolContextExpansion, {
+    targetKind: "group",
+    family: "shellBase",
+    group: "shellExecution",
+    reason: "need shell execution manuals before choosing a concrete tool",
+  });
+  assert.equal(result.decisions[0]?.metadata.runtimeDecision, "expandToolContext");
+});
+
 test("interpretModelDecision rejects invalid EphemeralProcedure plans", () => {
   const result = interpretModelDecision({
     sessionId: "session-decision-bad-procedure",

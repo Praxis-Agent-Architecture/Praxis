@@ -58,6 +58,107 @@ const codeBaseExploreCases: readonly CodeBaseExploreCase[] = [
     input: { query: "createBaseToolRegistry", directoryPath: "src", fileGlob: "**/*.ts", context: { dryRun: false, guard: { allowed: true } } },
     expectedCall: "ripgrep:createBaseToolRegistry:src",
   },
+  {
+    toolId: "code.replaceFile",
+    userPrompt: "在临时工作区里整体替换一个文件内容。",
+    input: { targetPath: "tmp/matrix-replace.txt", newContent: "replace-file-ok\n", context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "writeText:tmp/matrix-replace.txt",
+  },
+  {
+    toolId: "code.overwrite",
+    userPrompt: "覆盖写入一个临时文件。",
+    input: { workspaceRoot: ".", targetPath: "tmp/matrix-overwrite.txt", content: "overwrite-ok\n", context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "writeText:tmp/matrix-overwrite.txt",
+  },
+  {
+    toolId: "code.modify",
+    userPrompt: "把临时文件里的 old 改成 new。",
+    input: { workspaceRoot: ".", targetPath: "tmp/matrix-modify.txt", searchText: "old", replacementText: "new", context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "writeText:tmp/matrix-modify.txt",
+  },
+  {
+    toolId: "code.delete",
+    userPrompt: "删除一个临时文件。",
+    input: { workspaceRoot: ".", targetPath: "tmp/matrix-delete.txt", deleteKind: "file", context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "deletePath:tmp/matrix-delete.txt",
+  },
+  {
+    toolId: "code.format",
+    userPrompt: "预览格式化一个 TypeScript 文件。",
+    input: { workspaceRoot: ".", targetPath: "src/index.ts", languageHint: "typescript", context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "lsp.formatDocumentPreview:src/index.ts",
+  },
+  {
+    toolId: "code.testCode",
+    userPrompt: "运行一个 node:test 测试目标。",
+    input: { workspaceRoot: ".", testTarget: "test/sample.test.ts", testFramework: "node:test", command: ["node", "--version"], context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "process.run:test",
+  },
+  {
+    toolId: "code.benchmark",
+    userPrompt: "跑一个轻量 benchmark。",
+    input: { workspaceRoot: ".", benchmarkTarget: "matrix-benchmark", iterations: 1, command: ["node", "-e", "console.log('benchmark-ok')"], context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "process.run:benchmark",
+  },
+  {
+    toolId: "code.debugCollectLogs",
+    userPrompt: "收集一次 debug 日志。",
+    input: { sources: [{ kind: "debug-console", id: "matrix" }], maxEntries: 5, context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "debug.collectLogs",
+  },
+  {
+    toolId: "code.debugCaptureState",
+    userPrompt: "抓取一次 debug 状态。",
+    input: { target: { kind: "debug-session", id: "matrix" }, capture: { includeStack: true, includeVariables: true }, context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "debug.captureState",
+  },
+  {
+    toolId: "code.debugRun",
+    userPrompt: "启动一次 debug run。",
+    input: { target: { kind: "test", label: "matrix-debug", command: ["node", "-e", "console.log('debug-ok')"] }, context: { dryRun: false, guard: { allowed: true, accepted: true } } },
+    expectedCall: "debug.launch",
+  },
+  ...[
+    ["code.lsp_applyCodeAction", "lsp.applyCodeActionPreview"],
+    ["code.lsp_assistSignature", "lsp.assistSignature"],
+    ["code.lsp_completeCode", "lsp.completeCode"],
+    ["code.lsp_explainSymbol", "lsp.explainSymbol"],
+    ["code.lsp_formatDocument", "lsp.formatDocumentPreview"],
+    ["code.lsp_formatRange", "lsp.formatRangePreview"],
+    ["code.lsp_inspectDiagnostics", "lsp.inspectDiagnostics"],
+    ["code.lsp_inspectSymbol", "lsp.inspectSymbol"],
+    ["code.lsp_locateDefinition", "lsp.locateDefinition"],
+    ["code.lsp_locateTypeDefinition", "lsp.locateTypeDefinition"],
+    ["code.lsp_renameSymbol", "lsp.renameSymbolPreview"],
+    ["code.lsp_scanDocumentSymbols", "lsp.scanDocumentSymbols"],
+    ["code.lsp_searchWorkspaceSymbols", "lsp.searchWorkspaceSymbols"],
+    ["code.lsp_suggestCodeActions", "lsp.suggestCodeActions"],
+    ["code.lsp_traceImplementations", "lsp.traceImplementations"],
+    ["code.lsp_traceReferences", "lsp.traceReferences"],
+  ].map(([toolId, expectedCall]) => ({
+    toolId,
+    userPrompt: `对 src/index.ts 执行 ${toolId} 语义能力。`,
+    input: {
+      target: {
+        filePath: "src/index.ts",
+        line: 0,
+        character: 0,
+        languageId: "typescript",
+        range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
+      },
+      documentUri: "src/index.ts",
+      workspaceRoot: ".",
+      preferredProvider: "anthropic",
+      actionTitle: "Fix",
+      dryRun: false,
+      position: { line: 0, character: 0 },
+      query: "Praxis",
+      newName: "PraxisRenamed",
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 10 } },
+      context: { dryRun: false, guard: { allowed: true, accepted: true } },
+    },
+    expectedCall,
+  })),
 ] as const;
 
 function argValue(name: string): string | undefined {
@@ -66,11 +167,21 @@ function argValue(name: string): string | undefined {
 }
 
 function createCodeBaseExploreExecutor(calls: string[]): BaseToolExecutorPort {
+  const emptyRange = { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
+  const location = { filePath: "src/index.ts", range: emptyRange, symbolName: "Praxis" };
   return {
     filesystem: {
       async readText(request) {
         calls.push(`readText:${request.path}`);
-        return { ok: true, output: { content: `content:${request.path}`, truncated: false } };
+        return { ok: true, output: { content: `content:${request.path}\nold\n`, truncated: false } };
+      },
+      async writeText(request) {
+        calls.push(`writeText:${request.path}`);
+        return { ok: true, output: { bytesWritten: Buffer.byteLength(request.content) } };
+      },
+      async deletePath(request) {
+        calls.push(`deletePath:${request.path}`);
+        return { ok: true, output: { deleted: true } };
       },
       async list(request) {
         calls.push(`list:${request.path}`);
@@ -87,6 +198,92 @@ function createCodeBaseExploreExecutor(calls: string[]): BaseToolExecutorPort {
             matches: [{ path: `${request.directoryPath}/registry.ts`, line: 1, text: request.query }],
           },
         };
+      },
+    },
+    process: {
+      async run(request) {
+        calls.push(`process.run:${request.intent ?? "generic"}`);
+        return { ok: true, output: { exitCode: 0, stdout: "process-ok", stderr: "", durationMs: 1 } };
+      },
+    },
+    debug: {
+      async collectLogs() {
+        calls.push("debug.collectLogs");
+        return { ok: true, output: { entries: [{ source: "matrix", level: "info", message: "debug log" }], truncated: false } };
+      },
+      async captureState() {
+        calls.push("debug.captureState");
+        return { ok: true, output: { state: "paused", stack: [{ name: "main", filePath: "src/index.ts", line: 1 }], variables: [{ name: "value", valuePreview: "1" }] } };
+      },
+      async launch() {
+        calls.push("debug.launch");
+        return { ok: true, output: { debugSessionId: "matrix-debug", state: "launched", breakpointsAccepted: 0 } };
+      },
+    },
+    lsp: {
+      async locateDefinition(request) {
+        calls.push(`lsp.locateDefinition:${request.target.filePath}`);
+        return { ok: true, output: { locations: [location] } };
+      },
+      async locateTypeDefinition(request) {
+        calls.push(`lsp.locateTypeDefinition:${request.target.filePath}`);
+        return { ok: true, output: { locations: [location] } };
+      },
+      async traceReferences(request) {
+        calls.push(`lsp.traceReferences:${request.target.filePath}`);
+        return { ok: true, output: { locations: [location] } };
+      },
+      async traceImplementations(request) {
+        calls.push(`lsp.traceImplementations:${request.target.filePath}`);
+        return { ok: true, output: { locations: [location] } };
+      },
+      async scanDocumentSymbols(request) {
+        calls.push(`lsp.scanDocumentSymbols:${request.target.filePath}`);
+        return { ok: true, output: { symbols: [{ name: "Praxis", kind: "Class", range: emptyRange }] } };
+      },
+      async searchWorkspaceSymbols() {
+        calls.push("lsp.searchWorkspaceSymbols");
+        return { ok: true, output: { symbols: [{ name: "Praxis", kind: "Class", location }] } };
+      },
+      async suggestCodeActions(request) {
+        calls.push(`lsp.suggestCodeActions:${request.target.filePath}`);
+        return { ok: true, output: { actions: [{ title: "Fix", diagnostics: [], editAvailable: true, commandAvailable: false }] } };
+      },
+      async applyCodeActionPreview(request) {
+        calls.push(`lsp.applyCodeActionPreview:${request.target.filePath}`);
+        return { ok: true, output: { actions: [{ title: "Fix", diagnostics: [], editAvailable: true, commandAvailable: false }] } };
+      },
+      async renameSymbolPreview(request) {
+        calls.push(`lsp.renameSymbolPreview:${request.target.filePath}`);
+        return { ok: true, output: { edits: [{ filePath: request.target.filePath, edits: [{ range: emptyRange, newText: request.newName }] }] } };
+      },
+      async completeCode(request) {
+        calls.push(`lsp.completeCode:${request.target.filePath}`);
+        return { ok: true, output: { items: [{ label: "Praxis", kind: "Class" }] } };
+      },
+      async assistSignature(request) {
+        calls.push(`lsp.assistSignature:${request.target.filePath}`);
+        return { ok: true, output: { signatureHelp: { signatures: [{ label: "fn()", parameters: [] }] } } };
+      },
+      async explainSymbol(request) {
+        calls.push(`lsp.explainSymbol:${request.target.filePath}`);
+        return { ok: true, output: { hover: { contents: "Praxis symbol", range: emptyRange }, definitions: [location], references: [location] } };
+      },
+      async inspectSymbol(request) {
+        calls.push(`lsp.inspectSymbol:${request.target.filePath}`);
+        return { ok: true, output: { symbols: [{ name: "Praxis", kind: "Class", range: emptyRange }] } };
+      },
+      async inspectDiagnostics(request) {
+        calls.push(`lsp.inspectDiagnostics:${request.target.filePath}`);
+        return { ok: true, output: { diagnostics: [] } };
+      },
+      async formatDocumentPreview(request) {
+        calls.push(`lsp.formatDocumentPreview:${request.target.filePath}`);
+        return { ok: true, output: { edits: [{ range: emptyRange, newText: "formatted" }] } };
+      },
+      async formatRangePreview(request) {
+        calls.push(`lsp.formatRangePreview:${request.target.filePath}`);
+        return { ok: true, output: { edits: [{ range: request.target.range, newText: "formatted-range" }] } };
       },
     },
   };
@@ -296,11 +493,11 @@ function withRuntimeGovernance(tool: string, toolArguments: Readonly<Record<stri
 }
 
 function expectedCallSeen(expectedCall: string, calls: readonly string[]): boolean {
-  return calls.includes(expectedCall);
+  return calls.some((call) => call === expectedCall || call.startsWith(`${expectedCall}:`));
 }
 
 function truncateText(value: unknown, maxChars = 500): string {
-  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
+  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value);
   return text.length > maxChars ? `${text.slice(0, maxChars)}...<truncated>` : text;
 }
 
@@ -401,5 +598,8 @@ async function main(): Promise<void> {
 main().catch((error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   console.error(`agentCore codeBase explore live matrix fatal> ${message}`);
+  if (error instanceof Error && error.stack !== undefined) {
+    console.error(error.stack);
+  }
   process.exitCode = 1;
 });

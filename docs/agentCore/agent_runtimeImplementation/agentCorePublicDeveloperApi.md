@@ -108,6 +108,41 @@ policy remains active
 
 这不是最终容器沙箱。它是当前无容器阶段的诚实宿主模式，避免把普通宿主执行伪装成已隔离执行。
 
+开发者可用的 sandbox helper：
+
+```ts
+praxis.sandbox.hostObserved()
+praxis.sandbox.workspaceOnly()
+praxis.sandbox.linuxBubblewrap()
+praxis.sandbox.linuxBubblewrapReadonly()
+praxis.sandbox.linuxBubblewrapWorkspaceWrite()
+praxis.sandbox.linuxBubblewrapNetworked()
+praxis.sandbox.rootlessContainer()
+praxis.sandbox.windowsSandbox()
+praxis.sandbox.macosContainerization()
+praxis.sandbox.remoteWorker()
+```
+
+当前真实 Linux 路线是 `linuxBubblewrap*`。它依赖 `bwrap`，并把进程型工具运行在 bubblewrap 命令下。典型边界：
+
+- workspace 映射到 `/workspace`
+- `$HOME` 指向 `.rax_workspace/sandbox/home`
+- `/tmp` 指向 `.rax_workspace/sandbox/tmp`
+- artifacts 写到 `.rax_workspace/sandbox/artifacts`
+- 默认不暴露真实用户 home
+- 网络由 sandbox profile + toolPolicy 共同裁决
+
+`workspaceOnly()` 是路径/策略级 profile，不是 OS 容器。`rootlessContainer()`、`windowsSandbox()`、`macosContainerization()`、`remoteWorker()` 当前是 provider contract/readiness 面，不应该在文档里承诺已经真实隔离可用。
+
+开发者检查 sandbox：
+
+```bash
+rax inspect agents/mainAgent.ts --export MainAgent
+rax test agents/mainAgent.ts --export MainAgent --sandbox=linuxBubblewrap
+```
+
+如果 `bwrap` 缺失，runtime 应返回 public-safe readiness 和 self-repair plan，而不是静默降级成 host mode。
+
 ## 7. Internal Boundary
 
 普通开发者不应依赖这些路径作为稳定 API：

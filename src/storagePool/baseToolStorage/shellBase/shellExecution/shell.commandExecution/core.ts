@@ -77,6 +77,8 @@ export type ShellCommandExecutionErrorCode =
   | "INVALID_TIMEOUT"
   | "GOVERNANCE_REJECTED"
   | "SCOPE_DENIED"
+  | "SANDBOX_PROVIDER_UNSUPPORTED"
+  | "SANDBOX_UNAVAILABLE"
   | "REAL_COMMAND_EXECUTION_NOT_ALLOWED"
   | "PROVIDER_UNAVAILABLE"
   | "PROVIDER_REJECTED";
@@ -292,6 +294,13 @@ function toolFailure(
     audit: [auditEvent("agentCore.basicTool.shell.commandExecution.rejected", context, { code, boundary })],
     events: ["basicTool.shell.commandExecution.rejected"],
   };
+}
+
+function publicSafeProviderErrorCode(error: unknown): ShellCommandExecutionErrorCode {
+  if (error instanceof Error && (error.name === "SANDBOX_UNAVAILABLE" || error.name === "SANDBOX_PROVIDER_UNSUPPORTED")) {
+    return error.name;
+  }
+  return "PROVIDER_REJECTED";
 }
 
 function resolveScopes(
@@ -590,10 +599,11 @@ export async function executeShellCommand(
       events: ["basicTool.shell.commandExecution.providerCalled"],
     };
   } catch (error) {
+    const code = publicSafeProviderErrorCode(error);
     return toolFailure(
-      "PROVIDER_REJECTED",
+      code,
       error instanceof Error ? error.message : "shell.commandExecution provider rejected the invocation",
-      "provider",
+      code === "SANDBOX_UNAVAILABLE" || code === "SANDBOX_PROVIDER_UNSUPPORTED" ? "governance" : "provider",
       request.context,
     );
   }

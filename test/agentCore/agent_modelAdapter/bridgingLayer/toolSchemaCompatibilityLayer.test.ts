@@ -55,8 +55,9 @@ test("toolSchemaCompatibilityLayer lowers Praxis tools to OpenAI, Claude, and Ge
   assert.deepEqual((anthropic.tools[anthropic.tools.length - 1] as { cache_control?: unknown }).cache_control, { type: "ephemeral" });
 
   const geminiPayload = gemini.providerPayload as { config?: { tools?: { functionDeclarations?: unknown[] }[] } };
-  assert.equal(geminiPayload.config?.tools?.[0]?.functionDeclarations?.length, 5);
+  assert.equal(geminiPayload.config?.tools?.[0]?.functionDeclarations?.length, 6);
   assert.equal((geminiPayload.config?.tools?.[0]?.functionDeclarations?.[0] as { name?: string }).name, "praxis_tool_code_read");
+  assert.equal(openai.tools.some((item) => item.name === "praxis_expand_tool_context"), true);
 });
 
 test("toolSchemaCompatibilityLayer keeps colliding provider names reversible", () => {
@@ -159,6 +160,15 @@ test("toolSchemaCompatibilityLayer lowers provider tool results", () => {
     type: "function_call_output",
     call_id: "call-1",
     output: "hello",
+  });
+  assert.deepEqual(lowerProviderToolResult({ providerFamily: "anthropicMessages", result }), {
+    role: "user",
+    content: [{
+      type: "tool_result",
+      tool_use_id: "call-1",
+      content: [{ type: "text", text: "hello" }],
+      is_error: true,
+    }],
   });
   assert.deepEqual(lowerProviderToolResult({ providerFamily: "geminiGenerateContent", result }), {
     role: "user",

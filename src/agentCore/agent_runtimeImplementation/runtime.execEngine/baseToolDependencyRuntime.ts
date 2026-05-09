@@ -47,11 +47,12 @@ export type BaseToolDependencyRuntimeStatus =
   | "installed"
   | "requiresApproval"
   | "blocked"
-  | "providerUnavailable";
+  | "providerUnavailable"
+  | "unknown";
 
 export type BaseToolDependencyRuntimeDecision = "ready" | "requiresApproval" | "blocked";
 
-export type BaseToolDependencyRuntimeMode = "observe" | "autoInstallTrustedManaged";
+export type BaseToolDependencyRuntimeMode = "observe" | "auto" | "full" | "autoInstallTrustedManaged";
 
 export type BaseToolDependencyRuntimeContext = {
   runtimeId: string;
@@ -219,6 +220,24 @@ function permissionDependencies(entry: BaseToolSupportCatalogEntry): readonly st
   ].sort();
 }
 
+function catalogSupportSatisfiesDependency(input: {
+  entry: BaseToolSupportCatalogEntry;
+  dependencyId: string;
+  approvalRequiredDependencies: readonly string[];
+}): boolean {
+  const supports = input.entry.requiredSupports.filter((support) => support.dependencyId === input.dependencyId);
+  if (supports.length === 0) return false;
+  return supports
+    .filter((support) => support.required)
+    .every((support) => {
+      if (support.status === "available") return true;
+      if (support.supportKind === "permission" && !input.approvalRequiredDependencies.includes(support.dependencyId)) {
+        return true;
+      }
+      return false;
+    });
+}
+
 async function probesForDeclarations(input: {
   declarations: readonly ToolDependencyDeclaration[];
   entry: BaseToolSupportCatalogEntry;
@@ -261,6 +280,19 @@ async function probesForDeclarations(input: {
       continue;
     }
 
+    if (catalogSupportSatisfiesDependency({
+      entry: input.entry,
+      dependencyId,
+      approvalRequiredDependencies: input.approvalRequiredDependencies,
+    })) {
+      probes.push({
+        dependencyId,
+        available: true,
+        detail: "runtime support catalog reports this dependency is available",
+      });
+      continue;
+    }
+
     const source = lookupDependencySource(dependencyId);
     if (source.ok) {
       const record = await readManagedDependencyRecord(managedRoot, dependencyId);
@@ -281,8 +313,7 @@ async function probesForDeclarations(input: {
 
     probes.push({
       dependencyId,
-      available: true,
-      detail: "runtime contract dependency is satisfied by manifest/runtime governance or executor readiness",
+      detail: "runtime contract dependency is not registered and cannot be assumed available",
     });
   }
 
@@ -291,6 +322,10 @@ async function probesForDeclarations(input: {
 
 function installableSteps(plan: ToolDependencyIterationPlan | undefined): readonly ToolDependencyRefreshStep[] {
   return (plan?.refreshSteps ?? []).filter((step) => step.installPlan !== undefined && !step.installPlan.approvalRequired);
+}
+
+function shouldInstallTrustedManaged(mode: BaseToolDependencyRuntimeMode | undefined): boolean {
+  return mode === "autoInstallTrustedManaged" || mode === "auto" || mode === "full";
 }
 
 async function installTrustedManagedSteps(input: {
@@ -420,7 +455,7 @@ export async function preflightBaseToolDependencies(
 
   const installable = installableSteps(iteration.plan);
   const installResults =
-    request.context.mode === "autoInstallTrustedManaged" && missingExecutorDependencies.length === 0
+    shouldInstallTrustedManaged(request.context.mode) && missingExecutorDependencies.length === 0
       ? await installTrustedManagedSteps({ steps: installable, context: request.context })
       : [];
   const failedInstall = installResults.find((result) => !result.ok);
@@ -498,13 +533,33 @@ export async function preflightBaseToolDependencies(
     });
   }
 
+  const installedDependencyIds = new Set(installResults
+    .filter((result) => result.ok)
+    .map((result) => result.availability.dependencyId));
   const unsatisfied = managed.report.resolutions
     .filter((resolution) => resolution.required && resolution.status !== "satisfied")
+    .filter((resolution) => !installedDependencyIds.has(resolution.dependencyId))
     .map((resolution) => resolution.dependencyId);
   const installedNow = installResults.some((result) => result.ok && result.availability.installedNow);
+  if (unsatisfied.length > 0) {
+    return makeResult({
+      toolId,
+      decision: "blocked",
+      status: managed.report.summary.unknown > 0 ? "unknown" : "missing",
+      report: managed.report,
+      iterationPlan: iteration.plan,
+      installResults,
+      missingDependencies: unsatisfied,
+      installableDependencies: installable.map((step) => step.dependencyId),
+      approvalRequiredDependencies: [],
+      providerUnavailableDependencies: [],
+      events: ["runtime.execEngine.baseToolDependencyRuntime.unsatisfied", ...declarationResult.events, ...managed.events, ...iteration.events, ...installResults.flatMap((result) => result.events)],
+      reason: `BaseTool ${toolId} has unsatisfied dependencies: ${unsatisfied.join(", ")}`,
+    });
+  }
   return makeResult({
     toolId,
-    decision: unsatisfied.length === 0 || installResults.every((result) => result.ok) ? "ready" : "blocked",
+    decision: "ready",
     status: installedNow ? "installed" : "available",
     report: managed.report,
     iterationPlan: iteration.plan,

@@ -32,6 +32,7 @@ import { planModelInvocation } from "../../src/agentCore/agent_runtimeImplementa
 import { lowerPromptForModelAdapter } from "../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
 import { createRuntimeBaseToolExecutorPort } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import { invokeMountedBaseTool } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
+import { decideTextToolFallback } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/textFallbackPolicy.js";
 import { praxis, type AgentManifest } from "../../src/agentCore/index.js";
 
 type ChatMessage = {
@@ -1039,9 +1040,17 @@ async function runRealtestChat(target: string): Promise<void> {
           mountedToolIds,
           userText,
         );
-        const fallbackToolCalls = parsedFallbackToolCalls.length > 0
-          ? parsedFallbackToolCalls
-          : inferFallbackToolCallsFromUserText(userText, mountedToolIds);
+        const inferredFallbackToolCalls = inferFallbackToolCallsFromUserText(userText, mountedToolIds);
+        const fallbackDecision = decideTextToolFallback({
+          runOk: result.ok,
+          providerToolsEnabled: exposeProviderTools,
+          nativeToolCallCount: result.toolCalls.length,
+          explicitFallbackRequestCount: parsedFallbackToolCalls.length,
+          inferredFallbackRequestCount: inferredFallbackToolCalls.length,
+        });
+        const fallbackToolCalls = fallbackDecision.shouldRun
+          ? (parsedFallbackToolCalls.length > 0 ? parsedFallbackToolCalls : inferredFallbackToolCalls)
+          : [];
         if (fallbackToolCalls.length > 0) {
           const toolResults = [];
           for (const toolCall of fallbackToolCalls.slice(0, compiled.manifest.harness.loop.maxToolCalls ?? 4)) {
@@ -1051,10 +1060,16 @@ async function runRealtestChat(target: string): Promise<void> {
             });
           }
           if (verbose) {
-            console.error(JSON.stringify({ fallbackToolCalls, toolResults }, null, 2));
+            console.error(JSON.stringify({
+              fallbackMode: "debug/degraded",
+              fallbackDecision,
+              fallbackToolCalls,
+              toolResults,
+            }, null, 2));
           }
           const summaryResult = await runtime.runManifest(compiled.manifest, [
             "你刚才请求了 Praxis baseTool。agentCore 已通过 text JSON tool fallback 执行了这些工具。",
+            "注意：这是 debug/degraded 兜底路径，不代表 provider-native modelDialogueReady 已通过。",
             "请根据工具结果直接回答用户。不要再输出 tool_call 标签。",
             `用户原始输入：\n${userText}`,
             `工具结果：\n${truncateForPrompt(toolResults, 12000)}`,
@@ -1071,6 +1086,13 @@ async function runRealtestChat(target: string): Promise<void> {
           finalOutput = summaryResult.ok
             ? summaryResult.finalOutput
             : `工具已执行，但总结失败：${summaryResult.error.message}`;
+        } else if (verbose && (parsedFallbackToolCalls.length > 0 || inferredFallbackToolCalls.length > 0)) {
+          console.error(JSON.stringify({
+            fallbackMode: "disabled",
+            fallbackDecision,
+            parsedFallbackToolCalls,
+            inferredFallbackToolCalls,
+          }, null, 2));
         }
         history.push({ role: "user", content: userText }, { role: "assistant", content: finalOutput });
         console.log(`agent> ${finalOutput}`);

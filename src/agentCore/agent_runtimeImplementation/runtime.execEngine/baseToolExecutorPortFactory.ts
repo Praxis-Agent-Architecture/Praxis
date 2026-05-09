@@ -77,6 +77,7 @@ export type RuntimeBaseToolExecutorContext = {
   policy?: RuntimeBaseToolExecutorPolicy;
   resourceLimits?: RuntimeBaseToolExecutorResourceLimits;
   sandbox?: RuntimeBaseToolExecutorSandbox;
+  environment?: Readonly<Record<string, string | undefined>>;
   adapters?: Partial<BaseToolExecutorPort>;
   emitEvent?: (event: RuntimeBaseToolExecutorEvent) => void;
 };
@@ -1482,9 +1483,42 @@ function desktopAutomationMetadata(
 ): Readonly<Record<string, unknown>> {
   return {
     provider: "linux-desktop-host-adapter",
+    desktop: detectLinuxDesktopHost(context),
     sandbox: sandboxMetadata(context, false),
     workspaceRoot: workspaceRoot(context),
     ...extra,
+  };
+}
+
+function detectLinuxDesktopHost(context: RuntimeBaseToolExecutorContext): Readonly<Record<string, unknown>> {
+  const env = context.environment ?? process.env;
+  const sessionType = env.XDG_SESSION_TYPE?.trim().toLowerCase();
+  const waylandDisplay = env.WAYLAND_DISPLAY?.trim();
+  const x11Display = env.DISPLAY?.trim();
+  const displayServer =
+    sessionType === "wayland" || (waylandDisplay !== undefined && waylandDisplay.length > 0)
+      ? "wayland"
+      : sessionType === "x11" || (x11Display !== undefined && x11Display.length > 0)
+        ? "x11"
+        : "headless";
+
+  return {
+    platform: process.platform,
+    sessionType: sessionType ?? "unknown",
+    displayServer,
+    waylandDisplay: waylandDisplay ?? "",
+    x11Display: x11Display ?? "",
+    screenshotProviders: displayServer === "wayland"
+      ? ["grim", "gnome-screenshot"]
+      : displayServer === "x11"
+        ? ["gnome-screenshot", "scrot", "maim"]
+        : [],
+    pointerProviders: displayServer === "wayland"
+      ? ["ydotool"]
+      : displayServer === "x11"
+        ? ["xdotool"]
+        : [],
+    readyForDesktopAutomation: displayServer !== "headless",
   };
 }
 
@@ -1495,9 +1529,11 @@ async function captureLinuxScreenshot(
 ): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType: string; metadata?: Readonly<Record<string, unknown>> }>> {
   const tool = await firstExecutable(["/usr/bin/grim", "/usr/local/bin/grim", "/usr/bin/gnome-screenshot", "/usr/local/bin/gnome-screenshot"]);
   if (tool === undefined) {
+    const desktop = detectLinuxDesktopHost(context);
+    const displayServer = typeof desktop.displayServer === "string" ? desktop.displayServer : "unknown";
     return failure(
       "PROVIDER_UNAVAILABLE",
-      "computeruse screenshot requires grim or gnome-screenshot on this Linux desktop host",
+      `computeruse screenshot requires grim or gnome-screenshot on this Linux desktop host; detected display server: ${displayServer}`,
       [`runtime.execEngine.baseToolExecutorPort.${portPath}.dependencyMissing`],
     );
   }
@@ -1583,11 +1619,11 @@ function createComputerUseExecutor(context: RuntimeBaseToolExecutorContext): Non
     async requestPermission(request) {
       const delegated = await callDelegated<{ leaseId?: string; granted: boolean; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.requestPermission", request);
       if (delegated !== undefined) return delegated;
-      return success({
-        leaseId: `lease:${request.resource}:${randomUUID()}`,
-        granted: true,
-        metadata: desktopAutomationMetadata(context, { resource: request.resource, deviceId: request.deviceId, purpose: request.purpose }),
-      }, ["runtime.execEngine.baseToolExecutorPort.computeruse.permission.granted"]);
+      return failure(
+        "APPROVAL_REQUIRED",
+        "computeruse device permission requires an external interface approval surface and a real provider readiness check; runtime will not grant fake system permission",
+        ["runtime.execEngine.baseToolExecutorPort.computeruse.permission.approvalRequired"],
+      );
     },
     async releasePermission(request) {
       const delegated = await callDelegated<{ released: boolean; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.releasePermission", request);

@@ -79,8 +79,11 @@ function normalizeTarget(target: unknown, context: SkillBaseContext | undefined)
   if (!isRecord(target)) return failure("skill.ripgrep", "MISSING_QUERY", "skill.ripgrep requires target.query", "input", context);
   const query = stringValue(target.query);
   if (query === undefined) return failure("skill.ripgrep", "MISSING_QUERY", "skill.ripgrep requires target.query", "input", context);
-  const registryRoot = stringValue(target.registryRoot);
-  if (registryRoot === undefined) return failure("skill.ripgrep", "MISSING_REGISTRY_ROOT", "skill.ripgrep requires target.registryRoot", "input", context);
+  const rawRegistryRoot = stringValue(target.registryRoot) ?? stringValue(target.directoryPath) ?? stringValue(target.skillRoot);
+  if (rawRegistryRoot === undefined) return failure("skill.ripgrep", "MISSING_REGISTRY_ROOT", "skill.ripgrep requires target.registryRoot", "input", context);
+  const registryRoot = rawRegistryRoot.startsWith("/") || context?.workspaceRoot === undefined
+    ? rawRegistryRoot
+    : joinPath(context.workspaceRoot, rawRegistryRoot);
   if (!isInsideAllowedRoots(registryRoot, context?.allowedRoots)) {
     return failure("skill.ripgrep", "SCOPE_REJECTED", "skill.ripgrep registryRoot is outside allowed roots", "scope", context, registryRoot);
   }

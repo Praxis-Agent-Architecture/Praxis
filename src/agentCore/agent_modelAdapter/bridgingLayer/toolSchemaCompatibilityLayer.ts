@@ -304,6 +304,25 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
       }),
       metadata: { runtimeDecisionTool: true },
     },
+    {
+      toolId: "praxis.runtime.expandToolContext",
+      providerName: "praxis_expand_tool_context",
+      providerKind: "baseTool",
+      description: "Ask Praxis to expand folded BaseTool documentation for a family, group, or concrete tool in the next PromptPack turn. This only changes context; it does not execute host actions.",
+      inputSchema: normalizeProviderInputSchema({
+        type: "object",
+        additionalProperties: false,
+        required: ["targetKind"],
+        properties: {
+          targetKind: { type: "string", enum: ["family", "group", "tool"] },
+          family: { type: "string" },
+          group: { type: "string" },
+          toolId: { type: "string" },
+          reason: { type: "string" },
+        },
+      }),
+      metadata: { runtimeDecisionTool: true },
+    },
   ];
 }
 

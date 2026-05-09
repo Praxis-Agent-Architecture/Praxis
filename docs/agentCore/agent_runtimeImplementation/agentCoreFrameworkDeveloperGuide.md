@@ -39,6 +39,99 @@ In this repo, that public surface is `src/agentCore/index.ts`.
 
 Do not ask normal developers to import from deep `runtime.*` files. Those files are implementation organs: useful for framework internals, tests, and official module bridges, but not the stable authoring API.
 
+## 2.1 Definition Surface And Configuration Surface
+
+Praxis separates the developer-facing **definition surface** from the runtime-facing **configuration surface**.
+
+Plainly:
+
+- definition surface: what the developer writes in TypeScript to define an Agent.
+- configuration surface: what the runtime reads after `compileAgent(...)` has normalized the Agent into an `AgentManifest`.
+
+The normal authoring chain is:
+
+```text
+TypeScript Agent class
+  -> compileAgent(...)
+  -> AgentManifest
+  -> inspect / test / run
+  -> RuntimeKernel.runManifest(...)
+```
+
+The developer should usually define these fields:
+
+| Field | Developer meaning | Runtime meaning |
+| --- | --- | --- |
+| `identity` | Who this Agent is. | Stable agent id, version, inspect/report key. |
+| `model` | Default model. | Primary provider carrier and invocation target. |
+| `modelFleet` | Optional multi-endpoint model plan. | Capability-role matrix for provider probing and routing. |
+| `promptPack` | Base prompt, prompt package, patches, declared context material. | PromptPack material refs, cache segments, audit refs. |
+| `mainLoop` | Reusable running strategy and extension refs. | Stable lifecycle hooks, not arbitrary JS execution. |
+| `sandbox` | Host/sandbox profile. | Provider readiness, filesystem/network/process boundary metadata. |
+| `toolPolicy` | BaseTool governance matrix/profile. | Policy decision input for safe/risky/dangerous tool actions. |
+| `storage` | Where project/runtime data should live. | `.rax_workspace` and SQLite/artifact/cache path refs. |
+| `session` | Persistence, resume, thread, log settings. | Session/state/event store policy. |
+| `statePlane` | What external surfaces can see/control. | Pause/resume/approval/inspect/repair control contract. |
+| `harness` | The assembled capability shell. | Tools, loop limits, policy, refs, runtime requirements. |
+
+The key rule: **runtime only executes the Manifest**. Class fields are authoring convenience. Constructor parameters may select declaration variants, but constructors must not start processes, read secrets, call providers, or mutate host state.
+
+Minimal definition:
+
+```ts
+class MinimalAgent extends praxis.Agent {
+  identity = "agent.minimal";
+  model = praxis.model("gpt-5.5");
+  harness = praxis.harness({
+    tools: praxis.tools([praxis.baseTools.code.read()]),
+    loop: praxis.loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
+  });
+}
+```
+
+Mature definition:
+
+```ts
+class FullstackAgent extends praxis.AgentArchetype {
+  identity = { id: "agent.fullstack", version: "1.0.0" };
+  model = praxis.model("gpt-5.5", { provider: "openai", endpointShape: "responses" });
+  promptPack = new CodingPrompt();
+  mainLoop = praxis.mainLoop.standard({ buildPromptRef: "agent.fullstack.prompt" });
+  sandbox = praxis.sandbox.linuxBubblewrap();
+  toolPolicy = praxis.toolPolicies.standard();
+  storage = praxis.storage.raxWorkspace();
+  session = praxis.session({ persistence: "sqlite", resume: "auto", thread: "durable", logs: "full" });
+  statePlane = praxis.statePlane({
+    expose: ["phase", "toolCalls", "errors"],
+    control: ["pause", "resume", "interrupt", "approve", "deny", "inspect", "repair"],
+  });
+  harness = praxis.harness({
+    tools: praxis.tools([
+      ...praxis.toolSets.coding.readonly({ includeGit: true, includeSearch: true }),
+      praxis.baseTools.shell.commandExecution(),
+    ]),
+    loop: praxis.loop.standard({ maxModelTurns: 4, maxToolCalls: 8 }),
+  });
+}
+```
+
+Configuration lives in the compiled manifest:
+
+```ts
+const compiled = praxis.compileAgent(FullstackAgent);
+if (!compiled.ok) throw new Error(compiled.error.message);
+console.log(compiled.manifest.harness.tools);
+console.log(compiled.manifest.sandbox);
+console.log(compiled.manifest.toolPolicy);
+```
+
+CLI equivalents:
+
+```bash
+rax inspect agents/repoInspector/praxis.agent.ts --export RepoInspectorAgent
+rax test agents/repoInspector/praxis.agent.ts --export RepoInspectorAgent
+```
+
 ## 3. The Minimal Agent
 
 Use `PraxisAgent` when the agent is small and mostly needs one model plus a harness.
@@ -232,6 +325,67 @@ runtime request
   -> BaseToolExecutorPort.*
 ```
 
+### 7.1 Tool Selection Modes
+
+Tool exposure is not all-or-nothing. The framework supports several authoring modes:
+
+- `allOpen`: expose all 175 BaseTool definitions. Useful for fullstack stress tests, noisy for normal agents.
+- `autoFolded`: expose family-level tool descriptions first; the model can request `praxis_expand_tool_context` to unfold a family/group/tool description.
+- `manualCoarse`: developer selects by family or group, for example all `codeBase` and `gitBase`.
+- `manualFine`: developer selects exact tool ids, for example `code.read` and `git.getRepositoryStatus`.
+- `semiAuto`: developer pins hot families/tools and lets the rest stay folded.
+- `none`: no BaseTool exposure, pure chat/planning.
+
+The context tree is stable:
+
+```text
+baseTool_index
+-> family
+-> group
+-> tool
+```
+
+Tool heat is tracked per Agent. A tool call increases the tool score, its group score, and its family score. Hot nodes stay expanded so the model does not repeatedly rediscover common tools. Cold nodes fold back to indexes to protect PromptPack cache stability.
+
+### 7.2 BaseTool Readiness Meaning
+
+When docs or inspection say a BaseTool is ready, it means the tool has passed these gates:
+
+```text
+catalogMounted
+providerSchemaReady
+modelCallable
+governanceReady
+dependencyReady
+hostAdapterReady
+liveSmokeReady
+```
+
+For the current Codex/OpenAI path, fullstack live dialogue also proves `modelDialogueReady`: the model can see provider tools, choose a tool from natural language, call it, receive the result, and continue.
+
+Useful commands:
+
+```bash
+npm run test:agentCore:all-tools-matrix
+bin/rax test realtest/fullstack --all-testable --json
+```
+
+Expected current all-tools matrix:
+
+```text
+catalog.total = 175
+matrixCoverage.covered = 175
+matrixCoverage.missing = 0
+shell = 32/32
+git = 35/35
+code = 29/29
+skill = 6/6
+omni = 14/14
+computeruse = 32/32
+search = 4/4
+mcp = 23/23
+```
+
 ## 8. Policy And Sandbox
 
 Default policy profile is `standard`.
@@ -282,6 +436,118 @@ When `praxis.sandbox.linuxBubblewrap()` is prepared successfully, the default ru
 - external `search.ripgrep` dispatch
 
 Filesystem ports such as `filesystem.readText` and `filesystem.writeText` are still executed by the Node runtime process, so they are governed by workspace/allowed-root policy rather than OS-level bubblewrap containment. This split is intentional for v1: process side effects get real Linux sandbox execution first, while direct filesystem adapters remain strict scoped host adapters.
+
+### 8.1 Linux Sandbox Profiles
+
+Linux is the first platform with a real OS-level sandbox route. The main provider is bubblewrap (`bwrap`).
+
+Available Linux authoring helpers:
+
+```ts
+praxis.sandbox.hostObserved()
+praxis.sandbox.workspaceOnly()
+praxis.sandbox.linuxBubblewrap()
+praxis.sandbox.linuxBubblewrapReadonly()
+praxis.sandbox.linuxBubblewrapWorkspaceWrite()
+praxis.sandbox.linuxBubblewrapNetworked()
+```
+
+Profile meanings:
+
+| Profile | Isolation | Default use |
+| --- | --- | --- |
+| `hostObserved` | No OS isolation. Runtime observes, logs, gates, approves. | Default local development. |
+| `workspaceOnly` | Policy-level workspace boundary. Not a container. | Safer local file policy without bwrap. |
+| `linuxBubblewrap` | Real Linux process sandbox when `bwrap` is available. | Recommended Linux isolation route. |
+| `linuxBubblewrapReadonly` | Bubblewrap with workspace read-only stance. | Analysis agents and repo inspectors. |
+| `linuxBubblewrapWorkspaceWrite` | Bubblewrap with workspace write policy gates. | Coding agents that need edits. |
+| `linuxBubblewrapNetworked` | Bubblewrap with network allowed by policy. | Agents that must call network tools. |
+
+The bubblewrap filesystem model:
+
+```text
+/workspace
+  mapped project workspace
+
+$HOME
+  .rax_workspace/sandbox/home
+
+/tmp
+  .rax_workspace/sandbox/tmp
+
+artifacts
+  .rax_workspace/sandbox/artifacts
+```
+
+By default it does not expose the real user home directory. It mounts only the system paths needed for common developer commands, such as `/usr`, `/bin`, `/lib`, `/lib64`, and read-only `/etc` when needed. Device exposure is minimal: `/dev/null`, `/dev/zero`, `/dev/random`, and `/dev/urandom`.
+
+Process isolation uses bubblewrap capabilities where available:
+
+```text
+--unshare-pid
+--unshare-ipc
+--unshare-uts
+--die-with-parent
+--proc /proc
+```
+
+Network behavior is decided by the combined sandbox profile and tool policy:
+
+- `standard` / `restricted`: network is denied or approval-gated unless explicitly declared.
+- `permissive`: network can be allowed for test/fullstack flows if policy permits.
+- `yolo` / `bapr`: broader allow, still logged and inspectable.
+
+### 8.2 Linux Sandbox Dependencies And Self-Repair
+
+`linuxBubblewrap()` requires:
+
+```text
+binary:bwrap
+```
+
+The runtime probes it before executing process-backed tools. If missing, the runtime returns public-safe readiness and a self-repair plan. It must not silently run unsandboxed when the manifest requires bubblewrap.
+
+Check from CLI:
+
+```bash
+rax inspect agents/repoInspector/praxis.agent.ts --export RepoInspectorAgent
+rax test agents/repoInspector/praxis.agent.ts --export RepoInspectorAgent --sandbox=linuxBubblewrap
+```
+
+Check from npm tests:
+
+```bash
+node --import tsx --test test/agentCore/agent_runtimeImplementation/runtimeSandboxProvider.test.ts
+node --import tsx --test test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.test.ts
+```
+
+Failure semantics:
+
+| Error | Meaning |
+| --- | --- |
+| `SANDBOX_UNAVAILABLE` | The requested sandbox provider is not ready, and fallback is not explicitly allowed. |
+| `SANDBOX_PROVIDER_UNSUPPORTED` | The selected provider is contract-only on this platform. |
+| `missingDependency` | Required binary/provider dependency is missing. |
+| `smokeFailed` | Provider exists but the isolation smoke failed. |
+
+Fallback must be explicit. A manifest that asks for `linuxBubblewrap()` should not quietly run as `hostObserved`.
+
+### 8.3 ToolPolicy And Sandbox Together
+
+Sandbox and tool policy answer different questions:
+
+```text
+sandbox: where and how can this process run?
+toolPolicy: should this action be allowed, approval-gated, or blocked?
+```
+
+Examples:
+
+- `linuxBubblewrapReadonly()` can isolate a shell command, but `toolPolicies.standard()` may still require approval for a risky command.
+- `toolPolicies.permissive()` may allow a read-only command, but sandbox readiness can still block if `bwrap` is missing and fallback is disabled.
+- `workspaceOnly()` can restrict path roots, but it is not a container. It should be documented as policy-level containment.
+
+Every sandbox or policy block should be returned as a model-visible observation and a public-safe event. The model can then replan instead of pretending the tool ran.
 
 ## 9. PromptPack
 

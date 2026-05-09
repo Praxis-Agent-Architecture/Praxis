@@ -14,6 +14,7 @@ export type SkillBaseContext = {
   sessionId?: string;
   invocationId?: string;
   dryRun?: boolean;
+  workspaceRoot?: string;
   guard?: SkillBaseGuard;
   allowedRoots?: readonly string[];
   allowedSkillIds?: readonly string[];

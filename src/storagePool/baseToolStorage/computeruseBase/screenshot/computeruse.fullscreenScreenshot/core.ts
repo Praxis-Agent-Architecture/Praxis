@@ -68,6 +68,7 @@ export type FullscreenScreenshotErrorCode =
   | "CONTRACT_REJECTED"
   | "GOVERNANCE_REJECTED"
   | "PROVIDER_UNAVAILABLE"
+  | "EXECUTION_TIMEOUT"
   | "PROVIDER_FAILURE";
 
 export type FullscreenScreenshotError = {
@@ -487,10 +488,18 @@ export async function executeFullscreenScreenshot(request: unknown = {}): Promis
     const normalizedResult = normalizeProviderResult(result, context, target);
     if ("ok" in normalizedResult) return normalizedResult;
     providerResult = normalizedResult;
-  } catch {
+  } catch (error) {
+    const rawCode = typeof error === "object" && error !== null && "code" in error ? (error as { code?: unknown }).code : undefined;
+    const providerCode =
+      rawCode === "PROVIDER_UNAVAILABLE" || rawCode === "PROVIDER_FAILURE" || rawCode === "EXECUTION_TIMEOUT"
+        ? rawCode
+        : "PROVIDER_FAILURE";
+    const providerMessage = rawCode === providerCode && error instanceof Error && error.message.trim().length > 0
+      ? error.message
+      : "computeruse.fullscreenScreenshot runtime provider failed without exposing private details";
     return failure(
-      "PROVIDER_FAILURE",
-      "computeruse.fullscreenScreenshot runtime provider failed without exposing private details",
+      providerCode,
+      providerMessage,
       "provider",
       context,
       target.displayId,

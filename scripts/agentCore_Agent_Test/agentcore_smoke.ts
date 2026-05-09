@@ -246,12 +246,12 @@ async function probeOpenAI(): Promise<LiveProbe> {
 }
 
 async function probeAnthropicMessages(): Promise<LiveProbe> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_API_KEY;
   if (!apiKey) {
     return {
       provider: "anthropic-messages",
       status: "skipped",
-      detail: "缺少 ANTHROPIC_API_KEY，跳过 /v1/messages live 探针。",
+      detail: "缺少 ANTHROPIC_API_KEY / CLAUDE_API_KEY，跳过 /v1/messages live 探针。",
     };
   }
 
@@ -280,12 +280,15 @@ async function probeAnthropicMessages(): Promise<LiveProbe> {
 }
 
 async function probeGoogleGemini(): Promise<LiveProbe> {
-  const apiKey = process.env.GOOGLE_API_KEY ?? process.env.GEMINI_API_KEY ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
+  const apiKey = process.env.GOOGLE_API_KEY
+    ?? process.env.GEMINI_API_KEY
+    ?? process.env.GOOGLE_GENAI_API_KEY
+    ?? process.env.GOOGLE_GENERATIVE_AI_API_KEY;
   if (!apiKey) {
     return {
       provider: "google-gemini",
       status: "skipped",
-      detail: "缺少 GOOGLE_API_KEY / GEMINI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY，跳过 Google live 探针。",
+      detail: "缺少 GOOGLE_API_KEY / GEMINI_API_KEY / GOOGLE_GENAI_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY，跳过 Google live 探针。",
     };
   }
 

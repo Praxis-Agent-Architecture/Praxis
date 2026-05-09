@@ -62,6 +62,13 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
   assert.equal(result.definition.materials[0]?.sourceCategory, "declared-built-in");
   assert.equal(result.definition.materials[0]?.promptSegmentKind, "stableSystemCore");
   assert.equal(result.definition.materials[0]?.metadata.protected, true);
+  assert.match(result.definition.materials[0]?.text ?? "", /BaseTool Evidence Discipline/);
+  assert.match(result.definition.materials[0]?.text ?? "", /repository, file, git, shell, system/);
+  assert.match(result.definition.materials[0]?.text ?? "", /praxis_expand_tool_context/);
+  assert.match(result.definition.materials[0]?.text ?? "", /praxis_ephemeral_procedure/);
+  assert.match(result.definition.materials[0]?.text ?? "", /praxis_request_approval/);
+  assert.match(result.definition.materials[0]?.text ?? "", /Prefer verified evidence over memory/);
+  assert.match(result.definition.materials[0]?.text ?? "", /re-anchor on the new target/);
   assert.equal(result.definition.materials[1]?.id, "system");
   assert.equal(result.definition.materials[1]?.source, "runtime.contractSurface");
 });

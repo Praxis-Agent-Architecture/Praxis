@@ -6,6 +6,11 @@
 
 import type { MainLoopStepRecord } from "../../agent_executionEngine/coreLogic/mainLoop.js";
 import type { PromptPackCachePlan } from "../../agent_executionEngine/promptPack/promptAssembler.js";
+import {
+  lowerPraxisToolsForProvider,
+  normalizeProviderInputSchema,
+  type ProviderToolSchemaFamily,
+} from "../../agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 import type { RuntimeFaultSignal } from "../runtime.selfRepair/faultClassifier.js";
 import {
   createBaseToolRealityLedger,
@@ -175,6 +180,22 @@ export type FrameworkInspectionReport = {
     ready: number;
     missing: readonly string[];
   };
+  providerToolSchema: {
+    praxisToolCount: number;
+    expandedToolCount: number;
+    foldedToolCount: number;
+    targets: readonly {
+      providerFamily: ProviderToolSchemaFamily;
+      providerToolCount: number;
+      mappingCount: number;
+      runtimeDecisionToolCount: number;
+      declarationHash: string;
+      sanitizedToolCount: number;
+      cachePrefixHealth: "stable" | "warning";
+      schemaRejectedRisk: "low" | "warning";
+      warnings: readonly string[];
+    }[];
+  };
   promptPackPreview?: {
     promptPackId: string;
     materialCount: number;
@@ -326,6 +347,53 @@ function publicPreview(value: string): string {
   const trimmed = value.trim().replace(/\s+/g, " ");
   const withoutSecret = trimmed.replace(/(api[_-]?key|token|secret|password)\s*[:=]\s*\S+/gi, "$1=[redacted]");
   return withoutSecret.length > 160 ? `${withoutSecret.slice(0, 157)}...` : withoutSecret;
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(",")}]`;
+  }
+  if (typeof value === "object" && value !== null) {
+    const record = value as Readonly<Record<string, unknown>>;
+    return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function providerToolSchemaSummary(
+  manifest: AgentManifest,
+  promptPreview: FrameworkPromptPackPreviewInput | undefined,
+): FrameworkInspectionReport["providerToolSchema"] {
+  const expandedToolIds = new Set(
+    (promptPreview?.materials ?? [])
+      .map((material) => material.materialId)
+      .filter((materialId) => materialId.startsWith("tool:"))
+      .map((materialId) => materialId.slice("tool:".length)),
+  );
+  const sanitizedToolCount = manifest.harness.tools.filter((tool) => {
+    return stableJson(tool.inputSchema ?? true) !== stableJson(normalizeProviderInputSchema(tool.inputSchema));
+  }).length;
+  const providerFamilies: ProviderToolSchemaFamily[] = ["openaiResponses", "anthropicMessages", "geminiGenerateContent"];
+  return {
+    praxisToolCount: manifest.harness.tools.length,
+    expandedToolCount: expandedToolIds.size,
+    foldedToolCount: Math.max(0, manifest.harness.tools.length - expandedToolIds.size),
+    targets: providerFamilies.map((providerFamily) => {
+      const bundle = lowerPraxisToolsForProvider({ providerFamily, manifest });
+      const runtimeDecisionToolCount = Math.max(0, bundle.tools.length - manifest.harness.tools.length);
+      return {
+        providerFamily,
+        providerToolCount: bundle.tools.length,
+        mappingCount: bundle.mappings.length,
+        runtimeDecisionToolCount,
+        declarationHash: bundle.declarationHash,
+        sanitizedToolCount,
+        cachePrefixHealth: bundle.cacheHintPlan.cacheRiskWarnings.length === 0 ? "stable" : "warning",
+        schemaRejectedRisk: bundle.warnings.length === 0 ? "low" : "warning",
+        warnings: [...bundle.warnings, ...bundle.cacheHintPlan.cacheRiskWarnings],
+      };
+    }),
+  };
 }
 
 function normalizePromptPreview(
@@ -676,6 +744,7 @@ export function createFrameworkInspectionReport(
         ready: (request.providers?.length ?? 0) - providerMissing.length,
         missing: providerMissing.map((provider) => provider.providerId),
       },
+      providerToolSchema: providerToolSchemaSummary(request.manifest, request.promptPackPreview),
       promptPackPreview: normalizePromptPreview(request.promptPackPreview),
       mainLoopTrace: {
         stepCount: stepRecords.length,

@@ -205,6 +205,70 @@ test("baseToolExecutorPortFactory delegates injected backend adapters before una
   }
 });
 
+test("baseToolExecutorPortFactory reports Linux desktop Wayland and X11 readiness metadata", async () => {
+  const waylandExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-wayland",
+    sessionId: "session-factory-wayland",
+    environment: {
+      XDG_SESSION_TYPE: "wayland",
+      WAYLAND_DISPLAY: "wayland-0",
+      DISPLAY: ":0",
+    },
+  });
+  const wayland = await waylandExecutor.computeruse?.pointerAction?.({
+    action: "move",
+    target: {
+      x: 1,
+      y: 2,
+      coordinateSpace: "screen",
+    },
+  });
+  assert.equal(wayland?.ok, true);
+  if (wayland?.ok) {
+    const metadata = wayland.output.metadata as { desktop?: { displayServer?: string; pointerProviders?: string[] } };
+    assert.equal(metadata.desktop?.displayServer, "wayland");
+    assert.deepEqual(metadata.desktop?.pointerProviders, ["ydotool"]);
+  }
+
+  const x11Executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-x11",
+    sessionId: "session-factory-x11",
+    environment: {
+      XDG_SESSION_TYPE: "x11",
+      DISPLAY: ":1",
+    },
+  });
+  const x11 = await x11Executor.computeruse?.keyboardAction?.({
+    action: "press",
+    keys: ["Escape"],
+  });
+  assert.equal(x11?.ok, true);
+  if (x11?.ok) {
+    const metadata = x11.output.metadata as { desktop?: { displayServer?: string; pointerProviders?: string[] } };
+    assert.equal(metadata.desktop?.displayServer, "x11");
+    assert.deepEqual(metadata.desktop?.pointerProviders, ["xdotool"]);
+  }
+});
+
+test("baseToolExecutorPortFactory never grants computeruse device permission without interface/provider adapter", async () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-device-permission",
+    sessionId: "session-factory-device-permission",
+  });
+
+  const permission = await executor.computeruse?.requestPermission?.({
+    resource: "camera",
+    purpose: "capture a photo",
+    deviceId: "camera-1",
+  });
+  assert.equal(permission?.ok, false);
+  if (permission?.ok === false) {
+    assert.equal(permission.error.code, "APPROVAL_REQUIRED");
+    assert.match(permission.error.message, /external interface approval surface/u);
+    assert.match(permission.error.message, /will not grant fake system permission/u);
+  }
+});
+
 test("baseToolExecutorPortFactory provides governed network.fetch and shell guard adapters", async () => {
   const workspace = await makeWorkspace();
   const server = createServer((_request, response) => {

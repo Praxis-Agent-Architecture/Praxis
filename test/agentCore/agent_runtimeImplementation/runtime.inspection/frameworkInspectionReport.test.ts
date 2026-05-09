@@ -107,6 +107,13 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
       },
       materials: [
         {
+          materialId: "tool:code.read",
+          kind: "tool",
+          sourceCategory: "declared",
+          preview: "Tool: code.read",
+          trusted: true,
+        },
+        {
           materialId: "material.secret",
           kind: "runtime",
           sourceCategory: "declared",
@@ -130,10 +137,22 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
   assert.equal(result.report.status, "degraded");
   assert.equal(result.report.audit.unsafeSideEffects, false);
   assert.equal(result.report.promptPackPreview?.providerPayloadBuilt, false);
-  assert.match(result.report.promptPackPreview?.materials[0]?.preview ?? "", /token=\[redacted\]/);
+  assert.match(result.report.promptPackPreview?.materials[1]?.preview ?? "", /token=\[redacted\]/);
   assert.equal(result.report.promptPackPreview?.cachePlan?.segmentCount, 1);
   assert.deepEqual(result.report.promptPackPreview?.cachePlan?.cacheRiskWarnings, ["dynamic-tool-declaration-in-capability-prefix"]);
   assert.equal(result.report.findings.some((finding) => finding.findingId === "promptPack.cache.dynamic-tool-declaration-in-capability-prefix"), true);
+  assert.equal(result.report.providerToolSchema.praxisToolCount, 1);
+  assert.equal(result.report.providerToolSchema.expandedToolCount, 1);
+  assert.equal(result.report.providerToolSchema.foldedToolCount, 0);
+  assert.deepEqual(
+    result.report.providerToolSchema.targets.map((target) => target.providerFamily),
+    ["openaiResponses", "anthropicMessages", "geminiGenerateContent"],
+  );
+  assert.equal(result.report.providerToolSchema.targets[0]?.providerToolCount, 4);
+  assert.equal(result.report.providerToolSchema.targets[0]?.mappingCount, 1);
+  assert.equal(result.report.providerToolSchema.targets[0]?.runtimeDecisionToolCount, 3);
+  assert.match(result.report.providerToolSchema.targets[0]?.declarationHash ?? "", /^[a-f0-9]{64}$/u);
+  assert.equal(result.report.providerToolSchema.targets[0]?.schemaRejectedRisk, "low");
   assert.deepEqual(result.report.mainLoopTrace.actionPrimitives, ["handoffPromptPack"]);
   assert.deepEqual(result.report.toolReadiness.missing, ["shell.commandExecution"]);
   assert.deepEqual(result.report.dependencyGraph.missing, ["ripgrep"]);

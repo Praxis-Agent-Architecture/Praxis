@@ -25,8 +25,15 @@ import {
   listRuntimeBaseToolImplementedPortPaths,
 } from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
+  preflightBaseToolDependencies,
+  type BaseToolDependencyRuntimeMode,
+} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.js";
+import {
   createBaseToolRealityLedger,
 } from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+import {
+  evaluateBaseToolRuntimeReadiness,
+} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 import {
   createRaxBuildInitPlan,
   initRaxProject,
@@ -94,6 +101,24 @@ type RaxCliSelfRepairPreflightReport = {
   publicSafeMessages: readonly string[];
 };
 
+type RaxCliDependencyPreparationReport = {
+  mode: BaseToolDependencyRuntimeMode;
+  managedRoot: string;
+  total: number;
+  ready: number;
+  installed: number;
+  requiresApproval: number;
+  blocked: number;
+  results: readonly {
+    toolId: string;
+    decision: string;
+    status: string;
+    reason: string;
+    installableDependencies: readonly string[];
+    missingDependencies: readonly string[];
+  }[];
+};
+
 function argValue(args: readonly string[], name: string): string | undefined {
   const index = args.indexOf(name);
   if (index < 0) return undefined;
@@ -110,7 +135,7 @@ function wantsHelp(args: readonly string[]): boolean {
 
 function commandTaskFromArgs(args: readonly string[]): string {
   const values: string[] = [];
-  const flagsWithValue = new Set(["--export", "--codex-auth-file", "--auth-file"]);
+  const flagsWithValue = new Set(["--export", "--codex-auth-file", "--auth-file", "--dependency-mode", "--managed-root"]);
   for (let index = 1; index < args.length; index += 1) {
     const value = args[index];
     if (flagsWithValue.has(value)) {
@@ -572,6 +597,7 @@ function createCliBaseToolReadiness(input: {
   manifest: AgentManifest;
   projectRoot?: string;
   sandbox: Awaited<ReturnType<typeof praxis.sandboxPlane.prepareSandboxRuntime>>;
+  includeAllTestable?: boolean;
 }) {
   const workspaceRoot = path.resolve(input.projectRoot ?? process.cwd());
   const executor = createRuntimeBaseToolExecutorPort({
@@ -612,8 +638,17 @@ function createCliBaseToolReadiness(input: {
   });
   const implementedPortPaths = listRuntimeBaseToolImplementedPortPaths({ adapters: executor });
   const ledger = new Map(createBaseToolRealityLedger({ executor, implementedPortPaths }).map((entry) => [entry.toolId, entry]));
+  const selectedTools = input.includeAllTestable
+    ? [...ledger.values()]
+        .sort((left, right) => left.toolId.localeCompare(right.toolId))
+        .map((entry) => ({
+          toolId: entry.toolId,
+          family: entry.storageFamily,
+          group: entry.group,
+        }))
+    : input.manifest.harness.tools;
 
-  return input.manifest.harness.tools.map((tool) => {
+  return selectedTools.map((tool) => {
     const entry = ledger.get(tool.toolId);
     if (entry === undefined) {
       return {
@@ -651,6 +686,110 @@ function createCliBaseToolReadiness(input: {
       missingPorts: entry.missingPorts,
     };
   });
+}
+
+function normalizeDependencyMode(value: string | undefined): BaseToolDependencyRuntimeMode {
+  if (value === "auto" || value === "full" || value === "autoInstallTrustedManaged" || value === "observe") {
+    return value;
+  }
+  return "observe";
+}
+
+function defaultToolInputForDependency(toolId: string, projectRoot: string): Readonly<Record<string, unknown>> {
+  if (toolId.startsWith("code.lsp_")) {
+    return {
+      target: {
+        filePath: path.join(projectRoot, "src", "index.ts"),
+        languageId: "typescript",
+        line: 1,
+        character: 1,
+      },
+      context: {
+        workspaceRoot: projectRoot,
+      },
+    };
+  }
+  return {
+    context: {
+      workspaceRoot: projectRoot,
+    },
+  };
+}
+
+async function prepareCliBaseToolDependencies(input: {
+  manifest: AgentManifest;
+  projectRoot?: string;
+  includeAllTestable?: boolean;
+  mode: BaseToolDependencyRuntimeMode;
+  managedRoot?: string;
+}): Promise<RaxCliDependencyPreparationReport> {
+  const projectRoot = path.resolve(input.projectRoot ?? process.cwd());
+  const managedRoot = path.resolve(input.managedRoot ?? path.join(projectRoot, ".rax_workspace", "tool-deps"));
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime.rax.cli.dependencies",
+    sessionId: `${input.manifest.identity.id}:dependencies`,
+    policy: {
+      workspaceRoot: projectRoot,
+      allowedRoots: [projectRoot],
+      allowGitExecution: true,
+      allowRipgrep: true,
+      allowNetworkFetch: true,
+      allowShellExecution: false,
+      allowProcessExecution: false,
+      allowFilesystemWrite: false,
+      allowFilesystemDelete: false,
+    },
+  });
+  const implementedPortPaths = listRuntimeBaseToolImplementedPortPaths({ adapters: executor });
+  const ledger = new Map(createBaseToolRealityLedger({ executor, implementedPortPaths }).map((entry) => [entry.toolId, entry]));
+  const toolsToCheck = input.includeAllTestable
+    ? [...ledger.keys()].sort().map((toolId) => ({ toolId }))
+    : input.manifest.harness.tools;
+
+  const results = [];
+  for (const toolSpec of toolsToCheck) {
+    const readiness = evaluateBaseToolRuntimeReadiness({
+      toolId: toolSpec.toolId,
+      executor,
+      implementedPortPaths,
+    });
+    const preflight = await preflightBaseToolDependencies({
+      executor,
+      readiness,
+      catalogEntry: readiness.entry,
+      implementedPortPaths,
+      context: {
+        runtimeId: "runtime.rax.cli.dependencies",
+        sessionId: `${input.manifest.identity.id}:dependencies`,
+        invocationId: `rax-dependency:${toolSpec.toolId}`,
+        toolId: toolSpec.toolId,
+        toolInput: defaultToolInputForDependency(toolSpec.toolId, projectRoot),
+        governanceAccepted: true,
+        allowedScopes: input.manifest.harness.policy.scopes,
+        mode: input.mode,
+        managedRoot,
+      },
+    });
+    results.push({
+      toolId: toolSpec.toolId,
+      decision: preflight.decision,
+      status: preflight.status,
+      reason: preflight.reason,
+      installableDependencies: preflight.installableDependencies,
+      missingDependencies: preflight.missingDependencies,
+    });
+  }
+
+  return {
+    mode: input.mode,
+    managedRoot,
+    total: results.length,
+    ready: results.filter((result) => result.decision === "ready").length,
+    installed: results.filter((result) => result.status === "installed").length,
+    requiresApproval: results.filter((result) => result.decision === "requiresApproval").length,
+    blocked: results.filter((result) => result.decision === "blocked").length,
+    results,
+  };
 }
 
 function summarizeSelfRepairResult(result: SelfRepairRuntimeResult): RaxCliSelfRepairFault {
@@ -790,6 +929,7 @@ function formatReadinessConsole(input: {
   };
   runtimeDryRun?: AgentRunResult;
   selfRepairPreflight?: RaxCliSelfRepairPreflightReport;
+  dependencyPreparation?: RaxCliDependencyPreparationReport;
 }): string {
   const hints = input.sandbox.probe.selfRepairHints.map((hint) => `  - ${hint.message}`).join("\n") || "  - none";
   const missing = input.sandbox.probe.missingDependencies.join(", ") || "none";
@@ -814,6 +954,10 @@ function formatReadinessConsole(input: {
     `prompt cache warnings: ${input.promptCache?.cacheRiskWarnings.join(", ") || "none"}`,
     `self-repair preflight: ${input.selfRepairPreflight?.status ?? "not-run"}`,
     `self-repair mode: ${input.selfRepairPreflight?.mode ?? "none"}`,
+    `dependency mode: ${input.dependencyPreparation?.mode ?? "not-run"}`,
+    `dependency ready: ${input.dependencyPreparation === undefined ? "not-run" : `${input.dependencyPreparation.ready}/${input.dependencyPreparation.total}`}`,
+    `dependency installed: ${input.dependencyPreparation?.installed ?? "not-run"}`,
+    `dependency blocked: ${input.dependencyPreparation?.blocked ?? "not-run"}`,
     "self-repair hints:",
     input.selfRepairPreflight?.publicSafeMessages.map((message) => `  - ${message}`).join("\n") || hints,
     "",
@@ -920,6 +1064,16 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
     : undefined;
 
   if (command === "inspect" || command === "test") {
+    const dependencyMode = normalizeDependencyMode(argValue(args, "--dependency-mode"));
+    const dependencyPreparation = command === "test"
+      ? await prepareCliBaseToolDependencies({
+          manifest: compiled.manifest,
+          projectRoot: resolvedEntry?.projectRoot,
+          includeAllTestable: hasFlag(args, "--all-testable"),
+          mode: dependencyMode,
+          managedRoot: argValue(args, "--managed-root"),
+        })
+      : undefined;
     const sandboxReadiness = await praxis.sandboxPlane.prepareSandboxRuntime(compiled.manifest.sandbox, {
       cwd: process.cwd(),
       runSmoke: command === "test",
@@ -928,6 +1082,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
       manifest: compiled.manifest,
       projectRoot: resolvedEntry?.projectRoot,
       sandbox: sandboxReadiness,
+      includeAllTestable: hasFlag(args, "--all-testable"),
     });
     const promptPackPreview = prepareInspectionPromptPreview(compiled.manifest);
     const report = praxis.inspection.createFrameworkInspectionReport({
@@ -985,6 +1140,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
       readiness: report.ok ? report.report : report.error,
       runtimeDryRun,
       selfRepairPreflight,
+      dependencyPreparation,
       liveProvider: liveProvider === undefined
         ? undefined
         : liveProvider.ok
@@ -1004,6 +1160,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
             promptCache: report.ok ? report.report.promptPackPreview?.cachePlan : undefined,
             runtimeDryRun,
             selfRepairPreflight,
+            dependencyPreparation,
           }),
     };
   }

@@ -137,6 +137,17 @@ function parseJsonObject(text: string): Record<string, unknown> {
   return JSON.parse(trimmed.slice(start, end + 1)) as Record<string, unknown>;
 }
 
+test("agentCore provider live smoke documents Claude and Gemini env aliases", () => {
+  const source = readFileSync(path.join(architectureRoot, "scripts/agentCore_Agent_Test/agentcore_smoke.ts"), "utf8");
+
+  assert.match(source, /ANTHROPIC_API_KEY/u);
+  assert.match(source, /CLAUDE_API_KEY/u);
+  assert.match(source, /GOOGLE_API_KEY/u);
+  assert.match(source, /GEMINI_API_KEY/u);
+  assert.match(source, /GOOGLE_GENAI_API_KEY/u);
+  assert.match(source, /GOOGLE_GENERATIVE_AI_API_KEY/u);
+});
+
 function normalizeToolCall(value: unknown): LiveToolCall {
   assert.equal(typeof value, "object", "tool call must be an object");
   assert.notEqual(value, null, "tool call must not be null");
