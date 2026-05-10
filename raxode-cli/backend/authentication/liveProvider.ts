@@ -40,14 +40,21 @@ function appendQuery(url: string, query: Readonly<Record<string, string>> | unde
   return target.toString();
 }
 
-function readSseTextDelta(payload: string): string {
+export function readSseTextDelta(payload: string): string {
   if (payload.length === 0 || payload === "[DONE]") return "";
   try {
     const parsed = JSON.parse(payload) as unknown;
     if (!isRecord(parsed)) return "";
     const type = typeof parsed.type === "string" ? parsed.type : "";
     const delta = parsed.delta;
-    if (typeof delta === "string" && type.includes("output_text")) {
+    if (
+      typeof delta === "string"
+      && (
+        type.includes("output_text")
+        || type.includes("summary_text")
+        || type.includes("reasoning_summary")
+      )
+    ) {
       return delta;
     }
   } catch {
@@ -56,7 +63,11 @@ function readSseTextDelta(payload: string): string {
   return "";
 }
 
-function extractAndPublishSseDeltas(buffer: string, onTextDelta?: (delta: string) => void): string {
+function looksLikeSseChunk(value: string): boolean {
+  return /(?:^|\n)(?:event|data):\s*/u.test(value);
+}
+
+export function extractAndPublishSseDeltas(buffer: string, onTextDelta?: (delta: string) => void): string {
   if (!onTextDelta) return buffer;
   const normalized = buffer.replace(/\r\n/gu, "\n");
   const frames = normalized.split("\n\n");
@@ -107,23 +118,26 @@ function createStreamingProviderTransport(onTextDelta?: (delta: string) => void)
       const decoder = new TextDecoder();
       let raw = "";
       let pendingSse = "";
+      let shouldParseSse = contentType.includes("text/event-stream");
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
         const text = decoder.decode(chunk.value, { stream: true });
         raw += text;
-        if (contentType.includes("text/event-stream")) {
+        shouldParseSse ||= looksLikeSseChunk(text);
+        if (shouldParseSse) {
           pendingSse = extractAndPublishSseDeltas(`${pendingSse}${text}`, onTextDelta);
         }
       }
       const tail = decoder.decode();
       if (tail) {
         raw += tail;
-        if (contentType.includes("text/event-stream")) {
+        shouldParseSse ||= looksLikeSseChunk(tail);
+        if (shouldParseSse) {
           pendingSse = extractAndPublishSseDeltas(`${pendingSse}${tail}`, onTextDelta);
         }
       }
-      if (contentType.includes("text/event-stream") && pendingSse.trim().length > 0) {
+      if (shouldParseSse && pendingSse.trim().length > 0) {
         extractAndPublishSseDeltas(`${pendingSse}\n\n`, onTextDelta);
       }
 
