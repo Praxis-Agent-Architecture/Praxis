@@ -5,8 +5,13 @@ import {
   cycleChoiceValue,
   findNextInteractiveFieldIndex,
   findPrimaryActionField,
+  PRAXIS_MODEL_OPTIONS,
   type PraxisSlashPanelField,
 } from "./slash-panels.js";
+
+test("model options expose the current frontier model first", () => {
+  assert.equal(PRAXIS_MODEL_OPTIONS[0], "gpt-5.5");
+});
 
 test("findNextInteractiveFieldIndex skips value-only rows and wraps", () => {
   const fields: PraxisSlashPanelField[] = [

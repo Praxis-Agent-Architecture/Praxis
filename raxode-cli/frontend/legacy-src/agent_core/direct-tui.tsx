@@ -239,6 +239,7 @@ import {
   refineWebSearchToolSummary,
   summarizePendingComposerText,
 } from "./tui-mini-summary.js";
+import { enableTerminalMouseReporting } from "../../tui-input/mouse.js";
 import { TUI_THEME } from "./tui-theme.js";
 import {
   resolveConfigRoot,
@@ -268,6 +269,9 @@ interface LiveContextRecord {
   promptTokens?: number;
   transcriptTokens?: number;
   maxOutputTokens?: number | null;
+  maxInputTokens?: number;
+  inputBudgetThreshold?: number;
+  usableInputTokens?: number;
 }
 
 interface LiveLogRecord {
@@ -792,12 +796,18 @@ function isRaxodeAnimationMode(value: string | undefined): value is RaxodeAnimat
   return value === "fresh" || value === "resume" || value === "off";
 }
 
-const DEFAULT_CONTEXT_WINDOW = 1_050_000;
+const DEFAULT_CONTEXT_WINDOW = 258_400;
 const CONTEXT_BAR_WIDTH = 10;
 const STATUS_CONTEXT_BAR_WIDTH = 20;
 const STARTUP_WORD = "RAXODE";
 const STARTUP_ANIMATION_INTERVAL_MS = 200;
 const ANIMATION_TICK_MS = 1000 / 60;
+const LOG_TAIL_POLL_INTERVAL_MS = Math.max(
+  1,
+  1000 / Math.max(1, Number.isFinite(Number.parseFloat(process.env.RAXODE_RENDER_FPS ?? "120"))
+    ? Number.parseFloat(process.env.RAXODE_RENDER_FPS ?? "120")
+    : 120),
+);
 const TERMINAL_TITLE_SPINNER_INTERVAL_MS = 160;
 const REWIND_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const REWIND_SPINNER_FRAME_STEP = 3;
@@ -3012,79 +3022,6 @@ function buildSlashPanelView(
             resolveRoleDisplayValue("model:tui.main", "tui.main", currentTuiModel, currentTuiReasoning),
             { indent: 4, labelWidth: 32, gapWidth: 6, fieldKey: "model:tui.main" },
           ),
-          { text: "    Memory Pool", tone: "info" },
-          createBodyKeyValueLine(
-            "ICMA Model:",
-            resolveRoleDisplayValue("model:mp.icma", "mp.icma", context.runtimeConfig?.modelPlan.mp.icma.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.mp.icma.reasoning ?? "none"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:mp.icma" },
-          ),
-          createBodyKeyValueLine(
-            "DBAgent Model:",
-            resolveRoleDisplayValue("model:mp.dbagent", "mp.dbagent", context.runtimeConfig?.modelPlan.mp.dbagent.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.mp.dbagent.reasoning ?? "low"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:mp.dbagent" },
-          ),
-          createBodyKeyValueLine(
-            "Iterator Model:",
-            resolveRoleDisplayValue("model:mp.iterator", "mp.iterator", context.runtimeConfig?.modelPlan.mp.iterator.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.mp.iterator.reasoning ?? "medium"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:mp.iterator" },
-          ),
-          createBodyKeyValueLine(
-            "Checker Model:",
-            resolveRoleDisplayValue("model:mp.checker", "mp.checker", context.runtimeConfig?.modelPlan.mp.checker.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.mp.checker.reasoning ?? "medium"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:mp.checker" },
-          ),
-          createBodyKeyValueLine(
-            "Dispatcher Model:",
-            resolveRoleDisplayValue("model:mp.dispatcher", "mp.dispatcher", context.runtimeConfig?.modelPlan.mp.dispatcher.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.mp.dispatcher.reasoning ?? "low"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:mp.dispatcher" },
-          ),
-          createBodyKeyValueLine(
-            "LanceDB Embedding Model:",
-            resolvePanelDraftValue(draft, "model:mp.embedding", context.configFile?.embedding.lanceDbModel ?? "text-embedding-3-large"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:mp.embedding" },
-          ),
-          { text: "    Context Management Pool", tone: "info" },
-          createBodyKeyValueLine(
-            "ICMA Model:",
-            resolveRoleDisplayValue("model:cmp.icma", "cmp.icma", context.runtimeConfig?.modelPlan.cmp.icma.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.cmp.icma.reasoning ?? "none"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:cmp.icma" },
-          ),
-          createBodyKeyValueLine(
-            "DBAgent Model:",
-            resolveRoleDisplayValue("model:cmp.dbagent", "cmp.dbagent", context.runtimeConfig?.modelPlan.cmp.dbagent.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.cmp.dbagent.reasoning ?? "low"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:cmp.dbagent" },
-          ),
-          createBodyKeyValueLine(
-            "Iterator Model:",
-            resolveRoleDisplayValue("model:cmp.iterator", "cmp.iterator", context.runtimeConfig?.modelPlan.cmp.iterator.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.cmp.iterator.reasoning ?? "medium"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:cmp.iterator" },
-          ),
-          createBodyKeyValueLine(
-            "Checker Model:",
-            resolveRoleDisplayValue("model:cmp.checker", "cmp.checker", context.runtimeConfig?.modelPlan.cmp.checker.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.cmp.checker.reasoning ?? "medium"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:cmp.checker" },
-          ),
-          createBodyKeyValueLine(
-            "Dispatcher Model:",
-            resolveRoleDisplayValue("model:cmp.dispatcher", "cmp.dispatcher", context.runtimeConfig?.modelPlan.cmp.dispatcher.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.cmp.dispatcher.reasoning ?? "low"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:cmp.dispatcher" },
-          ),
-          { text: "    Tool&Ability Pool", tone: "info" },
-          createBodyKeyValueLine(
-            "Reviewer Model:",
-            resolveRoleDisplayValue("model:tap.reviewer", "tap.reviewer", context.runtimeConfig?.modelPlan.tap.reviewer.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.tap.reviewer.reasoning ?? "low"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:tap.reviewer" },
-          ),
-          createBodyKeyValueLine(
-            "ToolReviewer Model:",
-            resolveRoleDisplayValue("model:tap.toolReviewer", "tap.toolReviewer", context.runtimeConfig?.modelPlan.tap.toolReviewer.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.tap.toolReviewer.reasoning ?? "medium"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:tap.toolReviewer" },
-          ),
-          createBodyKeyValueLine(
-            "Provisioner Agent:",
-            resolveRoleDisplayValue("model:tap.provisioner", "tap.provisioner", context.runtimeConfig?.modelPlan.tap.provisioner.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.tap.provisioner.reasoning ?? "medium"),
-            { indent: 8, labelWidth: 24, gapWidth: 6, fieldKey: "model:tap.provisioner" },
-          ),
         ],
         fields: [
           {
@@ -3099,104 +3036,6 @@ function buildSlashPanelView(
             key: "model:tui.main",
             label: "TUI miscellaneous tasks Model",
             value: resolveRoleDisplayValue("model:tui.main", "tui.main", currentTuiModel, currentTuiReasoning),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:mp.icma",
-            label: "Memory Pool ICMA Model",
-            value: resolveRoleDisplayValue("model:mp.icma", "mp.icma", context.runtimeConfig?.modelPlan.mp.icma.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.mp.icma.reasoning ?? "none"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:mp.dbagent",
-            label: "Memory Pool DBAgent Model",
-            value: resolveRoleDisplayValue("model:mp.dbagent", "mp.dbagent", context.runtimeConfig?.modelPlan.mp.dbagent.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.mp.dbagent.reasoning ?? "low"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:mp.iterator",
-            label: "Memory Pool Iterator Model",
-            value: resolveRoleDisplayValue("model:mp.iterator", "mp.iterator", context.runtimeConfig?.modelPlan.mp.iterator.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.mp.iterator.reasoning ?? "medium"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:mp.checker",
-            label: "Memory Pool Checker Model",
-            value: resolveRoleDisplayValue("model:mp.checker", "mp.checker", context.runtimeConfig?.modelPlan.mp.checker.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.mp.checker.reasoning ?? "medium"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:mp.dispatcher",
-            label: "Memory Pool Dispatcher Model",
-            value: resolveRoleDisplayValue("model:mp.dispatcher", "mp.dispatcher", context.runtimeConfig?.modelPlan.mp.dispatcher.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.mp.dispatcher.reasoning ?? "low"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:mp.embedding",
-            label: "LanceDB Embedding Model",
-            value: resolvePanelDraftValue(draft, "model:mp.embedding", context.configFile?.embedding.lanceDbModel ?? "text-embedding-3-large"),
-            options: EMBEDDING_MODEL_CATALOG.map((entry) => entry.id),
-          },
-          {
-            kind: "choice",
-            key: "model:cmp.icma",
-            label: "CMP ICMA Model",
-            value: resolveRoleDisplayValue("model:cmp.icma", "cmp.icma", context.runtimeConfig?.modelPlan.cmp.icma.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.cmp.icma.reasoning ?? "none"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:cmp.dbagent",
-            label: "CMP DBAgent Model",
-            value: resolveRoleDisplayValue("model:cmp.dbagent", "cmp.dbagent", context.runtimeConfig?.modelPlan.cmp.dbagent.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.cmp.dbagent.reasoning ?? "low"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:cmp.iterator",
-            label: "CMP Iterator Model",
-            value: resolveRoleDisplayValue("model:cmp.iterator", "cmp.iterator", context.runtimeConfig?.modelPlan.cmp.iterator.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.cmp.iterator.reasoning ?? "medium"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:cmp.checker",
-            label: "CMP Checker Model",
-            value: resolveRoleDisplayValue("model:cmp.checker", "cmp.checker", context.runtimeConfig?.modelPlan.cmp.checker.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.cmp.checker.reasoning ?? "medium"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:cmp.dispatcher",
-            label: "CMP Dispatcher Model",
-            value: resolveRoleDisplayValue("model:cmp.dispatcher", "cmp.dispatcher", context.runtimeConfig?.modelPlan.cmp.dispatcher.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.cmp.dispatcher.reasoning ?? "low"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:tap.reviewer",
-            label: "Reviewer Model",
-            value: resolveRoleDisplayValue("model:tap.reviewer", "tap.reviewer", context.runtimeConfig?.modelPlan.tap.reviewer.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.tap.reviewer.reasoning ?? "low"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:tap.toolReviewer",
-            label: "ToolReviewer Model",
-            value: resolveRoleDisplayValue("model:tap.toolReviewer", "tap.toolReviewer", context.runtimeConfig?.modelPlan.tap.toolReviewer.model ?? "gpt-5.4-mini", context.runtimeConfig?.modelPlan.tap.toolReviewer.reasoning ?? "medium"),
-            options: modelEffortOptions,
-          },
-          {
-            kind: "choice",
-            key: "model:tap.provisioner",
-            label: "Provisioner Agent",
-            value: resolveRoleDisplayValue("model:tap.provisioner", "tap.provisioner", context.runtimeConfig?.modelPlan.tap.provisioner.model ?? "gpt-5.4", context.runtimeConfig?.modelPlan.tap.provisioner.reasoning ?? "medium"),
             options: modelEffortOptions,
           },
         ],
@@ -4058,12 +3897,27 @@ function buildOverlayContentLine(
   innerWidth: number,
   content: TerminalOverlaySegment[],
 ): TerminalOverlayLine {
-  const rawWidth = content.reduce((sum, segment) => sum + stringWidth(segment.text), 0);
+  const clippedContent: TerminalOverlaySegment[] = [];
+  let remainingWidth = Math.max(0, innerWidth);
+  for (const segment of content) {
+    if (remainingWidth <= 0) {
+      break;
+    }
+    const segmentText = stringWidth(segment.text) > remainingWidth
+      ? truncateTextToWidth(segment.text, remainingWidth)
+      : segment.text;
+    clippedContent.push({
+      ...segment,
+      text: segmentText,
+    });
+    remainingWidth -= stringWidth(segmentText);
+  }
+  const rawWidth = clippedContent.reduce((sum, segment) => sum + stringWidth(segment.text), 0);
   const pad = " ".repeat(Math.max(0, innerWidth - rawWidth));
   return {
     segments: [
       { text: "│", color: TUI_THEME.mintSoft },
-      ...content,
+      ...clippedContent,
       { text: pad },
       { text: "│", color: TUI_THEME.mintSoft },
     ],
@@ -4137,7 +3991,7 @@ function buildModelPickerOverlaySnapshot(
   terminalRows: number,
   terminalColumns: number,
 ): TerminalOverlaySnapshot {
-  const width = Math.max(56, Math.min(terminalColumns - 8, 110));
+  const width = Math.max(56, Math.min(terminalColumns - 8, 86));
   const innerWidth = width - 2;
   const selectedModel = picker.models[picker.selectedModelIndex];
   const reasoningLevels = selectedModel?.reasoningLevels ?? [];
@@ -4207,15 +4061,18 @@ function buildModelPickerOverlaySnapshot(
       && picker.serviceTierFastEnabled;
     const availability = picker.availabilityByModelId[model.id];
     const availabilityBadge = availability?.status === "available"
-      ? { text: " ✔", color: TUI_THEME.mintSoft }
+      ? { text: "  ✓", color: TUI_THEME.mintSoft }
       : availability?.status === "unavailable"
-        ? { text: " ✘", color: TUI_THEME.red }
+        ? { text: "  ×", color: TUI_THEME.red }
         : null;
-    const reservedSuffixWidth = (showFastBadge ? 7 : 0) + (availabilityBadge ? stringWidth(availabilityBadge.text) : 0);
+    const modelLabelWidth = Math.max(
+      12,
+      Math.min(24, innerWidth - 6 - (showFastBadge ? 7 : 0) - (availabilityBadge ? stringWidth(availabilityBadge.text) : 0)),
+    );
     pushLine([
       { text: active ? "→ " : "  ", color: active ? TUI_THEME.yellow : TUI_THEME.textMuted },
       {
-        text: padTextToWidth(model.label, innerWidth - 2 - reservedSuffixWidth),
+        text: padTextToWidth(model.label, modelLabelWidth),
         color: active ? TUI_THEME.yellow : TUI_THEME.text,
       },
       ...(showFastBadge ? [{ text: " [FAST]", color: TUI_THEME.violet }] : []),
@@ -6064,9 +5921,22 @@ async function maybeRefineWebSearchSummary(input: {
   intentLines: string[];
   resultLines: string[];
   metadataLines: string[];
+  route?: {
+    model?: string;
+    reasoningEffort?: string;
+    serviceTier?: "fast";
+    maxOutputTokens?: number;
+  };
 }): Promise<{ title: string; lines: string[] } | null> {
   try {
-    return await refineWebSearchToolSummary(input);
+    return await refineWebSearchToolSummary({
+      ...input,
+      route: {
+        provider: "openai",
+        roleId: "tui.main",
+        ...input.route,
+      },
+    });
   } catch {
     return null;
   }
@@ -6251,6 +6121,9 @@ function normalizeContextSnapshot(
   promptTokens: number;
   transcriptTokens: number;
   maxOutputTokens?: number;
+  maxInputTokens?: number;
+  inputBudgetThreshold?: number;
+  usableInputTokens?: number;
 } | null {
   if (!input || typeof input !== "object") {
     return null;
@@ -6277,6 +6150,15 @@ function normalizeContextSnapshot(
     transcriptTokens,
     maxOutputTokens: typeof input.maxOutputTokens === "number" && Number.isFinite(input.maxOutputTokens)
       ? input.maxOutputTokens
+      : undefined,
+    maxInputTokens: typeof input.maxInputTokens === "number" && Number.isFinite(input.maxInputTokens)
+      ? input.maxInputTokens
+      : undefined,
+    inputBudgetThreshold: typeof input.inputBudgetThreshold === "number" && Number.isFinite(input.inputBudgetThreshold)
+      ? input.inputBudgetThreshold
+      : undefined,
+    usableInputTokens: typeof input.usableInputTokens === "number" && Number.isFinite(input.usableInputTokens)
+      ? input.usableInputTokens
       : undefined,
   };
 }
@@ -6839,7 +6721,7 @@ function withSelectedBodyLineArrow(text: string): string {
 }
 
 function shouldReplaceSelectedBodyLineArrowInline(panelId: DirectSlashPanelId): boolean {
-  return panelId === "permissions";
+  return panelId === "permissions" || panelId === "model";
 }
 
 function withCurrentRowMarker(text: string): string {
@@ -7005,6 +6887,12 @@ async function buildRewindDisplayUserText(params: {
   sessionId: string;
   turnId: string;
   userText: string;
+  tuiModelRoute?: {
+    model?: string;
+    reasoningEffort?: string;
+    serviceTier?: "fast";
+    maxOutputTokens?: number;
+  };
 }): Promise<{
   displayUserText: string;
   displayUserTextSource: "raw" | "mini_summary" | "fallback_excerpt";
@@ -7027,6 +6915,11 @@ async function buildRewindDisplayUserText(params: {
       sessionId: params.sessionId,
       runId: params.turnId,
       text: normalized,
+      route: {
+        provider: "openai",
+        roleId: "tui.main",
+        ...params.tuiModelRoute,
+      },
     });
     if (summary && summary.trim()) {
       return {
@@ -7316,7 +7209,7 @@ const ComposerPane = memo(function ComposerPane({
     ? stringWidth(rushFooterPrefixText) + stringWidth(" • ")
     : 0;
   const footerModeWidth = rushFooterPrefixWidth + stringWidth(footerModeLabel) + stringWidth(footerModeHint);
-  const footerRightWidth = Math.min(lineWidth, footerModeWidth);
+  const footerRightWidth = Math.min(Math.max(0, lineWidth - 1), footerModeWidth + 1);
   const footerLeftWidth = Math.max(0, lineWidth - footerRightWidth - 1);
   const [contextBreathFrameIndex, setContextBreathFrameIndex] = useState(0);
   useEffect(() => {
@@ -9742,6 +9635,14 @@ function PraxisDirectTuiApp(): JSX.Element {
       sessionId: sessionIdRef.current,
       turnId: params.turnId,
       userText: params.userText,
+      tuiModelRoute: runtimeConfig?.modelPlan.tui.main
+        ? {
+            model: runtimeConfig.modelPlan.tui.main.model,
+            reasoningEffort: runtimeConfig.modelPlan.tui.main.reasoning,
+            serviceTier: runtimeConfig.modelPlan.tui.main.serviceTier,
+            maxOutputTokens: runtimeConfig.modelPlan.tui.main.maxOutputTokens,
+          }
+        : undefined,
     });
     const gitReadback = await readWorkspaceRaxodeGitReadback({
       workspaceRoot: currentCwd,
@@ -10026,13 +9927,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   }, [rushFooterNotice]);
 
   useEffect(() => {
-    if (!process.stdout.isTTY || process.env.RAXODE_ENABLE_MOUSE !== "1") {
-      return;
-    }
-    process.stdout.write("\u001B[?1000h\u001B[?1006h");
-    return () => {
-      process.stdout.write("\u001B[?1000l\u001B[?1006l");
-    };
+    return enableTerminalMouseReporting(process.stdout);
   }, []);
 
   useEffect(() => {
@@ -10100,7 +9995,11 @@ function PraxisDirectTuiApp(): JSX.Element {
 
   useEffect(() => {
     const tsxBin = resolve(appRoot, "node_modules/.bin/tsx");
-    const sourceBackendPath = resolve(appRoot, "src/agent_core/live-agent-chat.ts");
+    const applicationBackendPath = resolve(appRoot, "raxode-cli/backend/legacyDirectApplicationBackend.ts");
+    const useApplicationBackend = existsSync(applicationBackendPath);
+    const sourceBackendPath = useApplicationBackend
+      ? applicationBackendPath
+      : resolve(appRoot, "src/agent_core/live-agent-chat.ts");
     const distBackendPath = resolve(appRoot, "dist/agent_core/live-agent-chat.js");
     const configRoot = resolveConfigRoot(appRoot);
     const stateRoot = resolveStateRoot(appRoot);
@@ -10108,8 +10007,12 @@ function PraxisDirectTuiApp(): JSX.Element {
     const launchSessionId = backendLaunchSessionIdRef.current ?? sessionIdRef.current;
     backendLaunchWorkspaceRef.current = null;
     backendLaunchSessionIdRef.current = null;
-    const backendCommand = existsSync(sourceBackendPath) ? tsxBin : process.execPath;
-    const backendArgs = existsSync(sourceBackendPath)
+    const backendCommand = useApplicationBackend
+      ? process.execPath
+      : (existsSync(sourceBackendPath) ? tsxBin : process.execPath);
+    const backendArgs = useApplicationBackend
+      ? ["--import", "tsx", sourceBackendPath, "--ui=direct"]
+      : existsSync(sourceBackendPath)
       ? [sourceBackendPath, "--ui=direct"]
       : [distBackendPath, "--ui=direct"];
     const child = spawn(
@@ -10124,6 +10027,7 @@ function PraxisDirectTuiApp(): JSX.Element {
           PRAXIS_STATE_ROOT: stateRoot,
           PRAXIS_WORKSPACE_ROOT: launchWorkspace,
           PRAXIS_DIRECT_SESSION_ID: launchSessionId,
+          NODE_NO_WARNINGS: process.env.NODE_NO_WARNINGS ?? "1",
           ...(pendingInitNote
             ? {
               PRAXIS_DIRECT_INIT_NOTE: pendingInitNote,
@@ -10843,6 +10747,14 @@ function PraxisDirectTuiApp(): JSX.Element {
                     intentLines: nextFamily.intentLines,
                     resultLines: nextFamily.resultLines,
                     metadataLines: nextMetadataLines,
+                    route: runtimeConfig?.modelPlan.tui.main
+                      ? {
+                          model: runtimeConfig.modelPlan.tui.main.model,
+                          reasoningEffort: runtimeConfig.modelPlan.tui.main.reasoning,
+                          serviceTier: runtimeConfig.modelPlan.tui.main.serviceTier,
+                          maxOutputTokens: runtimeConfig.modelPlan.tui.main.maxOutputTokens,
+                        }
+                      : undefined,
                   }).then((refined) => {
                     if (!refined) {
                       return;
@@ -11190,7 +11102,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     void tick();
     const timer = setInterval(() => {
       void tick();
-    }, 350);
+    }, LOG_TAIL_POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
@@ -13812,7 +13724,10 @@ function PraxisDirectTuiApp(): JSX.Element {
     }
     return `Last turn: ${compactRuntimeText(latestAssistant.text)}`;
   }, [transcriptMessages]);
-  const contextWindowSize = backendContextSnapshot?.windowTokens ?? DEFAULT_CONTEXT_WINDOW;
+  const contextWindowSize = backendContextSnapshot?.usableInputTokens
+    ?? backendContextSnapshot?.maxInputTokens
+    ?? backendContextSnapshot?.windowTokens
+    ?? DEFAULT_CONTEXT_WINDOW;
   const statusContextUsed = backendContextSnapshot?.promptTokens ?? 0;
   const statusContextUsageLine = useMemo(
     () => formatStatusContextUsageLine(statusContextUsed, contextWindowSize),

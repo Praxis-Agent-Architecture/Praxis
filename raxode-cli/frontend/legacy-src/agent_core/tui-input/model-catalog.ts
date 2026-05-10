@@ -58,9 +58,11 @@ interface ModelAvailabilityCacheFile {
 }
 
 const FAST_SERVICE_TIER_CANDIDATE_MODEL_IDS = new Set([
+  "gpt-5.5",
   "gpt-5.4",
 ]);
 const GMN_FAST_SERVICE_TIER_CANDIDATE_MODEL_IDS = new Set([
+  "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
   "gpt-5.3-codex",
@@ -101,12 +103,14 @@ interface OpenAIModelsPayload {
 }
 
 const PRIORITY_CHAT_MODEL_IDS = [
+  "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
   "gpt-5.3-codex",
 ] as const;
 
 const OFFICIAL_EXTRA_REASONING_LEVELS = new Map<string, string[]>([
+  ["gpt-5.5", ["none"]],
   ["gpt-5.4", ["none"]],
   ["gpt-5.4-mini", ["none"]],
 ]);
@@ -173,6 +177,50 @@ function normalizeChatgptCodexModels(payload: OpenAIModelsPayload): AvailableMod
       } satisfies AvailableModelCatalogEntry;
     });
   return [...models].sort((left, right) => {
+    const leftPriority = PRIORITY_CHAT_MODEL_IDS.indexOf(left.id as (typeof PRIORITY_CHAT_MODEL_IDS)[number]);
+    const rightPriority = PRIORITY_CHAT_MODEL_IDS.indexOf(right.id as (typeof PRIORITY_CHAT_MODEL_IDS)[number]);
+    if (leftPriority >= 0 && rightPriority >= 0) {
+      return leftPriority - rightPriority;
+    }
+    if (leftPriority >= 0) {
+      return -1;
+    }
+    if (rightPriority >= 0) {
+      return 1;
+    }
+    return 0;
+  });
+}
+
+function createFallbackChatModelEntry(
+  modelId: string,
+  config: Pick<OpenAILiveConfig, "authMode" | "baseURL" | "apiKey" | "accountId" | "defaultHeaders">,
+): AvailableModelCatalogEntry {
+  return {
+    id: modelId,
+    label: modelId,
+    reasoningLevels: fallbackReasoningLevels(modelId),
+    reasoningLevelDescriptions: {},
+    defaultReasoningLevel: "low",
+    supportsFastServiceTier: supportsFastServiceTierByRoute(config, modelId),
+    source: "chat",
+  };
+}
+
+function ensureModelCatalogCandidates(
+  models: AvailableModelCatalogEntry[],
+  config: OpenAILiveConfig,
+  requiredModelIds: string[],
+): AvailableModelCatalogEntry[] {
+  const byId = new Map(models.map((model) => [model.id, model]));
+  for (const modelId of requiredModelIds) {
+    const normalized = modelId.trim();
+    if (!normalized || byId.has(normalized)) {
+      continue;
+    }
+    byId.set(normalized, createFallbackChatModelEntry(normalized, config));
+  }
+  return [...byId.values()].sort((left, right) => {
     const leftPriority = PRIORITY_CHAT_MODEL_IDS.indexOf(left.id as (typeof PRIORITY_CHAT_MODEL_IDS)[number]);
     const rightPriority = PRIORITY_CHAT_MODEL_IDS.indexOf(right.id as (typeof PRIORITY_CHAT_MODEL_IDS)[number]);
     if (leftPriority >= 0 && rightPriority >= 0) {
@@ -255,12 +303,21 @@ export async function listAvailableChatModels(
     throw new Error(`Unable to load models: ${response.status} ${detail || response.statusText}`);
   }
   const payload = await response.json() as OpenAIModelsPayload;
-  return isChatgptCodexBackendBaseURL(config.baseURL)
-    ? applyOfficialReasoningLevelOverrides(normalizeChatgptCodexModels(payload))
-    : normalizeApiModels(payload).map((entry) => ({
+  if (isChatgptCodexBackendBaseURL(config.baseURL)) {
+    return ensureModelCatalogCandidates(
+      applyOfficialReasoningLevelOverrides(normalizeChatgptCodexModels(payload)),
+      config,
+      ["gpt-5.5", config.model],
+    );
+  }
+  return ensureModelCatalogCandidates(
+    normalizeApiModels(payload).map((entry) => ({
         ...entry,
         supportsFastServiceTier: supportsFastServiceTierByRoute(config, entry.id),
-      }));
+      })),
+    config,
+    [config.model],
+  );
 }
 
 export async function listAvailableAnthropicModels(config: {

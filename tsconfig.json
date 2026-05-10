@@ -11,6 +11,6 @@
     "skipLibCheck": true,
     "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "realtest/**/*.ts"],
-  "exclude": ["node_modules", "dist", "realtest/我给你举个例子吧傻逼codex/**"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "realtest/**/*.ts", "raxode-cli/**/*.ts"],
+  "exclude": ["node_modules", "dist", "raxode-cli/frontend/legacy-src/**", "realtest/我给你举个例子吧傻逼codex/**"]
 }

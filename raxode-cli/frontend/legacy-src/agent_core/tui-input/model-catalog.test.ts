@@ -78,7 +78,7 @@ test("listAvailableChatModels normalizes official codex backend payloads", async
       authMode: "chatgpt_oauth",
       apiKey: "token",
       baseURL: "https://chatgpt.com/backend-api/codex",
-      model: "gpt-5.4",
+      model: "gpt-5.5",
       defaultHeaders: {
         "chatgpt-account-id": "acct",
       },
@@ -86,13 +86,15 @@ test("listAvailableChatModels normalizes official codex backend payloads", async
     assert.match(requestedUrl, /client_version=0\.118\.0/);
     assert.deepEqual(
       models.map((entry) => entry.id),
-      ["gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex"],
+      ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex", "gpt-5.2-codex"],
     );
-  assert.deepEqual(models[0]?.reasoningLevels, ["none", "low", "medium", "high", "xhigh"]);
-  assert.equal(models[0]?.supportsFastServiceTier, true);
-  assert.match(models[0]?.reasoningLevelDescriptions.low ?? "", /fast/i);
-  assert.equal(models[1]?.supportsFastServiceTier, false);
-  assert.deepEqual(models[1]?.reasoningLevels, ["none", "low"]);
+    assert.deepEqual(models[0]?.reasoningLevels, ["none", "low", "medium", "high", "xhigh"]);
+    assert.equal(models[0]?.supportsFastServiceTier, true);
+    assert.deepEqual(models[1]?.reasoningLevels, ["none", "low", "medium", "high", "xhigh"]);
+    assert.equal(models[1]?.supportsFastServiceTier, true);
+    assert.match(models[1]?.reasoningLevelDescriptions.low ?? "", /fast/i);
+    assert.equal(models[2]?.supportsFastServiceTier, false);
+    assert.deepEqual(models[2]?.reasoningLevels, ["none", "low"]);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -103,6 +105,7 @@ test("listAvailableChatModels marks tested gmn GPT models as FAST-capable", asyn
   globalThis.fetch = (async () => {
     return new Response(JSON.stringify({
       data: [
+        { id: "gpt-5.5" },
         { id: "gpt-5.4" },
         { id: "gpt-5.4-mini" },
         { id: "gpt-5.3-codex" },
@@ -124,6 +127,7 @@ test("listAvailableChatModels marks tested gmn GPT models as FAST-capable", asyn
       model: "gpt-5.4",
     });
 
+    assert.equal(models.find((entry) => entry.id === "gpt-5.5")?.supportsFastServiceTier, true);
     assert.equal(models.find((entry) => entry.id === "gpt-5.4")?.supportsFastServiceTier, true);
     assert.equal(models.find((entry) => entry.id === "gpt-5.4-mini")?.supportsFastServiceTier, true);
     assert.equal(models.find((entry) => entry.id === "gpt-5.3-codex")?.supportsFastServiceTier, true);

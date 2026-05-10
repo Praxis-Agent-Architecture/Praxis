@@ -14,6 +14,7 @@
   "exports": {
     ".": "./src/agentCore/index.ts",
     "./agentCore": "./src/agentCore/index.ts",
+    "./application": "./src/applicationLayer/index.ts",
     "./rax": "./src/rax_packageManager/index.ts"
   },
   "engines": {
@@ -43,6 +44,8 @@
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
     "test:agentCore": "find test/agentCore -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
     "tasks:agentCore": "node tasks/scripts/agentcore_workflow.mjs",
+    "raxode:tui": "./bin/raxode-cli --process",
+    "test:raxode:live-tools": "RAXODE_LIVE_TEST=1 node --import tsx --test raxode-cli/backend/tests/raxodeLiveToolSmoke.test.ts",
     "raxode:legacy-tui": "PRAXIS_BOOTSTRAP_MODE=off RAXODE_RENDER_FPS=120 node --import tsx raxode-cli/frontend/legacy-src/agent_core/direct-tui.tsx"
   },
   "devDependencies": {

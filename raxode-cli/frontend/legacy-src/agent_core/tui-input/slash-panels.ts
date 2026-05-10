@@ -117,6 +117,7 @@ export const PRAXIS_SLASH_PANEL_IDS: PraxisSlashPanelId[] = [
 ];
 
 export const PRAXIS_MODEL_OPTIONS = [
+  "gpt-5.5",
   "gpt-5.4",
   "gpt-5.4-mini",
   "gpt-5.3-codex",

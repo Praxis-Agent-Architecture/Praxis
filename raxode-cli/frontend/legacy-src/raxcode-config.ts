@@ -27,7 +27,7 @@ import type {
 import { createTapGovernanceObject } from "./agent_core/ta-pool-model/index.js";
 import type { TaPoolMode } from "./agent_core/ta-pool-types/index.js";
 
-export const RAXCODE_SCHEMA_VERSION = 1;
+export const RAXCODE_SCHEMA_VERSION = 3;
 
 export type RaxcodeProviderKind = "openai" | "anthropic" | "deepmind";
 export type RaxcodeProviderSlot = "openai" | "anthropic" | "anthropicAlt" | "deepmind";
@@ -263,9 +263,9 @@ export const DEFAULT_RAXCODE_UI_CONFIG: RaxcodeUiConfig = {
 export const DEFAULT_RAXCODE_LIVE_CHAT_MODEL_PLAN: RaxcodeLiveChatModelPlan = {
   core: {
     main: {
-      model: "gpt-5.4",
-      reasoning: "high",
-      contextWindowTokens: 1_050_000,
+      model: "gpt-5.5",
+      reasoning: "low",
+      contextWindowTokens: 400_000,
     },
   },
   tap: {
@@ -899,6 +899,65 @@ function loadConfigFile(filePath: string): RaxcodeConfigFile {
   };
 }
 
+function migrateRaxcodeConfigFile(config: RaxcodeConfigFile): {
+  changed: boolean;
+  config: RaxcodeConfigFile;
+} {
+  if (config.schemaVersion >= RAXCODE_SCHEMA_VERSION) {
+    return { changed: false, config };
+  }
+  let changed = false;
+  const next: RaxcodeConfigFile = {
+    ...config,
+    profiles: config.profiles.map((profile) => ({ ...profile, route: { ...profile.route } })),
+    roleBindings: Object.fromEntries(
+      Object.entries(config.roleBindings).map(([roleId, binding]) => [roleId, {
+        ...binding,
+        overrides: binding.overrides ? { ...binding.overrides } : undefined,
+      }]),
+    ) as Record<RaxcodeRoleId, RaxcodeRoleBinding>,
+    embedding: { ...config.embedding },
+    workspace: { ...config.workspace },
+    ui: { ...config.ui },
+    permissions: {
+      ...config.permissions,
+      requireHumanOnRiskLevels: [...config.permissions.requireHumanOnRiskLevels],
+      capabilityOverrides: config.permissions.capabilityOverrides.map((entry) => ({ ...entry })),
+      shared15ViewMatrix: config.permissions.shared15ViewMatrix.map((entry) => ({ ...entry })),
+      persistedAllowRules: config.permissions.persistedAllowRules.map((entry) => ({ ...entry })),
+    },
+  };
+
+  const coreBinding = next.roleBindings["core.main"];
+  const coreProfile = next.profiles.find((profile) => profile.id === coreBinding?.profileId);
+  if (coreProfile?.model === "gpt-5.4" && coreProfile.reasoningEffort === "high") {
+    coreProfile.model = "gpt-5.5";
+    coreProfile.reasoningEffort = "low";
+    changed = true;
+  }
+  if (coreProfile?.model === "gpt-5.5" && coreProfile.contextWindowTokens === 1_050_000) {
+    coreProfile.contextWindowTokens = 400_000;
+    changed = true;
+  }
+  if (
+    coreBinding?.overrides
+    && coreBinding.overrides.model === undefined
+    && coreBinding.overrides.reasoning === "high"
+    && coreBinding.overrides.serviceTier === undefined
+    && coreBinding.overrides.contextWindowTokens === undefined
+    && coreBinding.overrides.maxOutputTokens === undefined
+  ) {
+    coreBinding.overrides = undefined;
+    changed = true;
+  }
+
+  if (next.schemaVersion !== RAXCODE_SCHEMA_VERSION) {
+    next.schemaVersion = RAXCODE_SCHEMA_VERSION;
+    changed = true;
+  }
+  return { changed, config: next };
+}
+
 export function loadRaxcodeAuthFile(fallbackDir = process.cwd()): RaxcodeAuthFile {
   ensureRaxcodeHomeScaffold(fallbackDir);
   return loadAuthProfiles(resolveAuthJsonPath(fallbackDir));
@@ -920,7 +979,18 @@ export function writeRaxcodeAuthFile(
 
 export function loadRaxcodeConfigFile(fallbackDir = process.cwd()): RaxcodeConfigFile {
   ensureRaxcodeHomeScaffold(fallbackDir);
-  return loadConfigFile(resolveConfigJsonPath(fallbackDir));
+  const filePath = resolveConfigJsonPath(fallbackDir);
+  const config = loadConfigFile(filePath);
+  const migrated = migrateRaxcodeConfigFile(config);
+  if (migrated.changed) {
+    writeFileSync(filePath, `${JSON.stringify(migrated.config, null, 2)}\n`, "utf8");
+    try {
+      chmodSync(filePath, 0o600);
+    } catch {
+      // Best-effort only.
+    }
+  }
+  return migrated.config;
 }
 
 export function writeRaxcodeConfigFile(

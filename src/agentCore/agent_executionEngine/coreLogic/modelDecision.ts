@@ -94,6 +94,10 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function readStreamDelta(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 function sseDataObjects(text: string): readonly unknown[] {
   const objects: unknown[] = [];
   for (const line of text.split(/\r?\n/u)) {
@@ -116,7 +120,7 @@ function extractText(raw: unknown): string {
     for (const object of sseDataObjects(raw)) {
       if (!isRecord(object)) continue;
       const eventType = readString(object.type);
-      const delta = readString(object.delta);
+      const delta = readStreamDelta(object.delta);
       if (delta !== undefined && (eventType === undefined || eventType.includes("output_text"))) {
         deltas.push(delta);
       }

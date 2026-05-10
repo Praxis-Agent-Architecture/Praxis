@@ -53,12 +53,42 @@ test("loadRaxcodeLiveChatModelPlan resolves all 15 role plans from config", asyn
 
   const plan = loadRaxcodeLiveChatModelPlan(rootDir);
 
-  assert.equal(plan.core.main.model, "gpt-5.4");
+  assert.equal(plan.core.main.model, "gpt-5.5");
+  assert.equal(plan.core.main.reasoning, "low");
   assert.equal(plan.tap.toolReviewer.model, "gpt-5.4-mini");
   assert.equal(plan.mp.dispatcher.model, "gpt-5.4");
   assert.equal(plan.cmp.dispatcher.model, "gpt-5.4-mini");
   assert.equal(plan.cmp.dispatcher.maxOutputTokens, 321_000);
   assert.equal(plan.tui.main.reasoning, "low");
+
+  delete process.env.RAXCODE_HOME;
+});
+
+test("loadRaxcodeConfigFile migrates legacy default core model to gpt-5.5 low", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-migrate-"));
+  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  ensureRaxcodeHomeScaffold(rootDir);
+
+  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const config = loadRaxcodeConfigFile(rootDir);
+  config.schemaVersion = 1;
+  const coreProfile = config.profiles.find((entry) => entry.id === "profile.core.main");
+  assert.ok(coreProfile);
+  coreProfile.model = "gpt-5.4";
+  coreProfile.reasoningEffort = "high";
+  config.roleBindings["core.main"].overrides = {
+    reasoning: "high",
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  const migrated = loadRaxcodeConfigFile(rootDir);
+  const migratedRaw = JSON.parse(await readFile(configPath, "utf8")) as { schemaVersion?: number };
+
+  assert.equal(migrated.schemaVersion, 3);
+  assert.equal(migratedRaw.schemaVersion, 3);
+  assert.equal(migrated.profiles.find((entry) => entry.id === "profile.core.main")?.model, "gpt-5.5");
+  assert.equal(migrated.profiles.find((entry) => entry.id === "profile.core.main")?.reasoningEffort, "low");
+  assert.equal(migrated.roleBindings["core.main"].overrides, undefined);
 
   delete process.env.RAXCODE_HOME;
 });
