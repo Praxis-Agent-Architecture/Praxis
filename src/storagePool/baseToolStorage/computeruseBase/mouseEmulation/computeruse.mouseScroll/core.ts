@@ -477,6 +477,15 @@ function normalizeProviderResult(value: unknown, context: MouseScrollContext): M
   };
 }
 
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
+
+function publicSafeProviderFailureMessage(error: unknown): string | undefined {
+  const message = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+  if (message === undefined || !message.startsWith(publicSafeProviderFailurePrefix)) return undefined;
+  const publicSafeMessage = message.slice(publicSafeProviderFailurePrefix.length).trim();
+  return publicSafeMessage.length > 0 ? publicSafeMessage : undefined;
+}
+
 function normalizeRequest(request: unknown): {
   target: MouseScrollTarget;
   context: MouseScrollContext;
@@ -574,10 +583,13 @@ export async function executeMouseScroll(request: unknown = {}): Promise<MouseSc
     const normalizedResult = normalizeProviderResult(result, context);
     if ("ok" in normalizedResult) return normalizedResult;
     providerResult = normalizedResult;
-  } catch {
+  } catch (error) {
+    const providerMessage = publicSafeProviderFailureMessage(error);
     return failure(
       "PROVIDER_FAILURE",
-      "computeruse.mouseScroll runtime provider failed without exposing private details",
+      providerMessage === undefined
+        ? "computeruse.mouseScroll runtime provider failed without exposing private details"
+        : `computeruse.mouseScroll runtime provider failed: ${providerMessage}`,
       "provider",
       context,
     );

@@ -4,6 +4,7 @@ import type { ComputerUseProviderPracticeMetadata } from "../../_shared/baseTool
 import type { MouseClickProvider, MouseClickProviderRequest, MouseClickProviderResult } from "./core.js";
 
 export type MouseClickPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
 
 export type MouseClickDependencies = {
   executor?: BaseToolExecutorPort;
@@ -58,12 +59,13 @@ export function createRuntimeMouseClickProvider(executor: BaseToolExecutorPort |
         sessionId: request.context.sessionId,
         invocationId: request.context.invocationId,
         purpose: request.purpose,
+        runtimeGuardAccepted: true,
         auditMetadata: request.context.auditMetadata,
       },
     });
 
     if (!result.ok) {
-      throw new Error(result.error.message);
+      throw new Error(`${publicSafeProviderFailurePrefix}${result.error.message}`);
     }
 
     return {

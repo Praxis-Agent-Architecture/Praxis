@@ -10,6 +10,7 @@ import type {
 } from "./core.js";
 
 export type MouseEmulationPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
 
 export type MouseEmulationDependencies = {
   executor?: BaseToolExecutorPort;
@@ -64,17 +65,18 @@ export function createRuntimeMouseEmulationProvider(executor: BaseToolExecutorPo
           metadata: {
             runtimeId: request.context.runtimeId,
             sessionId: request.context.sessionId,
-            invocationId: request.context.invocationId,
-            purpose: request.purpose,
-            stepIndex: index,
-            displayId: step.displayId,
-            auditMetadata: request.context.auditMetadata,
-          },
-        });
+          invocationId: request.context.invocationId,
+          purpose: request.purpose,
+          stepIndex: index,
+          runtimeGuardAccepted: true,
+          displayId: step.displayId,
+          auditMetadata: request.context.auditMetadata,
+        },
+      });
 
-        if (!result.ok) {
-          throw new Error(result.error.message);
-        }
+      if (!result.ok) {
+          throw new Error(`${publicSafeProviderFailurePrefix}${result.error.message}`);
+      }
 
         stepResults.push({
           index,
@@ -99,12 +101,13 @@ export function createRuntimeMouseEmulationProvider(executor: BaseToolExecutorPo
           invocationId: request.context.invocationId,
           purpose: request.purpose,
           stepIndex: index,
+          runtimeGuardAccepted: true,
           auditMetadata: request.context.auditMetadata,
         },
       });
 
       if (!result.ok) {
-        throw new Error(result.error.message);
+        throw new Error(`${publicSafeProviderFailurePrefix}${result.error.message}`);
       }
 
       stepResults.push({

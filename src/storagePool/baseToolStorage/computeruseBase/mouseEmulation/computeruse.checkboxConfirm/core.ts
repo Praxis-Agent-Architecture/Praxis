@@ -492,6 +492,15 @@ function normalizeProviderResult(value: unknown, context: CheckboxConfirmContext
   };
 }
 
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
+
+function publicSafeProviderFailureMessage(error: unknown): string | undefined {
+  const message = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+  if (message === undefined || !message.startsWith(publicSafeProviderFailurePrefix)) return undefined;
+  const publicSafeMessage = message.slice(publicSafeProviderFailurePrefix.length).trim();
+  return publicSafeMessage.length > 0 ? publicSafeMessage : undefined;
+}
+
 function normalizeRequest(request: unknown): {
   target: CheckboxConfirmTarget;
   context: CheckboxConfirmContext;
@@ -589,10 +598,13 @@ export async function executeCheckboxConfirm(request: unknown = {}): Promise<Che
     const normalizedResult = normalizeProviderResult(result, context);
     if ("ok" in normalizedResult) return normalizedResult;
     providerResult = normalizedResult;
-  } catch {
+  } catch (error) {
+    const providerMessage = publicSafeProviderFailureMessage(error);
     return failure(
       "PROVIDER_FAILURE",
-      "computeruse.checkboxConfirm runtime provider failed without exposing private details",
+      providerMessage === undefined
+        ? "computeruse.checkboxConfirm runtime provider failed without exposing private details"
+        : `computeruse.checkboxConfirm runtime provider failed: ${providerMessage}`,
       "provider",
       context,
     );

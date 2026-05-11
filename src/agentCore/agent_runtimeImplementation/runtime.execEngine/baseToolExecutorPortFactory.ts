@@ -26,6 +26,10 @@ import {
 } from "./mcpRuntimeAdapter.js";
 
 type ComputerUseKeyboardActionRequest = Parameters<NonNullable<NonNullable<BaseToolExecutorPort["computeruse"]>["keyboardAction"]>>[0];
+type ComputerUsePointerActionRequest = Parameters<NonNullable<NonNullable<BaseToolExecutorPort["computeruse"]>["pointerAction"]>>[0];
+type ComputerUseDesktopActionRequest = {
+  metadata?: Readonly<Record<string, unknown>>;
+};
 
 export type RuntimeBaseToolExecutorEvent = {
   type: string;
@@ -394,6 +398,105 @@ function timeoutMs(context: RuntimeBaseToolExecutorContext, requested?: number):
   return requested ?? context.resourceLimits?.timeoutMs ?? 30_000;
 }
 
+const linuxDesktopLauncherCommands = new Set([
+  "microsoft-edge",
+  "microsoft-edge-stable",
+  "msedge",
+  "google-chrome",
+  "google-chrome-stable",
+  "chromium",
+  "chromium-browser",
+  "firefox",
+  "xdg-open",
+]);
+
+const foregroundBrowserArgs = new Set(["--help", "-h", "--version", "-v", "--product-version"]);
+
+function commandName(command: string): string {
+  const firstToken = command.trim().split(/\s+/u)[0] ?? command;
+  return path.basename(firstToken).toLowerCase();
+}
+
+function isDesktopLauncherRequest(request: { command: string; args?: readonly string[] }): boolean {
+  if (process.platform !== "linux") return false;
+  const name = commandName(request.command);
+  if (!linuxDesktopLauncherCommands.has(name)) return false;
+  const inlineArgs = request.args === undefined || request.args.length === 0 ? request.command.trim().split(/\s+/u).slice(1) : [];
+  const args = [...inlineArgs, ...(request.args ?? [])];
+  return !args.some((arg) => foregroundBrowserArgs.has(arg.trim().toLowerCase()));
+}
+
+async function launchDetachedProcess(
+  request: {
+    command: string;
+    args?: readonly string[];
+    cwd: string;
+    shell?: boolean | string;
+    env?: Readonly<Record<string, string>>;
+  },
+  portPath: string,
+): Promise<BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string; durationMs?: number }>> {
+  const startedAt = Date.now();
+
+  return await new Promise((resolve) => {
+    let settled = false;
+    const child = spawn(request.command, [...(request.args ?? [])], {
+      cwd: request.cwd,
+      env: request.env === undefined ? undefined : { ...process.env, ...request.env },
+      shell: request.shell,
+      detached: true,
+      stdio: "ignore",
+    });
+
+    const settle = (result: BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string; durationMs?: number }>) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+
+    child.once("error", (error) => {
+      settle(failure("PROVIDER_FAILURE", error.message, [`runtime.execEngine.baseToolExecutorPort.${portPath}.failed`]));
+    });
+
+    child.once("close", (code) => {
+      if (settled) return;
+      if ((code ?? 0) === 0) {
+        settle(
+          success(
+            {
+              exitCode: 0,
+              stdout: `launched detached desktop process${child.pid === undefined ? "" : ` pid ${child.pid}`}\n`,
+              stderr: "",
+              durationMs: Date.now() - startedAt,
+            },
+            [`runtime.execEngine.baseToolExecutorPort.${portPath}.detached`],
+            { detached: true, desktopLauncher: true, pid: child.pid },
+          ),
+        );
+        return;
+      }
+      settle(failure("PROVIDER_FAILURE", `desktop launcher exited with code ${code ?? 1}`, [`runtime.execEngine.baseToolExecutorPort.${portPath}.failed`]));
+    });
+
+    setTimeout(() => {
+      if (settled) return;
+      child.unref();
+      settle(
+        success(
+          {
+            exitCode: 0,
+            stdout: `launched detached desktop process${child.pid === undefined ? "" : ` pid ${child.pid}`}\n`,
+            stderr: "",
+            durationMs: Date.now() - startedAt,
+          },
+          [`runtime.execEngine.baseToolExecutorPort.${portPath}.detached`],
+          { detached: true, desktopLauncher: true, pid: child.pid },
+        ),
+      );
+    }, 80).unref();
+  });
+}
+
 function sandboxFamily(context: RuntimeBaseToolExecutorContext): string {
   return context.sandbox?.providerFamily ?? "host-observed";
 }
@@ -622,6 +725,26 @@ async function runChildProcess(request: {
   const spawnSpec = processCommand(request, context, cwdResult.output);
   if (!spawnSpec.ok) return spawnSpec;
   const sandbox = sandboxMetadata(context, spawnSpec.output.sandboxApplied);
+
+  if (isDesktopLauncherRequest(request)) {
+    const detached = await launchDetachedProcess(
+      {
+        command: spawnSpec.output.command,
+        args: spawnSpec.output.args,
+        cwd: spawnSpec.output.cwd,
+        shell: spawnSpec.output.shell,
+        env: request.env,
+      },
+      portPath,
+    );
+    if (!detached.ok) return detached;
+    emit(context, portPath, "runtime.execEngine.baseToolExecutorPort.process.detached", {
+      command: request.command,
+      pid: detached.metadata?.pid,
+      sandbox,
+    });
+    return success(detached.output, detached.events, { ...(detached.metadata ?? {}), sandbox });
+  }
 
   return await new Promise((resolve) => {
     const child = spawn(spawnSpec.output.command, [...spawnSpec.output.args], {
@@ -1643,7 +1766,7 @@ function detectLinuxDesktopHost(context: RuntimeBaseToolExecutorContext): Readon
   };
 }
 
-function desktopAutomationEnabled(context: RuntimeBaseToolExecutorContext, request?: ComputerUseKeyboardActionRequest): boolean {
+function desktopAutomationEnabled(context: RuntimeBaseToolExecutorContext, request?: ComputerUseDesktopActionRequest): boolean {
   if (request?.metadata?.runtimeGuardAccepted === true) return true;
   const env = context.environment ?? process.env;
   if (env.PRAXIS_ENABLE_DESKTOP_AUTOMATION === "1" || env.PRAXIS_ENABLE_DESKTOP_AUTOMATION === "true") return true;
@@ -2340,6 +2463,209 @@ async function runLinuxDesktopKeyboardAction(
   return undefined;
 }
 
+function numericProperty(record: Readonly<Record<string, unknown>> | undefined, key: string): number | undefined {
+  if (record === undefined) return undefined;
+  const value = record[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function recordProperty(record: Readonly<Record<string, unknown>> | undefined, key: string): Readonly<Record<string, unknown>> | undefined {
+  const value = record?.[key];
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : undefined;
+}
+
+function pointFromTarget(target: Readonly<Record<string, unknown>> | undefined): { x: number; y: number } | undefined {
+  const directX = numericProperty(target, "x");
+  const directY = numericProperty(target, "y");
+  if (directX !== undefined && directY !== undefined) {
+    return { x: Math.round(directX), y: Math.round(directY) };
+  }
+  const at = recordProperty(target, "at") ?? recordProperty(target, "point");
+  const atX = numericProperty(at, "x");
+  const atY = numericProperty(at, "y");
+  if (atX !== undefined && atY !== undefined) {
+    return { x: Math.round(atX), y: Math.round(atY) };
+  }
+  return undefined;
+}
+
+function pointerCoordinateSpace(target: Readonly<Record<string, unknown>> | undefined): string {
+  const value = target?.coordinateSpace;
+  return typeof value === "string" && value.length > 0 ? value : "screen";
+}
+
+function pointerButton(target: Readonly<Record<string, unknown>> | undefined): number {
+  const button = target?.button;
+  if (button === "right") return 2;
+  if (button === "middle") return 3;
+  return 1;
+}
+
+function pointerClickCount(target: Readonly<Record<string, unknown>> | undefined): number {
+  const clickCount = numericProperty(target, "clickCount");
+  if (clickCount === undefined) return 1;
+  return Math.max(1, Math.min(3, Math.round(clickCount)));
+}
+
+function pointerScrollButtonAndCount(target: Readonly<Record<string, unknown>> | undefined): { button: number; count: number } | undefined {
+  const deltaY = numericProperty(target, "deltaY") ?? 0;
+  const deltaX = numericProperty(target, "deltaX") ?? 0;
+  const dominant = Math.abs(deltaY) >= Math.abs(deltaX) ? deltaY : deltaX;
+  if (dominant === 0) return undefined;
+  const vertical = Math.abs(deltaY) >= Math.abs(deltaX);
+  const button = vertical
+    ? dominant < 0 ? 4 : 5
+    : dominant < 0 ? 6 : 7;
+  const unit = target?.unit;
+  const divisor = unit === "line" ? 1 : 120;
+  const count = Math.max(1, Math.min(12, Math.ceil(Math.abs(dominant) / divisor)));
+  return { button, count };
+}
+
+async function runPointerCommand(
+  provider: string,
+  args: readonly string[],
+  context: RuntimeBaseToolExecutorContext,
+  cwd: string,
+): Promise<BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string; durationMs?: number }>> {
+  return await runChildProcess({ command: provider, args, cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.pointerAction");
+}
+
+async function movePointerIfNeeded(
+  provider: string,
+  providerName: "ydotool" | "xdotool",
+  point: { x: number; y: number } | undefined,
+  context: RuntimeBaseToolExecutorContext,
+  cwd: string,
+): Promise<BaseToolExecutorResult<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }> | undefined> {
+  if (point === undefined) return undefined;
+  const args = providerName === "ydotool"
+    ? ["mousemove", "--delay", "0", String(point.x), String(point.y)]
+    : ["mousemove", String(point.x), String(point.y)];
+  const result = await runPointerCommand(provider, args, context, cwd);
+  if (!result.ok) return result;
+  if (result.output.exitCode !== 0) {
+    return failure("PROVIDER_FAILURE", `${providerName} pointer move failed: ${result.output.stderr || result.output.stdout || `exit ${result.output.exitCode}`}`, [
+      `runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.${providerName}Failed`,
+    ]);
+  }
+  return undefined;
+}
+
+async function runLinuxDesktopPointerAction(
+  context: RuntimeBaseToolExecutorContext,
+  request: ComputerUsePointerActionRequest,
+): Promise<BaseToolExecutorResult<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }> | undefined> {
+  if (!desktopAutomationEnabled(context, request)) return undefined;
+
+  const desktop = detectLinuxDesktopHost(context);
+  const displayServer = typeof desktop.displayServer === "string" ? desktop.displayServer : "unknown";
+  const target = request.target;
+  const coordinateSpace = pointerCoordinateSpace(target);
+  if (coordinateSpace !== "screen") {
+    return failure("PROVIDER_UNAVAILABLE", `desktop pointer action currently requires screen coordinates; received coordinateSpace=${coordinateSpace}`, [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.coordinateTranslationMissing",
+    ]);
+  }
+
+  const providerName = displayServer === "wayland" ? "ydotool" : displayServer === "x11" ? "xdotool" : undefined;
+  const provider = providerName === "ydotool"
+    ? await firstExecutable(["/usr/bin/ydotool", "/usr/local/bin/ydotool"])
+    : providerName === "xdotool"
+      ? await firstExecutable(["/usr/bin/xdotool", "/usr/local/bin/xdotool"])
+      : undefined;
+  if (providerName === undefined || provider === undefined) return undefined;
+
+  const cwd = workspaceRoot(context);
+  const point = pointFromTarget(target);
+  if (request.action === "move" && point === undefined) {
+    return failure("INVALID_REQUEST", "computeruse pointer move requires screen target x/y", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.invalidTarget",
+    ]);
+  }
+  if ((request.action === "move" || request.action === "click" || request.action === "scroll" || request.action === "confirm") && point !== undefined) {
+    const moveResult = await movePointerIfNeeded(provider, providerName, point, context, cwd);
+    if (moveResult !== undefined) return moveResult;
+  }
+
+  if (request.action === "move") {
+    return success({
+      actionId: `pointer:${randomUUID()}`,
+      metadata: desktopAutomationMetadata(context, {
+        provider: providerName,
+        action: "move",
+        coordinateSpace,
+        targetPoint: point,
+        executed: true,
+      }),
+    }, ["runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.executed"]);
+  }
+
+  const clickArgs = providerName === "ydotool"
+    ? (button: number) => ["click", "--delay", "0", String(button)]
+    : (button: number) => ["click", String(button)];
+
+  if (request.action === "click" || request.action === "confirm") {
+    const button = pointerButton(target);
+    const count = pointerClickCount(target);
+    for (let index = 0; index < count; index += 1) {
+      const result = await runPointerCommand(provider, clickArgs(button), context, cwd);
+      if (!result.ok) return result;
+      if (result.output.exitCode !== 0) {
+        return failure("PROVIDER_FAILURE", `${providerName} pointer click failed: ${result.output.stderr || result.output.stdout || `exit ${result.output.exitCode}`}`, [
+          `runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.${providerName}Failed`,
+        ]);
+      }
+    }
+    return success({
+      actionId: `pointer:${randomUUID()}`,
+      metadata: desktopAutomationMetadata(context, {
+        provider: providerName,
+        action: request.action,
+        button,
+        clickCount: count,
+        coordinateSpace,
+        targetPoint: point,
+        executed: true,
+      }),
+    }, ["runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.executed"]);
+  }
+
+  if (request.action === "scroll") {
+    const scroll = pointerScrollButtonAndCount(target);
+    if (scroll === undefined) {
+      return failure("INVALID_REQUEST", "computeruse pointer scroll requires non-zero deltaX or deltaY", [
+        "runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.invalidScroll",
+      ]);
+    }
+    for (let index = 0; index < scroll.count; index += 1) {
+      const result = await runPointerCommand(provider, clickArgs(scroll.button), context, cwd);
+      if (!result.ok) return result;
+      if (result.output.exitCode !== 0) {
+        return failure("PROVIDER_FAILURE", `${providerName} pointer scroll failed: ${result.output.stderr || result.output.stdout || `exit ${result.output.exitCode}`}`, [
+          `runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.${providerName}Failed`,
+        ]);
+      }
+    }
+    return success({
+      actionId: `pointer:${randomUUID()}`,
+      metadata: desktopAutomationMetadata(context, {
+        provider: providerName,
+        action: "scroll",
+        wheelButton: scroll.button,
+        wheelCount: scroll.count,
+        coordinateSpace,
+        targetPoint: point,
+        executed: true,
+      }),
+    }, ["runtime.execEngine.baseToolExecutorPort.computeruse.pointerAction.executed"]);
+  }
+
+  return undefined;
+}
+
 function createComputerUseExecutor(context: RuntimeBaseToolExecutorContext): NonNullable<BaseToolExecutorPort["computeruse"]> {
   return {
     async captureScreenshot(request) {
@@ -2350,6 +2676,8 @@ function createComputerUseExecutor(context: RuntimeBaseToolExecutorContext): Non
     async pointerAction(request) {
       const delegated = await callDelegated<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>(context, "computeruse.pointerAction", request);
       if (delegated !== undefined) return delegated;
+      const hostResult = await runLinuxDesktopPointerAction(context, request);
+      if (hostResult !== undefined) return hostResult;
       const desktop = detectLinuxDesktopHost(context);
       const providers = Array.isArray(desktop.pointerProviders) ? desktop.pointerProviders.join(" or ") : "ydotool or xdotool";
       return failure(

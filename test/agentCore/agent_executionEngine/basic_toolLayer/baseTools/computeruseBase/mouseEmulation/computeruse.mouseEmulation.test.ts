@@ -237,6 +237,8 @@ test("mouseEmulationHandler invokes runtime-owned locateCursor and pointerAction
   assert.equal((calls[0] as { port: string }).port, "locateCursor");
   assert.equal((calls[1] as { port: string; request: { action?: string } }).request.action, "move");
   assert.equal((calls[2] as { port: string; request: { action?: string } }).request.action, "click");
+  assert.equal((calls[1] as { request: { metadata?: Record<string, unknown> } }).request.metadata?.runtimeGuardAccepted, true);
+  assert.equal((calls[2] as { request: { metadata?: Record<string, unknown> } }).request.metadata?.runtimeGuardAccepted, true);
   if (!result.ok) return;
   assert.equal(result.output.dispatch, "runtime-computeruse");
   assert.equal(result.output.providerCalled, true);
@@ -244,6 +246,48 @@ test("mouseEmulationHandler invokes runtime-owned locateCursor and pointerAction
   assert.equal(result.output.sequenceEnvelope.stepResults.length, 3);
   assert.equal(result.output.sequenceEnvelope.stepResults[0]?.position?.x, 10);
   assert.match(result.output.sequenceEnvelope.stepResults[1]?.actionId ?? "", /^action:pointer:move:/u);
+});
+
+test("mouseEmulationHandler surfaces public-safe runtime pointer provider failures", async () => {
+  const executor: BaseToolExecutorPort = {
+    computeruse: {
+      async locateCursor(request) {
+        return {
+          ok: true,
+          output: { x: 10, y: 20, coordinateSpace: request.coordinateSpace ?? "screen" },
+        };
+      },
+      async pointerAction() {
+        return {
+          ok: false,
+          error: {
+            code: "PROVIDER_UNAVAILABLE",
+            message: "computeruse pointer actions require BAPR/YOLO policy or PRAXIS_ENABLE_DESKTOP_AUTOMATION=1",
+            publicSafe: true,
+          },
+        };
+      },
+    },
+  };
+
+  const result = await mouseEmulationHandler.invoke({
+    toolCallId: "tool-call-public-safe-failure",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    executor,
+    input: {
+      purpose: "try to click an approved screen target",
+      steps: [{ kind: "click", button: "left", clickCount: 1 }],
+      context: { dryRun: false, guard: { accepted: true } },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "PROVIDER_FAILURE");
+    assert.match(result.error.message, /PRAXIS_ENABLE_DESKTOP_AUTOMATION/u);
+    assert.equal(result.error.publicSafe, true);
+  }
 });
 
 test("createBaseToolRegistry resolves computeruse.mouseEmulation handler and does not fallback without executor.computeruse", async () => {

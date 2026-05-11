@@ -244,10 +244,46 @@ test("mouseClickHandler invokes runtime-owned executor.computeruse.pointerAction
   assert.equal(runtimeCall.metadata?.sessionId, "session-1");
   assert.equal(runtimeCall.metadata?.invocationId, "tool-call-1");
   assert.equal(runtimeCall.metadata?.purpose, "activate the selected control");
+  assert.equal(runtimeCall.metadata?.runtimeGuardAccepted, true);
   if (!result.ok) return;
   assert.equal(result.output.dispatch, "runtime-computeruse");
   assert.equal(result.output.providerCalled, true);
   assert.equal(result.output.actionEnvelope.actionId, "action:pointer:click:1");
+});
+
+test("mouseClickHandler surfaces public-safe runtime pointer provider failures", async () => {
+  const executor: BaseToolExecutorPort = {
+    computeruse: {
+      async pointerAction() {
+        return {
+          ok: false,
+          error: {
+            code: "PROVIDER_UNAVAILABLE",
+            message: "desktop pointer action currently requires screen coordinates; received coordinateSpace=window",
+            publicSafe: true,
+          },
+        };
+      },
+    },
+  };
+
+  const result = await mouseClickHandler.invoke({
+    toolCallId: "tool-call-public-safe-failure",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    executor,
+    input: {
+      ...legalDryRunInput(),
+      context: { dryRun: false, guard: { accepted: true } },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "PROVIDER_FAILURE");
+    assert.match(result.error.message, /screen coordinates/u);
+    assert.equal(result.error.publicSafe, true);
+  }
 });
 
 test("createBaseToolRegistry resolves computeruse.mouseClick handler and does not fallback without executor.computeruse", async () => {

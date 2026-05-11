@@ -582,6 +582,15 @@ function normalizeProviderResult(
   return { stepResults, metadata: cleanAuditMetadata(value.metadata) };
 }
 
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
+
+function publicSafeProviderFailureMessage(error: unknown): string | undefined {
+  const message = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+  if (message === undefined || !message.startsWith(publicSafeProviderFailurePrefix)) return undefined;
+  const publicSafeMessage = message.slice(publicSafeProviderFailurePrefix.length).trim();
+  return publicSafeMessage.length > 0 ? publicSafeMessage : undefined;
+}
+
 function normalizeRequest(request: unknown): {
   steps: readonly MouseEmulationStep[];
   context: MouseEmulationContext;
@@ -731,10 +740,13 @@ export async function executeMouseEmulation(request: unknown = {}): Promise<Mous
     const normalizedResult = normalizeProviderResult(result, steps, context);
     if ("ok" in normalizedResult) return normalizedResult;
     providerResult = normalizedResult;
-  } catch {
+  } catch (error) {
+    const providerMessage = publicSafeProviderFailureMessage(error);
     return failure(
       "PROVIDER_FAILURE",
-      "computeruse.mouseEmulation runtime provider failed without exposing private details",
+      providerMessage === undefined
+        ? "computeruse.mouseEmulation runtime provider failed without exposing private details"
+        : `computeruse.mouseEmulation runtime provider failed: ${providerMessage}`,
       "provider",
       context,
     );

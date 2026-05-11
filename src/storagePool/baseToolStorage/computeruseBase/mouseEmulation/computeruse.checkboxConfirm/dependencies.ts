@@ -4,6 +4,7 @@ import type { ComputerUseProviderPracticeMetadata } from "../../_shared/baseTool
 import type { CheckboxConfirmProvider, CheckboxConfirmProviderRequest, CheckboxConfirmProviderResult } from "./core.js";
 
 export type CheckboxConfirmPracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
 
 export type CheckboxConfirmDependencies = {
   executor?: BaseToolExecutorPort;
@@ -62,12 +63,13 @@ export function createRuntimeCheckboxConfirmProvider(executor: BaseToolExecutorP
         sessionId: request.context.sessionId,
         invocationId: request.context.invocationId,
         purpose: request.purpose,
+        runtimeGuardAccepted: true,
         auditMetadata: request.context.auditMetadata,
       },
     });
 
     if (!result.ok) {
-      throw new Error(result.error.message);
+      throw new Error(`${publicSafeProviderFailurePrefix}${result.error.message}`);
     }
 
     return {

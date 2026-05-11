@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { access, chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
@@ -739,6 +739,58 @@ test("runtime factory executor can drive git inspection through mounted baseTool
     const output = asRecord(status.toolResult.output);
     assert.equal(output.providerCalled, true);
     assert.equal(output.dryRun, false);
+  }
+});
+
+test("runtime factory shell.run detaches Linux desktop browser launchers instead of timing out", async () => {
+  const workspace = await makeWorkspace();
+  const launcher = path.join(workspace, "microsoft-edge");
+  const marker = path.join(workspace, "edge-launched.txt");
+  await writeFile(
+    launcher,
+    `#!/usr/bin/env sh\nif [ "$1" = "--version" ]; then printf 'fake edge 1.0\\n'; exit 0; fi\nprintf '%s\\n' "$@" > "${marker}"\nsleep 1\n`,
+    "utf8",
+  );
+  await chmod(launcher, 0o755);
+
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-desktop-launch",
+    sessionId: "session-factory-desktop-launch",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowShellExecution: true,
+    },
+    resourceLimits: { timeoutMs: 100 },
+  });
+
+  const startedAt = Date.now();
+  const result = await executor.shell?.run?.({
+    command: launcher,
+    args: ["https://www.youtube.com/results?search_query=Dream"],
+    cwd: workspace,
+    timeoutMs: 100,
+  });
+
+  assert.equal(result?.ok, true);
+  assert.ok(Date.now() - startedAt < 900);
+  if (result?.ok) {
+    assert.equal(result.output.exitCode, 0);
+    assert.match(result.output.stdout, /launched detached desktop process/u);
+    assert.equal(asRecord(result.metadata).desktopLauncher, true);
+    assert.equal(asRecord(result.metadata).detached, true);
+  }
+  await waitForFileText(marker, "search_query=Dream");
+
+  const versionResult = await executor.shell?.run?.({
+    command: `${launcher} --version`,
+    cwd: workspace,
+    timeoutMs: 100,
+  });
+  assert.equal(versionResult?.ok, true);
+  if (versionResult?.ok) {
+    assert.equal(versionResult.output.stdout.trim(), "fake edge 1.0");
+    assert.notEqual(asRecord(versionResult.metadata).desktopLauncher, true);
   }
 });
 

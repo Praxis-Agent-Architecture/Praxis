@@ -456,6 +456,15 @@ function normalizeProviderResult(value: unknown, context: MouseClickContext): Mo
   };
 }
 
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
+
+function publicSafeProviderFailureMessage(error: unknown): string | undefined {
+  const message = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+  if (message === undefined || !message.startsWith(publicSafeProviderFailurePrefix)) return undefined;
+  const publicSafeMessage = message.slice(publicSafeProviderFailurePrefix.length).trim();
+  return publicSafeMessage.length > 0 ? publicSafeMessage : undefined;
+}
+
 function normalizeRequest(request: unknown): {
   target: MouseClickTarget;
   context: MouseClickContext;
@@ -553,10 +562,13 @@ export async function executeMouseClick(request: unknown = {}): Promise<MouseCli
     const normalizedResult = normalizeProviderResult(result, context);
     if ("ok" in normalizedResult) return normalizedResult;
     providerResult = normalizedResult;
-  } catch {
+  } catch (error) {
+    const providerMessage = publicSafeProviderFailureMessage(error);
     return failure(
       "PROVIDER_FAILURE",
-      "computeruse.mouseClick runtime provider failed without exposing private details",
+      providerMessage === undefined
+        ? "computeruse.mouseClick runtime provider failed without exposing private details"
+        : `computeruse.mouseClick runtime provider failed: ${providerMessage}`,
       "provider",
       context,
     );
