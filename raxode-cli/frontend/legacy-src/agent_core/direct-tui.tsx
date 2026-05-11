@@ -118,6 +118,9 @@ import {
   type DirectTuiSessionUsageEntry,
 } from "./tui-input/direct-session-store.js";
 import {
+  createDirectTuiSessionPersistenceScheduler,
+} from "./tui-input/direct-session-persistence.js";
+import {
   consumePendingOutboundTurnEntry,
   resolveCommittedUserMessageId,
 } from "./tui-input/pending-outbound-turn.js";
@@ -141,6 +144,9 @@ import {
   formatDirectTuiTokenCount,
   formatDirectTuiUsd,
 } from "./tui-input/direct-session-summary.js";
+import {
+  createDirectTuiAssistantStreamCoalescer,
+} from "./tui-input/direct-assistant-stream.js";
 import {
   appendDirectTuiCheckpointEvent,
   listDirectTuiTurnCheckpoints,
@@ -853,6 +859,18 @@ const QUESTION_COMPOSER_PLACEHOLDER =
 const QUESTION_WAITING_DOT_FRAMES = ["●○○", "○●○", "○○●", "○●○"] as const;
 const LOG_TAIL_READ_CHUNK_BYTES = 32 * 1024;
 const LOG_TAIL_PROCESS_BATCH_SIZE = 40;
+const SESSION_SNAPSHOT_PERSIST_DEBOUNCE_MS = Math.max(
+  50,
+  Number.isFinite(Number.parseFloat(process.env.RAXODE_SESSION_SAVE_DEBOUNCE_MS ?? "350"))
+    ? Number.parseFloat(process.env.RAXODE_SESSION_SAVE_DEBOUNCE_MS ?? "350")
+    : 350,
+);
+const ASSISTANT_DELTA_RENDER_INTERVAL_MS = Math.max(
+  8,
+  1000 / Math.max(1, Number.isFinite(Number.parseFloat(process.env.RAXODE_ASSISTANT_DELTA_FPS ?? "45"))
+    ? Number.parseFloat(process.env.RAXODE_ASSISTANT_DELTA_FPS ?? "45")
+    : 45),
+);
 const STARTUP_RAINBOW_BASE_COLORS = [
   "redBright",
   "yellow",
@@ -2890,6 +2908,7 @@ function resolveInitialDirectTuiBootState(): {
   currentCwd: string;
   sessionId: string;
   sessionName: string;
+  sessionCreatedAt: string;
   selectedAgentId: string;
   surfaceState: SurfaceAppState;
   conversationActivated: boolean;
@@ -2911,11 +2930,13 @@ function resolveInitialDirectTuiBootState(): {
     ? loadDirectTuiSessionSnapshot(requestedSessionId, currentCwd)
     : null;
   if (!restoredSnapshot) {
+    const now = new Date().toISOString();
     const sessionId = requestedSessionId ?? `direct-${Date.now()}`;
     return {
       currentCwd,
       sessionId,
       sessionName: `session-${Date.now().toString(36)}`,
+      sessionCreatedAt: now,
       selectedAgentId: "",
       surfaceState: createInitialSurfaceState(),
       conversationActivated: false,
@@ -2933,6 +2954,7 @@ function resolveInitialDirectTuiBootState(): {
     currentCwd: safeWorkspace,
     sessionId: normalizedSnapshot.sessionId,
     sessionName: normalizedSnapshot.name,
+    sessionCreatedAt: normalizedSnapshot.createdAt,
     selectedAgentId: normalizedSnapshot.agentId ?? normalizedSnapshot.selectedAgentId ?? "",
     surfaceState: buildSurfaceStateFromSessionSnapshot(normalizedSnapshot),
     conversationActivated: normalizedSnapshot.messages.some((message) => message.kind === "user"),
@@ -7818,9 +7840,32 @@ function PraxisDirectTuiApp(): JSX.Element {
   const initCompletedAutoCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingInitCompletedPanelRef = useRef(false);
   const sessionUsageLedgerRef = useRef<DirectTuiSessionUsageEntry[]>(initialBootState.usageLedger);
+  const sessionCreatedAtRef = useRef(initialBootState.sessionCreatedAt);
   const exitSummaryPersistRequestedRef = useRef(false);
   const exitSummaryFilePersistedRef = useRef<string | null>(null);
   const surfaceStateRef = useRef(surfaceState);
+  const sessionPersistenceSchedulerRef = useRef(createDirectTuiSessionPersistenceScheduler<() => {
+    snapshot: DirectTuiSessionSnapshot;
+    workspace: string;
+  }>({
+    delayMs: SESSION_SNAPSHOT_PERSIST_DEBOUNCE_MS,
+    save: (buildPersistenceRequest) => {
+      const { snapshot, workspace } = buildPersistenceRequest();
+      saveDirectTuiSessionSnapshot(snapshot, workspace);
+    },
+  }));
+  const assistantDeltaRenderCoalescerRef = useRef(createDirectTuiAssistantStreamCoalescer<{
+    at: string;
+  }>({
+    intervalMs: ASSISTANT_DELTA_RENDER_INTERVAL_MS,
+    emit: (update) => {
+      emitAssistantDeltaUpdate({
+        turnId: update.turnId,
+        at: update.payload.at,
+        decodedText: update.decodedText,
+      });
+    },
+  }));
 
   const dispatchSurfaceEvent = (event: Record<string, unknown>) => {
     setSurfaceState((previous) => applySurfaceEvent(previous, event as never));
@@ -7829,6 +7874,11 @@ function PraxisDirectTuiApp(): JSX.Element {
   useEffect(() => {
     surfaceStateRef.current = surfaceState;
   }, [surfaceState]);
+
+  useEffect(() => () => {
+    sessionPersistenceSchedulerRef.current.flushNow();
+    assistantDeltaRenderCoalescerRef.current.cancelAll();
+  }, []);
 
   useEffect(() => {
     backendStatusRef.current = backendStatus;
@@ -8465,6 +8515,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   };
 
   const beginExitSummarySequence = (generatedAt = new Date().toISOString()) => {
+    sessionPersistenceSchedulerRef.current.flushNow();
     closeSlashPanel();
     setPendingExitAction(null);
     const animated = directTuiAnimationMode !== "off";
@@ -8488,6 +8539,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   };
 
   const finishExitSummaryAndQuit = () => {
+    sessionPersistenceSchedulerRef.current.flushNow();
     const display = exitSummaryDisplay;
     if (!display || exitSummaryPersistRequestedRef.current) {
       return;
@@ -9489,11 +9541,72 @@ function PraxisDirectTuiApp(): JSX.Element {
     return messageId;
   };
 
+  const emitAssistantDeltaUpdate = (input: {
+    turnId: string;
+    at: string;
+    decodedText: string;
+  }) => {
+    const previousDisplayedText = emittedAssistantTextRef.current.get(input.turnId) ?? "";
+    const activeAssistantMessageId = activeAssistantMessageIdRef.current.get(input.turnId);
+    const assistantDeltaAction = resolveDirectTuiAssistantDeltaAction({
+      decodedText: input.decodedText,
+      previousDisplayedText,
+      activeMessageId: activeAssistantMessageId,
+    });
+    if (assistantDeltaAction.kind === "noop") {
+      return;
+    }
+    if (assistantDeltaAction.kind === "append") {
+      const assistantMessageId = startAssistantSegment(input.turnId);
+      dispatchSurfaceEvent({
+        type: "message.appended",
+        at: input.at,
+        message: createSurfaceMessage({
+          messageId: assistantMessageId,
+          sessionId: sessionIdRef.current,
+          turnId: input.turnId,
+          kind: "assistant",
+          text: assistantDeltaAction.text,
+          createdAt: input.at,
+        }),
+      });
+      emittedAssistantTextRef.current.set(input.turnId, input.decodedText);
+      return;
+    }
+    if (assistantDeltaAction.kind === "update") {
+      dispatchSurfaceEvent({
+        type: "message.updated",
+        at: input.at,
+        message: createSurfaceMessage({
+          messageId: assistantDeltaAction.messageId,
+          sessionId: sessionIdRef.current,
+          turnId: input.turnId,
+          kind: "assistant",
+          text: assistantDeltaAction.text,
+          createdAt: input.at,
+          updatedAt: input.at,
+        }),
+      });
+      emittedAssistantTextRef.current.set(input.turnId, input.decodedText);
+      return;
+    }
+    dispatchSurfaceEvent({
+      type: "message.delta",
+      at: input.at,
+      messageId: assistantDeltaAction.messageId,
+      textDelta: assistantDeltaAction.textDelta,
+      done: false,
+    });
+    emittedAssistantTextRef.current.set(input.turnId, input.decodedText);
+  };
+
   const closeAssistantSegment = (turnId: string) => {
+    assistantDeltaRenderCoalescerRef.current.flushTurn(turnId);
     activeAssistantMessageIdRef.current.delete(turnId);
   };
 
   const resetAssistantTurnState = (turnId: string) => {
+    assistantDeltaRenderCoalescerRef.current.cancelTurn(turnId);
     assistantSegmentIndexRef.current.delete(turnId);
     activeAssistantMessageIdRef.current.delete(turnId);
     emittedAssistantTextRef.current.delete(turnId);
@@ -9506,6 +9619,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     activeTasksRef.current = [];
     activeTurnIdsRef.current = new Set<string>();
     setActiveCmpStages([]);
+    assistantDeltaRenderCoalescerRef.current.cancelAll();
     assistantSegmentIndexRef.current.clear();
     activeAssistantMessageIdRef.current.clear();
     emittedAssistantTextRef.current.clear();
@@ -9662,6 +9776,47 @@ function PraxisDirectTuiApp(): JSX.Element {
     [interruptibleTasks],
   );
   const terminalTitleBusy = Boolean(runIndicator) || interruptibleTasks.length > 0;
+  const buildCurrentSessionPersistenceRequest = () => {
+    const now = new Date().toISOString();
+    const existing = persistedSessionSnapshot;
+    const usageLedger = sessionUsageLedgerRef.current.slice();
+    const resumeSessions = allSessionRecords
+      .filter((session) => session.sessionId !== sessionIdRef.current);
+    const exitSummary = buildDirectTuiSessionExitSummary({
+      snapshot: {
+        sessionId: sessionIdRef.current,
+        name: sessionName,
+        usageLedger,
+      },
+      sessions: [
+        ...resumeSessions,
+        {
+          sessionId: sessionIdRef.current,
+          name: sessionName,
+        },
+      ],
+      generatedAt: now,
+    });
+    return {
+      workspace: currentCwd,
+      snapshot: {
+        schemaVersion: 1,
+        sessionId: sessionIdRef.current,
+        agentId: selectedAgentId || existing?.agentId || "agent.core:main",
+        name: sessionName,
+        workspace: currentCwd,
+        route: config?.baseURL ?? "(unconfigured)",
+        model: runtimeConfig?.modelPlan.core.main.model ?? "gpt-5.4",
+        createdAt: existing?.createdAt ?? sessionCreatedAtRef.current,
+        updatedAt: now,
+        selectedAgentId,
+        agents: existing?.agents ?? [],
+        messages: transcriptMessagesToSessionRecords(transcriptMessages),
+        usageLedger,
+        exitSummary,
+      } satisfies DirectTuiSessionSnapshot,
+    };
+  };
   useEffect(() => {
     writeTerminalTitle(buildRaxodeTerminalTitle());
     if (!terminalTitleBusy) {
@@ -9959,43 +10114,18 @@ function PraxisDirectTuiApp(): JSX.Element {
     setAgentRegistryRevision((previous) => previous + 1);
   }, [currentCwd, persistedAgentRegistry]);
   useEffect(() => {
-    const now = new Date().toISOString();
-    const existing = loadDirectTuiSessionSnapshot(sessionIdRef.current, currentCwd);
-    const usageLedger = sessionUsageLedgerRef.current.slice();
-    const resumeSessions = listDirectTuiSessions(currentCwd)
-      .filter((session) => session.sessionId !== sessionIdRef.current);
-    const exitSummary = buildDirectTuiSessionExitSummary({
-      snapshot: {
-        sessionId: sessionIdRef.current,
-        name: sessionName,
-        usageLedger,
-      },
-      sessions: [
-        ...resumeSessions,
-        {
-          sessionId: sessionIdRef.current,
-          name: sessionName,
-        },
-      ],
-      generatedAt: now,
-    });
-    saveDirectTuiSessionSnapshot({
-      schemaVersion: 1,
-      sessionId: sessionIdRef.current,
-      agentId: selectedAgentId || existing?.agentId || "agent.core:main",
-      name: sessionName,
-      workspace: currentCwd,
-      route: config?.baseURL ?? "(unconfigured)",
-      model: runtimeConfig?.modelPlan.core.main.model ?? "gpt-5.4",
-      createdAt: existing?.createdAt ?? now,
-      updatedAt: now,
-      selectedAgentId,
-      agents: existing?.agents ?? [],
-      messages: transcriptMessagesToSessionRecords(transcriptMessages),
-      usageLedger,
-      exitSummary,
-    }, currentCwd);
-  }, [config?.baseURL, currentCwd, runtimeConfig?.modelPlan.core.main.model, selectedAgentId, sessionName, sessionUsageRevision, transcriptMessages]);
+    sessionPersistenceSchedulerRef.current.schedule(buildCurrentSessionPersistenceRequest);
+  }, [
+    allSessionRecords,
+    config?.baseURL,
+    currentCwd,
+    persistedSessionSnapshot,
+    runtimeConfig?.modelPlan.core.main.model,
+    selectedAgentId,
+    sessionName,
+    sessionUsageRevision,
+    transcriptMessages,
+  ]);
   useEffect(() => {
     if (!selectedAgentId) {
       return;
@@ -11115,6 +11245,7 @@ function PraxisDirectTuiApp(): JSX.Element {
           }
 
           if (record.event === "turn_result") {
+            assistantDeltaRenderCoalescerRef.current.flushTurn(turnId);
             const turnContext = normalizeContextSnapshot(record.core?.context);
             if (turnContext) {
               setBackendContextSnapshot(turnContext);
@@ -11269,55 +11400,10 @@ function PraxisDirectTuiApp(): JSX.Element {
             const rawAccumulatedText = `${rawAssistantDeltaTextRef.current.get(turnId) ?? ""}${record.text}`;
             rawAssistantDeltaTextRef.current.set(turnId, rawAccumulatedText);
             const decodedText = decodeEscapedDisplayTextMaybe(rawAccumulatedText);
-            const previousDisplayedText = emittedAssistantTextRef.current.get(turnId) ?? "";
-            emittedAssistantTextRef.current.set(turnId, decodedText);
-            const activeAssistantMessageId = activeAssistantMessageIdRef.current.get(turnId);
-            const assistantDeltaAction = resolveDirectTuiAssistantDeltaAction({
+            assistantDeltaRenderCoalescerRef.current.push({
+              turnId,
               decodedText,
-              previousDisplayedText,
-              activeMessageId: activeAssistantMessageId,
-            });
-            if (assistantDeltaAction.kind === "noop") {
-              continue;
-            }
-            if (assistantDeltaAction.kind === "append") {
-              const assistantMessageId = startAssistantSegment(turnId);
-              dispatchSurfaceEvent({
-                type: "message.appended",
-                at,
-                message: createSurfaceMessage({
-                  messageId: assistantMessageId,
-                  sessionId: sessionIdRef.current,
-                  turnId,
-                  kind: "assistant",
-                  text: assistantDeltaAction.text,
-                  createdAt: at,
-                }),
-              });
-              continue;
-            }
-            if (assistantDeltaAction.kind === "update") {
-              dispatchSurfaceEvent({
-                type: "message.updated",
-                at,
-                message: createSurfaceMessage({
-                  messageId: assistantDeltaAction.messageId,
-                  sessionId: sessionIdRef.current,
-                  turnId,
-                  kind: "assistant",
-                  text: assistantDeltaAction.text,
-                  createdAt: at,
-                  updatedAt: at,
-                }),
-              });
-              continue;
-            }
-            dispatchSurfaceEvent({
-              type: "message.delta",
-              at,
-              messageId: assistantDeltaAction.messageId,
-              textDelta: assistantDeltaAction.textDelta,
-              done: record.done,
+              payload: { at },
             });
             continue;
           }
@@ -11378,6 +11464,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     nextSwitch: PendingSessionSwitch,
     sessionContext?: ReturnType<typeof normalizeContextSnapshot>,
   ) => {
+    sessionPersistenceSchedulerRef.current.flushNow();
     clearPendingSessionSwitchTimeout();
     const safeWorkspace = resolveValidWorkspacePath(nextSwitch.targetWorkspace, currentCwd);
     sessionIdRef.current = nextSwitch.targetSessionId;
@@ -11386,6 +11473,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     setCurrentCwd(safeWorkspace);
     setSurfaceState(nextSwitch.targetSurfaceState);
     const restoredSnapshot = loadDirectTuiSessionSnapshot(nextSwitch.targetSessionId, safeWorkspace);
+    sessionCreatedAtRef.current = restoredSnapshot?.createdAt ?? new Date().toISOString();
     sessionUsageLedgerRef.current = restoredSnapshot?.usageLedger ?? [];
     setSessionUsageRevision((previous) => previous + 1);
     setScrollOffset(0);
@@ -11480,6 +11568,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       draft.workspace.defaultPath = process.cwd();
     });
 
+    sessionPersistenceSchedulerRef.current.flushNow();
     const { snapshot } = buildEmptySessionSnapshot({
       agentId: "agent.core:main",
       workspace: process.cwd(),
@@ -11618,6 +11707,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   };
 
   const restoreSessionSnapshot = (sessionId: string) => {
+    sessionPersistenceSchedulerRef.current.flushNow();
     const indexedSession = allSessionRecords.find((session) => session.sessionId === sessionId);
     const snapshot = loadDirectTuiSessionSnapshot(sessionId, currentCwd);
     if (!snapshot) {
@@ -11718,6 +11808,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     enterRename = true,
     successNoticeOverride?: string | null,
   ) => {
+    sessionPersistenceSchedulerRef.current.flushNow();
     const effectiveAgentId = agentIdOverride ?? selectedAgentId;
     const currentAgent = persistedAgentRegistry.find((agent) => agent.agentId === effectiveAgentId)
       ?? persistedAgentRegistry[0];
@@ -14171,10 +14262,6 @@ function PraxisDirectTuiApp(): JSX.Element {
     () => expandRenderLinesForWidth(conversationHeaderLines, transcriptLineWidth),
     [conversationHeaderLines, transcriptLineWidth],
   );
-  const transcriptLines = useMemo(
-    () => flattenTranscript(transcriptMessages, toolSummaryAnimationFrame),
-    [toolSummaryAnimationFrame, transcriptMessages],
-  );
   const hasActiveToolSummary = useMemo(
     () => transcriptMessages.some((message) =>
       message.metadata?.source === "tool_summary"
@@ -14182,6 +14269,11 @@ function PraxisDirectTuiApp(): JSX.Element {
       && !!message.turnId
       && activeTurnIds.has(message.turnId)),
     [activeTurnIds, transcriptMessages],
+  );
+  const effectiveToolSummaryAnimationFrame = hasActiveToolSummary ? toolSummaryAnimationFrame : 0;
+  const transcriptLines = useMemo(
+    () => flattenTranscript(transcriptMessages, effectiveToolSummaryAnimationFrame),
+    [effectiveToolSummaryAnimationFrame, transcriptMessages],
   );
   const transientRunStatusLine = useMemo(
     () => hasActiveToolSummary
