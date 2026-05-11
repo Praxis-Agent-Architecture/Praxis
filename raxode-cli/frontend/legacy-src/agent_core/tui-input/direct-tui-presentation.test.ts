@@ -12,6 +12,7 @@ import {
   deriveDirectTuiCmpStatusDescriptor,
   hasDirectTuiFormalConversation,
   isDirectTuiCmpActivityStage,
+  mergeDirectTuiStreamingAssistantLine,
   resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
   resolveDirectTuiComposerSelectionTopRow,
@@ -168,6 +169,24 @@ test("assistant delta falls back to update when the accumulated text rewrites ea
     text: "新的完整答案",
     messageId: "assistant:turn-2:1",
   });
+});
+
+test("streaming assistant line is rendered separately from committed transcript", () => {
+  const transcriptLines = [">> 写一段话", "", "● 已完成上一轮", ""];
+
+  assert.deepEqual(mergeDirectTuiStreamingAssistantLine({
+    transcriptLines,
+    streamingAssistant: {
+      messageId: "assistant:turn-2:1",
+      turnId: "turn-2",
+      text: "正在流式输出",
+    },
+  }), [">> 写一段话", "", "● 已完成上一轮", "", "● 正在流式输出", ""]);
+
+  assert.deepEqual(mergeDirectTuiStreamingAssistantLine({
+    transcriptLines,
+    streamingAssistant: null,
+  }), transcriptLines);
 });
 
 test("background cmp stages do not break an in-flight assistant segment", () => {

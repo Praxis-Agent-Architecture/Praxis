@@ -205,6 +205,26 @@ export type DirectTuiAssistantDeltaAction =
   | { kind: "delta"; textDelta: string; messageId: string }
   | { kind: "update"; text: string; messageId: string };
 
+export interface DirectTuiStreamingAssistantText {
+  messageId: string;
+  turnId: string;
+  text: string;
+}
+
+export function mergeDirectTuiStreamingAssistantLine(input: {
+  transcriptLines: readonly string[];
+  streamingAssistant?: DirectTuiStreamingAssistantText | null;
+}): string[] {
+  if (!input.streamingAssistant?.text) {
+    return [...input.transcriptLines];
+  }
+  return [
+    ...input.transcriptLines,
+    `● ${input.streamingAssistant.text}`,
+    "",
+  ];
+}
+
 export function resolveDirectTuiAssistantDeltaAction(input: {
   decodedText: string;
   previousDisplayedText: string;

@@ -189,6 +189,7 @@ import {
 import {
   applyDirectTuiTextSelectionToRenderSegments,
   createDirectTuiCmpActivityKey,
+  type DirectTuiStreamingAssistantText,
   deriveDirectTuiCmpStatusDescriptor,
   isDirectTuiCmpActivityStage,
   resolveDirectTuiAssistantDeltaAction,
@@ -418,6 +419,11 @@ interface RenderLine {
 interface RenderBlock {
   key: string;
   lines: RenderLine[];
+}
+
+interface TranscriptBlockCacheEntry {
+  animationFrame: number;
+  block: RenderBlock;
 }
 
 interface TuiImageAttachment extends DirectInputImageAttachment {
@@ -4998,6 +5004,67 @@ function flattenTranscript(messages: SurfaceMessage[], toolSummaryAnimationFrame
   return flattenTranscriptBlocks(messages, toolSummaryAnimationFrame).flatMap((block) => block.lines);
 }
 
+function flattenTranscriptWithCache(
+  messages: SurfaceMessage[],
+  toolSummaryAnimationFrame: number,
+  blockCache: WeakMap<SurfaceMessage, TranscriptBlockCacheEntry>,
+): RenderLine[] {
+  return flattenTranscriptBlocksWithCache(messages, toolSummaryAnimationFrame, blockCache).flatMap((block) => block.lines);
+}
+
+function flattenTranscriptBlocksWithCache(
+  messages: SurfaceMessage[],
+  toolSummaryAnimationFrame: number,
+  blockCache: WeakMap<SurfaceMessage, TranscriptBlockCacheEntry>,
+): RenderBlock[] {
+  return messages.map((message) => {
+    const displayMessage = summarizeNonPrimaryMessage(message);
+    const animationFrame = displayMessage.kind === "status"
+      && displayMessage.metadata?.source === "tool_summary"
+      && displayMessage.metadata?.summaryState === "active"
+        ? toolSummaryAnimationFrame
+        : 0;
+    const cached = blockCache.get(message);
+    if (cached && cached.animationFrame === animationFrame) {
+      return cached.block;
+    }
+    const block = flattenTranscriptBlocks([message], animationFrame)[0] ?? {
+      key: message.messageId,
+      lines: [],
+    };
+    blockCache.set(message, {
+      animationFrame,
+      block,
+    });
+    return block;
+  });
+}
+
+function renderStreamingAssistantLines(streamingAssistant: DirectTuiStreamingAssistantText | null): RenderLine[] {
+  if (!streamingAssistant?.text) {
+    return [];
+  }
+  return streamingAssistant.text.split("\n").flatMap((chunk, index) => {
+    const visibleText = chunk.length > 0 ? chunk : " ";
+    const prefix = index === 0 ? "● " : "  ";
+    const line: RenderLine = {
+      kind: "assistant",
+      text: `${prefix}${visibleText}`,
+      continuationSegments: [
+        {
+          text: "  ",
+          color: TUI_THEME.textMuted,
+        },
+      ],
+      segments: [
+        { text: prefix, color: TUI_THEME.textMuted },
+        { text: visibleText, color: TUI_THEME.text },
+      ],
+    };
+    return line;
+  });
+}
+
 function toolSummaryTitleColor(familyKey: unknown): string {
   if (typeof familyKey !== "string") {
     return TUI_THEME.violet;
@@ -7108,41 +7175,22 @@ const TranscriptPane = memo(function TranscriptPane({
       <Box flexDirection="column" height={viewportLineCount} flexGrow={1} flexShrink={1}>
         {bodyLines.map((line, index) => {
           const absoluteRow = visibleStartIndex + Math.max(0, visibleLines.length - bodyViewportLineCount) + index;
-          const renderedSegments = applyTextSelectionToRenderSegments({
-            text: line.text,
-            segments: line.segments,
-            row: absoluteRow,
-            scope: "transcript",
-            selection: textSelection,
-          });
           return (
-          <Text key={`body-${index}-${line.text}`} color={colorForRenderLine(line.kind)}>
-            {renderedSegments
-              ? renderedSegments.map((segment, segmentIndex) => (
-                <Text
-                  key={`body-${index}-${segmentIndex}-${segment.text}`}
-                  color={segment.color}
-                  backgroundColor={segment.backgroundColor}
-                >
-                  {segment.text}
-                </Text>
-              ))
-              : line.text}
-          </Text>
+            <TranscriptLineView
+              key={`body-${absoluteRow}-${line.text}`}
+              line={line}
+              row={absoluteRow}
+              textSelection={textSelection}
+            />
           );
         })}
         {transientStatusLine ? (
-          <Text key={`transient-status-${transientStatusLine.text}`} color={colorForRenderLine(transientStatusLine.kind)}>
-            {transientStatusLine.segments?.map((segment, segmentIndex) => (
-              <Text
-                key={`transient-status-${segmentIndex}-${segment.text}`}
-                color={segment.color}
-                backgroundColor={segment.backgroundColor}
-              >
-                {segment.text}
-              </Text>
-            ))}
-          </Text>
+          <TranscriptLineView
+            key={`transient-status-${transientStatusLine.text}`}
+            line={transientStatusLine}
+            row={visibleStartIndex + bodyLines.length}
+            textSelection={textSelection}
+          />
         ) : null}
         {Array.from({ length: fillerCount }, (_, index) => (
           <Text key={`filler-${index}`}> </Text>
@@ -7151,6 +7199,42 @@ const TranscriptPane = memo(function TranscriptPane({
     </Box>
   );
 });
+
+const TranscriptLineView = memo(function TranscriptLineView({
+  line,
+  row,
+  textSelection,
+}: {
+  line: RenderLine;
+  row: number;
+  textSelection: TextSelectionState | null;
+}): JSX.Element {
+  const renderedSegments = applyTextSelectionToRenderSegments({
+    text: line.text,
+    segments: line.segments,
+    row,
+    scope: "transcript",
+    selection: textSelection,
+  });
+  return (
+    <Text color={colorForRenderLine(line.kind)}>
+      {renderedSegments
+        ? renderedSegments.map((segment, segmentIndex) => (
+          <Text
+            key={`line-${row}-${segmentIndex}-${segment.text}`}
+            color={segment.color}
+            backgroundColor={segment.backgroundColor}
+          >
+            {segment.text}
+          </Text>
+        ))
+        : line.text}
+    </Text>
+  );
+}, (previous, next) =>
+  previous.line === next.line
+  && previous.row === next.row
+  && previous.textSelection === next.textSelection);
 
 const RewindOverlayPane = memo(function RewindOverlayPane({
   viewportLineCount,
@@ -7756,6 +7840,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const [questionViewerSnapshot, setQuestionViewerSnapshot] = useState<QuestionViewerSnapshot | null>(null);
   const [questionPanelState, setQuestionPanelState] = useState<QuestionPanelState>(() => createEmptyQuestionPanelState());
   const [runIndicator, setRunIndicator] = useState<{ startedAt: string; label: string } | null>(null);
+  const [streamingAssistantText, setStreamingAssistantText] = useState<DirectTuiStreamingAssistantText | null>(null);
   const [pendingComposerDispatches, setPendingComposerDispatches] = useState<PendingComposerDispatch[]>([]);
   const [selectedPendingComposerDispatchId, setSelectedPendingComposerDispatchId] = useState<string | null>(null);
   const [pendingComposerEditState, setPendingComposerEditState] = useState<PendingComposerEditState | null>(null);
@@ -7783,6 +7868,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const logTickInFlightRef = useRef(false);
   const sessionIdRef = useRef(initialBootState.sessionId);
   const previousTranscriptLineCountRef = useRef(0);
+  const transcriptBlockCacheRef = useRef(new WeakMap<SurfaceMessage, TranscriptBlockCacheEntry>());
   const textSelectionRef = useRef<TextSelectionState | null>(null);
   const textSelectionRegionsRef = useRef<SelectableRegion[]>([]);
   const textSelectionTranscriptLinesRef = useRef<RenderLine[]>([]);
@@ -7800,6 +7886,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const assistantSegmentIndexRef = useRef(new Map<string, number>());
   const activeAssistantMessageIdRef = useRef(new Map<string, string>());
   const emittedAssistantTextRef = useRef(new Map<string, string>());
+  const streamingAssistantTextRef = useRef<DirectTuiStreamingAssistantText | null>(null);
   const rawAssistantDeltaTextRef = useRef(new Map<string, string>());
   const interruptPendingRef = useRef(false);
   const backendRestartPendingRef = useRef(false);
@@ -7854,6 +7941,8 @@ function PraxisDirectTuiApp(): JSX.Element {
       saveDirectTuiSessionSnapshot(snapshot, workspace);
     },
   }));
+  const pendingSurfaceStateRef = useRef<SurfaceAppState | null>(null);
+  const surfaceStateFlushScheduledRef = useRef(false);
   const assistantDeltaRenderCoalescerRef = useRef(createDirectTuiAssistantStreamCoalescer<{
     at: string;
   }>({
@@ -7867,8 +7956,49 @@ function PraxisDirectTuiApp(): JSX.Element {
     },
   }));
 
+  const flushPendingSurfaceState = () => {
+    surfaceStateFlushScheduledRef.current = false;
+    const pendingState = pendingSurfaceStateRef.current;
+    pendingSurfaceStateRef.current = null;
+    if (!pendingState) {
+      return;
+    }
+    setSurfaceState(pendingState);
+  };
+
+  const scheduleSurfaceStateFlush = () => {
+    if (surfaceStateFlushScheduledRef.current) {
+      return;
+    }
+    surfaceStateFlushScheduledRef.current = true;
+    queueMicrotask(() => {
+      flushPendingSurfaceState();
+    });
+  };
+
+  const replaceSurfaceState = (nextState: SurfaceAppState) => {
+    pendingSurfaceStateRef.current = null;
+    surfaceStateRef.current = nextState;
+    transcriptMessagesRef.current = selectTranscriptMessages(nextState);
+    setSurfaceState(nextState);
+  };
+
+  const dispatchSurfaceEvents = (events: Array<Record<string, unknown>>) => {
+    if (events.length === 0) {
+      return;
+    }
+    let nextState = surfaceStateRef.current;
+    for (const event of events) {
+      nextState = applySurfaceEvent(nextState, event as never);
+    }
+    surfaceStateRef.current = nextState;
+    transcriptMessagesRef.current = selectTranscriptMessages(nextState);
+    pendingSurfaceStateRef.current = nextState;
+    scheduleSurfaceStateFlush();
+  };
+
   const dispatchSurfaceEvent = (event: Record<string, unknown>) => {
-    setSurfaceState((previous) => applySurfaceEvent(previous, event as never));
+    dispatchSurfaceEvents([event]);
   };
 
   useEffect(() => {
@@ -7876,6 +8006,8 @@ function PraxisDirectTuiApp(): JSX.Element {
   }, [surfaceState]);
 
   useEffect(() => () => {
+    pendingSurfaceStateRef.current = null;
+    surfaceStateFlushScheduledRef.current = false;
     sessionPersistenceSchedulerRef.current.flushNow();
     assistantDeltaRenderCoalescerRef.current.cancelAll();
   }, []);
@@ -7887,6 +8019,11 @@ function PraxisDirectTuiApp(): JSX.Element {
   useEffect(() => {
     runIndicatorRef.current = runIndicator;
   }, [runIndicator]);
+
+  const replaceStreamingAssistantText = (next: DirectTuiStreamingAssistantText | null) => {
+    streamingAssistantTextRef.current = next;
+    setStreamingAssistantText(next);
+  };
 
   const replacePendingComposerDispatches = (
     nextValue: PendingComposerDispatch[] | ((previous: PendingComposerDispatch[]) => PendingComposerDispatch[]),
@@ -9558,50 +9695,68 @@ function PraxisDirectTuiApp(): JSX.Element {
     }
     if (assistantDeltaAction.kind === "append") {
       const assistantMessageId = startAssistantSegment(input.turnId);
-      dispatchSurfaceEvent({
-        type: "message.appended",
-        at: input.at,
-        message: createSurfaceMessage({
-          messageId: assistantMessageId,
-          sessionId: sessionIdRef.current,
-          turnId: input.turnId,
-          kind: "assistant",
-          text: assistantDeltaAction.text,
-          createdAt: input.at,
-        }),
+      replaceStreamingAssistantText({
+        messageId: assistantMessageId,
+        turnId: input.turnId,
+        text: assistantDeltaAction.text,
       });
       emittedAssistantTextRef.current.set(input.turnId, input.decodedText);
       return;
     }
     if (assistantDeltaAction.kind === "update") {
-      dispatchSurfaceEvent({
-        type: "message.updated",
-        at: input.at,
-        message: createSurfaceMessage({
-          messageId: assistantDeltaAction.messageId,
-          sessionId: sessionIdRef.current,
-          turnId: input.turnId,
-          kind: "assistant",
-          text: assistantDeltaAction.text,
-          createdAt: input.at,
-          updatedAt: input.at,
-        }),
+      replaceStreamingAssistantText({
+        messageId: assistantDeltaAction.messageId,
+        turnId: input.turnId,
+        text: assistantDeltaAction.text,
       });
       emittedAssistantTextRef.current.set(input.turnId, input.decodedText);
       return;
     }
-    dispatchSurfaceEvent({
-      type: "message.delta",
-      at: input.at,
+    const existingStreamingAssistant = streamingAssistantTextRef.current;
+    replaceStreamingAssistantText({
       messageId: assistantDeltaAction.messageId,
-      textDelta: assistantDeltaAction.textDelta,
-      done: false,
+      turnId: input.turnId,
+      text: existingStreamingAssistant?.turnId === input.turnId
+        ? `${existingStreamingAssistant.text}${assistantDeltaAction.textDelta}`
+        : input.decodedText,
     });
     emittedAssistantTextRef.current.set(input.turnId, input.decodedText);
   };
 
-  const closeAssistantSegment = (turnId: string) => {
+  const commitStreamingAssistantSegment = (turnId: string, at: string, textOverride?: string) => {
     assistantDeltaRenderCoalescerRef.current.flushTurn(turnId);
+    const streamingAssistant = streamingAssistantTextRef.current;
+    if (streamingAssistant?.turnId !== turnId) {
+      return;
+    }
+    const text = textOverride ?? streamingAssistant.text;
+    if (text) {
+      dispatchSurfaceEvent({
+        type: "message.appended",
+        at,
+        message: createSurfaceMessage({
+          messageId: streamingAssistant.messageId,
+          sessionId: sessionIdRef.current,
+          turnId,
+          kind: "assistant",
+          text,
+          createdAt: at,
+        }),
+      });
+      emittedAssistantTextRef.current.set(turnId, text);
+      rawAssistantDeltaTextRef.current.set(turnId, text);
+    }
+    replaceStreamingAssistantText(null);
+  };
+
+  const clearStreamingAssistantSegment = (turnId: string) => {
+    if (streamingAssistantTextRef.current?.turnId === turnId) {
+      replaceStreamingAssistantText(null);
+    }
+  };
+
+  const closeAssistantSegment = (turnId: string, at = new Date().toISOString()) => {
+    commitStreamingAssistantSegment(turnId, at);
     activeAssistantMessageIdRef.current.delete(turnId);
   };
 
@@ -9610,6 +9765,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     assistantSegmentIndexRef.current.delete(turnId);
     activeAssistantMessageIdRef.current.delete(turnId);
     emittedAssistantTextRef.current.delete(turnId);
+    clearStreamingAssistantSegment(turnId);
     rawAssistantDeltaTextRef.current.delete(turnId);
   };
 
@@ -9623,6 +9779,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     assistantSegmentIndexRef.current.clear();
     activeAssistantMessageIdRef.current.clear();
     emittedAssistantTextRef.current.clear();
+    replaceStreamingAssistantText(null);
     rawAssistantDeltaTextRef.current.clear();
     turnUserTextRef.current.clear();
     toolFamilyStateRef.current.clear();
@@ -9811,7 +9968,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         updatedAt: now,
         selectedAgentId,
         agents: existing?.agents ?? [],
-        messages: transcriptMessagesToSessionRecords(transcriptMessages),
+        messages: transcriptMessagesToSessionRecords(transcriptMessagesRef.current),
         usageLedger,
         exitSummary,
       } satisfies DirectTuiSessionSnapshot,
@@ -9937,7 +10094,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       at,
       pending.transcriptCutMessageId,
     );
-    setSurfaceState(rewoundSurfaceState);
+    replaceSurfaceState(rewoundSurfaceState);
     completedTurnIdsRef.current = new Set([...completedTurnIdsRef.current]
       .filter((turnId) => parseDirectTuiTurnIndex(turnId) < pending.selectedTurnIndex));
     interruptedTurnIdsRef.current = new Set([...interruptedTurnIdsRef.current]
@@ -10840,7 +10997,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                 : [...previous, { key: cmpActivityKey, stage: cmpStage }]);
             }
             if (shouldBreakDirectTuiAssistantSegmentOnStageStart(record.stage)) {
-              closeAssistantSegment(turnId);
+              closeAssistantSegment(turnId, at);
             }
             dispatchSurfaceEvent({
               type: "task.upserted",
@@ -11253,43 +11410,62 @@ function PraxisDirectTuiApp(): JSX.Element {
             const answer = extractTurnResultAnswer(record);
             const emittedAssistantText = emittedAssistantTextRef.current.get(turnId) ?? "";
             if (answer) {
-              const finalAnswerAction = resolveDirectTuiAssistantTurnResultAction({
-                finalAnswer: answer,
-                streamedText: emittedAssistantText,
-                activeMessageId: activeAssistantMessageIdRef.current.get(turnId),
-              });
-              if (finalAnswerAction.kind === "append") {
-                const assistantMessageId = startAssistantSegment(turnId);
+              const streamingAssistant = streamingAssistantTextRef.current;
+              if (streamingAssistant?.turnId === turnId) {
                 dispatchSurfaceEvent({
                   type: "message.appended",
                   at,
                   message: createSurfaceMessage({
-                    messageId: assistantMessageId,
+                    messageId: streamingAssistant.messageId,
                     sessionId: sessionIdRef.current,
                     turnId,
                     kind: "assistant",
-                    text: finalAnswerAction.text,
+                    text: answer,
                     createdAt: at,
                     capabilityKey: record.core?.capabilityKey,
                     status: record.core?.capabilityResultStatus,
                   }),
                 });
-              } else if (finalAnswerAction.kind === "update") {
-                dispatchSurfaceEvent({
-                  type: "message.updated",
-                  at,
-                  message: createSurfaceMessage({
-                    messageId: finalAnswerAction.messageId,
-                    sessionId: sessionIdRef.current,
-                    turnId,
-                    kind: "assistant",
-                    text: finalAnswerAction.text,
-                    createdAt: at,
-                    updatedAt: at,
-                    capabilityKey: record.core?.capabilityKey,
-                    status: record.core?.capabilityResultStatus,
-                  }),
+                replaceStreamingAssistantText(null);
+              } else {
+                const finalAnswerAction = resolveDirectTuiAssistantTurnResultAction({
+                  finalAnswer: answer,
+                  streamedText: emittedAssistantText,
+                  activeMessageId: activeAssistantMessageIdRef.current.get(turnId),
                 });
+                if (finalAnswerAction.kind === "append") {
+                  const assistantMessageId = startAssistantSegment(turnId);
+                  dispatchSurfaceEvent({
+                    type: "message.appended",
+                    at,
+                    message: createSurfaceMessage({
+                      messageId: assistantMessageId,
+                      sessionId: sessionIdRef.current,
+                      turnId,
+                      kind: "assistant",
+                      text: finalAnswerAction.text,
+                      createdAt: at,
+                      capabilityKey: record.core?.capabilityKey,
+                      status: record.core?.capabilityResultStatus,
+                    }),
+                  });
+                } else if (finalAnswerAction.kind === "update") {
+                  dispatchSurfaceEvent({
+                    type: "message.updated",
+                    at,
+                    message: createSurfaceMessage({
+                      messageId: finalAnswerAction.messageId,
+                      sessionId: sessionIdRef.current,
+                      turnId,
+                      kind: "assistant",
+                      text: finalAnswerAction.text,
+                      createdAt: at,
+                      updatedAt: at,
+                      capabilityKey: record.core?.capabilityKey,
+                      status: record.core?.capabilityResultStatus,
+                    }),
+                  });
+                }
               }
               emittedAssistantTextRef.current.set(turnId, answer);
               rawAssistantDeltaTextRef.current.set(turnId, answer);
@@ -11386,7 +11562,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                 toolSummaryRevisionRef.current.delete(key);
               }
             }
-            closeAssistantSegment(turnId);
+            closeAssistantSegment(turnId, at);
             continue;
           }
 
@@ -11471,7 +11647,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     setSessionName(nextSwitch.targetSessionName);
     setSelectedAgentId(nextSwitch.targetAgentId);
     setCurrentCwd(safeWorkspace);
-    setSurfaceState(nextSwitch.targetSurfaceState);
+    replaceSurfaceState(nextSwitch.targetSurfaceState);
     const restoredSnapshot = loadDirectTuiSessionSnapshot(nextSwitch.targetSessionId, safeWorkspace);
     sessionCreatedAtRef.current = restoredSnapshot?.createdAt ?? new Date().toISOString();
     sessionUsageLedgerRef.current = restoredSnapshot?.usageLedger ?? [];
@@ -12719,6 +12895,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     }
     for (const turnId of activeTurnIdsRef.current) {
       interruptedTurnIdsRef.current.add(turnId);
+      closeAssistantSegment(turnId, at);
       dispatchSurfaceEvent({
         type: "turn.completed",
         at,
@@ -14272,8 +14449,16 @@ function PraxisDirectTuiApp(): JSX.Element {
   );
   const effectiveToolSummaryAnimationFrame = hasActiveToolSummary ? toolSummaryAnimationFrame : 0;
   const transcriptLines = useMemo(
-    () => flattenTranscript(transcriptMessages, effectiveToolSummaryAnimationFrame),
+    () => flattenTranscriptWithCache(
+      transcriptMessages,
+      effectiveToolSummaryAnimationFrame,
+      transcriptBlockCacheRef.current,
+    ),
     [effectiveToolSummaryAnimationFrame, transcriptMessages],
+  );
+  const streamingAssistantLines = useMemo(
+    () => renderStreamingAssistantLines(streamingAssistantText),
+    [streamingAssistantText],
   );
   const transientRunStatusLine = useMemo(
     () => hasActiveToolSummary
@@ -14779,8 +14964,9 @@ function PraxisDirectTuiApp(): JSX.Element {
     () => [
       ...(shouldShowConversationHeader ? conversationHeaderExpandedLines : []),
       ...expandRenderLinesForWidth(transcriptLines, transcriptLineWidth),
+      ...expandRenderLinesForWidth(streamingAssistantLines, transcriptLineWidth),
     ],
-    [shouldShowConversationHeader, conversationHeaderExpandedLines, transcriptLineWidth, transcriptLines],
+    [shouldShowConversationHeader, conversationHeaderExpandedLines, transcriptLineWidth, transcriptLines, streamingAssistantLines],
   );
   const maxScrollOffset = Math.max(0, transcriptScrollLines.length - transcriptViewportLineCount);
   const visibleTranscriptEndIndex = transcriptScrollLines.length <= transcriptViewportLineCount
