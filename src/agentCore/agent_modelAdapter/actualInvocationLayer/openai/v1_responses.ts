@@ -109,7 +109,18 @@ export type OpenAIV1ResponsesResponseEnvelope = {
   endpoint: string;
   mode: "dry-run" | "mock" | "caller";
   raw: unknown;
+  usage?: OpenAIV1ResponsesUsage;
   providerFieldsOpaque: true;
+};
+
+export type OpenAIV1ResponsesUsage = {
+  source: "openai.responses.usage";
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  estimated: false;
 };
 
 export type OpenAIV1ResponsesCapabilitySignal = {
@@ -250,6 +261,100 @@ function inferRawShape(operation: string, raw: unknown): OpenAIV1ResponsesCapabi
   return "response-object";
 }
 
+function readFiniteNumber(record: Readonly<Record<string, unknown>> | undefined, keys: readonly string[]): number | undefined {
+  if (record === undefined) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function sseDataObjects(text: string): readonly unknown[] {
+  const objects: unknown[] = [];
+  for (const line of text.split(/\r?\n/u)) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice("data:".length).trim();
+    if (payload.length === 0 || payload === "[DONE]") continue;
+    try {
+      objects.push(JSON.parse(payload) as unknown);
+    } catch {
+      // Ignore non-JSON stream payloads.
+    }
+  }
+  return objects;
+}
+
+function usageFromRecord(raw: Readonly<Record<string, unknown>>): OpenAIV1ResponsesUsage | undefined {
+  const usage = isRecord(raw.usage)
+    ? raw.usage
+    : isRecord(raw.response) && isRecord(raw.response.usage)
+      ? raw.response.usage
+      : undefined;
+  if (usage === undefined) {
+    return undefined;
+  }
+
+  const inputDetails = isRecord(usage.input_tokens_details)
+    ? usage.input_tokens_details
+    : isRecord(usage.inputTokensDetails)
+      ? usage.inputTokensDetails
+      : undefined;
+  const outputDetails = isRecord(usage.output_tokens_details)
+    ? usage.output_tokens_details
+    : isRecord(usage.outputTokensDetails)
+      ? usage.outputTokensDetails
+      : undefined;
+
+  const inputTokens = readFiniteNumber(usage, ["input_tokens", "prompt_tokens", "inputTokens", "promptTokens"]);
+  const outputTokens = readFiniteNumber(usage, ["output_tokens", "completion_tokens", "outputTokens", "completionTokens"]);
+  const totalTokens = readFiniteNumber(usage, ["total_tokens", "totalTokens"]);
+  const cachedInputTokens = readFiniteNumber(inputDetails, ["cached_tokens", "cachedTokens"]);
+  const reasoningTokens = readFiniteNumber(outputDetails, ["reasoning_tokens", "reasoningTokens"])
+    ?? readFiniteNumber(usage, ["reasoning_tokens", "thinking_tokens", "reasoningTokens", "thinkingTokens"]);
+
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined &&
+    cachedInputTokens === undefined &&
+    reasoningTokens === undefined
+  ) {
+    return undefined;
+  }
+
+  return {
+    source: "openai.responses.usage",
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cachedInputTokens,
+    reasoningTokens,
+    estimated: false,
+  };
+}
+
+export function extractOpenAIV1ResponsesUsage(raw: unknown): OpenAIV1ResponsesUsage | undefined {
+  if (typeof raw === "string") {
+    let latest: OpenAIV1ResponsesUsage | undefined;
+    for (const object of sseDataObjects(raw)) {
+      if (!isRecord(object)) continue;
+      latest = extractOpenAIV1ResponsesUsage(object) ?? latest;
+    }
+    return latest;
+  }
+
+  if (!isRecord(raw)) {
+    return undefined;
+  }
+
+  return usageFromRecord(raw);
+}
+
 export function classifyOpenAIV1ResponsesProviderError(error: unknown): OpenAIV1ResponsesErrorCode {
   const status = providerStatus(error);
   const code = providerCode(error);
@@ -382,6 +487,7 @@ export async function invokeOpenAIV1Responses(
         endpoint: request.endpoint,
         mode: input.mockResponse === undefined ? "dry-run" : "mock",
         raw: input.mockResponse ?? null,
+        usage: extractOpenAIV1ResponsesUsage(input.mockResponse),
         providerFieldsOpaque: true,
       },
       capability: {
@@ -406,6 +512,7 @@ export async function invokeOpenAIV1Responses(
 
   try {
     const raw = unwrapProviderCallerBody(await input.caller(request));
+    const usage = extractOpenAIV1ResponsesUsage(raw);
     if (input.expectResponseObject === true && !isRecord(raw)) {
       return failure(
         "RESPONSE_FORMAT_DRIFT",
@@ -424,6 +531,7 @@ export async function invokeOpenAIV1Responses(
         endpoint: request.endpoint,
         mode: "caller",
         raw,
+        usage,
         providerFieldsOpaque: true,
       },
       capability: {

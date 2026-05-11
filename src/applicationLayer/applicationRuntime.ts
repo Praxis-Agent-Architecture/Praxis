@@ -41,6 +41,7 @@ import type {
   PraxisApplicationSessionSummary,
   PraxisApplicationStatus,
   PraxisApplicationToolCatalogState,
+  PraxisApplicationUsageTelemetry,
   PraxisApplicationViewModel,
 } from "./applicationContract.js";
 import {
@@ -82,6 +83,7 @@ type RuntimeState = {
   modelCalls: number;
   toolCalls: number;
   mainLoopSteps: number;
+  usage?: PraxisApplicationUsageTelemetry;
   finalOutput?: string;
   error?: {
     code: string;
@@ -1235,6 +1237,7 @@ function applyRunResult(state: RuntimeState, result: AgentRunResult): void {
   state.toolCalls = result.ok ? result.toolCalls.length : 0;
   state.mainLoopSteps = result.mainLoopSteps?.length ?? 0;
   state.manifest = result.manifest ?? state.manifest;
+  state.usage = result.ok ? summarizeRunUsage(result) : undefined;
   if (result.ok) {
     state.status = "completed";
     state.finalOutput = result.finalOutput;
@@ -1247,6 +1250,38 @@ function applyRunResult(state: RuntimeState, result: AgentRunResult): void {
     };
     state.finalOutput = undefined;
   }
+}
+
+function addOptionalNumber(left: number | undefined, right: number | undefined): number | undefined {
+  if (left === undefined && right === undefined) {
+    return undefined;
+  }
+  return (left ?? 0) + (right ?? 0);
+}
+
+function summarizeRunUsage(result: Extract<AgentRunResult, { ok: true }>): PraxisApplicationUsageTelemetry | undefined {
+  const usageRecords = result.modelCalls
+    .map((call) => call.usage)
+    .filter((usage): usage is NonNullable<typeof usage> => usage !== undefined);
+  if (usageRecords.length === 0) {
+    return undefined;
+  }
+
+  const summary = usageRecords.reduce<PraxisApplicationUsageTelemetry>((accumulator, usage) => ({
+    inputTokens: addOptionalNumber(accumulator.inputTokens, usage.inputTokens),
+    outputTokens: addOptionalNumber(accumulator.outputTokens, usage.outputTokens),
+    thinkingTokens: addOptionalNumber(accumulator.thinkingTokens, usage.thinkingTokens),
+    totalTokens: addOptionalNumber(accumulator.totalTokens, usage.totalTokens),
+    cachedInputTokens: addOptionalNumber(accumulator.cachedInputTokens, usage.cachedInputTokens),
+    source: accumulator.source ?? usage.source,
+    estimated: accumulator.estimated || usage.estimated,
+    modelCalls: accumulator.modelCalls + 1,
+  }), {
+    estimated: false,
+    modelCalls: 0,
+  });
+
+  return summary.modelCalls > 0 ? summary : undefined;
 }
 
 export function createPraxisApplicationRuntime(options: PraxisApplicationRuntimeOptions): PraxisApplicationRuntime {
@@ -1399,6 +1434,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         toolCalls: state.toolCalls,
         mainLoopSteps: state.mainLoopSteps,
       },
+      usage: state.usage,
       finalOutput: state.finalOutput,
       error: state.error,
       lines,

@@ -74,7 +74,14 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
     dryRun: false,
     allowProviderCall: true,
     auth: authEnvelope(),
-    providerCaller: async () => ({ output_text: "hello from live model shim" }),
+    providerCaller: async () => ({
+      output_text: "hello from live model shim",
+      usage: {
+        input_tokens: 21,
+        output_tokens: 5,
+        output_tokens_details: { reasoning_tokens: 3 },
+      },
+    }),
     now: () => "2026-04-30T00:00:00.000Z",
   });
 
@@ -82,6 +89,9 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   if (!result.ok) return;
   assert.equal(result.finalOutput, "hello from live model shim");
   assert.equal(result.modelCalls.length, 1);
+  assert.equal(result.modelCalls[0]?.usage?.inputTokens, 21);
+  assert.equal(result.modelCalls[0]?.usage?.outputTokens, 5);
+  assert.equal(result.modelCalls[0]?.usage?.thinkingTokens, 3);
   assert.equal(result.toolCalls.length, 0);
   assert.equal(result.state.session?.status, "completed");
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);

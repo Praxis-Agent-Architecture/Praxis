@@ -1,3 +1,11 @@
+import stringWidth from "string-width";
+
+import {
+  getSelectionColumnsForRow,
+  splitTextBySelectionColumns,
+  type TextSelectionScope,
+  type TextSelectionState,
+} from "../../../tui-input/selection.js";
 import type { SurfaceMessage } from "../surface/types.js";
 
 export type DirectTuiConversationPhase = "intro" | "conversation";
@@ -132,6 +140,58 @@ export function deriveDirectTuiCmpStatusDescriptor(input: {
     animated: false,
     tone: "muted",
   };
+}
+
+export interface DirectTuiTextSelectionSegment {
+  text: string;
+  backgroundColor?: string;
+}
+
+export function applyDirectTuiTextSelectionToRenderSegments<
+  TSegment extends DirectTuiTextSelectionSegment,
+>(input: {
+  text: string;
+  segments?: readonly TSegment[];
+  row: number;
+  scope: TextSelectionScope;
+  selection: TextSelectionState | null;
+  selectionBackgroundColor: string;
+}): TSegment[] | undefined {
+  if (input.selection?.scope !== input.scope) {
+    return input.segments ? [...input.segments] : undefined;
+  }
+  const lineWidth = Math.max(1, stringWidth(input.text));
+  const range = getSelectionColumnsForRow(input.selection, input.row, lineWidth);
+  if (!range || range.endColumnExclusive <= range.startColumn) {
+    return input.segments ? [...input.segments] : undefined;
+  }
+  const sourceSegments: readonly TSegment[] = input.segments?.length
+    ? input.segments
+    : ([{ text: input.text }] as TSegment[]);
+  const output: TSegment[] = [];
+  let segmentColumn = 0;
+  for (const segment of sourceSegments) {
+    for (const piece of splitTextBySelectionColumns(segment.text, range, segmentColumn)) {
+      output.push({
+        ...segment,
+        text: piece.text,
+        backgroundColor: piece.selected ? input.selectionBackgroundColor : segment.backgroundColor,
+      });
+    }
+    segmentColumn += stringWidth(segment.text);
+  }
+  return output;
+}
+
+export function resolveDirectTuiComposerSelectionTopRow(input: {
+  transcriptViewportLineCount: number;
+  overlayLineCount: number;
+  pendingPreviewLineCount: number;
+}): number {
+  return Math.max(0, input.transcriptViewportLineCount)
+    + 3
+    + Math.max(0, input.overlayLineCount)
+    + Math.max(0, input.pendingPreviewLineCount);
 }
 
 export type DirectTuiAssistantTurnResultAction =

@@ -73,6 +73,17 @@ export type PraxisApplicationToolCatalogState = {
   mountedToolIds: readonly string[];
 };
 
+export type PraxisApplicationUsageTelemetry = {
+  inputTokens?: number;
+  outputTokens?: number;
+  thinkingTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  source?: string;
+  estimated: boolean;
+  modelCalls: number;
+};
+
 export type PraxisApplicationManifestView = {
   manifestId: string;
   manifestHash: string;
@@ -134,6 +145,7 @@ export type PraxisApplicationViewModel = {
     toolCalls: number;
     mainLoopSteps: number;
   };
+  usage?: PraxisApplicationUsageTelemetry;
   finalOutput?: string;
   error?: {
     code: string;

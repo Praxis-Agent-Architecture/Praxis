@@ -15,9 +15,11 @@ import type {
 import type {
   PraxisApplicationAttachment,
   PraxisApplicationCommandResult,
+  CreateApplicationProjectRuntimeOptions,
   PraxisApplicationEvent,
   PraxisApplicationPermissionProfile,
   PraxisApplicationRuntimeMode,
+  PraxisApplicationUsageTelemetry,
 } from "../../src/applicationLayer/index.js";
 
 type LegacyDirectBackendOptions = {
@@ -30,6 +32,7 @@ type LegacyDirectBackendOptions = {
   stateRoot?: string;
   mode?: PraxisApplicationRuntimeMode;
   now?: () => string;
+  liveProviderResolver?: CreateApplicationProjectRuntimeOptions["liveProviderResolver"];
 };
 
 type DirectEnvelope = {
@@ -343,10 +346,22 @@ async function writeLog(logPath: string, record: Record<string, unknown>): Promi
   await appendFile(logPath, `${JSON.stringify(record)}\n`, "utf8");
 }
 
+function hasUsageNumber(usage: PraxisApplicationUsageTelemetry | undefined): usage is PraxisApplicationUsageTelemetry {
+  return usage !== undefined && (
+    typeof usage.inputTokens === "number" ||
+    typeof usage.outputTokens === "number" ||
+    typeof usage.thinkingTokens === "number" ||
+    typeof usage.totalTokens === "number"
+  );
+}
+
 function contextFor(result?: PraxisApplicationCommandResult) {
   const model = result?.view.model;
-  const promptTokens = 0;
-  const transcriptTokens = 0;
+  const usage = hasUsageNumber(result?.view.usage) ? result.view.usage : undefined;
+  const promptTokens = usage?.inputTokens;
+  const transcriptTokens = usage === undefined
+    ? undefined
+    : (usage.outputTokens ?? 0) + (usage.thinkingTokens ?? 0);
   return {
     provider: model?.provider ?? "openai",
     model: model?.model ?? "gpt-5.5",
@@ -356,8 +371,25 @@ function contextFor(result?: PraxisApplicationCommandResult) {
     inputBudgetThreshold: model?.inputBudgetThreshold ?? 0.95,
     usableInputTokens: model?.usableInputTokens ?? Math.floor(272_000 * 0.95),
     windowSource: model?.metadataSource ?? "manual-registry",
+    usageSource: usage?.source,
     promptTokens,
     transcriptTokens,
+  };
+}
+
+function usageFor(result: PraxisApplicationCommandResult) {
+  const usage = hasUsageNumber(result.view.usage) ? result.view.usage : undefined;
+  if (usage === undefined) {
+    return { estimated: true };
+  }
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    thinkingTokens: usage.thinkingTokens,
+    totalTokens: usage.totalTokens,
+    cachedInputTokens: usage.cachedInputTokens,
+    source: usage.source,
+    estimated: usage.estimated,
   };
 }
 
@@ -617,9 +649,9 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     reasoningEffort: (process.env.AGENTCORE_CODEX_REASONING_EFFORT as never) ?? "low",
     permissionProfile,
     now: options.now,
-    liveProviderResolver: async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
+    liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       onTextDelta: context?.onTextDelta,
-    }),
+    })),
     approvalResolver,
   });
   if (!created.ok) {
@@ -730,6 +762,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
       text: "Raxode application backend is running.",
     });
 
+    const dispatchStartedAtMs = Date.now();
     const result = await transport.dispatch({
       type: "application.submitTurn",
       sessionId,
@@ -741,6 +774,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
         cwd,
       },
     });
+    const dispatchElapsedMs = Math.max(0, Date.now() - dispatchStartedAtMs);
     await runtimeEventLogQueue;
     const finalText = result.view.finalOutput ?? result.view.error?.message ?? "";
     if (finalText.length > 0 && (streamedTextByTurn.get(turnIndex) ?? "").length === 0) {
@@ -772,15 +806,14 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
       event: "turn_result",
       sessionId,
       turnIndex,
-      elapsedMs: 0,
+      elapsedMs: dispatchElapsedMs,
       core: {
         answer: finalText,
         dispatchStatus: result.ok ? "completed" : "failed",
         taskStatus: result.ok ? "completed" : "failed",
         context: contextFor(result),
-        usage: {
-          estimated: true,
-        },
+        usage: usageFor(result),
+        elapsedMs: dispatchElapsedMs,
       },
       context: contextFor(result),
     });

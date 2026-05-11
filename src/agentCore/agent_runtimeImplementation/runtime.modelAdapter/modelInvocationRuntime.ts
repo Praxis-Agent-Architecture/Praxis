@@ -19,6 +19,7 @@ import {
 import type {
   OpenAIV1ResponsesProviderCaller,
   OpenAIV1ResponsesResult,
+  OpenAIV1ResponsesUsage,
 } from "../../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 
 export type ModelInvocationRuntimeMode = "single" | "stream" | "batch" | (string & {});
@@ -143,6 +144,7 @@ export type RuntimeModelInvocationResult =
       ok: true;
       plan: ModelInvocationPlan;
       providerResult?: OpenAIV1ResponsesResult;
+      usage?: OpenAIV1ResponsesUsage;
       raw: unknown;
       events: readonly string[];
     }
@@ -417,6 +419,7 @@ export async function invokeModelThroughRuntime(
       dryRun: false,
     },
     providerResult,
+    usage: providerResult.response.usage,
     raw: providerResult.response.raw,
     events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
   };

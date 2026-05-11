@@ -445,6 +445,7 @@ export {
   createPraxisRuntimeKernel,
   type AgentModelCallProgressEvent,
   type AgentModelCallRecord,
+  type AgentModelUsageRecord,
   type AgentRunResult,
   type AgentToolCallProgressEvent,
   type AgentToolCallRecord,

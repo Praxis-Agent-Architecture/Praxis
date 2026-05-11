@@ -249,6 +249,17 @@ export type AgentModelCallRecord = {
   invocationId: string;
   raw: unknown;
   ok: boolean;
+  usage?: AgentModelUsageRecord;
+};
+
+export type AgentModelUsageRecord = {
+  inputTokens?: number;
+  outputTokens?: number;
+  thinkingTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  source?: string;
+  estimated: boolean;
 };
 
 export type AgentModelCallProgressEvent =
@@ -2325,6 +2336,17 @@ export class PraxisRuntimeKernel {
         invocationId: modelInvocationId,
         raw: modelResult.ok ? modelResult.raw : null,
         ok: modelResult.ok,
+        usage: modelResult.ok && modelResult.usage
+          ? {
+            inputTokens: modelResult.usage.inputTokens,
+            outputTokens: modelResult.usage.outputTokens,
+            thinkingTokens: modelResult.usage.reasoningTokens,
+            totalTokens: modelResult.usage.totalTokens,
+            cachedInputTokens: modelResult.usage.cachedInputTokens,
+            source: modelResult.usage.source,
+            estimated: modelResult.usage.estimated,
+          }
+          : undefined,
       });
       await store.appendInvocation(invocation(sessionId, modelInvocationId, "model", manifest.model.carrierId, modelResult.ok, now(), {
         turn,

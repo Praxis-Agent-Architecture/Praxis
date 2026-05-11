@@ -51,7 +51,13 @@ test("legacy direct application backend speaks direct ready and writes ordered l
     .map((line) => JSON.parse(line) as {
       event?: string;
       text?: string;
-      core?: { answer?: string; context?: { windowTokens?: number; maxInputTokens?: number; usableInputTokens?: number } };
+      elapsedMs?: number;
+      core?: {
+        answer?: string;
+        elapsedMs?: number;
+        usage?: { estimated?: boolean; inputTokens?: number; outputTokens?: number };
+        context?: { windowTokens?: number; maxInputTokens?: number; usableInputTokens?: number; promptTokens?: number };
+      };
       context?: { windowTokens?: number; maxInputTokens?: number; usableInputTokens?: number };
     });
   const events = rows.map((row) => row.event);
@@ -65,7 +71,103 @@ test("legacy direct application backend speaks direct ready and writes ordered l
   assert.equal(rows.find((row) => row.event === "session_start")?.context?.windowTokens, 400_000);
   assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.maxInputTokens, 272_000);
   assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.usableInputTokens, 258_400);
+  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.usage?.estimated, true);
+  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.usage?.inputTokens, undefined);
+  assert.equal(typeof rows.find((row) => row.event === "turn_result")?.core?.elapsedMs, "number");
   assert.match(rows.find((row) => row.event === "turn_result")?.core?.answer ?? "", /dry-run/u);
+  if (previousStreamFps === undefined) {
+    delete process.env.RAXODE_STREAM_FPS;
+  } else {
+    process.env.RAXODE_STREAM_FPS = previousStreamFps;
+  }
+  await rm(stateRoot, { recursive: true, force: true });
+});
+
+test("legacy direct application backend writes live codex usage from framework telemetry", async () => {
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-legacy-direct-live-"));
+  const previousStreamFps = process.env.RAXODE_STREAM_FPS;
+  process.env.RAXODE_STREAM_FPS = "1000";
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const errorOutput = new PassThrough();
+  let stdout = "";
+  let stderr = "";
+  output.on("data", (chunk: Buffer | string) => {
+    stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  errorOutput.on("data", (chunk: Buffer | string) => {
+    stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+
+  const done = startLegacyDirectApplicationBackend({
+    input,
+    output,
+    errorOutput,
+    cwd: process.cwd(),
+    sessionId: "direct-live-usage-test",
+    stateRoot,
+    mode: "live",
+    liveProviderResolver: async () => ({
+      auth: {
+        kind: "oauth",
+        present: true,
+        headerPlan: [],
+        queryPlan: [],
+        publicSafe: true,
+      },
+      providerCaller: async () => ({
+        status: 200,
+        headers: {},
+        body: [
+          'data: {"type":"response.output_text.delta","delta":"usage ok"}',
+          "",
+          'data: {"type":"response.completed","response":{"usage":{"input_tokens":44,"output_tokens":7,"output_tokens_details":{"reasoning_tokens":3}}}}',
+          "",
+          "data: [DONE]",
+          "",
+        ].join("\n"),
+        providerRawShapePromoted: false,
+        publicSafe: true,
+      }),
+    }),
+  });
+
+  input.write(`${JSON.stringify({
+    type: "direct_user_input",
+    text: "report usage",
+  })}\u0000/exit\u0000`);
+  input.end();
+  await done;
+
+  assert.equal(stderr, "");
+  const logPath = stdout.match(/log file: (.+)/u)?.[1]?.trim();
+  assert.ok(logPath);
+  const rows = (await readFile(logPath, "utf8"))
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as {
+      event?: string;
+      core?: {
+        usage?: {
+          inputTokens?: number;
+          outputTokens?: number;
+          thinkingTokens?: number;
+          estimated?: boolean;
+          source?: string;
+        };
+        context?: { promptTokens?: number; transcriptTokens?: number; usageSource?: string };
+      };
+      context?: { promptTokens?: number; transcriptTokens?: number; usageSource?: string };
+    });
+  const turnResult = rows.find((row) => row.event === "turn_result");
+  assert.equal(turnResult?.core?.usage?.inputTokens, 44);
+  assert.equal(turnResult?.core?.usage?.outputTokens, 7);
+  assert.equal(turnResult?.core?.usage?.thinkingTokens, 3);
+  assert.equal(turnResult?.core?.usage?.estimated, false);
+  assert.equal(turnResult?.core?.usage?.source, "openai.responses.usage");
+  assert.equal(turnResult?.core?.context?.promptTokens, 44);
+  assert.equal(turnResult?.core?.context?.transcriptTokens, 10);
+  assert.equal(turnResult?.core?.context?.usageSource, "openai.responses.usage");
   if (previousStreamFps === undefined) {
     delete process.env.RAXODE_STREAM_FPS;
   } else {

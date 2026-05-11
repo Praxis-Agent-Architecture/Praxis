@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   OPENAI_V1_RESPONSES_ENDPOINT,
   classifyOpenAIV1ResponsesProviderError,
+  extractOpenAIV1ResponsesUsage,
   invokeOpenAIV1Responses,
 } from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import { createApiKeyAuthEnvelope } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
@@ -86,6 +87,45 @@ test("OpenAI v1 responses invokes only an injected caller in live mode", async (
 
   assert.equal(result.response.mode, "caller");
   assert.equal(result.capability.rawShape, "response-object");
+});
+
+test("OpenAI v1 responses normalizes provider usage from response objects and SSE completions", () => {
+  assert.deepEqual(extractOpenAIV1ResponsesUsage({
+    id: "resp_123",
+    usage: {
+      input_tokens: 123,
+      output_tokens: 45,
+      total_tokens: 168,
+      input_tokens_details: { cached_tokens: 12 },
+      output_tokens_details: { reasoning_tokens: 9 },
+    },
+  }), {
+    source: "openai.responses.usage",
+    inputTokens: 123,
+    outputTokens: 45,
+    totalTokens: 168,
+    cachedInputTokens: 12,
+    reasoningTokens: 9,
+    estimated: false,
+  });
+
+  const sse = [
+    'data: {"type":"response.output_text.delta","delta":"hello"}',
+    "",
+    'data: {"type":"response.completed","response":{"usage":{"input_tokens":5,"output_tokens":2,"output_tokens_details":{"reasoning_tokens":1}}}}',
+    "",
+    "data: [DONE]",
+    "",
+  ].join("\n");
+  assert.deepEqual(extractOpenAIV1ResponsesUsage(sse), {
+    source: "openai.responses.usage",
+    inputTokens: 5,
+    outputTokens: 2,
+    totalTokens: undefined,
+    cachedInputTokens: undefined,
+    reasoningTokens: 1,
+    estimated: false,
+  });
 });
 
 test("OpenAI v1 responses classifies provider rate limits", () => {

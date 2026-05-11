@@ -181,11 +181,13 @@ import {
   formatHumanGateDecisionEnvelope,
 } from "./live-agent-chat/human-gate-envelope.js";
 import {
+  applyDirectTuiTextSelectionToRenderSegments,
   createDirectTuiCmpActivityKey,
   deriveDirectTuiCmpStatusDescriptor,
   isDirectTuiCmpActivityStage,
   resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
+  resolveDirectTuiComposerSelectionTopRow,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
 } from "./tui-input/direct-tui-presentation.js";
@@ -241,7 +243,28 @@ import {
   refineWebSearchToolSummary,
   summarizePendingComposerText,
 } from "./tui-mini-summary.js";
-import { enableTerminalMouseReporting } from "../../tui-input/mouse.js";
+import { enableTerminalMouseReporting, parseTerminalMouseEvents } from "../../tui-input/mouse.js";
+import {
+  consumeBracketedPasteInput,
+  enableTerminalBracketedPaste,
+  isTerminalPasteShortcutInput,
+} from "../../tui-input/paste.js";
+import {
+  extractSelectedText,
+  finishTextSelection,
+  formatOsc52ClipboardSequence,
+  isTerminalTextSelectionCopySequence,
+  isTextSelectionCopyInput,
+  resolveSelectablePoint,
+  resolveSelectionAutoScrollDelta,
+  resolveTextSelectionClipboardCommands,
+  resolveTranscriptSelectionPointFromViewport,
+  startTextSelection,
+  updateTextSelection,
+  type SelectableRegion,
+  type TextSelectionScope,
+  type TextSelectionState,
+} from "../../tui-input/selection.js";
 import { TUI_THEME } from "./tui-theme.js";
 import {
   resolveConfigRoot,
@@ -274,6 +297,7 @@ interface LiveContextRecord {
   maxInputTokens?: number;
   inputBudgetThreshold?: number;
   usableInputTokens?: number;
+  usageSource?: string;
 }
 
 interface LiveLogRecord {
@@ -355,6 +379,9 @@ interface LiveLogRecord {
       inputTokens?: number;
       outputTokens?: number;
       thinkingTokens?: number;
+      totalTokens?: number;
+      cachedInputTokens?: number;
+      source?: string;
       estimated?: boolean;
     };
     elapsedMs?: number;
@@ -705,6 +732,10 @@ function formatTurnUsageDetail(input?: {
     parts.push(`thinking ${input.thinkingTokens} tokens`);
   }
   if (typeof input.elapsedMs === "number" && Number.isFinite(input.elapsedMs)) {
+    if (input.elapsedMs < 1000) {
+      parts.push(`${Math.max(0, Math.round(input.elapsedMs))}ms`);
+      return parts.length > 0 ? parts.join(" · ") : null;
+    }
     const totalSeconds = Math.max(0, Math.floor(input.elapsedMs / 1000));
     const hours = Math.floor(totalSeconds / 3600);
     const minutes = Math.floor((totalSeconds % 3600) / 60);
@@ -6860,25 +6891,31 @@ function resolveValidWorkspacePath(value: string | undefined, fallback: string):
   return fallback;
 }
 
-function parseMouseScrollDelta(inputText: string): number | null {
-  // Ink strips the first ESC byte for some unhandled sequences, so mouse
-  // reports can arrive as "[<64;..M", "<64;..M", or multiple reports glued
-  // together in one chunk. Consume all of them before input handling.
-  const matches = [...inputText.matchAll(/(?:\u001B)?\[?<(\d+);\d+;\d+[mM]/gu)];
-  if (matches.length === 0) {
-    return null;
-  }
+const TERMINAL_CONTENT_LEFT_COLUMN = 2;
+const TEXT_SELECTION_BACKGROUND = "blue";
+const TEXT_SELECTION_AUTOSCROLL_INTERVAL_MS = 70;
 
-  let delta = 0;
-  for (const match of matches) {
-    const code = Number(match[1]);
-    if (code === 64) {
-      delta += 3;
-    } else if (code === 65) {
-      delta -= 3;
-    }
-  }
-  return delta;
+function selectedTextLinesForScope(input: {
+  scope: TextSelectionScope;
+  transcriptLines: readonly RenderLine[];
+  composerLines: readonly string[];
+}): readonly string[] {
+  return input.scope === "transcript"
+    ? input.transcriptLines.map((line) => line.text)
+    : input.composerLines;
+}
+
+function applyTextSelectionToRenderSegments(input: {
+  text: string;
+  segments?: RenderLine["segments"];
+  row: number;
+  scope: TextSelectionScope;
+  selection: TextSelectionState | null;
+}): RenderLine["segments"] {
+  return applyDirectTuiTextSelectionToRenderSegments({
+    ...input,
+    selectionBackgroundColor: TEXT_SELECTION_BACKGROUND,
+  });
 }
 
 function excerptRewindUserText(value: string, max = 72): string {
@@ -6887,6 +6924,59 @@ function excerptRewindUserText(value: string, max = 72): string {
     return normalized;
   }
   return `${normalized.slice(0, max - 1)}…`;
+}
+
+let resolvedTextSelectionNativeClipboardCommand: string | null | undefined;
+
+function runClipboardCommand(command: string, args: readonly string[], text: string): Promise<boolean> {
+  return new Promise((resolveDone) => {
+    const child = spawn(command, [...args], {
+      stdio: ["pipe", "ignore", "ignore"],
+    });
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolveDone(ok);
+    };
+    const timer = setTimeout(() => {
+      child.kill();
+      finish(false);
+    }, 2000);
+    child.once("error", () => finish(false));
+    child.once("exit", (code) => finish(code === 0));
+    child.stdin.once("error", () => finish(false));
+    child.stdin.end(text);
+  });
+}
+
+function copyTextSelectionToSystemClipboard(text: string): void {
+  const commands = resolveTextSelectionClipboardCommands();
+  if (commands.length === 0) {
+    return;
+  }
+  const tmuxCommands = commands.filter((entry) => entry.command === "tmux");
+  for (const command of tmuxCommands) {
+    void runClipboardCommand(command.command, command.args, text);
+  }
+  const nativeCommands = commands.filter((entry) => entry.command !== "tmux");
+  if (nativeCommands.length === 0 || resolvedTextSelectionNativeClipboardCommand === null) {
+    return;
+  }
+  const cachedCommand = nativeCommands.find((entry) => entry.command === resolvedTextSelectionNativeClipboardCommand);
+  const candidates = cachedCommand ? [cachedCommand] : nativeCommands;
+  void (async () => {
+    for (const candidate of candidates) {
+      if (await runClipboardCommand(candidate.command, candidate.args, text)) {
+        resolvedTextSelectionNativeClipboardCommand = candidate.command;
+        return;
+      }
+    }
+    resolvedTextSelectionNativeClipboardCommand = null;
+  })();
 }
 
 function formatRewindTurnOrdinal(turnIndex: number): string {
@@ -6974,12 +7064,16 @@ function sliceOverlayWindow<T>(items: readonly T[], selectedIndex: number, maxIt
 
 const TranscriptPane = memo(function TranscriptPane({
   visibleLines,
+  visibleStartIndex,
   viewportLineCount,
   transientStatusLine,
+  textSelection,
 }: {
   visibleLines: RenderLine[];
+  visibleStartIndex: number;
   viewportLineCount: number;
   transientStatusLine: RenderLine | null;
+  textSelection: TextSelectionState | null;
 }): JSX.Element {
   const reservedStatusLines = transientStatusLine ? 1 : 0;
   const bodyViewportLineCount = Math.max(0, viewportLineCount - reservedStatusLines);
@@ -6990,10 +7084,19 @@ const TranscriptPane = memo(function TranscriptPane({
   return (
     <Box flexDirection="column" flexGrow={1} flexShrink={1}>
       <Box flexDirection="column" height={viewportLineCount} flexGrow={1} flexShrink={1}>
-        {bodyLines.map((line, index) => (
+        {bodyLines.map((line, index) => {
+          const absoluteRow = visibleStartIndex + Math.max(0, visibleLines.length - bodyViewportLineCount) + index;
+          const renderedSegments = applyTextSelectionToRenderSegments({
+            text: line.text,
+            segments: line.segments,
+            row: absoluteRow,
+            scope: "transcript",
+            selection: textSelection,
+          });
+          return (
           <Text key={`body-${index}-${line.text}`} color={colorForRenderLine(line.kind)}>
-            {line.segments
-              ? line.segments.map((segment, segmentIndex) => (
+            {renderedSegments
+              ? renderedSegments.map((segment, segmentIndex) => (
                 <Text
                   key={`body-${index}-${segmentIndex}-${segment.text}`}
                   color={segment.color}
@@ -7004,7 +7107,8 @@ const TranscriptPane = memo(function TranscriptPane({
               ))
               : line.text}
           </Text>
-        ))}
+          );
+        })}
         {transientStatusLine ? (
           <Text key={`transient-status-${transientStatusLine.text}`} color={colorForRenderLine(transientStatusLine.kind)}>
             {transientStatusLine.segments?.map((segment, segmentIndex) => (
@@ -7193,6 +7297,7 @@ const ComposerPane = memo(function ComposerPane({
   footerModeLabel,
   footerModeColor,
   footerModeHint,
+  textSelection,
 }: {
   showSlashMenu: boolean;
   slashPanel: DirectSlashPanelView | null;
@@ -7220,6 +7325,7 @@ const ComposerPane = memo(function ComposerPane({
   footerModeLabel: string;
   footerModeColor: string;
   footerModeHint: string;
+  textSelection: TextSelectionState | null;
 }): JSX.Element {
   const maxLabelWidth = commandPaletteItems.reduce((max, item) => Math.max(max, item.label.length), 0);
   const panelLabelWidth = slashPanel
@@ -7474,25 +7580,38 @@ const ComposerPane = memo(function ComposerPane({
         )
       ))}
       <Text color={TUI_THEME.line}>{"─".repeat(lineWidth)}</Text>
-      {composerLines.map((line, index) => (
-        <Text key={`composer-line-${index}`}>
-          <Text color={composerPrefixColor ?? TUI_THEME.mint}>{index === 0 ? composerPrefix : "   "}</Text>
-          {composerValue.length === 0 && index === 0 ? (
-            <Text color={TUI_THEME.textMuted}>{composerPlaceholder}</Text>
-          ) : (
-            <>
-              {renderComposerLineFragments(
-                line.length > 0 ? line : (composerInputLocked && index === 0 ? "" : " "),
-                TUI_THEME.text,
-              ).map((fragment, fragmentIndex) => (
-                <Text key={`composer-fragment-${index}-${fragmentIndex}`} color={fragment.color}>
-                  {fragment.text}
-                </Text>
-              ))}
-            </>
-          )}
-        </Text>
-      ))}
+      {composerLines.map((line, index) => {
+        const baseText = line.length > 0 ? line : (composerInputLocked && index === 0 ? "" : " ");
+        const fragments = composerValue.length === 0 && index === 0
+          ? null
+          : applyTextSelectionToRenderSegments({
+              text: baseText,
+              segments: renderComposerLineFragments(baseText, TUI_THEME.text),
+              row: index,
+              scope: "composer",
+              selection: textSelection,
+            });
+        return (
+          <Text key={`composer-line-${index}`}>
+            <Text color={composerPrefixColor ?? TUI_THEME.mint}>{index === 0 ? composerPrefix : "   "}</Text>
+            {composerValue.length === 0 && index === 0 ? (
+              <Text color={TUI_THEME.textMuted}>{composerPlaceholder}</Text>
+            ) : (
+              <>
+                {fragments?.map((fragment, fragmentIndex) => (
+                  <Text
+                    key={`composer-fragment-${index}-${fragmentIndex}`}
+                    color={fragment.color}
+                    backgroundColor={fragment.backgroundColor}
+                  >
+                    {fragment.text}
+                  </Text>
+                ))}
+              </>
+            )}
+          </Text>
+        );
+      })}
       <Text color={TUI_THEME.line}>{"─".repeat(lineWidth)}</Text>
       <Box>
         <Box width={footerLeftWidth} flexShrink={1} marginRight={1}>
@@ -7599,6 +7718,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const [backendEpoch, setBackendEpoch] = useState(0);
   const [logPath, setLogPath] = useState<string | null>(null);
   const [scrollOffset, setScrollOffset] = useState(0);
+  const [textSelection, setTextSelection] = useState<TextSelectionState | null>(null);
   const [animationTick, setAnimationTick] = useState(0);
   const [footerModeIndex, setFooterModeIndex] = useState(0);
   const [rushModeEnabled, setRushModeEnabled] = useState(false);
@@ -7641,6 +7761,20 @@ function PraxisDirectTuiApp(): JSX.Element {
   const logTickInFlightRef = useRef(false);
   const sessionIdRef = useRef(initialBootState.sessionId);
   const previousTranscriptLineCountRef = useRef(0);
+  const textSelectionRef = useRef<TextSelectionState | null>(null);
+  const textSelectionRegionsRef = useRef<SelectableRegion[]>([]);
+  const textSelectionTranscriptLinesRef = useRef<RenderLine[]>([]);
+  const textSelectionComposerLinesRef = useRef<string[]>([]);
+  const textSelectionTranscriptVisibleStartRef = useRef(0);
+  const textSelectionPointerRowRef = useRef<number | null>(null);
+  const textSelectionPointerColumnRef = useRef<number | null>(null);
+  const textSelectionAutoScrollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const textSelectionScrollContextRef = useRef({
+    maxScrollOffset: 0,
+    scrollOffset: 0,
+    transcriptViewportLineCount: 0,
+  });
+  const bracketedPasteStateRef = useRef({ active: false });
   const assistantSegmentIndexRef = useRef(new Map<string, number>());
   const activeAssistantMessageIdRef = useRef(new Map<string, string>());
   const emittedAssistantTextRef = useRef(new Map<string, string>());
@@ -10012,12 +10146,16 @@ function PraxisDirectTuiApp(): JSX.Element {
   }, [rushFooterNotice]);
 
   useEffect(() => {
-    const cleanup = enableTerminalMouseReporting(process.stdout, {
+    const cleanupMouse = enableTerminalMouseReporting(process.stdout, {
       defaultEnabled: true,
-      defaultMode: "alternate-scroll",
+      defaultMode: "managed-selection",
     });
+    const cleanupPaste = enableTerminalBracketedPaste(process.stdout);
     setTerminalSize((current) => ({ ...current }));
-    return cleanup;
+    return () => {
+      cleanupPaste();
+      cleanupMouse();
+    };
   }, []);
 
   useEffect(() => {
@@ -11025,10 +11163,11 @@ function PraxisDirectTuiApp(): JSX.Element {
               emittedAssistantTextRef.current.set(turnId, answer);
               rawAssistantDeltaTextRef.current.set(turnId, answer);
             }
+            const turnUsage = record.core?.usage;
             const usageDetail = formatTurnUsageDetail({
-              inputTokens: record.core?.usage?.inputTokens ?? turnContext?.promptTokens,
-              outputTokens: record.core?.usage?.outputTokens ?? (answer ? estimateContextUnits(answer) : undefined),
-              thinkingTokens: record.core?.usage?.thinkingTokens,
+              inputTokens: turnUsage?.inputTokens,
+              outputTokens: turnUsage?.outputTokens,
+              thinkingTokens: turnUsage?.thinkingTokens,
               elapsedMs: record.core?.elapsedMs ?? record.elapsedMs,
             });
             recordSessionUsage({
@@ -11042,10 +11181,10 @@ function PraxisDirectTuiApp(): JSX.Element {
                 : record.core?.taskStatus === "blocked"
                   ? "blocked"
                   : "failed",
-              inputTokens: record.core?.usage?.inputTokens ?? turnContext?.promptTokens,
-              outputTokens: record.core?.usage?.outputTokens ?? (answer ? estimateContextUnits(answer) : undefined),
-              thinkingTokens: record.core?.usage?.thinkingTokens,
-              estimated: record.core?.usage?.estimated === true,
+              inputTokens: turnUsage?.inputTokens,
+              outputTokens: turnUsage?.outputTokens,
+              thinkingTokens: turnUsage?.thinkingTokens,
+              estimated: turnUsage?.estimated === true,
               startedAt: at,
               endedAt: at,
               errorCode: typeof record.resultMetadata?.errorCode === "string" ? record.resultMetadata.errorCode : undefined,
@@ -12652,6 +12791,138 @@ function PraxisDirectTuiApp(): JSX.Element {
     })();
   }, [backendStatus, pendingComposerDispatches, interruptibleTasks.length, activeTurnIds]);
 
+  const setTextSelectionState = (nextSelection: TextSelectionState | null) => {
+    textSelectionRef.current = nextSelection;
+    setTextSelection(nextSelection);
+  };
+
+  const stopTextSelectionAutoScroll = () => {
+    if (textSelectionAutoScrollTimerRef.current) {
+      clearInterval(textSelectionAutoScrollTimerRef.current);
+      textSelectionAutoScrollTimerRef.current = null;
+    }
+    textSelectionPointerRowRef.current = null;
+    textSelectionPointerColumnRef.current = null;
+  };
+
+  const resolveTextSelectionPointFromMouseEvent = (event: { x: number; y: number }) => {
+    const resolved = resolveSelectablePoint(event, textSelectionRegionsRef.current);
+    if (!resolved) {
+      return null;
+    }
+    return {
+      scope: resolved.scope,
+      point: resolved.scope === "transcript"
+        ? {
+            ...resolved.point,
+            row: textSelectionTranscriptVisibleStartRef.current + resolved.point.row,
+          }
+        : resolved.point,
+    };
+  };
+
+  const updateTranscriptSelectionFocusFromMouseEvent = (event: { x: number; y: number }, scrollOffsetOverride?: number) => {
+    const selection = textSelectionRef.current;
+    if (selection?.scope !== "transcript") {
+      return;
+    }
+    const context = textSelectionScrollContextRef.current;
+    setTextSelectionState(updateTextSelection(selection, "transcript", {
+      ...resolveTranscriptSelectionPointFromViewport({
+        eventX: event.x,
+        eventY: event.y,
+        contentLeftColumn: TERMINAL_CONTENT_LEFT_COLUMN,
+        transcriptLineCount: textSelectionTranscriptLinesRef.current.length,
+        transcriptViewportLineCount: context.transcriptViewportLineCount,
+        scrollOffset: scrollOffsetOverride ?? context.scrollOffset,
+      }),
+    }));
+  };
+
+  const copyCurrentTextSelection = (selection: TextSelectionState | null) => {
+    if (!selection?.focus) {
+      return "";
+    }
+    const text = extractSelectedText(
+      selectedTextLinesForScope({
+        scope: selection.scope,
+        transcriptLines: textSelectionTranscriptLinesRef.current,
+        composerLines: textSelectionComposerLinesRef.current,
+      }),
+      selection,
+    );
+    if (text.length > 0) {
+      copyTextSelectionToSystemClipboard(text);
+      process.stdout.write(formatOsc52ClipboardSequence(text));
+    }
+    return text;
+  };
+
+  const tickTextSelectionAutoScroll = () => {
+    const selection = textSelectionRef.current;
+    const pointerRow = textSelectionPointerRowRef.current;
+    const pointerColumn = textSelectionPointerColumnRef.current;
+    if (!selection?.active || selection.scope !== "transcript" || pointerRow === null || pointerColumn === null) {
+      stopTextSelectionAutoScroll();
+      return;
+    }
+    const context = textSelectionScrollContextRef.current;
+    const delta = resolveSelectionAutoScrollDelta({
+      active: selection.active,
+      scope: selection.scope,
+      pointerRow,
+      viewportRowCount: context.transcriptViewportLineCount,
+      scrollOffset: context.scrollOffset,
+      maxScrollOffset: context.maxScrollOffset,
+    });
+    if (delta === 0) {
+      stopTextSelectionAutoScroll();
+      return;
+    }
+    setScrollOffset((previous) => {
+      const next = applyScrollDelta(previous, delta, context.maxScrollOffset);
+      updateTranscriptSelectionFocusFromMouseEvent({
+        x: pointerColumn,
+        y: pointerRow,
+      }, next);
+      return next;
+    });
+  };
+
+  const scheduleTextSelectionAutoScroll = (event: { y: number }) => {
+    const selection = textSelectionRef.current;
+    if (!selection?.active || selection.scope !== "transcript") {
+      stopTextSelectionAutoScroll();
+      return;
+    }
+    const context = textSelectionScrollContextRef.current;
+    const pointerRow = Math.max(1, Math.min(event.y, context.transcriptViewportLineCount));
+    textSelectionPointerRowRef.current = pointerRow;
+    textSelectionPointerColumnRef.current = Math.max(TERMINAL_CONTENT_LEFT_COLUMN, event.x);
+    const delta = resolveSelectionAutoScrollDelta({
+      active: selection.active,
+      scope: selection.scope,
+      pointerRow,
+      viewportRowCount: context.transcriptViewportLineCount,
+      scrollOffset: context.scrollOffset,
+      maxScrollOffset: context.maxScrollOffset,
+    });
+    if (delta === 0) {
+      stopTextSelectionAutoScroll();
+      return;
+    }
+    if (!textSelectionAutoScrollTimerRef.current) {
+      textSelectionAutoScrollTimerRef.current = setInterval(
+        tickTextSelectionAutoScroll,
+        TEXT_SELECTION_AUTOSCROLL_INTERVAL_MS,
+      );
+    }
+  };
+
+  useEffect(() => () => {
+    stopTextSelectionAutoScroll();
+  }, []);
+
   useInput((inputText, key) => {
     if (exitSummaryDisplay) {
       if (
@@ -12694,39 +12965,68 @@ function PraxisDirectTuiApp(): JSX.Element {
       }
       return;
     }
-    const mouseScrollDelta = parseMouseScrollDelta(inputText);
-    if (mouseScrollDelta !== null) {
-      if (mouseScrollDelta !== 0) {
-        setScrollOffset((previous) => applyScrollDelta(previous, mouseScrollDelta, maxScrollOffset));
+    const mouseEvents = parseTerminalMouseEvents(inputText);
+    if (mouseEvents.length > 0) {
+      for (const event of mouseEvents) {
+        if (event.kind === "scroll") {
+          if (event.delta !== 0) {
+            setScrollOffset((previous) => {
+              const next = applyScrollDelta(previous, event.delta, maxScrollOffset);
+              if (textSelectionRef.current?.active && textSelectionRef.current.scope === "transcript") {
+                updateTranscriptSelectionFocusFromMouseEvent(event, next);
+              }
+              return next;
+            });
+          }
+          continue;
+        }
+        if (event.kind === "click" && event.button === "left" && event.pressed) {
+          const resolved = resolveTextSelectionPointFromMouseEvent(event);
+          if (resolved) {
+            stopTextSelectionAutoScroll();
+            setTextSelectionState(startTextSelection(resolved.scope, resolved.point));
+          }
+          continue;
+        }
+        if (event.kind === "drag" && event.button === "left" && textSelectionRef.current?.active) {
+          const activeSelection = textSelectionRef.current;
+          if (activeSelection.scope === "transcript") {
+            updateTranscriptSelectionFocusFromMouseEvent(event);
+            scheduleTextSelectionAutoScroll(event);
+            continue;
+          }
+          const resolved = resolveTextSelectionPointFromMouseEvent(event);
+          if (resolved?.scope === activeSelection.scope) {
+            setTextSelectionState(updateTextSelection(activeSelection, resolved.scope, resolved.point));
+          }
+          continue;
+        }
+        if (event.kind === "click" && event.button === "left" && !event.pressed && textSelectionRef.current) {
+          stopTextSelectionAutoScroll();
+          const releasedSelection = textSelectionRef.current;
+          setTextSelectionState(releasedSelection.focus ? finishTextSelection(releasedSelection) : null);
+        }
       }
+      return;
+    }
+    const textSelectionCopyInput = isTextSelectionCopyInput(inputText, key);
+    if (textSelectionRef.current && textSelectionCopyInput) {
+      stopTextSelectionAutoScroll();
+      copyCurrentTextSelection(textSelectionRef.current);
+      return;
+    }
+    if (isTerminalTextSelectionCopySequence(inputText)) {
       return;
     }
     const focusedPanelField = slashPanelView?.fields[slashPanelFocusIndex];
     const panelInputActive = focusedPanelField?.kind === "input";
     const shiftReturnInput = isShiftReturnInput(inputText, key);
-
-    const looksLikePastedChunk =
-      Boolean(inputText)
-      && (
-        inputText.includes("\n")
-        || inputText.length > 1
-      )
-      && !key.ctrl
-      && !key.meta
-      && !key.escape
-      && !key.return
-      && !key.tab
-      && !key.leftArrow
-      && !key.rightArrow
-      && !key.upArrow
-      && !key.downArrow
-      && !key.backspace
-      && !key.delete
-      && !shiftReturnInput;
-
-    if (looksLikePastedChunk) {
+    const insertTextFromPaste = (text: string) => {
+      if (!text) {
+        return;
+      }
       if (panelInputActive) {
-        const nextState = insertIntoTuiTextInput(slashPanelInputState, inputText);
+        const nextState = insertIntoTuiTextInput(slashPanelInputState, text);
         setSlashPanelInputState(nextState);
         setSlashPanelDraft((current) => ({
           ...current,
@@ -12734,31 +13034,34 @@ function PraxisDirectTuiApp(): JSX.Element {
         }));
         return;
       }
-      enqueuePastedText(inputText);
+      if (workspacePickerInputState) {
+        setWorkspacePickerInputState((previous) =>
+          previous ? insertIntoTuiTextInput(previous, text) : previous);
+        return;
+      }
+      enqueuePastedText(text);
+    };
+
+    const bracketedPasteInput = consumeBracketedPasteInput(inputText, bracketedPasteStateRef.current);
+    if (bracketedPasteInput.handled) {
+      if (textSelectionRef.current) {
+        stopTextSelectionAutoScroll();
+        setTextSelectionState(null);
+      }
+      insertTextFromPaste(bracketedPasteInput.text);
       return;
     }
 
-    if (!inputText && pendingPasteTextRef.current) {
-      flushPendingPasteText();
-    }
-
-    if (key.ctrl && inputText === "c") {
-      flushPendingPasteText();
-      requestImmediateQuit({ force: true });
-      return;
-    }
-
-    if (key.ctrl && inputText === "v") {
-      if (panelInputActive) {
+    if (isTerminalPasteShortcutInput(inputText, key)) {
+      if (textSelectionRef.current) {
+        stopTextSelectionAutoScroll();
+        setTextSelectionState(null);
+      }
+      if (panelInputActive || workspacePickerInputState) {
         void (async () => {
           const clipboardText = await readClipboardText();
           if (clipboardText) {
-            const nextState = insertIntoTuiTextInput(slashPanelInputState, clipboardText);
-            setSlashPanelInputState(nextState);
-            setSlashPanelDraft((current) => ({
-              ...current,
-              [focusedPanelField.key]: nextState.value,
-            }));
+            insertTextFromPaste(clipboardText);
           }
         })();
         return;
@@ -12780,6 +13083,45 @@ function PraxisDirectTuiApp(): JSX.Element {
           enqueuePastedText(clipboardText);
         }
       })();
+      return;
+    }
+
+    if (textSelectionRef.current) {
+      stopTextSelectionAutoScroll();
+      setTextSelectionState(null);
+    }
+
+    const looksLikePastedChunk =
+      Boolean(inputText)
+      && (
+        inputText.includes("\n")
+        || inputText.length > 1
+      )
+      && !key.ctrl
+      && !key.meta
+      && !key.escape
+      && !key.return
+      && !key.tab
+      && !key.leftArrow
+      && !key.rightArrow
+      && !key.upArrow
+      && !key.downArrow
+      && !key.backspace
+      && !key.delete
+      && !shiftReturnInput;
+
+    if (looksLikePastedChunk) {
+      insertTextFromPaste(inputText);
+      return;
+    }
+
+    if (!inputText && pendingPasteTextRef.current) {
+      flushPendingPasteText();
+    }
+
+    if (key.ctrl && inputText === "c") {
+      flushPendingPasteText();
+      requestImmediateQuit({ force: true });
       return;
     }
 
@@ -14349,6 +14691,10 @@ function PraxisDirectTuiApp(): JSX.Element {
     [shouldShowConversationHeader, conversationHeaderExpandedLines, transcriptLineWidth, transcriptLines],
   );
   const maxScrollOffset = Math.max(0, transcriptScrollLines.length - transcriptViewportLineCount);
+  const visibleTranscriptEndIndex = transcriptScrollLines.length <= transcriptViewportLineCount
+    ? transcriptScrollLines.length
+    : Math.max(transcriptViewportLineCount, transcriptScrollLines.length - scrollOffset);
+  const visibleTranscriptStartIndex = Math.max(0, visibleTranscriptEndIndex - transcriptViewportLineCount);
   useEffect(() => {
     const previous = previousTranscriptLineCountRef.current;
     const next = transcriptScrollLines.length;
@@ -14366,6 +14712,42 @@ function PraxisDirectTuiApp(): JSX.Element {
     () => computeVisibleLines(transcriptScrollLines, transcriptViewportLineCount, scrollOffset),
     [scrollOffset, transcriptScrollLines, transcriptViewportLineCount],
   );
+  const composerOverlayLineCount =
+    exitSummaryDisplay
+      ? exitSummaryLineCount
+      : (slashPanelView
+        ? slashPanelLineCount
+        : composerPopup
+          ? composerPopupLineCount
+          : (showSlashMenu ? commandPaletteItems.length + 1 : 0));
+  const composerInputTopRow = resolveDirectTuiComposerSelectionTopRow({
+    transcriptViewportLineCount,
+    overlayLineCount: composerOverlayLineCount,
+    pendingPreviewLineCount: pendingComposerDispatchPreviewLines.length,
+  });
+  textSelectionRef.current = textSelection;
+  textSelectionTranscriptLinesRef.current = transcriptScrollLines;
+  textSelectionComposerLinesRef.current = composerLines;
+  textSelectionTranscriptVisibleStartRef.current = visibleTranscriptStartIndex;
+  textSelectionScrollContextRef.current = {
+    maxScrollOffset,
+    scrollOffset,
+    transcriptViewportLineCount,
+  };
+  textSelectionRegionsRef.current = [
+    {
+      scope: "transcript",
+      topRow: 1,
+      rowCount: transcriptViewportLineCount,
+      leftColumn: TERMINAL_CONTENT_LEFT_COLUMN,
+    },
+    {
+      scope: "composer",
+      topRow: composerInputTopRow,
+      rowCount: composerLines.length,
+      leftColumn: (localRow) => TERMINAL_CONTENT_LEFT_COLUMN + (localRow === 0 ? stringWidth(composerPrefix) : 3),
+    },
+  ];
   const cwdLabel = shortenPath(currentCwd);
   const activeQuestionPrompt = questionViewerSnapshot?.status === "active"
     ? questionViewerSnapshot.questions[clampQuestionIndex(
@@ -14424,8 +14806,10 @@ function PraxisDirectTuiApp(): JSX.Element {
       ) : (
         <TranscriptPane
           visibleLines={visibleTranscriptLines}
+          visibleStartIndex={visibleTranscriptStartIndex}
           viewportLineCount={transcriptViewportLineCount}
           transientStatusLine={transientRunStatusLine}
+          textSelection={textSelection}
         />
       )}
       {exitSummaryDisplay ? (
@@ -14458,6 +14842,7 @@ function PraxisDirectTuiApp(): JSX.Element {
           footerModeLabel={footerMode.label}
           footerModeColor={footerMode.color}
           footerModeHint={FOOTER_MODE_HINT}
+          textSelection={textSelection}
         />
       )}
     </Box>

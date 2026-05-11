@@ -1,14 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import {
+  startTextSelection,
+  updateTextSelection,
+} from "../../../tui-input/selection.js";
 import { createSurfaceMessage } from "../surface/types.js";
 import {
+  applyDirectTuiTextSelectionToRenderSegments,
   createDirectTuiCmpActivityKey,
   deriveDirectTuiCmpStatusDescriptor,
   hasDirectTuiFormalConversation,
   isDirectTuiCmpActivityStage,
   resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
+  resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiConversationPhase,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
@@ -228,4 +234,62 @@ test("cmp status descriptor distinguishes ready empty from active work", () => {
     animated: false,
     tone: "muted",
   });
+});
+
+test("text selection render segments preserve colors while applying selection background", () => {
+  const selection = updateTextSelection(
+    startTextSelection("transcript", { row: 0, column: 1 }),
+    "transcript",
+    { row: 0, column: 4 },
+  );
+
+  assert.deepEqual(applyDirectTuiTextSelectionToRenderSegments({
+    text: "abcdef",
+    segments: [
+      { text: "ab", color: "white" },
+      { text: "cd", color: "cyan" },
+      { text: "ef", color: "green" },
+    ],
+    row: 0,
+    scope: "transcript",
+    selection,
+    selectionBackgroundColor: "blue",
+  }), [
+    { text: "a", color: "white", backgroundColor: undefined },
+    { text: "b", color: "white", backgroundColor: "blue" },
+    { text: "cd", color: "cyan", backgroundColor: "blue" },
+    { text: "e", color: "green", backgroundColor: "blue" },
+    { text: "f", color: "green", backgroundColor: undefined },
+  ]);
+});
+
+test("text selection render segments ignore selections from another scope", () => {
+  const selection = updateTextSelection(
+    startTextSelection("composer", { row: 0, column: 0 }),
+    "composer",
+    { row: 0, column: 3 },
+  );
+
+  assert.deepEqual(applyDirectTuiTextSelectionToRenderSegments({
+    text: "abcdef",
+    segments: [{ text: "abcdef", color: "white" }],
+    row: 0,
+    scope: "transcript",
+    selection,
+    selectionBackgroundColor: "blue",
+  }), [{ text: "abcdef", color: "white" }]);
+});
+
+test("composer selection top row follows slash panels and dispatch previews", () => {
+  assert.equal(resolveDirectTuiComposerSelectionTopRow({
+    transcriptViewportLineCount: 20,
+    overlayLineCount: 0,
+    pendingPreviewLineCount: 0,
+  }), 23);
+
+  assert.equal(resolveDirectTuiComposerSelectionTopRow({
+    transcriptViewportLineCount: 20,
+    overlayLineCount: 5,
+    pendingPreviewLineCount: 2,
+  }), 30);
 });

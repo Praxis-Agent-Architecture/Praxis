@@ -121,7 +121,14 @@ test("invokeModelThroughRuntime can call the codex responses provider path when 
     providerCaller: async (request) => {
       assert.equal(request.url.endsWith("/responses"), true);
       assert.equal(request.headers.authorization, "[redacted:32]");
-      return { output_text: "hello from codex responses" };
+      return {
+        output_text: "hello from codex responses",
+        usage: {
+          input_tokens: 11,
+          output_tokens: 4,
+          output_tokens_details: { reasoning_tokens: 2 },
+        },
+      };
     },
   });
 
@@ -129,5 +136,15 @@ test("invokeModelThroughRuntime can call the codex responses provider path when 
   if (!result.ok) return;
   assert.equal(result.plan.providerCallPermitted, true);
   assert.equal(result.plan.transport, "provider");
-  assert.deepEqual(result.raw, { output_text: "hello from codex responses" });
+  assert.deepEqual(result.raw, {
+    output_text: "hello from codex responses",
+    usage: {
+      input_tokens: 11,
+      output_tokens: 4,
+      output_tokens_details: { reasoning_tokens: 2 },
+    },
+  });
+  assert.equal(result.usage?.inputTokens, 11);
+  assert.equal(result.usage?.outputTokens, 4);
+  assert.equal(result.usage?.reasoningTokens, 2);
 });

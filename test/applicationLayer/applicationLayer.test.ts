@@ -186,6 +186,8 @@ test("applicationLayer publishes stream events during live provider calls", asyn
             "",
             'data: {"type":"response.output_text.delta","delta":"ok"}',
             "",
+            'data: {"type":"response.completed","response":{"usage":{"input_tokens":31,"output_tokens":6,"output_tokens_details":{"reasoning_tokens":2}}}}',
+            "",
             "data: [DONE]",
             "",
           ].join("\n"),
@@ -217,6 +219,10 @@ test("applicationLayer publishes stream events during live provider calls", asyn
   assert.equal(result.ok, true);
   assert.equal(streamEvents.join(""), "stream ok");
   assert.equal(result.view.finalOutput, "stream ok");
+  assert.equal(result.view.usage?.inputTokens, 31);
+  assert.equal(result.view.usage?.outputTokens, 6);
+  assert.equal(result.view.usage?.thinkingTokens, 2);
+  assert.equal(result.view.usage?.estimated, false);
 });
 
 test("applicationLayer invokes tui auxiliary tasks through the tui agent", async () => {
