@@ -104,3 +104,30 @@ test("ChatGPT Codex responses preserves Responses image input content blocks", a
   assert.match(bodyText, /input_image/u);
   assert.match(bodyText, /data:image\/png;base64,AAAA/u);
 });
+
+test("ChatGPT Codex responses preserves explicit non-stream requests", async () => {
+  const auth = codexAuthEnvelope();
+  let capturedBody: Record<string, unknown> | undefined;
+
+  const result = await invokeChatGPTCodexResponses({
+    operation: "create",
+    runtime: { runtimeId: "runtime-image-generation" },
+    dryRun: false,
+    governance: { accepted: true },
+    auth: auth.envelope,
+    body: {
+      model: "gpt-5.5",
+      input: "Draw a small image.",
+      tools: [{ type: "image_generation" }],
+      stream: false,
+    },
+    caller: async (request) => {
+      capturedBody = request.body as Record<string, unknown>;
+      return { id: "resp_image_generation", object: "response" };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(capturedBody?.stream, false);
+  assert.equal(capturedBody?.store, false);
+});

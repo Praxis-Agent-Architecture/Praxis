@@ -144,6 +144,7 @@ function normalizeCodexBackendBody(body: unknown): unknown {
   }
 
   const { max_output_tokens: _maxOutputTokens, ...rest } = body;
+  const stream = typeof rest.stream === "boolean" ? rest.stream : true;
   const rawInput = rest.input;
   const inputItems = typeof rawInput === "string"
     ? [{ role: "user", content: [{ type: "input_text", text: rawInput }] }]
@@ -166,7 +167,7 @@ function normalizeCodexBackendBody(body: unknown): unknown {
       ? userInputItems
       : [{ role: "user", content: [{ type: "input_text", text: instructions }] }],
     store: false,
-    stream: true,
+    stream,
   };
 }
 

@@ -131,6 +131,7 @@ function statusFromDecision(
 
 function filesystemCreateCanRelaxApproval(request: BaseToolRuntimeGovernanceRequest, matchedRule: BaseToolPolicyRule | undefined): boolean {
   if (request.metadata?.filesystemAction !== "create") return false;
+  if (request.toolId.startsWith("omni.")) return false;
   if (request.policyMatrix.profile === "restricted") return false;
   if (matchedRule !== undefined && matchedRule.scope !== "action") return false;
   return true;

@@ -32,7 +32,11 @@ export function createOmniRuntimeProvider(executor: BaseToolExecutorPort | undef
       parameters: request.parameters,
     });
     if (!result.ok) {
-      throw new Error(result.error.message);
+      throw {
+        code: result.error.code,
+        message: result.error.message,
+        publicSafe: result.error.publicSafe,
+      };
     }
     return {
       artifactId: result.output.artifactId,

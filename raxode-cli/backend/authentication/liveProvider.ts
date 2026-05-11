@@ -203,7 +203,7 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
     providerCaller: createProviderCaller({
       transport: createStreamingProviderTransport(options.onTextDelta),
       authMaterial: auth.resolved.privateMaterial,
-      timeoutMs: options.timeoutMs ?? 60_000,
+      timeoutMs: options.timeoutMs ?? 600_000,
     }),
     authSource: codexAuthPath,
   };

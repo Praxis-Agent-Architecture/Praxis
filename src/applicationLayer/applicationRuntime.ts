@@ -16,6 +16,8 @@ import {
   type AgentToolCallProgressEvent,
   type AgentToolCallRecord,
   type AgentRunResult,
+  type RuntimeApprovalEnvelope,
+  type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
 } from "../agentCore/index.js";
 import type { OpenAIV1ResponsesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
@@ -89,8 +91,10 @@ type RuntimeState = {
   events: PraxisApplicationEvent[];
   sessions: Map<string, PraxisApplicationSessionSummary>;
   approvals: Map<string, PraxisApplicationApprovalSummary>;
+  pendingApprovalResolvers: Map<string, (resolution: RuntimeApprovalResolution) => void>;
   cancelledAuxiliaryTasks: Set<string>;
   conversationHistory: Map<string, ApplicationConversationMessage[]>;
+  alwaysApprovedApprovalKeys: Set<string>;
 };
 
 type ApplicationConversationMessage = {
@@ -822,7 +826,8 @@ function responsesImageDetail(detail: string | undefined): "low" | "high" {
 
 function responsesImageGenerationSize(value: string | undefined): string | undefined {
   if (value === undefined || value === "auto") return value;
-  return /^\d+x\d+$/u.test(value) ? value : undefined;
+  if (value === "1024x1024" || value === "1024x1536" || value === "1536x1024") return value;
+  return undefined;
 }
 
 function responsesImageGenerationQuality(value: string | undefined): string | undefined {
@@ -844,21 +849,50 @@ function imageMimeTypeFromFormat(format: "png" | "jpeg" | "webp" | undefined, ou
   return imageMimeTypeFromPath(outputPath, "image/png");
 }
 
-function readImageGenerationCall(raw: unknown): { imageBase64: string; revisedPrompt?: string; imageCallId?: string } | undefined {
-  const record = objectValue(raw);
+function readImageGenerationCallRecord(record: Record<string, unknown>): { imageBase64: string; revisedPrompt?: string; imageCallId?: string } | undefined {
+  if (record.type === "image_generation_call") {
+    const imageBase64 = stringValue(record.result);
+    if (imageBase64) {
+      return {
+        imageBase64,
+        revisedPrompt: stringValue(record.revised_prompt),
+        imageCallId: stringValue(record.id),
+      };
+    }
+  }
+
+  const item = objectValue(record.item);
+  if (item) {
+    const generated = readImageGenerationCallRecord(item);
+    if (generated) return generated;
+  }
+
+  const response = objectValue(record.response);
+  if (response) {
+    const generated = readImageGenerationCallRecord(response);
+    if (generated) return generated;
+  }
+
   const output = Array.isArray(record?.output) ? record.output : [];
-  for (const item of output) {
-    const itemRecord = objectValue(item);
-    if (itemRecord?.type !== "image_generation_call") continue;
-    const imageBase64 = stringValue(itemRecord.result);
-    if (!imageBase64) continue;
-    return {
-      imageBase64,
-      revisedPrompt: stringValue(itemRecord.revised_prompt),
-      imageCallId: stringValue(itemRecord.id),
-    };
+  for (const outputItem of output) {
+    const itemRecord = objectValue(outputItem);
+    if (!itemRecord) continue;
+    const generated = readImageGenerationCallRecord(itemRecord);
+    if (generated) return generated;
   }
   return undefined;
+}
+
+function readImageGenerationCall(raw: unknown): { imageBase64: string; revisedPrompt?: string; imageCallId?: string } | undefined {
+  if (typeof raw === "string") {
+    for (const object of readProviderSseObjects(raw)) {
+      const generated = readImageGenerationCallRecord(object);
+      if (generated) return generated;
+    }
+    return undefined;
+  }
+  const record = objectValue(raw);
+  return record ? readImageGenerationCallRecord(record) : undefined;
 }
 
 function normalizeAttachmentRef(value: string): string {
@@ -920,7 +954,6 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       );
       const imageTool: Record<string, unknown> = {
         type: "image_generation",
-        action: "generate",
       };
       const size = responsesImageGenerationSize(stringValue(parameters.size));
       if (size !== undefined) imageTool.size = size;
@@ -950,6 +983,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
           tools: [imageTool],
           tool_choice: { type: "image_generation" },
           store: false,
+          stream: true,
         },
       });
 
@@ -1153,6 +1187,25 @@ function autoApproveForProfile(profile: PraxisApplicationPermissionProfile): Run
   });
 }
 
+function approvalFeatureKey(envelope: RuntimeApprovalEnvelope): string {
+  const metadataToolId = stringValue(envelope.metadata.toolId);
+  if (metadataToolId) return metadataToolId;
+  if (envelope.requestedScopes.length > 0) return envelope.requestedScopes.join(",");
+  return envelope.source;
+}
+
+function approvalFeatureLabel(featureKey: string): string {
+  if (featureKey.startsWith("computeruse.")) return "computer_use";
+  if (featureKey.startsWith("omni.")) return "omni";
+  if (featureKey.startsWith("shell.")) return "shell";
+  if (featureKey.startsWith("git.")) return "git";
+  if (featureKey.startsWith("code.")) return "code";
+  if (featureKey.startsWith("search.")) return "web_search";
+  if (featureKey.startsWith("mcp.")) return "mcp";
+  if (featureKey.startsWith("skill.")) return "skill";
+  return featureKey;
+}
+
 async function loadAgentExport(project: PraxisApplicationProject, input: {
   entryPath?: string;
   exportName?: string;
@@ -1206,8 +1259,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     events: [],
     sessions: new Map(),
     approvals: new Map(),
+    pendingApprovalResolvers: new Map(),
     cancelledAuxiliaryTasks: new Set(),
     conversationHistory: new Map(),
+    alwaysApprovedApprovalKeys: new Set(),
   };
 
   function publish(input: Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> & { createdAt?: string }): PraxisApplicationEvent {
@@ -1240,6 +1295,57 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       lastActiveAt: now(),
       turns: state.turns,
     });
+  }
+
+  function approvalResolverForRun(): RuntimeApprovalResolver | undefined {
+    if (options.approvalResolver) return options.approvalResolver;
+    const profileResolver = autoApproveForProfile(state.permissionProfile);
+    if (profileResolver) return profileResolver;
+    return async (envelope) => {
+      const featureKey = approvalFeatureKey(envelope);
+      if (state.alwaysApprovedApprovalKeys.has(featureKey)) {
+        return {
+          status: "approved",
+          resolvedBy: "application.approval.always",
+          reason: `always approved ${approvalFeatureLabel(featureKey)}`,
+          metadata: {
+            approvalId: envelope.approvalId,
+            featureKey,
+          },
+        };
+      }
+
+      const feature = approvalFeatureLabel(featureKey);
+      state.status = "awaiting-approval";
+      state.approvals.set(envelope.approvalId, {
+        approvalId: envelope.approvalId,
+        feature,
+        featureKey,
+        requestedScopes: envelope.requestedScopes,
+        riskLevel: envelope.riskLevel,
+        status: "pending",
+        note: envelope.reason,
+        updatedAt: now(),
+      });
+      publish({
+        eventId: "application.approval.requested",
+        kind: "approval",
+        status: "awaiting-approval",
+        message: `${envelope.approvalId}:${envelope.reason}`,
+        metadata: {
+          approvalId: envelope.approvalId,
+          feature,
+          featureKey,
+          reason: envelope.reason,
+          requestedScopes: envelope.requestedScopes,
+          riskLevel: envelope.riskLevel,
+        },
+      });
+
+      return await new Promise<RuntimeApprovalResolution>((resolve) => {
+        state.pendingApprovalResolvers.set(envelope.approvalId, resolve);
+      });
+    };
   }
 
   function view(): PraxisApplicationViewModel {
@@ -1300,8 +1406,16 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         entryPath: entry.entryPath,
         exportName: entry.exportName,
       });
-      const source = options.agentOptions && typeof loadedSource === "function"
-        ? new (loadedSource as new (agentOptions: unknown) => unknown)(options.agentOptions)
+      const defaultAgentOptions = {
+        policyProfile: state.permissionProfile,
+        model: state.model.model,
+        reasoningEffort: state.model.reasoningEffort,
+      };
+      const agentOptions = typeof options.agentOptions === "object" && options.agentOptions !== null
+        ? { ...defaultAgentOptions, ...options.agentOptions }
+        : defaultAgentOptions;
+      const source = typeof loadedSource === "function"
+        ? new (loadedSource as new (agentOptions: unknown) => unknown)(agentOptions)
         : loadedSource;
       const compiled = praxis.compileAgent(source as never);
       if (!compiled.ok) {
@@ -1433,7 +1547,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           auth: liveProvider?.auth,
           providerCaller: liveProvider?.providerCaller,
           exposeProviderTools: false,
-          approvalResolver: options.approvalResolver ?? autoApproveForProfile(state.permissionProfile),
+          approvalResolver: approvalResolverForRun(),
           storage: {
             cwd: state.cwd,
             workspaceRoot: path.join(project.projectRoot, ".raxode"),
@@ -1609,7 +1723,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       auth: liveProvider?.auth,
       providerCaller: liveProvider?.providerCaller,
       exposeProviderTools: true,
-      approvalResolver: options.approvalResolver ?? autoApproveForProfile(state.permissionProfile),
+      approvalResolver: approvalResolverForRun(),
       storage: {
         cwd: state.cwd,
         workspaceRoot: path.join(project.projectRoot, ".raxode"),
@@ -1872,13 +1986,33 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         }
         case "application.approvalDecision": {
           applyCommandSession(command.sessionId);
+          const existing = state.approvals.get(command.approvalId);
+          if (command.decision === "approve_always" && existing?.featureKey) {
+            state.alwaysApprovedApprovalKeys.add(existing.featureKey);
+          }
           state.approvals.set(command.approvalId, {
+            ...existing,
             approvalId: command.approvalId,
             decision: command.decision,
             status: "decided",
             note: command.note,
             updatedAt: now(),
           });
+          const resolver = state.pendingApprovalResolvers.get(command.approvalId);
+          if (resolver) {
+            state.pendingApprovalResolvers.delete(command.approvalId);
+            state.status = "running";
+            resolver({
+              status: command.decision === "reject" ? "denied" : "approved",
+              resolvedBy: "application.approvalDecision",
+              reason: command.note ?? command.decision,
+              metadata: {
+                approvalId: command.approvalId,
+                decision: command.decision,
+                featureKey: existing?.featureKey,
+              },
+            });
+          }
           const approval = publish({
             eventId: "application.approval.decided",
             kind: "approval",

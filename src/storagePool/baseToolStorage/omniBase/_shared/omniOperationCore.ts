@@ -303,6 +303,15 @@ function failure(config: OmniOperationConfig, code: string, message: string, bou
   };
 }
 
+function publicSafeProviderError(error: unknown): { code: string; message: string } | undefined {
+  if (!isRecord(error)) return undefined;
+  const code = cleanString(error.code);
+  const message = cleanString(error.message);
+  if (code === undefined || message === undefined) return undefined;
+  if (error.publicSafe !== true) return undefined;
+  return { code, message };
+}
+
 function gateRejected(gate: OmniOperationGate | undefined): boolean {
   return gate?.accepted === false || gate?.allowed === false;
 }
@@ -439,8 +448,14 @@ export async function executeOmniOperationCore(config: OmniOperationConfig, requ
       audit: [auditEvent(config, context, 'omni.operation.executed', { action: config.action })],
       events: [config.toolId + ':runtime-omni:executed'],
     };
-  } catch {
-    return failure(config, 'PROVIDER_REJECTED', config.toolId + ' runtime provider rejected the request', 'provider');
+  } catch (error) {
+    const providerError = publicSafeProviderError(error);
+    return failure(
+      config,
+      providerError?.code ?? 'PROVIDER_REJECTED',
+      providerError?.message ?? config.toolId + ' runtime provider rejected the request',
+      'provider',
+    );
   }
 }
 

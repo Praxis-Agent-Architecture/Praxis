@@ -19,4 +19,19 @@ test("applyTuiTextInputKey inserts newline for ctrl+j and shift+enter", () => {
   assert.equal(shiftEnter.submit, false);
   assert.equal(shiftEnter.handled, true);
   assert.equal(shiftEnter.nextState.value, "hello\n");
+
+  for (const sequence of [
+    "\u001B[13;2u",
+    "\u001B[13;2~",
+    "\u001B[27;2;13~",
+    "[13;2u",
+    "[13;2~",
+    "[27;2;13~",
+  ]) {
+    state = createTuiTextInputState("hello");
+    const terminalShiftEnter = applyTuiTextInputKey(state, sequence, {} as never);
+    assert.equal(terminalShiftEnter.submit, false);
+    assert.equal(terminalShiftEnter.handled, true);
+    assert.equal(terminalShiftEnter.nextState.value, "hello\n");
+  }
 });

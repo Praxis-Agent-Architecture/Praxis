@@ -453,12 +453,75 @@ function runtimeGrantedPermissionsForTool(toolId: string, profile: BaseToolPolic
   return ["tool.execute"];
 }
 
+function safeRuntimePathSegment(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.-]/gu, "_").slice(0, 96) || "runtime";
+}
+
+function imageExtensionFromTarget(target: Readonly<Record<string, unknown>>): string {
+  const declared = readString(target.outputFormat)
+    ?? readString(target.targetFormat)
+    ?? readString(target.format)
+    ?? readString(target.mimeType);
+  if (declared === "image/jpeg" || declared === "jpeg" || declared === "jpg") return "jpg";
+  if (declared === "image/webp" || declared === "webp") return "webp";
+  return "png";
+}
+
+function autoOutputTargetForTool(input: {
+  toolId: string;
+  target: Readonly<Record<string, unknown>>;
+  workspaceRoot?: string;
+  sessionId: string;
+  invocationId: string;
+}): Readonly<Record<string, unknown>> {
+  if (input.toolId !== "omni.generateImage") return input.target;
+  if (readString(input.target.outputPath) !== undefined || readString(input.target.outputRef) !== undefined) {
+    return input.target;
+  }
+  if (input.workspaceRoot === undefined) return input.target;
+  const extension = imageExtensionFromTarget(input.target);
+  return {
+    ...input.target,
+    outputPath: path.join(
+      input.workspaceRoot,
+      ".rax_workspace",
+      "artifacts",
+      safeRuntimePathSegment(input.sessionId),
+      `generated-image-${safeRuntimePathSegment(input.invocationId)}.${extension}`,
+    ),
+  };
+}
+
 function grantedPermissionsForTool(toolId: string, rawPermissions: unknown, profile: BaseToolPolicyProfile): readonly string[] {
   const merged = mergeStringLists(readStringArray(rawPermissions), runtimeGrantedPermissionsForTool(toolId, profile));
   if (toolId === "omni.viewImage") {
     return merged.filter((permission) => permission === "filesystem:read" || permission === "omni:image:view");
   }
   return merged;
+}
+
+function withApprovedRuntimePermissions(
+  toolId: string,
+  args: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> {
+  const rawContext = isRecord(args.context) ? args.context : {};
+  const approvedPermissions = runtimeGrantedPermissionsForTool(toolId, "bapr");
+  return {
+    ...args,
+    context: {
+      ...rawContext,
+      grantedPermissions: mergeStringLists(readStringArray(rawContext.grantedPermissions), approvedPermissions),
+      guard: isRecord(rawContext.guard)
+        ? { accepted: true, allowed: true, ...rawContext.guard }
+        : { accepted: true, allowed: true },
+      governance: isRecord(rawContext.governance)
+        ? { accepted: true, allowed: true, ...rawContext.governance }
+        : { accepted: true, allowed: true },
+      contract: isRecord(rawContext.contract)
+        ? { accepted: true, allowed: true, ...rawContext.contract }
+        : { accepted: true, allowed: true },
+    },
+  };
 }
 
 function defaultMcpServerId(toolId: string, args: Readonly<Record<string, unknown>>): string | undefined {
@@ -506,6 +569,13 @@ function enrichToolArguments(
         : path.resolve(workspaceRoot, rawRepositoryPath);
     target = { ...rawTarget, repositoryPath };
   }
+  target = autoOutputTargetForTool({
+    toolId,
+    target,
+    workspaceRoot,
+    sessionId: runtimeContext.sessionId,
+    invocationId: runtimeContext.invocationId,
+  });
   if (defaultServerId !== undefined) {
     target = { serverId: defaultServerId, ...target };
   }
@@ -1349,7 +1419,7 @@ async function executeBaseToolDecision(input: {
   events: readonly string[];
   governance: BaseToolRuntimeGovernanceDecision;
 }> {
-  const toolArguments = enrichToolArguments(input.manifest, input.toolId, input.args, {
+  let toolArguments = enrichToolArguments(input.manifest, input.toolId, input.args, {
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
     invocationId: input.toolCallId,
@@ -1450,6 +1520,7 @@ async function executeBaseToolDecision(input: {
       });
       return { record, observation, events: [...governance.events, ...approval.events], governance };
     }
+    toolArguments = withApprovedRuntimePermissions(input.toolId, toolArguments);
   }
 
   let dependencyPreflight = await preflightBaseToolDependencies({

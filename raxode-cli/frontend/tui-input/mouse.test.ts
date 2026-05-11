@@ -61,8 +61,8 @@ test("mouse input detector filters complete SGR mouse reports", () => {
   assert.equal(isTerminalMouseInput("plain text"), false);
 });
 
-test("terminal mouse reporting is enabled by default so touchpad wheel scrolling reaches the TUI", () => {
-  assert.equal(shouldEnableTerminalMouseReporting({}), true);
+test("terminal mouse reporting is opt-in so native terminal drag selection works by default", () => {
+  assert.equal(shouldEnableTerminalMouseReporting({}), false);
   assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "1" }), true);
   assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "0" }), false);
 });

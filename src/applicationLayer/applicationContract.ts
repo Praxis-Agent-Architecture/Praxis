@@ -102,6 +102,10 @@ export type PraxisApplicationSessionSummary = {
 export type PraxisApplicationApprovalSummary = {
   approvalId: string;
   decision?: "approve" | "reject" | "approve_always";
+  feature?: string;
+  featureKey?: string;
+  requestedScopes?: readonly string[];
+  riskLevel?: string;
   status: "pending" | "decided";
   note?: string;
   updatedAt: string;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -338,7 +338,7 @@ test("raxode application runtime routes omni.generateImage through Responses ima
                     prompt: "Draw a tiny test image.",
                     outputPath,
                     mimeType: "image/png",
-                    size: "1024x1024",
+                    size: "512x512",
                     quality: "low",
                   },
                   context: { grantedPermissions: ["tool.execute"] },
@@ -374,10 +374,223 @@ test("raxode application runtime routes omni.generateImage through Responses ima
     });
 
     assert.equal(result.ok, true);
+    const imageGenerationBody = providerBodies.find((body) => {
+      const record = body as { tools?: readonly { type?: string }[] };
+      return record.tools?.some((tool) => tool.type === "image_generation");
+    }) as { stream?: boolean; tool_choice?: unknown; tools?: readonly Record<string, unknown>[] } | undefined;
+    assert.ok(imageGenerationBody);
+    assert.equal(imageGenerationBody.stream, true);
+    assert.deepEqual(imageGenerationBody.tool_choice, { type: "image_generation" });
+    assert.equal(imageGenerationBody.tools?.[0]?.type, "image_generation");
+    assert.equal(imageGenerationBody.tools?.[0]?.action, undefined);
+    assert.equal(imageGenerationBody.tools?.[0]?.size, undefined);
+    assert.equal(imageGenerationBody.tools?.[0]?.quality, "low");
+    assert.equal(imageGenerationBody.tools?.[0]?.output_format, "png");
+    const generated = await readFile(outputPath);
+    assert.equal(generated.byteLength > 0, true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("raxode bapr auto-approves omni.generateImage and assigns a workspace artifact output path", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-image-generation-auto-"));
+
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "standard",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerBodies.push(envelope.body);
+          const bodyRecord = envelope.body as { tools?: readonly { type?: string }[] };
+          if (bodyRecord.tools?.some((tool) => tool.type === "image_generation")) {
+            return {
+              output: [{
+                id: "ig_auto_test",
+                type: "image_generation_call",
+                status: "completed",
+                revised_prompt: "A tiny generated test image.",
+                result: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              }],
+            };
+          }
+          if (providerBodies.length === 1) {
+            return {
+              output: [{
+                type: "function_call",
+                name: "omni.generateImage",
+                call_id: "omni-generate-image-auto-call",
+                arguments: JSON.stringify({
+                  target: {
+                    prompt: "Draw a tiny test image without specifying where to save it.",
+                    outputFormat: "image/png",
+                    size: "1024x1024",
+                    quality: "low",
+                  },
+                  context: { grantedPermissions: ["tool.execute"] },
+                }),
+              }],
+            };
+          }
+          return { output_text: "图片生成链路已完成。" };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const sessionId = "session.raxode.generate-image.auto.test";
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: workspace,
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    const permission = await transport.dispatch({
+      type: "application.changePermissionProfile",
+      sessionId,
+      profile: "bapr",
+    });
+    assert.equal(permission.ok, true);
+    assert.equal(permission.view.permissionProfile, "bapr");
+
+    const result = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "生成一张测试图片，不指定保存路径。",
+        cwd: workspace,
+      },
+    });
+
+    assert.equal(result.ok, true);
     const providerBodyText = JSON.stringify(providerBodies);
     assert.match(providerBodyText, /"type":"image_generation"/u);
-    assert.match(providerBodyText, /"tool_choice":\{"type":"image_generation"\}/u);
-    const generated = await readFile(outputPath);
+    assert.match(providerBodyText, /"stream":true/u);
+    const artifactDir = path.join(workspace, ".rax_workspace", "artifacts", sessionId);
+    const generatedFiles = await readdir(artifactDir);
+    assert.equal(generatedFiles.length, 1);
+    assert.match(generatedFiles[0] ?? "", /^generated-image-.*\.png$/u);
+    const generated = await readFile(path.join(artifactDir, generatedFiles[0] ?? ""));
+    assert.equal(generated.byteLength > 0, true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("raxode standard approval grants omni.generateImage provider permissions before storage core execution", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-image-generation-approval-"));
+
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "standard",
+      now: () => "2026-05-10T00:00:00.000Z",
+      approvalResolver: async (envelope) => ({
+        status: "approved",
+        resolvedBy: "test.approval",
+        reason: `approved ${envelope.approvalId}`,
+      }),
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerBodies.push(envelope.body);
+          const bodyRecord = envelope.body as { tools?: readonly { type?: string }[] };
+          if (bodyRecord.tools?.some((tool) => tool.type === "image_generation")) {
+            return {
+              output: [{
+                id: "ig_approval_test",
+                type: "image_generation_call",
+                status: "completed",
+                result: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              }],
+            };
+          }
+          if (providerBodies.length === 1) {
+            return {
+              output: [{
+                type: "function_call",
+                name: "omni.generateImage",
+                call_id: "omni-generate-image-approved-call",
+                arguments: JSON.stringify({
+                  target: {
+                    prompt: "Draw a tiny test image after approval.",
+                    outputFormat: "image/png",
+                    size: "1024x1024",
+                  },
+                  context: { grantedPermissions: ["tool.execute"] },
+                }),
+              }],
+            };
+          }
+          return { output_text: "图片生成链路已完成。" };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const sessionId = "session.raxode.generate-image.approval.test";
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: workspace,
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    assert.equal(start.view.permissionProfile, "standard");
+
+    const result = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "生成一张测试图片，允许审批。",
+        cwd: workspace,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    const providerBodyText = JSON.stringify(providerBodies);
+    assert.match(providerBodyText, /"type":"image_generation"/u);
+    assert.match(providerBodyText, /"stream":true/u);
+    const artifactDir = path.join(workspace, ".rax_workspace", "artifacts", sessionId);
+    const generatedFiles = await readdir(artifactDir);
+    assert.equal(generatedFiles.length, 1);
+    const generated = await readFile(path.join(artifactDir, generatedFiles[0] ?? ""));
     assert.equal(generated.byteLength > 0, true);
   } finally {
     await rm(workspace, { recursive: true, force: true });
