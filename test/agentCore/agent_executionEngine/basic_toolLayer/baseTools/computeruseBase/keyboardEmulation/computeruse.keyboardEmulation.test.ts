@@ -220,6 +220,7 @@ test("keyboardEmulationHandler invokes runtime-owned executor.computeruse.keyboa
   assert.equal(firstRuntimeCall.metadata?.sessionId, "session-1");
   assert.equal(firstRuntimeCall.metadata?.invocationId, "tool-call-1");
   assert.equal(firstRuntimeCall.metadata?.actionIndex, 0);
+  assert.equal(firstRuntimeCall.metadata?.runtimeGuardAccepted, true);
 
   const thirdRuntimeCall = calls[2] as {
     action?: string;
@@ -250,6 +251,44 @@ test("keyboardEmulationHandler invokes runtime-owned executor.computeruse.keyboa
     "keyboard-action-4",
   ]);
   assert.equal(result.output.actionEnvelope.actionCount, 4);
+});
+
+test("keyboardEmulationHandler preserves public-safe runtime provider failures", async () => {
+  const executor: BaseToolExecutorPort = {
+    computeruse: {
+      async keyboardAction() {
+        return {
+          ok: false,
+          error: {
+            code: "PROVIDER_FAILURE",
+            message: "desktop keyboard input requires an explicit bound target",
+            publicSafe: true,
+          },
+          events: [],
+        };
+      },
+    },
+  };
+
+  const result = await keyboardEmulationHandler.invoke({
+    toolCallId: "tool-call-public-failure",
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    executor,
+    input: {
+      purpose: "focus address bar",
+      actions: [{ kind: "shortcut", keys: ["Control", "L"] }],
+      targetHint: "当前 Edge 浏览器地址栏",
+      context: { dryRun: false, guard: { accepted: true } },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.equal(result.error.code, "PROVIDER_FAILURE");
+    assert.match(result.error.message, /explicit bound target/u);
+    assert.doesNotMatch(result.error.message, /without exposing private details/u);
+  }
 });
 
 test("createBaseToolRegistry resolves computeruse.keyboardEmulation handler and does not fallback without executor.computeruse", async () => {

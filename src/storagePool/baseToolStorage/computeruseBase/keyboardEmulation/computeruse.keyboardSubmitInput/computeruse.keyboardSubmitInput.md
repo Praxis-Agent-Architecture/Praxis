@@ -53,6 +53,7 @@ The handler injects `runtimeId`, `sessionId`, and `toolCallId` into runtime invo
 - `target.targetHint` or top-level `targetHint`: public-safe description of the intended focus target.
   - For a runtime-managed terminal/PTY, use an explicit target such as `tmux:praxis-work`, `pty:praxis-work`, or `terminal:praxis-work`.
   - The runtime may also accept `metadata.tmuxSession` or `PRAXIS_DESKTOP_TMUX_SESSION`, but the baseTool itself does not invent a default terminal session.
+  - For a user-approved "current/focused Ghostty terminal/window" request, the Linux runtime may resolve the hint to the explicit desktop target `window:active`. This is still a governed desktop adapter path, not a focus-free terminal session.
 - `target.repeat` or top-level `repeat`: integer from `1` to `5`; defaults to `1`.
 - `context.invocationId`: defaults to `toolCallId` when invoked through the handler.
 - `context.sessionId`: defaults to `BaseToolInvokeRequest.sessionId` when invoked through the handler.
@@ -72,7 +73,7 @@ Runtime owns focus boundaries, OS keyboard APIs, accessibility or portal backend
 
 For governed terminal work, runtime may route this same submit primitive to a managed PTY/tmux adapter. That route is intentionally focus-independent and IME-bypassing, but it still lives behind `BaseToolExecutorPort.computeruse.keyboardAction`; it is not a separate model-facing terminal strategy and it requires an explicit managed session target.
 
-For governed desktop work, runtime may route this same submit primitive to a bound GUI input adapter such as `wtype`, `ydotool`, or `xdotool`. The request must name an explicit runtime target such as `window:active`, `gui:<id>`, or `tmux:<session>`; runtime refuses unspecified ambient focus.
+For governed desktop work, runtime may route this same submit primitive to a bound GUI input adapter such as `ydotool` or `xdotool`. The request must name an explicit runtime target such as `window:active`, `gui:<id>`, or `tmux:<session>`, or a user-approved current/focused Ghostty/window hint that runtime can resolve to `window:active`; runtime refuses unspecified ambient focus.
 
 Provider practice files are evidence and optional provider factories. They may describe Claude/Codex/Gemini lessons, but they do not turn browser-use, shell commands, portals, or OS automation libraries into hidden baseTool behavior.
 

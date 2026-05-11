@@ -61,22 +61,32 @@ test("mouse input detector filters complete SGR mouse reports", () => {
   assert.equal(isTerminalMouseInput("plain text"), false);
 });
 
-test("terminal mouse reporting is enabled by default with env opt-out", () => {
-  assert.equal(shouldEnableTerminalMouseReporting({}), true);
+test("terminal mouse reporting is opt-in so terminal drag selection stays native by default", () => {
+  assert.equal(shouldEnableTerminalMouseReporting({}), false);
   assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "1" }), true);
   assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "0" }), false);
 });
 
 test("terminal mouse reporting writes enable and cleanup sequences for tty outputs", () => {
+  const previous = process.env.RAXODE_ENABLE_MOUSE;
+  process.env.RAXODE_ENABLE_MOUSE = "1";
   const writes: string[] = [];
-  const cleanup = enableTerminalMouseReporting({
-    isTTY: true,
-    write: (chunk: string | Uint8Array) => {
-      writes.push(String(chunk));
-      return true;
-    },
-  });
-  cleanup();
+  try {
+    const cleanup = enableTerminalMouseReporting({
+      isTTY: true,
+      write: (chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      },
+    });
+    cleanup();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.RAXODE_ENABLE_MOUSE;
+    } else {
+      process.env.RAXODE_ENABLE_MOUSE = previous;
+    }
+  }
   assert.deepEqual(writes, [
     ENABLE_TERMINAL_MOUSE_REPORTING,
     DISABLE_TERMINAL_MOUSE_REPORTING,

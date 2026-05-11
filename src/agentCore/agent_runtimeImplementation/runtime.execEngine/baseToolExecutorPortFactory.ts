@@ -14,6 +14,7 @@ import { constants as fsConstants, mkdirSync } from "node:fs";
 import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { URL } from "node:url";
 
 import type {
   BaseToolExecutorPort,
@@ -272,6 +273,50 @@ function emit(context: RuntimeBaseToolExecutorContext, portPath: string, type: s
     portPath,
     metadata,
   });
+}
+
+function decodeHtmlEntities(value: string): string {
+  return value
+    .replace(/&amp;/gu, "&")
+    .replace(/&lt;/gu, "<")
+    .replace(/&gt;/gu, ">")
+    .replace(/&quot;/gu, "\"")
+    .replace(/&#39;|&apos;/gu, "'")
+    .replace(/&#x([0-9a-f]+);/giu, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+    .replace(/&#([0-9]+);/gu, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 10)));
+}
+
+function stripHtml(value: string): string {
+  return decodeHtmlEntities(value.replace(/<[^>]*>/gu, " ").replace(/\s+/gu, " ").trim());
+}
+
+function decodeDuckDuckGoResultUrl(value: string): string {
+  try {
+    const parsed = new URL(decodeHtmlEntities(value), "https://duckduckgo.com");
+    const uddg = parsed.searchParams.get("uddg");
+    return uddg ? decodeURIComponent(uddg) : parsed.toString();
+  } catch {
+    return decodeHtmlEntities(value);
+  }
+}
+
+function parseDuckDuckGoHtmlResults(html: string, maxResults: number): Array<{ title: string; url: string; snippet?: string }> {
+  const results: Array<{ title: string; url: string; snippet?: string }> = [];
+  const blockPattern = /<div class="result[^"]*"[\s\S]*?<\/div>\s*<\/div>/giu;
+  for (const blockMatch of html.matchAll(blockPattern)) {
+    const block = blockMatch[0];
+    const linkMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/iu);
+    if (!linkMatch?.[1] || !linkMatch[2]) continue;
+    const url = decodeDuckDuckGoResultUrl(linkMatch[1]);
+    const title = stripHtml(linkMatch[2]);
+    if (!title || !/^https?:\/\//iu.test(url)) continue;
+    const snippetMatch = block.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/iu)
+      ?? block.match(/<div[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/div>/iu);
+    const snippet = snippetMatch?.[1] ? stripHtml(snippetMatch[1]) : undefined;
+    results.push({ title, url, ...(snippet ? { snippet } : {}) });
+    if (results.length >= maxResults) break;
+  }
+  return results;
 }
 
 function workspaceRoot(context: RuntimeBaseToolExecutorContext): string {
@@ -1150,20 +1195,35 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): NonNull
       if (context.policy?.allowNetworkSearch !== true) {
         return failure("PROVIDER_UNAVAILABLE", "runtime network.search requires an injected search adapter");
       }
-      const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(request.query)}`;
-      return success({
-        results: [{
-          title: `Search query: ${request.query}`,
-          url,
-          snippet: "Generic runtime search adapter prepared the provider/search-engine request shape. Inject a provider adapter for ranked live results.",
-          raw: { provider: request.provider ?? "generic", recencyDays: request.recencyDays, safeSearch: request.safeSearch },
-        }],
-        providerMetadata: {
-          provider: request.provider ?? "generic",
-          officialShape: "BaseToolExecutorPort.network.search",
-          liveRankedResults: false,
-        },
-      }, ["runtime.execEngine.baseToolExecutorPort.network.search.prepared"]);
+      try {
+        const maxResults = Math.max(1, Math.min(request.maxResults ?? 10, 20));
+        const url = `https://duckduckgo.com/html/?q=${encodeURIComponent(request.query)}`;
+        const response = await fetch(url, {
+          headers: {
+            "accept": "text/html,application/xhtml+xml",
+            "user-agent": "Mozilla/5.0 PraxisRuntime/0.1 search adapter",
+          },
+          signal: AbortSignal.timeout(timeoutMs(context, 15_000)),
+        });
+        const html = await response.text();
+        const results = parseDuckDuckGoHtmlResults(html, maxResults);
+        emit(context, "network.search", "runtime.execEngine.baseToolExecutorPort.network.search", {
+          query: request.query,
+          status: response.status,
+          resultCount: results.length,
+        });
+        return success({
+          results,
+          providerMetadata: {
+            provider: request.provider ?? "generic",
+            backend: "duckduckgo-html",
+            status: response.status,
+            liveRankedResults: results.length > 0,
+          },
+        }, ["runtime.execEngine.baseToolExecutorPort.network.search.finished"]);
+      } catch (error) {
+        return failure("PROVIDER_FAILURE", error instanceof Error ? error.message : "runtime network.search failed");
+      }
     },
     async nativeWebSearch(request) {
       const delegated = await callDelegated<{
@@ -1583,7 +1643,8 @@ function detectLinuxDesktopHost(context: RuntimeBaseToolExecutorContext): Readon
   };
 }
 
-function desktopAutomationEnabled(context: RuntimeBaseToolExecutorContext): boolean {
+function desktopAutomationEnabled(context: RuntimeBaseToolExecutorContext, request?: ComputerUseKeyboardActionRequest): boolean {
+  if (request?.metadata?.runtimeGuardAccepted === true) return true;
   const env = context.environment ?? process.env;
   if (env.PRAXIS_ENABLE_DESKTOP_AUTOMATION === "1" || env.PRAXIS_ENABLE_DESKTOP_AUTOMATION === "true") return true;
   const profile = context.sandbox?.policyProfile;
@@ -1888,12 +1949,12 @@ async def main():
 raise SystemExit(asyncio.run(main()))
 `;
 
-function ydotoolKeyCodes(keys: readonly string[] | undefined): readonly string[] | undefined {
+function ydotoolKeyEventSequences(keys: readonly string[] | undefined): readonly string[] | undefined {
   if (keys === undefined || keys.length === 0) return undefined;
-  const codes: string[] = [];
+  const sequences: string[] = [];
   for (const key of keys) {
     const normalized = key.trim().toLowerCase();
-    const code = normalized === "enter" || normalized === "return"
+    const code = normalized === "enter" || normalized === "return" || normalized === "numpadenter"
       ? "28"
       : normalized === "escape" || normalized === "esc"
         ? "1"
@@ -1903,9 +1964,129 @@ function ydotoolKeyCodes(keys: readonly string[] | undefined): readonly string[]
             ? "57"
             : undefined;
     if (code === undefined) return undefined;
-    codes.push(`${code}:1`, `${code}:0`);
+    sequences.push(`${code}:1`, `${code}:0`);
   }
-  return codes;
+  return sequences;
+}
+
+function ydotoolShortcutArgument(keys: readonly string[] | undefined): string | undefined {
+  if (keys === undefined || keys.length < 2) return undefined;
+  const mapped = keys.map((key) => {
+    const normalized = key.trim().toLowerCase();
+    if (normalized === "control" || normalized === "ctrl") return "ctrl";
+    if (normalized === "command" || normalized === "cmd" || normalized === "meta" || normalized === "super") return "super";
+    if (normalized === "option" || normalized === "alt") return "alt";
+    if (normalized === "shift") return "shift";
+    if (normalized === "escape") return "esc";
+    if (normalized === "return") return "enter";
+    return normalized.length === 1 ? normalized : normalized.replace(/\s+/gu, "-");
+  });
+  return mapped.every((key) => key.length > 0) ? mapped.join("+") : undefined;
+}
+
+function ydotoolCtrlShiftVEvents(): readonly string[] {
+  return [
+    "29:1",
+    "42:1",
+    "47:1",
+    "47:0",
+    "42:0",
+    "29:0",
+  ];
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function runWaylandClipboardPasteKeyboardAction(
+  context: RuntimeBaseToolExecutorContext,
+  request: ComputerUseKeyboardActionRequest,
+  input: {
+    ydotool: string;
+    cwd: string;
+    metadata: Readonly<Record<string, unknown>>;
+    failedProviders: readonly string[];
+  },
+): Promise<BaseToolExecutorResult<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }> | undefined> {
+  if (request.action !== "type" || request.text === undefined) return undefined;
+  const wlCopy = await firstExecutable(["/usr/bin/wl-copy", "/usr/local/bin/wl-copy"]);
+  if (wlCopy === undefined) return undefined;
+  const wlPaste = await firstExecutable(["/usr/bin/wl-paste", "/usr/local/bin/wl-paste"]);
+
+  const previousClipboard = wlPaste === undefined
+    ? undefined
+    : await runChildProcess({
+      command: wlPaste,
+      args: ["--no-newline"],
+      cwd: input.cwd,
+      timeoutMs: 2_000,
+      intent: "generic",
+    }, context, "computeruse.keyboardAction");
+  const previousText = previousClipboard?.ok === true && previousClipboard.output.exitCode === 0
+    ? previousClipboard.output.stdout
+    : undefined;
+
+  const copyResult = await runChildProcess({
+    command: wlCopy,
+    args: ["--type", "text/plain;charset=utf-8"],
+    stdin: request.text,
+    cwd: input.cwd,
+    timeoutMs: 3_000,
+    intent: "generic",
+  }, context, "computeruse.keyboardAction");
+  if (!copyResult.ok) return copyResult;
+  if (copyResult.output.exitCode !== 0) {
+    return failure("PROVIDER_FAILURE", copyResult.output.stderr || copyResult.output.stdout || "wl-copy clipboard injection failed", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.clipboardCopyFailed",
+    ]);
+  }
+
+  const pasteResult = await runChildProcess({
+    command: input.ydotool,
+    args: ["key", "--delay", "0", "--key-delay", "12", ...ydotoolCtrlShiftVEvents()],
+    cwd: input.cwd,
+    timeoutMs: 5_000,
+    intent: "generic",
+  }, context, "computeruse.keyboardAction");
+  await delay(180);
+
+  if (previousText !== undefined) {
+    await runChildProcess({
+      command: wlCopy,
+      args: ["--type", "text/plain;charset=utf-8"],
+      stdin: previousText,
+      cwd: input.cwd,
+      timeoutMs: 2_000,
+      intent: "generic",
+    }, context, "computeruse.keyboardAction");
+  }
+
+  if (!pasteResult.ok) return pasteResult;
+  if (pasteResult.output.exitCode !== 0) {
+    return failure("PROVIDER_FAILURE", [
+      ...input.failedProviders,
+      `ydotool paste shortcut: ${pasteResult.output.stderr || pasteResult.output.stdout || `exit ${pasteResult.output.exitCode}`}`,
+    ].join("; ") || "ydotool clipboard paste shortcut failed", [
+      "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.clipboardPasteFailed",
+    ]);
+  }
+
+  return success({
+    actionId: `keyboard:${randomUUID()}`,
+    metadata: {
+      ...input.metadata,
+      provider: "wl-clipboard+ydotool",
+      executed: true,
+      clipboardInjection: true,
+      imeBypassed: true,
+      clipboardRestored: previousText !== undefined,
+      unicodeTextSupported: true,
+      fallbackFromProviders: input.failedProviders.map((entry) => entry.split(":")[0] ?? entry),
+    },
+  }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.executed"]);
 }
 
 function readManagedTerminalTarget(
@@ -1931,7 +2112,7 @@ function readManagedTerminalTarget(
 
 function readBoundDesktopInputTarget(
   request: ComputerUseKeyboardActionRequest,
-): { requested: boolean; targetRef?: string } {
+): { requested: boolean; targetRef?: string; autoResolved?: boolean } {
   const metadata = request.metadata ?? {};
   const targetRef =
     typeof metadata.windowRef === "string" ? metadata.windowRef.trim()
@@ -1942,9 +2123,11 @@ function readBoundDesktopInputTarget(
   const targetHint = typeof metadata.targetHint === "string" ? metadata.targetHint.trim() : undefined;
   const explicit = targetHint?.match(/\b(?:window|desktop|gui):([A-Za-z0-9_.:-]+)/u)?.[0];
   if (explicit !== undefined && explicit.length > 0) return { requested: true, targetRef: explicit };
-  if (targetHint !== undefined && /\b(active|focused)[-_ ]?window\b/iu.test(targetHint)) {
-    return { requested: true, targetRef: "window:active" };
-  }
+  const guardedCurrentDesktopTarget = metadata.runtimeGuardAccepted === true
+    && targetHint !== undefined
+    && (/\b(?:current|focused|active)\b/iu.test(targetHint) || /当前|焦点|活动/u.test(targetHint))
+    && /\b(?:window|ghostty|terminal|browser|edge|chrome|address|input)\b|窗口|终端|浏览器|地址栏|输入框/iu.test(targetHint);
+  if (guardedCurrentDesktopTarget) return { requested: true, targetRef: "window:active", autoResolved: true };
   return { requested: false };
 }
 
@@ -2017,7 +2200,7 @@ async function runLinuxDesktopKeyboardAction(
   const managedTerminalResult = await runManagedTmuxKeyboardAction(context, request);
   if (managedTerminalResult !== undefined) return managedTerminalResult;
 
-  if (!desktopAutomationEnabled(context)) return undefined;
+  if (!desktopAutomationEnabled(context, request)) return undefined;
 
   const desktop = detectLinuxDesktopHost(context);
   const displayServer = typeof desktop.displayServer === "string" ? desktop.displayServer : "unknown";
@@ -2025,6 +2208,7 @@ async function runLinuxDesktopKeyboardAction(
   const metadata = desktopAutomationMetadata(context, {
     action: request.action,
     targetRef: boundTarget.targetRef,
+    targetBinding: boundTarget.autoResolved === true ? "runtime:auto-active-window" : "runtime:explicit",
     targetBindingRequired: true,
   });
   const cwd = workspaceRoot(context);
@@ -2036,6 +2220,22 @@ async function runLinuxDesktopKeyboardAction(
   }
 
   if (displayServer === "wayland") {
+    const failedProviders: string[] = [];
+    const ydotool = await firstExecutable(["/usr/bin/ydotool", "/usr/local/bin/ydotool"]);
+    const requiresExactDesktopText = request.action === "type"
+      && (boundTarget.autoResolved === true || request.metadata?.inputMode === "paste");
+    if (request.action === "type" && ydotool !== undefined) {
+      const clipboardPasteResult = await runWaylandClipboardPasteKeyboardAction(context, request, {
+        ydotool,
+        cwd,
+        metadata,
+        failedProviders,
+      });
+      if (clipboardPasteResult?.ok === true) return clipboardPasteResult;
+      if (clipboardPasteResult !== undefined && !clipboardPasteResult.ok) {
+        failedProviders.push(`wl-clipboard+ydotool: ${clipboardPasteResult.error.message}`);
+      }
+    }
     if (request.action === "type") {
       const wtype = await firstExecutable(["/usr/bin/wtype", "/usr/local/bin/wtype"]);
       if (wtype !== undefined) {
@@ -2044,45 +2244,76 @@ async function runLinuxDesktopKeyboardAction(
         }
         const result = await runChildProcess({ command: wtype, args: [request.text], cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.keyboardAction");
         if (!result.ok) return result;
-        if (result.output.exitCode !== 0) {
-          return failure("PROVIDER_FAILURE", result.output.stderr || "wtype keyboard action failed", [
-            "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.wtypeFailed",
-          ]);
+        if (result.output.exitCode === 0) {
+          return success({
+            actionId: `keyboard:${randomUUID()}`,
+            metadata: { ...metadata, provider: "wtype", executed: true, unicodeTextSupported: true },
+          }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.executed"]);
         }
-        return success({
-          actionId: `keyboard:${randomUUID()}`,
-          metadata: { ...metadata, provider: "wtype", executed: true, unicodeTextSupported: true },
-        }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.executed"]);
-      }
-      if (containsNonAsciiText(request.text)) {
-        return failure("PROVIDER_UNAVAILABLE", "desktop Unicode text injection requires wtype or a managed terminal target; ydotool text mode is not used for non-ASCII text", [
-          "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.wtypeRequired",
-        ]);
+        failedProviders.push(`wtype: ${result.output.stderr || result.output.stdout || `exit ${result.output.exitCode}`}`);
       }
     }
 
-    const ydotool = await firstExecutable(["/usr/bin/ydotool", "/usr/local/bin/ydotool"]);
+    if (requiresExactDesktopText) {
+      return failure(
+        failedProviders.length > 0 ? "PROVIDER_FAILURE" : "PROVIDER_UNAVAILABLE",
+        [
+          "exact desktop text injection requires wl-clipboard+ydotool paste or wtype; ydotool key-by-key text mode was skipped to avoid IME-corrupted text",
+          ...failedProviders,
+        ].join("; "),
+        ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.exactTextProviderRequired"],
+      );
+    }
+
     if (ydotool === undefined) return undefined;
+    if (request.action === "type" && containsNonAsciiText(request.text)) {
+      return failure("PROVIDER_UNAVAILABLE", [
+        "desktop Unicode text injection requires wtype, wl-clipboard paste injection, or a managed terminal target; ydotool text mode is not used for non-ASCII text",
+        ...failedProviders,
+      ].join("; "), [
+        "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.unicodeTextProviderRequired",
+      ]);
+    }
     const spec = request.action === "type"
       ? request.text === undefined
         ? failure<{ actionId: string; metadata?: Readonly<Record<string, unknown>> }>("INVALID_REQUEST", "computeruse keyboard type requires text", ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.invalidRequest"])
         : undefined
       : undefined;
     if (spec !== undefined) return spec;
+    const shortcut = request.action === "shortcut" ? ydotoolShortcutArgument(request.keys) : undefined;
     const args = request.action === "type"
-      ? ["type", request.text ?? ""]
-      : ["key", ...(ydotoolKeyCodes(request.keys ?? (request.action === "submit" ? ["Enter"] : undefined)) ?? [])];
+      ? ["type", "--file", "-"]
+      : shortcut !== undefined
+        ? ["key", "--delay", "0", "--key-delay", "12", shortcut]
+        : ["key", "--delay", "0", "--key-delay", "12", ...(ydotoolKeyEventSequences(request.keys ?? (request.action === "submit" ? ["Enter"] : undefined)) ?? [])];
     if (args.length <= 1) return undefined;
-    const result = await runChildProcess({ command: ydotool, args, cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.keyboardAction");
+    const result = await runChildProcess({
+      command: ydotool,
+      args,
+      cwd,
+      stdin: request.action === "type" ? request.text ?? "" : undefined,
+      timeoutMs: 5_000,
+      intent: "generic",
+    }, context, "computeruse.keyboardAction");
     if (!result.ok) return result;
     if (result.output.exitCode !== 0) {
-      return failure("PROVIDER_FAILURE", result.output.stderr || "ydotool keyboard action failed", [
+      return failure("PROVIDER_FAILURE", [
+        ...failedProviders,
+        `ydotool: ${result.output.stderr || result.output.stdout || `exit ${result.output.exitCode}`}`,
+      ].join("; ") || "ydotool keyboard action failed", [
         "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.ydotoolFailed",
       ]);
     }
+    await delay(request.action === "submit" ? 120 : 180);
     return success({
       actionId: `keyboard:${randomUUID()}`,
-      metadata: { ...metadata, provider: "ydotool", executed: true },
+      metadata: {
+        ...metadata,
+        provider: "ydotool",
+        executed: true,
+        imeBypassed: false,
+        fallbackFromProviders: failedProviders.length > 0 ? failedProviders.map((entry) => entry.split(":")[0] ?? entry) : [],
+      },
     }, ["runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.executed"]);
   }
 

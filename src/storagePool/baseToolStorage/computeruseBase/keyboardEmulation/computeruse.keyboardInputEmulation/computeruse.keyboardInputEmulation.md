@@ -54,6 +54,7 @@ The handler injects `runtimeId`, `sessionId`, and `toolCallId` into runtime invo
 - `target.targetHint` or top-level `targetHint`: public-safe description of the intended focus target.
   - For a runtime-managed terminal/PTY, use an explicit target such as `tmux:praxis-work`, `pty:praxis-work`, or `terminal:praxis-work`.
   - The runtime may also accept `metadata.tmuxSession` or `PRAXIS_DESKTOP_TMUX_SESSION`, but the baseTool itself does not invent a default terminal session.
+  - For a user-approved "current/focused Ghostty terminal/window" request, the Linux runtime may resolve the hint to the explicit desktop target `window:active`. This is still a governed desktop adapter path, not a focus-free terminal session.
 - `target.maxTextLength` or top-level `maxTextLength`: bounded per-call text limit; defaults to `4096`.
 - `context.invocationId`: defaults to `toolCallId` when invoked through the handler.
 - `context.sessionId`: defaults to `BaseToolInvokeRequest.sessionId` when invoked through the handler.
@@ -73,7 +74,7 @@ Runtime owns focus boundaries, OS keyboard APIs, accessibility or portal backend
 
 For governed terminal work, runtime may route this same keyboard primitive to a managed PTY/tmux adapter. That route is intentionally focus-independent and IME-bypassing, but it still lives behind `BaseToolExecutorPort.computeruse.keyboardAction`; it is not a separate model-facing terminal strategy and it requires an explicit managed session target.
 
-For governed desktop work, runtime may route the same primitive to a bound GUI input adapter. Linux Wayland text input prefers `wtype`; key events may use `ydotool`; X11 may use `xdotool`. The request must still name an explicit runtime target such as `window:active`, `gui:<id>`, or `tmux:<session>` through metadata/target hint. Without that target, runtime refuses to type into whichever app happens to be focused.
+For governed desktop work, runtime may route the same primitive to a bound GUI input adapter. Linux Wayland exact text input prefers `wl-clipboard` plus a governed paste key or `wtype`; key-by-key `ydotool type` is not used for auto-resolved current-window text because it can be corrupted by IME state. X11 may use `xdotool`. The request must name an explicit runtime target such as `window:active`, `gui:<id>`, or `tmux:<session>` through metadata/target hint, or a user-approved current/focused Ghostty/window hint that runtime can resolve to `window:active`. Without that target, runtime refuses to type into whichever app happens to be focused.
 
 Provider practice files are evidence and optional provider factories. They may describe Claude/Codex/Gemini lessons, but they do not turn browser-use, shell commands, clipboard tools, portals, or OS automation libraries into hidden baseTool behavior.
 

@@ -532,6 +532,15 @@ function normalizeProviderResult(
   };
 }
 
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
+
+function publicSafeProviderFailureMessage(error: unknown): string | undefined {
+  const message = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+  if (message === undefined || !message.startsWith(publicSafeProviderFailurePrefix)) return undefined;
+  const publicSafeMessage = message.slice(publicSafeProviderFailurePrefix.length).trim();
+  return publicSafeMessage.length > 0 ? publicSafeMessage : undefined;
+}
+
 function normalizeRequest(request: unknown): {
   target: KeyboardEmulationTarget;
   context: KeyboardEmulationContext;
@@ -652,14 +661,29 @@ export async function executeKeyboardEmulation(request: unknown = {}): Promise<K
         remainingRepeats -= 1;
       }
     }
-  } catch {
-    return failure(
+  } catch (error) {
+    const providerMessage = publicSafeProviderFailureMessage(error);
+    const failed = failure(
       "PROVIDER_FAILURE",
-      "computeruse.keyboardEmulation runtime provider failed without exposing private details",
+      providerMessage === undefined
+        ? "computeruse.keyboardEmulation runtime provider failed without exposing private details"
+        : `computeruse.keyboardEmulation runtime provider failed: ${providerMessage}`,
       "provider",
       context,
       target.targetHint,
     );
+    if (!failed.ok && providerMessage !== undefined) {
+      return {
+        ...failed,
+        audit: [
+          auditEvent("agentCore.basicTool.computeruse.keyboardEmulation.providerFailed", context, target.targetHint, {
+            code: "PROVIDER_FAILURE",
+            providerMessage,
+          }),
+        ],
+      };
+    }
+    return failed;
   }
 
   return {

@@ -169,6 +169,116 @@ test("surface selectors preserve insertion order within the same turn", () => {
   );
 });
 
+test("surface selectors keep late previous-turn output before the next optimistic user turn", () => {
+  const state = reduceSurfaceEvents(createInitialSurfaceState(), [
+    createSurfaceEvent({
+      eventId: "event:turn.started:turn-1",
+      type: "turn.started",
+      emittedAt: "2026-04-11T09:30:00.000Z",
+      at: "2026-04-11T09:30:00.000Z",
+      source: "core",
+      turn: createSurfaceTurn({
+        turnId: "turn-1",
+        id: "turn-1",
+        turnIndex: 1,
+        status: "running",
+        startedAt: "2026-04-11T09:30:00.000Z",
+        updatedAt: "2026-04-11T09:30:00.000Z",
+        outputMessageIds: [],
+        taskIds: [],
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:user-1",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:30:01.000Z",
+      at: "2026-04-11T09:30:01.000Z",
+      source: "ui",
+      message: createSurfaceMessage({
+        messageId: "user-1",
+        id: "user-1",
+        kind: "user",
+        createdAt: "2026-04-11T09:30:01.000Z",
+        turnId: "turn-1",
+        text: "给我查一下 apple 股价",
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:turn.started:turn-2",
+      type: "turn.started",
+      emittedAt: "2026-04-11T09:30:02.000Z",
+      at: "2026-04-11T09:30:02.000Z",
+      source: "ui",
+      turn: createSurfaceTurn({
+        turnId: "turn-2",
+        id: "turn-2",
+        turnIndex: 2,
+        status: "waiting",
+        startedAt: "2026-04-11T09:30:02.000Z",
+        updatedAt: "2026-04-11T09:30:02.000Z",
+        outputMessageIds: [],
+        taskIds: [],
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:user-2",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:30:02.000Z",
+      at: "2026-04-11T09:30:02.000Z",
+      source: "ui",
+      message: createSurfaceMessage({
+        messageId: "user-2",
+        id: "user-2",
+        kind: "user",
+        createdAt: "2026-04-11T09:30:02.000Z",
+        turnId: "turn-2",
+        text: "lsp你能用吗?",
+        metadata: {
+          optimistic: true,
+        },
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:tool-1",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:30:03.000Z",
+      at: "2026-04-11T09:30:03.000Z",
+      source: "tap",
+      message: createSurfaceMessage({
+        messageId: "tool-1",
+        id: "tool-1",
+        kind: "status",
+        createdAt: "2026-04-11T09:30:03.000Z",
+        turnId: "turn-1",
+        text: "WebSearch\nApple stock price current quote",
+        metadata: {
+          source: "tool_summary",
+        },
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:assistant-1",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:30:04.000Z",
+      at: "2026-04-11T09:30:04.000Z",
+      source: "core",
+      message: createSurfaceMessage({
+        messageId: "assistant-1",
+        id: "assistant-1",
+        kind: "assistant",
+        createdAt: "2026-04-11T09:30:04.000Z",
+        turnId: "turn-1",
+        text: "Apple 当前报价为 293.32 美元。",
+      }),
+    }),
+  ]);
+
+  assert.deepEqual(
+    selectTranscriptMessages(state).map((message) => message.id),
+    ["user-1", "tool-1", "assistant-1", "user-2"],
+  );
+});
+
 test("surface selectors expose active tasks overlays panels and status messages", () => {
   const state = reduceSurfaceEvents(createInitialSurfaceState(), [
     createSurfaceEvent({

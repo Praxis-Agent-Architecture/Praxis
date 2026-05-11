@@ -86,6 +86,21 @@ test("applyTuiTextInputKey handles left/right insertion and submit", () => {
   assert.equal(submit.handled, true);
 });
 
+test("applyTuiTextInputKey inserts newline for ctrl+j and shift+enter", () => {
+  let state = createTuiTextInputState("hello");
+
+  const ctrlJ = applyTuiTextInputKey(state, "j", { ctrl: true } as never);
+  assert.equal(ctrlJ.submit, false);
+  assert.equal(ctrlJ.handled, true);
+  assert.equal(ctrlJ.nextState.value, "hello\n");
+
+  state = createTuiTextInputState("hello");
+  const shiftEnter = applyTuiTextInputKey(state, "", { return: true, shift: true } as never);
+  assert.equal(shiftEnter.submit, false);
+  assert.equal(shiftEnter.handled, true);
+  assert.equal(shiftEnter.nextState.value, "hello\n");
+});
+
 test("applyTuiTextInputKey treats delete/backspace style keys as backward delete", () => {
   let state = createTuiTextInputState("hello");
   state = applyTuiTextInputKey(state, "\u007f", {} as never).nextState;

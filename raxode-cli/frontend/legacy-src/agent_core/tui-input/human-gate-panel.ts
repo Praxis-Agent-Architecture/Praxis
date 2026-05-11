@@ -20,6 +20,10 @@ export interface HumanGatePanelEntry {
   plainLanguageRisk: PlainLanguageRiskPayload;
 }
 
+function isApplicationApproval(entry: HumanGatePanelEntry): boolean {
+  return entry.plainLanguageRisk.metadata?.sourceKind === "application-approval";
+}
+
 function hasAction(
   actions: readonly PlainLanguageRiskUserAction[],
   matcher: (action: PlainLanguageRiskUserAction) => boolean,
@@ -39,7 +43,9 @@ export function hasApproveAlwaysAction(entry: HumanGatePanelEntry): boolean {
 
 export function hasRejectAction(entry: HumanGatePanelEntry): boolean {
   return hasAction(entry.plainLanguageRisk.availableUserActions, (action) =>
-    action.actionId.endsWith("reject") || action.actionId === "deny");
+    action.actionId.endsWith("reject")
+    || action.actionId.endsWith("deny")
+    || action.actionId === "deny");
 }
 
 export function hasRejectWithInstructionAction(entry: HumanGatePanelEntry): boolean {
@@ -59,32 +65,44 @@ export function buildHumanGatePanelBodyLines(input: {
   totalCount: number;
 }): PraxisSlashPanelBodyLine[] {
   const { entry, expanded, currentIndex, totalCount } = input;
-  const lines: PraxisSlashPanelBodyLine[] = [
-    {
-      text: `    Pending approval ${currentIndex + 1}/${Math.max(1, totalCount)}`,
-      tone: "info",
-    },
-    {
-      text: `    Capability     ${entry.capabilityKey}`,
-      tone: "default",
-    },
-    {
-      text: `    Requested act  ${entry.plainLanguageRisk.requestedAction}`,
-      tone: "default",
-    },
-    {
-      text: `    Risk level     ${entry.plainLanguageRisk.riskLevel}`,
-      tone: entry.plainLanguageRisk.riskLevel === "dangerous"
-        ? "danger"
-        : (entry.plainLanguageRisk.riskLevel === "risky" ? "warning" : "success"),
-    },
-    {
-      text: `    Summary        ${entry.plainLanguageRisk.plainLanguageSummary}`,
-      tone: "default",
-    },
-  ];
+  const applicationApproval = isApplicationApproval(entry);
+  const lines: PraxisSlashPanelBodyLine[] = applicationApproval
+    ? [
+        {
+          text: ` Approval Needed  ${entry.plainLanguageRisk.plainLanguageSummary}`,
+          tone: "info",
+        },
+        {
+          text: "",
+          tone: "default",
+        },
+      ]
+    : [
+        {
+          text: `    Pending approval ${currentIndex + 1}/${Math.max(1, totalCount)}`,
+          tone: "info",
+        },
+        {
+          text: `    Capability     ${entry.capabilityKey}`,
+          tone: "default",
+        },
+        {
+          text: `    Requested act  ${entry.plainLanguageRisk.requestedAction}`,
+          tone: "default",
+        },
+        {
+          text: `    Risk level     ${entry.plainLanguageRisk.riskLevel}`,
+          tone: entry.plainLanguageRisk.riskLevel === "dangerous"
+            ? "danger"
+            : (entry.plainLanguageRisk.riskLevel === "risky" ? "warning" : "success"),
+        },
+        {
+          text: `    Summary        ${entry.plainLanguageRisk.plainLanguageSummary}`,
+          tone: "default",
+        },
+      ];
 
-  if (expanded) {
+  if (expanded && !applicationApproval) {
     lines.push(
       {
         text: `    Why risky      ${entry.plainLanguageRisk.whyItIsRisky}`,
@@ -147,9 +165,11 @@ export function buildHumanGatePanelFields(input: {
   if (hasApproveOnceAction(entry)) {
     fields.push({
       key: "humanGate:approveOnce",
-      label: "Approve Once",
+      label: isApplicationApproval(entry) ? "Approve This Time" : "Approve Once",
       kind: "action",
-      value: "allow only this request",
+      value: isApplicationApproval(entry)
+        ? "Approve the use of this feature this time."
+        : "allow only this request",
       tone: "success",
       primary: true,
     });
@@ -157,18 +177,31 @@ export function buildHumanGatePanelFields(input: {
   if (hasApproveAlwaysAction(entry)) {
     fields.push({
       key: "humanGate:approveAlways",
-      label: "Approve Always",
+      label: isApplicationApproval(entry) ? "Always Approve" : "Approve Always",
       kind: "action",
-      value: "persist this read prefix",
+      value: isApplicationApproval(entry)
+        ? "Always approve this feature for this session."
+        : "persist this read prefix",
       tone: "success",
     });
   }
   if (hasRejectAction(entry)) {
     fields.push({
       key: "humanGate:deny",
-      label: "Deny",
+      label: isApplicationApproval(entry) ? "Continue and Deny" : "Deny",
       kind: "action",
-      value: "reject without extra note",
+      value: isApplicationApproval(entry)
+        ? "Continue and deny the use of this feature this time."
+        : "reject without extra note",
+      tone: "danger",
+    });
+  }
+  if (isApplicationApproval(entry)) {
+    fields.push({
+      key: "humanGate:denyAndStop",
+      label: "Stop and Deny",
+      kind: "action",
+      value: "Stop and deny the use of this feature this time.",
       tone: "danger",
     });
   }

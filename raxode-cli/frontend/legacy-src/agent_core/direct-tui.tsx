@@ -80,6 +80,7 @@ import {
 import {
   buildHumanGatePanelBodyLines,
   buildHumanGatePanelFields,
+  hasApproveAlwaysAction,
   resolveHumanGatePendingSignature,
   type HumanGatePanelEntry,
 } from "./tui-input/human-gate-panel.js";
@@ -1033,6 +1034,7 @@ interface ExitSummaryDisplayState {
 let directTuiInkInstance: InkInstance | null = null;
 let persistedDirectTuiExitInFlight = false;
 const DIRECT_TUI_EXIT_SUMMARY_FILE = process.env.PRAXIS_EXIT_SUMMARY_FILE;
+const DIRECT_TUI_INK_EXIT_WAIT_MS = 120;
 
 async function persistDirectTuiExitSummaryFile(lines: string[]): Promise<"persisted" | "missing_path" | "write_failed"> {
   if (!DIRECT_TUI_EXIT_SUMMARY_FILE) {
@@ -1067,7 +1069,12 @@ async function persistDirectTuiExitSummaryAndExit(input: {
       composerCursorParking.active = false;
       terminalOverlaySnapshot = null;
       instance.unmount();
-      await instance.waitUntilExit();
+      await Promise.race([
+        instance.waitUntilExit(),
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, DIRECT_TUI_INK_EXIT_WAIT_MS);
+        }),
+      ]);
     } finally {
       instance.clear();
       instance.cleanup();
@@ -2968,6 +2975,7 @@ function buildSlashPanelView(
         : Math.max(0, Math.min(Number.isFinite(requestedIndex) ? requestedIndex : 0, pendingHumanGates.length - 1));
       const gate = pendingHumanGates[gateIndex] ?? null;
       const expanded = draft.humanGateDetails === "expanded";
+      const applicationApproval = gate?.plainLanguageRisk.metadata?.sourceKind === "application-approval";
       const bodyLines = gate
         ? buildHumanGatePanelBodyLines({
           entry: gate,
@@ -2987,18 +2995,26 @@ function buildSlashPanelView(
       });
       return {
         id,
-        title: "Human Gate",
-        description: "Review TAP requests that are paused for human approval",
+        title: applicationApproval ? "Approval Needed" : "Human Gate",
+        description: applicationApproval
+          ? gate?.plainLanguageRisk.plainLanguageSummary ?? "Review the feature approval request"
+          : "Review TAP requests that are paused for human approval",
         status: gate
           ? `${pendingHumanGates.length} approval request(s) waiting`
           : "No pending human gate requests",
         bodyLines,
         fields,
+        showChrome: applicationApproval ? false : undefined,
+        showStatus: applicationApproval ? false : undefined,
         hints: gate
-          ? [
-            "Enter submits the selected action.",
-            "Esc hides this panel without discarding the pending gate.",
-          ]
+          ? (
+            applicationApproval
+              ? ["", "press ↑ to select up • press ↓ to select down • press ENTER to submit approval"]
+              : [
+                  "Enter submits the selected action.",
+                  "Esc hides this panel without discarding the pending gate.",
+                ]
+          )
           : ["Enter closes this panel."],
       };
     }
@@ -8288,6 +8304,26 @@ function PraxisDirectTuiApp(): JSX.Element {
     });
   };
 
+  const finishExitSummaryAndQuit = () => {
+    const display = exitSummaryDisplay;
+    if (!display || exitSummaryPersistRequestedRef.current) {
+      return;
+    }
+    exitSummaryPersistRequestedRef.current = true;
+    const child = childRef.current;
+    if (child && !child.killed) {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        // ignore backend shutdown races while the direct TUI exits
+      }
+    }
+    void persistDirectTuiExitSummaryAndExit({
+      lines: display.finalLines,
+      exitCode: 0,
+    });
+  };
+
   const appendQuestionReceipt = (payload: QuestionReceiptPayload, text: string) => {
     const at = new Date().toISOString();
     dispatchSurfaceEvent({
@@ -8753,7 +8789,9 @@ function PraxisDirectTuiApp(): JSX.Element {
       humanGateDetails: "collapsed",
     });
     setSlashPanelInputState(createTuiTextInputState());
-    setSlashPanelFocusIndex(0);
+    const gate = pendingHumanGates[gateIndex];
+    const applicationApproval = gate?.plainLanguageRisk.metadata?.sourceKind === "application-approval";
+    setSlashPanelFocusIndex(gate !== undefined && applicationApproval && hasApproveAlwaysAction(gate) ? 1 : 0);
     setSlashPanelNotice(options?.autoOpen ? {
       tone: "warning",
       text: "TAP is waiting for a human gate decision.",
@@ -10665,13 +10703,21 @@ function PraxisDirectTuiApp(): JSX.Element {
                 const nextMetadataLines = familyKey === "websearch"
                   ? resolveWebSearchMetadataLines(record)
                   : resolveGenericFamilyMetadataLines(record, "end");
+                const currentToolFailed = record.status === "failed";
                 const combinedResultLines = (
                   familyKey === "websearch"
-                    ? [
-                      ...previousFamily.resultLines,
-                      ...nextResultLines,
-                      ...nextMetadataLines,
-                    ]
+                    ? (
+                      currentToolFailed
+                        ? [
+                          ...previousFamily.resultLines,
+                          ...nextResultLines,
+                          ...nextMetadataLines,
+                        ]
+                        : [
+                          ...nextResultLines,
+                          ...nextMetadataLines,
+                        ]
+                    )
                     : [
                       ...compactGenericFamilyResultLines(record, nextResultLines, nextMetadataLines),
                       ...(nextResultLines.length === 0 && nextMetadataLines.length === 0
@@ -10681,7 +10727,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                 ).filter((line, index, lines) => line.trim().length > 0 && lines.indexOf(line) === index);
                 const nextFamily = {
                   ...previousFamily,
-                  hadFailure: previousFamily.hadFailure || record.status === "failed",
+                  hadFailure: currentToolFailed ? previousFamily.hadFailure || currentToolFailed : false,
                   intentLines: nextIntentLine
                     ? (
                       previousFamily.intentLines.includes(nextIntentLine)
@@ -11610,22 +11656,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       return;
     }
     const closeTimer = setTimeout(() => {
-      if (exitSummaryPersistRequestedRef.current) {
-        return;
-      }
-      exitSummaryPersistRequestedRef.current = true;
-      const child = childRef.current;
-      if (child && !child.killed) {
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // ignore backend shutdown races while the direct TUI exits
-        }
-      }
-      void persistDirectTuiExitSummaryAndExit({
-        lines: exitSummaryDisplay.finalLines,
-        exitCode: 0,
-      });
+      finishExitSummaryAndQuit();
     }, Math.max(0, exitSummaryDisplay.exitAtMs - Date.now()));
     return () => {
       clearTimeout(closeTimer);
@@ -11694,7 +11725,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         ? 0
         : Math.max(0, Math.min(Number.isFinite(requestedIndex) ? requestedIndex : 0, pendingHumanGates.length - 1));
       const gate = pendingHumanGates[gateIndex] ?? null;
-      const sendHumanGateDecision = (action: "approve" | "approve_always" | "reject", note?: string) => {
+      const sendHumanGateDecision = (action: "approve" | "approve_always" | "reject" | "reject_stop", note?: string) => {
         const child = childRef.current;
         if (!child || child.killed || backendStatus === "failed") {
           setSlashPanelNotice({
@@ -11717,12 +11748,12 @@ function PraxisDirectTuiApp(): JSX.Element {
         })}\u0000`);
         setDismissedHumanGateSignature(null);
         setSlashPanelNotice({
-          tone: action === "reject" ? "warning" : "success",
+          tone: action === "reject" || action === "reject_stop" ? "warning" : "success",
           text: action === "approve_always"
-            ? "Persistent approval sent to TAP."
+            ? "Persistent approval sent."
             : (action === "approve"
-              ? "Approval sent to TAP."
-              : "Rejection sent to TAP."),
+              ? "Approval sent."
+              : "Rejection sent."),
         });
       };
       switch (actionKey) {
@@ -11768,6 +11799,9 @@ function PraxisDirectTuiApp(): JSX.Element {
           return;
         case "humanGate:deny":
           sendHumanGateDecision("reject");
+          return;
+        case "humanGate:denyAndStop":
+          sendHumanGateDecision("reject_stop");
           return;
         case "humanGate:denyWithInstruction": {
           const note = slashPanelInputState.value.trim();
@@ -12536,6 +12570,18 @@ function PraxisDirectTuiApp(): JSX.Element {
   }, [backendStatus, pendingComposerDispatches, interruptibleTasks.length, activeTurnIds]);
 
   useInput((inputText, key) => {
+    if (exitSummaryDisplay) {
+      if (
+        key.return
+        || key.escape
+        || (key.ctrl && inputText === "c")
+        || inputText.toLowerCase() === "q"
+      ) {
+        flushPendingPasteText();
+        finishExitSummaryAndQuit();
+      }
+      return;
+    }
     if (rewindInFlight) {
       if (key.ctrl && inputText === "c") {
         flushPendingPasteText();

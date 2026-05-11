@@ -136,6 +136,7 @@ export type PraxisRuntimeKernelOptions = {
   auth?: AuthEnvelope;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
   executor?: BaseToolExecutorPort;
+  baseToolAdapters?: Partial<BaseToolExecutorPort>;
   baseToolPolicy?: RuntimeBaseToolExecutorPolicy;
   baseToolResourceLimits?: RuntimeBaseToolExecutorResourceLimits;
   store?: RuntimeSessionStateEventStore;
@@ -165,6 +166,8 @@ export type PraxisRuntimeKernelOptions = {
     runSmoke?: boolean;
     failOnUnavailable?: boolean;
   };
+  onModelCallProgress?: (event: AgentModelCallProgressEvent) => void | Promise<void>;
+  onToolCallProgress?: (event: AgentToolCallProgressEvent) => void | Promise<void>;
   now?: () => string;
 };
 
@@ -228,11 +231,45 @@ export type AgentToolCallRecord = {
   error?: unknown;
 };
 
+export type AgentToolCallProgressEvent =
+  | {
+      phase: "started";
+      callId: string;
+      toolId: string;
+      providerToolName?: string;
+      arguments: Readonly<Record<string, unknown>>;
+    }
+  | {
+      phase: "completed" | "failed";
+      providerToolName?: string;
+      record: AgentToolCallRecord;
+    };
+
 export type AgentModelCallRecord = {
   invocationId: string;
   raw: unknown;
   ok: boolean;
 };
+
+export type AgentModelCallProgressEvent =
+  | {
+      phase: "started";
+      invocationId: string;
+      turnIndex: number;
+      provider: string;
+      carrierId: string;
+      model?: string;
+    }
+  | {
+      phase: "completed" | "failed";
+      invocationId: string;
+      turnIndex: number;
+      provider: string;
+      carrierId: string;
+      model?: string;
+      ok: boolean;
+      error?: PraxisRuntimeKernelError;
+    };
 
 export type AgentRunResult =
   | {
@@ -541,6 +578,7 @@ const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
   "When BaseTool documentation is folded and you need a more precise family/group/tool manual, request praxis_expand_tool_context before choosing the concrete tool.",
   "If one BaseTool is not enough, request praxis_ephemeral_procedure to orchestrate existing mounted BaseTools; do not invent a new tool.",
   "If policy, sandbox, dependency, budget, or approval blocks the action, request praxis_request_approval or report the public-safe blocker after the runtime returns it.",
+  "If a specific tool call returns PROVIDER_FAILURE after the user named an action/target, report that the requested tool was attempted and the runtime/provider failed; do not reinterpret it as the user failing to specify an action or target.",
   "If the prompt already contains enough evidence and no runtime action is needed, answer directly.",
 ].join("\n");
 
@@ -2000,9 +2038,11 @@ export class PraxisRuntimeKernel {
         allowFilesystemDelete: manifest.harness.policy.allowToolExecution ?? options.allowToolExecution,
         allowRipgrep: true,
         allowNetworkFetch: true,
+        allowNetworkSearch: true,
         ...(options.baseToolPolicy ?? {}),
       },
       resourceLimits: options.baseToolResourceLimits,
+      adapters: options.baseToolAdapters,
       sandbox: {
         ...sandboxPrepared.sandbox,
         policyProfile: manifest.toolPolicy.profile,
@@ -2134,6 +2174,14 @@ export class PraxisRuntimeKernel {
       invokeModel: async (turn, prompt) => {
       const stepBase = turn * 20 + 2;
       const modelInvocationId = `${sessionId}:model:${turn + 1}`;
+      await options.onModelCallProgress?.({
+        phase: "started",
+        invocationId: modelInvocationId,
+        turnIndex: turn,
+        provider: manifest.model.provider,
+        carrierId: manifest.model.carrierId,
+        model: manifest.model.model,
+      });
       const modelResult = await invokeModelThroughRuntime({
         runtimeId,
         invocationId: modelInvocationId,
@@ -2155,6 +2203,18 @@ export class PraxisRuntimeKernel {
         contract: { accepted: true },
         clientName: manifest.model.clientName,
         clientVersion: manifest.model.clientVersion,
+      });
+      await options.onModelCallProgress?.({
+        phase: modelResult.ok ? "completed" : "failed",
+        invocationId: modelInvocationId,
+        turnIndex: turn,
+        provider: manifest.model.provider,
+        carrierId: manifest.model.carrierId,
+        model: manifest.model.model,
+        ok: modelResult.ok,
+        error: modelResult.ok
+          ? undefined
+          : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model"),
       });
       events.push(...modelResult.events);
       modelCalls.push({
@@ -2594,6 +2654,13 @@ export class PraxisRuntimeKernel {
             toolId: decision.toolCall.toolId,
             providerToolName: decision.toolCall.providerToolName,
           }));
+          await options.onToolCallProgress?.({
+            phase: "started",
+            callId: decision.toolCall.callId,
+            toolId: decision.toolCall.toolId,
+            providerToolName: decision.toolCall.providerToolName,
+            arguments: decision.toolCall.arguments,
+          });
           const executed = await executeBaseToolDecision({
             runtimeId,
             sessionId,
@@ -2611,6 +2678,11 @@ export class PraxisRuntimeKernel {
             dependencyRuntime: options.baseToolDependencyRuntime,
             now,
             events,
+          });
+          await options.onToolCallProgress?.({
+            phase: executed.record.ok ? "completed" : "failed",
+            providerToolName: decision.toolCall.providerToolName,
+            record: executed.record,
           });
           toolCalls.push(executed.record);
           observations.push(executed.observation);

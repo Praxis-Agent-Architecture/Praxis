@@ -418,6 +418,15 @@ function normalizeProviderResult(
   };
 }
 
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
+
+function publicSafeProviderFailureMessage(error: unknown): string | undefined {
+  const message = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+  if (message === undefined || !message.startsWith(publicSafeProviderFailurePrefix)) return undefined;
+  const publicSafeMessage = message.slice(publicSafeProviderFailurePrefix.length).trim();
+  return publicSafeMessage.length > 0 ? publicSafeMessage : undefined;
+}
+
 function normalizeRequest(request: unknown): {
   target: KeyboardSubmitInputTarget;
   context: KeyboardSubmitInputContext;
@@ -523,10 +532,13 @@ export async function executeKeyboardSubmitInput(request: unknown = {}): Promise
       actionIds.push(normalizedResult.actionId);
       metadataRecords.push(normalizedResult.metadata ?? {});
     }
-  } catch {
+  } catch (error) {
+    const providerMessage = publicSafeProviderFailureMessage(error);
     return failure(
       "PROVIDER_FAILURE",
-      "computeruse.keyboardSubmitInput runtime provider failed without exposing private details",
+      providerMessage === undefined
+        ? "computeruse.keyboardSubmitInput runtime provider failed without exposing private details"
+        : `computeruse.keyboardSubmitInput runtime provider failed: ${providerMessage}`,
       "provider",
       context,
       target.targetHint,

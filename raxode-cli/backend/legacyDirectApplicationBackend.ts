@@ -8,8 +8,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 import type {
+  RuntimeApprovalEnvelope,
+  RuntimeApprovalResolution,
+  RuntimeApprovalResolver,
+} from "../../src/agentCore/index.js";
+import type {
   PraxisApplicationAttachment,
   PraxisApplicationCommandResult,
+  PraxisApplicationEvent,
   PraxisApplicationRuntimeMode,
 } from "../../src/applicationLayer/index.js";
 
@@ -32,6 +38,21 @@ type DirectEnvelope = {
   pastedContents?: Array<Record<string, unknown>>;
   fileRefs?: Array<Record<string, unknown>>;
   answers?: Array<Record<string, unknown>>;
+};
+
+type LegacyHumanGateDecisionEnvelope = {
+  type: "human_gate_decision";
+  gateId: string;
+  action: "approve" | "approve_always" | "reject" | "reject_stop";
+  note?: string;
+};
+
+type PendingRuntimeApproval = {
+  envelope: RuntimeApprovalEnvelope;
+  featureKey: string;
+  featureDisplay: string;
+  toolId?: string;
+  resolve: (resolution: RuntimeApprovalResolution) => void;
 };
 
 function defaultProjectRoot(): string {
@@ -133,6 +154,173 @@ function normalizeDirectPayload(raw: string): {
   }
 }
 
+function parseLegacyHumanGateDecision(raw: string): LegacyHumanGateDecisionEnvelope | undefined {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{")) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    if (parsed.type !== "human_gate_decision") return undefined;
+    const gateId = typeof parsed.gateId === "string" ? parsed.gateId.trim() : "";
+    const action = parsed.action;
+    if (
+      gateId.length === 0
+      || (action !== "approve" && action !== "approve_always" && action !== "reject" && action !== "reject_stop")
+    ) {
+      return undefined;
+    }
+    return {
+      type: "human_gate_decision",
+      gateId,
+      action,
+      note: typeof parsed.note === "string" && parsed.note.trim().length > 0 ? parsed.note.trim() : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function runtimeApprovalToolId(envelope: RuntimeApprovalEnvelope): string | undefined {
+  const toolId = envelope.metadata.toolId;
+  return typeof toolId === "string" && toolId.trim().length > 0 ? toolId.trim() : undefined;
+}
+
+function inferRuntimeApprovalFeature(envelope: RuntimeApprovalEnvelope): {
+  featureKey: string;
+  featureDisplay: string;
+  toolId?: string;
+} {
+  const toolId = runtimeApprovalToolId(envelope);
+  if (toolId?.startsWith("computeruse.")) {
+    return { featureKey: "computer_use", featureDisplay: "computer_use", toolId };
+  }
+  if (toolId) {
+    const family = toolId.split(".")[0] ?? "tool";
+    return { featureKey: family, featureDisplay: family, toolId };
+  }
+  if (envelope.source === "model") {
+    return { featureKey: "model_approval", featureDisplay: "model_approval" };
+  }
+  if (envelope.source === "runtime") {
+    return { featureKey: "runtime", featureDisplay: "runtime" };
+  }
+  return { featureKey: "tool", featureDisplay: "tool" };
+}
+
+function normalizeApprovalRiskLevel(riskLevel: string | undefined): "normal" | "risky" | "dangerous" {
+  if (riskLevel === "dangerous") return "dangerous";
+  if (riskLevel === "safe" || riskLevel === "normal") return "normal";
+  return "risky";
+}
+
+function runtimeApprovalSummary(featureDisplay: string): string {
+  return `Raxode now infers: Under the current circumstances, the "${featureDisplay}" feature should be used.`;
+}
+
+function buildRuntimeApprovalPanelSnapshot(
+  pendingApprovals: ReadonlyMap<string, PendingRuntimeApproval>,
+  now: () => string,
+): Record<string, unknown> {
+  const pendingHumanGates = [...pendingApprovals.values()].map((pending) => {
+    const updatedAt = now();
+    const riskLevel = normalizeApprovalRiskLevel(pending.envelope.riskLevel);
+    return {
+      gateId: pending.envelope.approvalId,
+      requestId: pending.envelope.approvalId,
+      capabilityKey: pending.featureDisplay,
+      requestedTier: riskLevel,
+      mode: "application-approval",
+      reason: pending.envelope.reason,
+      createdAt: updatedAt,
+      updatedAt,
+      externalPathPrefixes: [],
+      plainLanguageRisk: {
+        plainLanguageSummary: runtimeApprovalSummary(pending.featureDisplay),
+        requestedAction: pending.toolId ? `Use ${pending.toolId}` : `Use ${pending.featureDisplay}`,
+        riskLevel,
+        whyItIsRisky: pending.envelope.reason,
+        possibleConsequence: `The ${pending.featureDisplay} feature may interact with runtime resources or the desktop session.`,
+        whatHappensIfNotRun: `Raxode will continue without using ${pending.featureDisplay} for this request.`,
+        availableUserActions: [
+          {
+            actionId: "approve-once",
+            label: "Approve the use of this feature this time.",
+            kind: "approve",
+          },
+          {
+            actionId: "approve-always",
+            label: "Always Approve this feature for this session.",
+            kind: "approve",
+          },
+          {
+            actionId: "continue-deny",
+            label: "Continue and Deny the use of this feature this time.",
+            kind: "deny",
+          },
+          {
+            actionId: "stop-deny",
+            label: "Stop and Deny the use of this feature this time.",
+            kind: "deny",
+          },
+        ],
+        metadata: {
+          sourceKind: "application-approval",
+          approvalId: pending.envelope.approvalId,
+          featureKey: pending.featureKey,
+          featureDisplay: pending.featureDisplay,
+          ...(pending.toolId ? { toolId: pending.toolId } : {}),
+        },
+      },
+    };
+  });
+  return {
+    summaryLines: pendingHumanGates.length > 0
+      ? [`${pendingHumanGates.length} approval request(s) waiting for human decision.`]
+      : ["No pending application approval requests."],
+    status: pendingHumanGates.length > 0 ? "waiting_human" : "ready",
+    registeredCount: 0,
+    familyCount: 0,
+    blockedCount: 0,
+    pendingHumanGateCount: pendingHumanGates.length,
+    pendingHumanGates,
+    groups: [],
+  };
+}
+
+function approvalDecisionToRuntimeResolution(input: {
+  decision: LegacyHumanGateDecisionEnvelope;
+  pending: PendingRuntimeApproval;
+}): RuntimeApprovalResolution {
+  if (input.decision.action === "approve" || input.decision.action === "approve_always") {
+    return {
+      status: "approved",
+      resolvedBy: input.decision.action === "approve_always"
+        ? "raxode.tui.approve_always"
+        : "raxode.tui.approve_once",
+      reason: input.decision.note ?? `${input.pending.featureDisplay} approved by human through Raxode TUI`,
+      metadata: {
+        approvalId: input.pending.envelope.approvalId,
+        featureKey: input.pending.featureKey,
+        featureDisplay: input.pending.featureDisplay,
+        decision: input.decision.action,
+      },
+    };
+  }
+  return {
+    status: "denied",
+    resolvedBy: input.decision.action === "reject_stop"
+      ? "raxode.tui.reject_stop"
+      : "raxode.tui.reject",
+    reason: input.decision.note ?? `${input.pending.featureDisplay} denied by human through Raxode TUI`,
+    metadata: {
+      approvalId: input.pending.envelope.approvalId,
+      featureKey: input.pending.featureKey,
+      featureDisplay: input.pending.featureDisplay,
+      decision: input.decision.action,
+      stopTurn: input.decision.action === "reject_stop",
+    },
+  };
+}
+
 async function writeLog(logPath: string, record: Record<string, unknown>): Promise<void> {
   await appendFile(logPath, `${JSON.stringify(record)}\n`, "utf8");
 }
@@ -181,6 +369,86 @@ async function waitFrame(ms: number): Promise<void> {
   await new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+function stringMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function stringArrayMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): string[] {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+}
+
+function legacyToolStageRecord(input: {
+  applicationEvent: PraxisApplicationEvent;
+  sessionId: string;
+  turnIndex: number;
+}): Record<string, unknown> | undefined {
+  if (input.applicationEvent.kind !== "tool") return undefined;
+  const metadata = input.applicationEvent.metadata;
+  const toolId = stringMetadata(metadata, "toolId");
+  if (!toolId) return undefined;
+  const toolStatus = stringMetadata(metadata, "toolStatus") ?? "completed";
+  const running = toolStatus === "running";
+  const humanResultSummary = running ? [] : stringArrayMetadata(metadata, "humanResultSummary");
+  const errorPreview = running || humanResultSummary.length > 0 ? undefined : stringMetadata(metadata, "errorPreview");
+  const resultMetadata = {
+    toolId,
+    toolStatus,
+    familyKey: stringMetadata(metadata, "familyKey"),
+    familyTitle: stringMetadata(metadata, "familyTitle"),
+    inputSummary: stringMetadata(metadata, "inputSummary"),
+  };
+  return {
+    ts: input.applicationEvent.createdAt,
+    event: running ? "stage_start" : "stage_end",
+    sessionId: input.sessionId,
+    turnIndex: input.turnIndex,
+    stage: "core/capability_bridge",
+    status: running ? "running" : (toolStatus === "failed" ? "failed" : "completed"),
+    capabilityKey: toolId,
+    familyKey: stringMetadata(metadata, "familyKey"),
+    familyTitle: stringMetadata(metadata, "familyTitle"),
+    inputSummary: stringMetadata(metadata, "inputSummary"),
+    familyIntentSummary: stringMetadata(metadata, "inputSummary"),
+    output: humanResultSummary.length > 0 ? humanResultSummary.join("\n") : undefined,
+    error: errorPreview,
+    familyResultSummary: humanResultSummary.length > 0
+      ? humanResultSummary
+      : [errorPreview].filter((line): line is string => typeof line === "string" && line.length > 0).slice(0, 3),
+    resultMetadata,
+    text: input.applicationEvent.message,
+  };
+}
+
+function legacyModelStageRecord(input: {
+  applicationEvent: PraxisApplicationEvent;
+  sessionId: string;
+  turnIndex: number;
+}): Record<string, unknown> | undefined {
+  if (input.applicationEvent.kind !== "model") return undefined;
+  const metadata = input.applicationEvent.metadata;
+  const modelPhase = stringMetadata(metadata, "modelPhase");
+  if (modelPhase !== "started" && modelPhase !== "completed" && modelPhase !== "failed") return undefined;
+  const model = stringMetadata(metadata, "model") ?? stringMetadata(metadata, "carrierId") ?? "model";
+  return {
+    ts: input.applicationEvent.createdAt,
+    event: modelPhase === "started" ? "stage_start" : "stage_end",
+    sessionId: input.sessionId,
+    turnIndex: input.turnIndex,
+    stage: "core/model.infer",
+    status: modelPhase === "started" ? "running" : (modelPhase === "failed" ? "failed" : "completed"),
+    label: "core/model.infer",
+    text: modelPhase === "started"
+      ? `Requesting ${model} and waiting for model decision.`
+      : modelPhase === "completed"
+        ? `${model} returned a model decision.`
+        : stringMetadata(metadata, "errorMessage") ?? `${model} model request failed.`,
+    resultMetadata: metadata,
+  };
+}
+
 export async function startLegacyDirectApplicationBackend(options: LegacyDirectBackendOptions = {}): Promise<void> {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
@@ -193,6 +461,83 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
   const logPath = path.join(reportsDir, `legacy-direct-application-${sessionId.replace(/[^\w.-]+/gu, "_")}-${Date.now()}.jsonl`);
   output.write(`log file: ${logPath}\n`);
   output.write(`direct ready: ${sessionId}\n`);
+  let runtimeEventLogQueue = Promise.resolve();
+  const enqueueRuntimeEventLog = (record: Record<string, unknown>) => {
+    runtimeEventLogQueue = runtimeEventLogQueue.then(() => writeLog(logPath, record)).catch((error: unknown) => {
+      errorOutput.write(`legacy direct application backend runtime event log failed: ${error instanceof Error ? error.message : String(error)}\n`);
+    });
+    return runtimeEventLogQueue;
+  };
+  const pendingRuntimeApprovals = new Map<string, PendingRuntimeApproval>();
+  const sessionApprovedFeatures = new Set<string>();
+  const emitRuntimeApprovalPanelSnapshot = () => enqueueRuntimeEventLog({
+    ts: options.now?.() ?? new Date().toISOString(),
+    event: "panel_snapshot",
+    sessionId,
+    panel: "capabilities",
+    snapshot: buildRuntimeApprovalPanelSnapshot(
+      pendingRuntimeApprovals,
+      () => options.now?.() ?? new Date().toISOString(),
+    ),
+  });
+  const resolveHumanGateDecisionPayload = (decision: LegacyHumanGateDecisionEnvelope): boolean => {
+    const pending = pendingRuntimeApprovals.get(decision.gateId);
+    if (!pending) return false;
+    pendingRuntimeApprovals.delete(decision.gateId);
+    if (decision.action === "approve_always") {
+      sessionApprovedFeatures.add(pending.featureKey);
+    }
+    void enqueueRuntimeEventLog({
+      ts: options.now?.() ?? new Date().toISOString(),
+      event: "approval_decision",
+      sessionId,
+      approvalId: decision.gateId,
+      featureKey: pending.featureKey,
+      action: decision.action,
+      note: decision.note,
+    });
+    void emitRuntimeApprovalPanelSnapshot();
+    pending.resolve(approvalDecisionToRuntimeResolution({ decision, pending }));
+    return true;
+  };
+  const approvalResolver: RuntimeApprovalResolver = async (envelope) => {
+    const feature = inferRuntimeApprovalFeature(envelope);
+    if (sessionApprovedFeatures.has(feature.featureKey)) {
+      return {
+        status: "approved",
+        resolvedBy: "raxode.tui.session_approval_cache",
+        reason: `${feature.featureDisplay} was already approved for this session.`,
+        metadata: {
+          approvalId: envelope.approvalId,
+          featureKey: feature.featureKey,
+          featureDisplay: feature.featureDisplay,
+          ...(feature.toolId ? { toolId: feature.toolId } : {}),
+        },
+      };
+    }
+    const resolution = new Promise<RuntimeApprovalResolution>((resolve) => {
+      pendingRuntimeApprovals.set(envelope.approvalId, {
+        envelope,
+        featureKey: feature.featureKey,
+        featureDisplay: feature.featureDisplay,
+        resolve,
+        ...(feature.toolId ? { toolId: feature.toolId } : {}),
+      });
+    });
+    await enqueueRuntimeEventLog({
+      ts: options.now?.() ?? new Date().toISOString(),
+      event: "approval_requested",
+      sessionId,
+      approvalId: envelope.approvalId,
+      featureKey: feature.featureKey,
+      featureDisplay: feature.featureDisplay,
+      toolId: feature.toolId,
+      reason: envelope.reason,
+      riskLevel: envelope.riskLevel,
+    });
+    await emitRuntimeApprovalPanelSnapshot();
+    return resolution;
+  };
 
   const inputClosed = new Promise<void>((resolve) => {
     let done = false;
@@ -225,6 +570,10 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     const parts = buffer.split("\u0000");
     buffer = parts.pop() ?? "";
     for (const part of parts) {
+      const decision = parseLegacyHumanGateDecision(part);
+      if (decision && resolveHumanGateDecisionPayload(decision)) {
+        continue;
+      }
       enqueuePayload(part);
     }
   });
@@ -249,6 +598,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     liveProviderResolver: async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       onTextDelta: context?.onTextDelta,
     }),
+    approvalResolver,
   });
   if (!created.ok) {
     await writeLog(logPath, {
@@ -266,13 +616,26 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
 
   const transport = applicationLayer.createLocalApplicationTransport(created.runtime);
   const streamedTextByTurn = new Map<number, string>();
+  let turnIndex = 0;
   transport.subscribe((applicationEvent) => {
+    const legacyTurnIndex = parseApplicationTurnIndex(applicationEvent.turnId, turnIndex || 1);
+    if (applicationEvent.kind === "model") {
+      return;
+    }
+    const toolStageRecord = legacyToolStageRecord({
+      applicationEvent,
+      sessionId,
+      turnIndex: legacyTurnIndex,
+    });
+    if (toolStageRecord) {
+      void enqueueRuntimeEventLog(toolStageRecord);
+      return;
+    }
     if (applicationEvent.kind !== "stream" || applicationEvent.message.length === 0) {
       return;
     }
-    const legacyTurnIndex = parseApplicationTurnIndex(applicationEvent.turnId, turnIndex || 1);
     streamedTextByTurn.set(legacyTurnIndex, `${streamedTextByTurn.get(legacyTurnIndex) ?? ""}${applicationEvent.message}`);
-    void writeLog(logPath, {
+    void enqueueRuntimeEventLog({
       ts: applicationEvent.createdAt,
       event: "assistant_delta",
       sessionId,
@@ -280,8 +643,6 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
       label: "core/model.infer",
       text: applicationEvent.message,
       done: false,
-    }).catch((error: unknown) => {
-      errorOutput.write(`legacy direct application backend stream log failed: ${error instanceof Error ? error.message : String(error)}\n`);
     });
   });
   const start = await transport.dispatch({
@@ -297,7 +658,6 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     context: contextFor(start),
   });
 
-  let turnIndex = 0;
   const handlePayload = async (rawPayload: string) => {
     const payload = rawPayload.trim();
     if (!payload) return;
@@ -359,6 +719,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
         cwd,
       },
     });
+    await runtimeEventLogQueue;
     const finalText = result.view.finalOutput ?? result.view.error?.message ?? "";
     if (finalText.length > 0 && (streamedTextByTurn.get(turnIndex) ?? "").length === 0) {
       for (const chunk of chunkStreamText(finalText)) {

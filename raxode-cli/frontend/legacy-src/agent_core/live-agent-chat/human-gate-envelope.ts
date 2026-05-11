@@ -1,7 +1,7 @@
 export interface HumanGateDecisionEnvelope {
   type: "human_gate_decision";
   gateId: string;
-  action: "approve" | "approve_always" | "reject";
+  action: "approve" | "approve_always" | "reject" | "reject_stop";
   note?: string;
 }
 
@@ -30,7 +30,7 @@ export function parseHumanGateDecisionEnvelope(
     const action = parsed.action;
     if (
       !gateId
-      || (action !== "approve" && action !== "approve_always" && action !== "reject")
+      || (action !== "approve" && action !== "approve_always" && action !== "reject" && action !== "reject_stop")
     ) {
       return undefined;
     }

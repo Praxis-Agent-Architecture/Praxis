@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import { builtinBaseToolHandlers } from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
@@ -23,6 +25,8 @@ import {
   snapshotBaseToolSupportCatalog,
 } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 
+const execFileAsync = promisify(execFile);
+
 defineAgentCoreContractTest({
   sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.md",
@@ -39,6 +43,26 @@ async function makeWorkspace(): Promise<string> {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-base-tool-runtime-"));
   await writeFile(path.join(workspace, "notes.txt"), "alpha\nbeta\nneedle\n", "utf8");
   return workspace;
+}
+
+async function firstExistingPath(paths: readonly string[]): Promise<string | undefined> {
+  for (const candidate of paths) {
+    const ok = await access(candidate).then(() => true).catch(() => false);
+    if (ok) return candidate;
+  }
+  return undefined;
+}
+
+async function waitForFileText(filePath: string, expected: string): Promise<void> {
+  for (let index = 0; index < 40; index += 1) {
+    const text = await readFile(filePath, "utf8").catch(() => "");
+    if (text.includes(expected)) return;
+    await new Promise((resolve) => {
+      setTimeout(resolve, 50);
+    });
+  }
+  const finalText = await readFile(filePath, "utf8").catch(() => "");
+  assert.match(finalText, new RegExp(expected, "u"));
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -345,6 +369,56 @@ test("baseToolExecutorPortFactory requires explicit managed terminal session tar
   }
 });
 
+test("baseToolExecutorPortFactory routes explicit tmux keyboard text and submit without focus or IME", async (t) => {
+  const tmux = await firstExistingPath(["/usr/bin/tmux", "/usr/local/bin/tmux"]);
+  if (tmux === undefined) {
+    t.skip("tmux is not installed on this host");
+    return;
+  }
+  const workspace = await makeWorkspace();
+  const session = `praxis-test-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const markerPath = path.join(workspace, "keyboard-marker.txt");
+
+  await execFileAsync(tmux, ["new-session", "-d", "-s", session, "-c", workspace]);
+  try {
+    await new Promise((resolve) => {
+      setTimeout(resolve, 150);
+    });
+    const executor = createRuntimeBaseToolExecutorPort({
+      runtimeId: "runtime-factory-tmux-keyboard",
+      sessionId: "session-factory-tmux-keyboard",
+      policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+      environment: {
+        XDG_SESSION_TYPE: "wayland",
+        WAYLAND_DISPLAY: "wayland-0",
+        PRAXIS_ENABLE_DESKTOP_AUTOMATION: "1",
+      },
+    });
+
+    const typed = await executor.computeruse?.keyboardAction?.({
+      action: "type",
+      text: `printf PRAXIS_TMUX_INPUT_OK > ${markerPath}`,
+      metadata: { targetHint: `tmux:${session}`, runtimeGuardAccepted: true },
+    });
+    assert.equal(typed?.ok, true);
+    if (typed?.ok) {
+      assert.equal(typed.output.metadata?.provider, "tmux");
+      assert.equal(typed.output.metadata?.focusIndependent, true);
+      assert.equal(typed.output.metadata?.imeBypassed, true);
+    }
+
+    const submitted = await executor.computeruse?.keyboardAction?.({
+      action: "submit",
+      keys: ["Enter"],
+      metadata: { targetHint: `tmux:${session}`, runtimeGuardAccepted: true },
+    });
+    assert.equal(submitted?.ok, true);
+    await waitForFileText(markerPath, "PRAXIS_TMUX_INPUT_OK");
+  } finally {
+    await execFileAsync(tmux, ["kill-session", "-t", session]).catch(() => undefined);
+  }
+});
+
 test("baseToolExecutorPortFactory refuses non-ASCII desktop keyboard text without stable target", async () => {
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-factory-nonascii-keyboard",
@@ -366,6 +440,82 @@ test("baseToolExecutorPortFactory refuses non-ASCII desktop keyboard text withou
     assert.match(result.error.message, /explicit bound target/u);
     assert.match(result.error.message, /window:active/u);
     assert.match(result.error.message, /tmux:<session>/u);
+  }
+});
+
+test("baseToolExecutorPortFactory refuses unapproved natural-language current-window keyboard targets", async () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-current-window-keyboard",
+    sessionId: "session-factory-current-window-keyboard",
+    environment: {
+      XDG_SESSION_TYPE: "wayland",
+      WAYLAND_DISPLAY: "wayland-0",
+      PRAXIS_ENABLE_DESKTOP_AUTOMATION: "1",
+    },
+  });
+
+  const result = await executor.computeruse?.keyboardAction?.({
+    action: "type",
+    text: "test: reply with OK only.",
+    metadata: {
+      targetHint: "current window (ghostty terminal)",
+    },
+  });
+  assert.equal(result?.ok, false);
+  if (result?.ok === false) {
+    assert.equal(result.error.code, "PROVIDER_UNAVAILABLE");
+    assert.match(result.error.message, /explicit bound target/u);
+    assert.match(result.error.message, /managed terminal target/u);
+  }
+});
+
+test("baseToolExecutorPortFactory resolves approved current Ghostty hints before provider selection", async () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-current-window-keyboard-approved",
+    sessionId: "session-factory-current-window-keyboard-approved",
+    environment: {
+      XDG_SESSION_TYPE: "headless",
+    },
+  });
+
+  const result = await executor.computeruse?.keyboardAction?.({
+    action: "type",
+    text: "test: reply with OK only.",
+    metadata: {
+      targetHint: "current window (ghostty terminal)",
+      runtimeGuardAccepted: true,
+    },
+  });
+  assert.equal(result?.ok, false);
+  if (result?.ok === false) {
+    assert.equal(result.error.code, "PROVIDER_UNAVAILABLE");
+    assert.doesNotMatch(result.error.message, /explicit bound target/u);
+    assert.match(result.error.message, /desktop automation provider/u);
+  }
+});
+
+test("baseToolExecutorPortFactory resolves approved current browser address-bar hints before provider selection", async () => {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-current-browser-keyboard-approved",
+    sessionId: "session-factory-current-browser-keyboard-approved",
+    environment: {
+      XDG_SESSION_TYPE: "headless",
+    },
+  });
+
+  const result = await executor.computeruse?.keyboardAction?.({
+    action: "shortcut",
+    keys: ["Control", "L"],
+    metadata: {
+      targetHint: "当前 Edge 浏览器地址栏",
+      runtimeGuardAccepted: true,
+    },
+  });
+  assert.equal(result?.ok, false);
+  if (result?.ok === false) {
+    assert.equal(result.error.code, "PROVIDER_UNAVAILABLE");
+    assert.doesNotMatch(result.error.message, /explicit bound target/u);
+    assert.match(result.error.message, /desktop automation provider/u);
   }
 });
 

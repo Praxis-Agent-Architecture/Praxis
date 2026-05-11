@@ -436,10 +436,17 @@ export {
 } from "./agent_runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 
 export {
+  type BaseToolExecutorPort,
+  type BaseToolExecutorResult,
+} from "./agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+
+export {
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
+  type AgentModelCallProgressEvent,
   type AgentModelCallRecord,
   type AgentRunResult,
+  type AgentToolCallProgressEvent,
   type AgentToolCallRecord,
   type PraxisRuntimeKernelError,
   type PraxisRuntimeKernelErrorCode,

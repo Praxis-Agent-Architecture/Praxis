@@ -59,12 +59,13 @@ export function createRuntimeKeyboardSubmitInputProvider(
         submitKey: request.target.submitKey,
         repeat: request.target.repeat,
         actionIndex: request.actionIndex,
+        runtimeGuardAccepted: true,
         auditMetadata: request.context.auditMetadata,
       },
     });
 
     if (!result.ok) {
-      throw new Error(result.error.message);
+      throw new Error(`PUBLIC_SAFE_PROVIDER_FAILURE:${result.error.message}`);
     }
 
     return {

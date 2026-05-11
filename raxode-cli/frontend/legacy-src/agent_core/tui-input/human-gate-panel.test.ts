@@ -33,6 +33,33 @@ const fixtureEntry: HumanGatePanelEntry = {
   },
 };
 
+const applicationApprovalEntry: HumanGatePanelEntry = {
+  gateId: "approval-1",
+  requestId: "approval-1",
+  capabilityKey: "computer_use",
+  requestedTier: "risky",
+  mode: "application-approval",
+  reason: "computeruse.keyboardInputEmulation requires runtime approval",
+  externalPathPrefixes: [],
+  plainLanguageRisk: {
+    plainLanguageSummary: "Raxode now infers: Under the current circumstances, the \"computer_use\" feature should be used.",
+    requestedAction: "Use computeruse.keyboardInputEmulation",
+    riskLevel: "risky",
+    whyItIsRisky: "The tool can type into the current desktop session.",
+    possibleConsequence: "The desktop session may receive keyboard input.",
+    whatHappensIfNotRun: "Raxode will continue without using computer_use for this request.",
+    availableUserActions: [
+      { actionId: "approve-once", label: "Approve the use of this feature this time.", kind: "approve" },
+      { actionId: "approve-always", label: "Always Approve this feature for this session.", kind: "approve" },
+      { actionId: "continue-deny", label: "Continue and Deny the use of this feature this time.", kind: "deny" },
+      { actionId: "stop-deny", label: "Stop and Deny the use of this feature this time.", kind: "deny" },
+    ],
+    metadata: {
+      sourceKind: "application-approval",
+    },
+  },
+};
+
 test("buildHumanGatePanelFields exposes controlled actions for the selected gate", () => {
   const fields = buildHumanGatePanelFields({
     entry: fixtureEntry,
@@ -67,6 +94,35 @@ test("buildHumanGatePanelBodyLines includes expanded details and external path p
   assert.match(rendered, /Risk level\s+risky/);
   assert.match(rendered, /Path prefix\s+\/home\/proview\/Desktop\/Secrets/);
   assert.match(rendered, /Gate \/ req\s+gate-1 \/ request-1/);
+});
+
+test("application approval panel renders human approval copy and four decisions", () => {
+  const fields = buildHumanGatePanelFields({
+    entry: applicationApprovalEntry,
+    expanded: false,
+    noteValue: "",
+    hasMultipleEntries: false,
+  });
+  assert.deepEqual(
+    fields.map((field) => [field.key, field.label, field.value]),
+    [
+      ["humanGate:approveOnce", "Approve This Time", "Approve the use of this feature this time."],
+      ["humanGate:approveAlways", "Always Approve", "Always approve this feature for this session."],
+      ["humanGate:deny", "Continue and Deny", "Continue and deny the use of this feature this time."],
+      ["humanGate:denyAndStop", "Stop and Deny", "Stop and deny the use of this feature this time."],
+    ],
+  );
+
+  const rendered = buildHumanGatePanelBodyLines({
+    entry: applicationApprovalEntry,
+    expanded: false,
+    currentIndex: 0,
+    totalCount: 1,
+  }).map((line) => line.text).join("\n");
+  assert.equal(
+    rendered,
+    " Approval Needed  Raxode now infers: Under the current circumstances, the \"computer_use\" feature should be used.\n",
+  );
 });
 
 test("resolveHumanGatePendingSignature changes when gate revision changes", () => {

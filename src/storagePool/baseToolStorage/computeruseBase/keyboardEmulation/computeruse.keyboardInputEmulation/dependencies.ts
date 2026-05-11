@@ -58,12 +58,13 @@ export function createRuntimeKeyboardInputEmulationProvider(
         inputMode: request.target.inputMode,
         targetHint: request.target.targetHint,
         textCharacters: request.target.text.length,
+        runtimeGuardAccepted: true,
         auditMetadata: request.context.auditMetadata,
       },
     });
 
     if (!result.ok) {
-      throw new Error(result.error.message);
+      throw new Error(`PUBLIC_SAFE_PROVIDER_FAILURE:${result.error.message}`);
     }
 
     return {

@@ -18,6 +18,51 @@ export interface SurfaceComposerSubmitState {
 type SurfacePanelSnapshotForKind<TKind extends SurfacePanelKind> =
   Extract<SurfacePanelSnapshot, { kind: TKind }>;
 
+function parseTurnIndexFromId(turnId: string | undefined): number | undefined {
+  if (!turnId) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(turnId.replace(/^(turn-|turn\.)/u, ""), 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function sortTranscriptMessagesByTurn(
+  state: SurfaceState,
+  messages: readonly SurfaceMessage[],
+): SurfaceMessage[] {
+  const sourceOrder = new Map<string, number>();
+  state.messages.forEach((message, index) => {
+    sourceOrder.set(message.id, index);
+  });
+  const turnIndexes = new Map<string, number>();
+  state.turns.forEach((turn) => {
+    const index = turn.turnIndex ?? parseTurnIndexFromId(turn.turnId ?? turn.id);
+    if (Number.isFinite(index)) {
+      turnIndexes.set(turn.id, index);
+      if (turn.turnId) {
+        turnIndexes.set(turn.turnId, index);
+      }
+    }
+  });
+
+  return [...messages].sort((left, right) => {
+    const leftTurnIndex = left.turnId
+      ? (turnIndexes.get(left.turnId) ?? parseTurnIndexFromId(left.turnId))
+      : undefined;
+    const rightTurnIndex = right.turnId
+      ? (turnIndexes.get(right.turnId) ?? parseTurnIndexFromId(right.turnId))
+      : undefined;
+    if (
+      leftTurnIndex !== undefined
+      && rightTurnIndex !== undefined
+      && leftTurnIndex !== rightTurnIndex
+    ) {
+      return leftTurnIndex - rightTurnIndex;
+    }
+    return (sourceOrder.get(left.id) ?? 0) - (sourceOrder.get(right.id) ?? 0);
+  });
+}
+
 export function selectTranscriptMessages(
   state: SurfaceState,
   options: {
@@ -28,10 +73,11 @@ export function selectTranscriptMessages(
   const scoped = options.turnId
     ? state.messages.filter((message) => message.turnId === options.turnId)
     : state.messages;
+  const ordered = sortTranscriptMessagesByTurn(state, scoped);
   if (!options.limit || options.limit <= 0 || scoped.length <= options.limit) {
-    return scoped;
+    return ordered;
   }
-  return scoped.slice(scoped.length - options.limit);
+  return ordered.slice(ordered.length - options.limit);
 }
 
 export function selectStatusMessages(state: SurfaceState): SurfaceMessage[] {

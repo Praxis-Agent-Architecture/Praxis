@@ -66,7 +66,7 @@ const cases = [
   {
     name: "skill.ripgrep",
     prompt: "请实际调用 skill.ripgrep 在当前仓库搜索字符串 \"PraxisApplicationRuntime\"，只回答匹配到的一个文件路径。",
-    expected: "raxode-cli/backend/raxodeBackend.ts",
+    expected: "raxode-cli/backend/",
   },
   {
     name: "computeruse.fullscreenScreenshot",

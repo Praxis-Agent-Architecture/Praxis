@@ -460,6 +460,15 @@ function normalizeProviderResult(
   };
 }
 
+const publicSafeProviderFailurePrefix = "PUBLIC_SAFE_PROVIDER_FAILURE:";
+
+function publicSafeProviderFailureMessage(error: unknown): string | undefined {
+  const message = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+  if (message === undefined || !message.startsWith(publicSafeProviderFailurePrefix)) return undefined;
+  const publicSafeMessage = message.slice(publicSafeProviderFailurePrefix.length).trim();
+  return publicSafeMessage.length > 0 ? publicSafeMessage : undefined;
+}
+
 function normalizeRequest(request: unknown): {
   target: KeyboardInputEmulationTarget;
   context: KeyboardInputEmulationContext;
@@ -560,10 +569,12 @@ export async function executeKeyboardInputEmulation(request: unknown = {}): Prom
     if ("ok" in normalizedResult) return normalizedResult;
     providerResult = normalizedResult;
   } catch (error) {
-    const providerMessage = error instanceof Error && error.message.trim().length > 0 ? error.message.trim() : undefined;
+    const providerMessage = publicSafeProviderFailureMessage(error);
     const failed = failure(
       "PROVIDER_FAILURE",
-      "computeruse.keyboardInputEmulation runtime provider failed without exposing private details",
+      providerMessage === undefined
+        ? "computeruse.keyboardInputEmulation runtime provider failed without exposing private details"
+        : `computeruse.keyboardInputEmulation runtime provider failed: ${providerMessage}`,
       "provider",
       context,
       target.targetHint,

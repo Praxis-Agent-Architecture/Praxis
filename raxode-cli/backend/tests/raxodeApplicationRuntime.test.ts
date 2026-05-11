@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 
+import {
+  createApplicationProjectRuntime,
+  createLocalApplicationTransport,
+} from "../../../src/applicationLayer/index.js";
+import type { OpenAIV1ResponsesRequestEnvelope } from "../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import type { AuthEnvelope } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
 import {
   createRaxodeBackend,
   createRaxodeBackendRestServer,
@@ -27,6 +34,76 @@ test("raxode backend runs through applicationLayer", async () => {
   assert.equal(result.view.model.inputBudgetThreshold, 0.95);
   assert.equal(result.view.model.usableInputTokens, 258_400);
   assert.equal(result.view.tools.mounted, 175);
+});
+
+test("raxode application runtime includes prior same-session turns in the next provider prompt", async () => {
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+  const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+    applicationId: "application.raxode.coding",
+    mode: "live",
+    model: "gpt-5.5",
+    reasoningEffort: "low",
+    permissionProfile: "bapr",
+    now: () => "2026-05-10T00:00:00.000Z",
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+        providerBodies.push(envelope.body);
+        return {
+          output_text: providerBodies.length === 1
+            ? "已记住暗号 BLUE-ORBIT。"
+            : "刚才的暗号是 BLUE-ORBIT。",
+        };
+      },
+    }),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const transport = createLocalApplicationTransport(created.runtime);
+  const sessionId = "session.raxode.history.test";
+  const start = await transport.dispatch({
+    type: "application.start",
+    sessionId,
+    cwd: process.cwd(),
+    mode: "live",
+  });
+  assert.equal(start.ok, true);
+  const first = await transport.dispatch({
+    type: "application.submitTurn",
+    sessionId,
+    mode: "live",
+    input: {
+      type: "application.input",
+      text: "请记住暗号 BLUE-ORBIT。",
+      cwd: process.cwd(),
+    },
+  });
+  assert.equal(first.ok, true);
+  const second = await transport.dispatch({
+    type: "application.submitTurn",
+    sessionId,
+    mode: "live",
+    input: {
+      type: "application.input",
+      text: "刚才的暗号是什么？",
+      cwd: process.cwd(),
+    },
+  });
+  assert.equal(second.ok, true);
+  assert.equal(providerBodies.length, 2);
+  const secondBody = JSON.stringify(providerBodies[1]);
+  assert.match(secondBody, /Previous conversation in this Raxode application session/u);
+  assert.match(secondBody, /请记住暗号 BLUE-ORBIT/u);
+  assert.match(secondBody, /已记住暗号 BLUE-ORBIT/u);
+  assert.match(secondBody, /Current user request/u);
+  assert.match(secondBody, /刚才的暗号是什么/u);
 });
 
 test("raxode backend exposes application REST and WebSocket servers", async () => {

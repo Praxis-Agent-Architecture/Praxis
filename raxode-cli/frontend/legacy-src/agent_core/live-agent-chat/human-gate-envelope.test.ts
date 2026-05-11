@@ -20,6 +20,19 @@ test("human gate decision envelope formatter round-trips through the parser", ()
   });
 });
 
+test("human gate decision envelope supports stop-and-deny approval decisions", () => {
+  const encoded = formatHumanGateDecisionEnvelope({
+    gateId: "approval-1",
+    action: "reject_stop",
+  });
+  assert.deepEqual(parseHumanGateDecisionEnvelope(encoded), {
+    type: "human_gate_decision",
+    gateId: "approval-1",
+    action: "reject_stop",
+    note: undefined,
+  });
+});
+
 test("human gate decision envelope parser rejects malformed payloads", () => {
   assert.equal(parseHumanGateDecisionEnvelope("not-json"), undefined);
   assert.equal(parseHumanGateDecisionEnvelope("{"), undefined);

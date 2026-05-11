@@ -369,6 +369,7 @@ export function applyTuiTextInputKey(
 } {
   const extendedKey = key as Key & { home?: boolean; end?: boolean };
   const shiftTabPressed = inputText === "\u001B[Z" || Boolean(key.tab && (extendedKey as Key & { shift?: boolean }).shift);
+  const shiftReturnPressed = Boolean(key.return && (extendedKey as Key & { shift?: boolean }).shift);
   if (key.leftArrow || (key.ctrl && inputText === "b")) {
     return { nextState: moveTuiTextInputCursorLeft(state), submit: false, handled: true };
   }
@@ -393,11 +394,11 @@ export function applyTuiTextInputKey(
   if (key.ctrl && inputText === "d") {
     return { nextState: deleteForwardInTuiTextInput(state), submit: false, handled: true };
   }
+  if (shiftReturnPressed || (key.ctrl && inputText === "j")) {
+    return { nextState: insertIntoTuiTextInput(state, "\n"), submit: false, handled: true };
+  }
   if (key.return) {
     return { nextState: state, submit: true, handled: true };
-  }
-  if (key.ctrl && inputText === "j") {
-    return { nextState: insertIntoTuiTextInput(state, "\n"), submit: false, handled: true };
   }
   if (shiftTabPressed) {
     return { nextState: state, submit: false, handled: true };

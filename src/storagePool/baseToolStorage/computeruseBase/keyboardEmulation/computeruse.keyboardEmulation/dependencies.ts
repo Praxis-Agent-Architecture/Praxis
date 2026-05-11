@@ -72,12 +72,13 @@ export function createRuntimeKeyboardEmulationProvider(
         actionKind: request.action.kind,
         repeat: request.action.kind === "key-press" ? request.action.repeat : undefined,
         textCharacters: request.action.kind === "text" ? request.action.text.length : undefined,
+        runtimeGuardAccepted: true,
         auditMetadata: request.context.auditMetadata,
       },
     });
 
     if (!result.ok) {
-      throw new Error(result.error.message);
+      throw new Error(`PUBLIC_SAFE_PROVIDER_FAILURE:${result.error.message}`);
     }
 
     return {
