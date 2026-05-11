@@ -133,11 +133,49 @@ export const keyboardEmulationBaseToolDefinition = createComputerUseBaseToolDefi
         type: "object",
         additionalProperties: true,
         properties: {
-          actions: { type: "array" },
+          actions: {
+            type: "array",
+            items: {
+              type: "object",
+              additionalProperties: true,
+              required: ["kind"],
+              properties: {
+                kind: { type: "string", enum: ["key-press", "text", "shortcut"] },
+                key: { type: "string" },
+                repeat: { type: "integer", minimum: 1, maximum: keyboardEmulationDescriptor.maxKeyRepeat },
+                text: { type: "string", minLength: 1, maxLength: keyboardEmulationDescriptor.maxTextLength },
+                keys: {
+                  type: "array",
+                  minItems: 2,
+                  maxItems: keyboardEmulationDescriptor.maxShortcutKeys,
+                  items: { type: "string" },
+                },
+              },
+            },
+          },
           targetHint: { type: "string" },
         },
       },
-      actions: { type: "array" },
+      actions: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: true,
+          required: ["kind"],
+          properties: {
+            kind: { type: "string", enum: ["key-press", "text", "shortcut"] },
+            key: { type: "string" },
+            repeat: { type: "integer", minimum: 1, maximum: keyboardEmulationDescriptor.maxKeyRepeat },
+            text: { type: "string", minLength: 1, maxLength: keyboardEmulationDescriptor.maxTextLength },
+            keys: {
+              type: "array",
+              minItems: 2,
+              maxItems: keyboardEmulationDescriptor.maxShortcutKeys,
+              items: { type: "string" },
+            },
+          },
+        },
+      },
       targetHint: { type: "string" },
       purpose: { type: "string" },
       context: { type: "object", additionalProperties: true },

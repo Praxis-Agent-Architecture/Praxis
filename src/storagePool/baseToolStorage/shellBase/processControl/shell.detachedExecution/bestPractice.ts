@@ -246,7 +246,7 @@ export async function executeShellDetachedExecution(
 export const shellDetachedExecutionBaseToolDefinition = createShellBaseToolDefinition<ShellDetachedExecutionHandlerInput, ShellDetachedExecutionOutput>({
   toolId: "shell.detachedExecution",
   title: "Detached Execution",
-  description: "Plan or execute detached shell execution launch through a governed runtime provider.",
+  description: "Plan or execute a detached shell launch through a governed runtime provider. Use this for long-lived GUI/browser launches such as Chrome, Firefox, Edge, or xdg-open when the process may outlive the agent session.",
   summary: "Use shell.detachedExecution when TAP/runtime has approved this process-control primitive.",
   storageGroup: "processControl",
   riskLevel: "risky",
@@ -256,7 +256,21 @@ export const shellDetachedExecutionBaseToolDefinition = createShellBaseToolDefin
     type: "object",
     additionalProperties: true,
     properties: {
-      target: { type: "object", additionalProperties: true },
+      target: {
+        type: "object",
+        additionalProperties: true,
+        required: ["command"],
+        properties: {
+          command: { type: "string", minLength: 1 },
+          workingDirectory: { type: "string" },
+          shell: { type: "string", enum: ["sh", "bash", "zsh"] },
+          launchId: { type: "string" },
+          pidFilePath: { type: "string" },
+          stdoutLogPath: { type: "string" },
+          stderrLogPath: { type: "string" },
+          restartPolicy: { type: "string", enum: ["none", "on-failure"] },
+        },
+      },
       context: { type: "object", additionalProperties: true },
       preferredProvider: { type: "string", enum: ["anthropic", "openai", "deepmind", "praxis-native"] },
     },

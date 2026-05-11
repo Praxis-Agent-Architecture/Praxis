@@ -69,6 +69,13 @@ function registryInputSchema(toolId: string): Readonly<Record<string, unknown>> 
   return schema.schema as Readonly<Record<string, unknown>>;
 }
 
+function registryDescription(toolId: string): string | undefined {
+  const lookup = baseToolRegistry().lookup(toolId);
+  if (!lookup.ok) return undefined;
+  const description = lookup.definition.description?.trim();
+  return description || undefined;
+}
+
 const ledgerByToolId = (): ReadonlyMap<string, BaseToolRealityLedgerEntry> => {
   return new Map(createBaseToolRealityLedger().map((entry) => [entry.toolId, entry]));
 };
@@ -88,11 +95,12 @@ function developerEntry(entry: BaseToolRealityLedgerEntry): BaseToolDeveloperCat
 }
 
 function toToolSpec(entry: BaseToolRealityLedgerEntry, input: BaseToolSpecInput = {}): ToolSpec {
+  const definitionDescription = registryDescription(entry.toolId);
   return tool(entry.toolId, {
     ...input,
     family: entry.storageFamily,
     group: entry.group,
-    description: input.description ?? entry.title,
+    description: input.description ?? (definitionDescription ? `${entry.title}: ${definitionDescription}` : entry.title),
     inputSchema: input.inputSchema ?? registryInputSchema(entry.toolId),
     metadata: {
       authoringSurface: "runtime.execEngine.baseToolDeveloperCatalog",

@@ -22,20 +22,55 @@ export type RaxodeTerminalMouseEvent =
 
 const sgrMousePattern = /(?:\u001B)?\[?<(\d+);(\d+);(\d+)([mM])/gu;
 const singleSgrMousePattern = /^(?:\u001B)?\[?<\d+;\d+;\d+[mM]$/u;
-export const ENABLE_TERMINAL_MOUSE_REPORTING = "\u001B[?1000h\u001B[?1006h";
-export const DISABLE_TERMINAL_MOUSE_REPORTING = "\u001B[?1000l\u001B[?1006l";
+export const ENABLE_TERMINAL_MOUSE_CAPTURE = "\u001B[?1000h\u001B[?1006h";
+export const DISABLE_TERMINAL_MOUSE_CAPTURE = "\u001B[?1000l\u001B[?1006l";
+export const ENABLE_TERMINAL_ALTERNATE_SCROLL = "\u001B[?1049h\u001B[?1007h";
+export const DISABLE_TERMINAL_ALTERNATE_SCROLL = "\u001B[?1007l\u001B[?1049l";
+export const ENABLE_TERMINAL_MOUSE_REPORTING = ENABLE_TERMINAL_MOUSE_CAPTURE;
+export const DISABLE_TERMINAL_MOUSE_REPORTING = DISABLE_TERMINAL_MOUSE_CAPTURE;
 
-export function shouldEnableTerminalMouseReporting(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.RAXODE_ENABLE_MOUSE === "1";
+export type TerminalMouseReportingMode = "off" | "capture" | "alternate-scroll";
+
+type TerminalMouseReportingOptions = {
+  defaultEnabled?: boolean;
+  defaultMode?: Exclude<TerminalMouseReportingMode, "off">;
+};
+
+function normalizeMouseReportingEnv(value: string | undefined): TerminalMouseReportingMode | undefined {
+  if (value === undefined) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on", "capture"].includes(normalized)) return "capture";
+  if (["wheel", "scroll", "alternate", "alternate-scroll", "selection"].includes(normalized)) return "alternate-scroll";
+  if (["0", "false", "no", "off", "none"].includes(normalized)) return "off";
+  return undefined;
 }
 
-export function enableTerminalMouseReporting(output: Pick<NodeJS.WriteStream, "isTTY" | "write">): () => void {
-  if (!output.isTTY || !shouldEnableTerminalMouseReporting()) {
+export function resolveTerminalMouseReportingMode(
+  env: NodeJS.ProcessEnv = process.env,
+  options: TerminalMouseReportingOptions = {},
+): TerminalMouseReportingMode {
+  return normalizeMouseReportingEnv(env.RAXODE_ENABLE_MOUSE)
+    ?? (options.defaultEnabled ? options.defaultMode ?? "capture" : "off");
+}
+
+export function shouldEnableTerminalMouseReporting(
+  env: NodeJS.ProcessEnv = process.env,
+  options: TerminalMouseReportingOptions = {},
+): boolean {
+  return resolveTerminalMouseReportingMode(env, options) !== "off";
+}
+
+export function enableTerminalMouseReporting(
+  output: Pick<NodeJS.WriteStream, "isTTY" | "write">,
+  options: TerminalMouseReportingOptions = {},
+): () => void {
+  const mode = resolveTerminalMouseReportingMode(process.env, options);
+  if (!output.isTTY || mode === "off") {
     return () => {};
   }
-  output.write(ENABLE_TERMINAL_MOUSE_REPORTING);
+  output.write(mode === "alternate-scroll" ? ENABLE_TERMINAL_ALTERNATE_SCROLL : ENABLE_TERMINAL_MOUSE_CAPTURE);
   return () => {
-    output.write(DISABLE_TERMINAL_MOUSE_REPORTING);
+    output.write(mode === "alternate-scroll" ? DISABLE_TERMINAL_ALTERNATE_SCROLL : DISABLE_TERMINAL_MOUSE_CAPTURE);
   };
 }
 

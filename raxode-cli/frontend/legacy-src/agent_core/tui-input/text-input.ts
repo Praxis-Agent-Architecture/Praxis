@@ -356,6 +356,19 @@ export function isBackwardDeleteInput(inputText: string, key: Key): boolean {
     || inputText.includes("\b");
 }
 
+export function isShiftReturnInput(inputText: string, key: Key): boolean {
+  const extendedKey = key as Key & { shift?: boolean };
+  if (key.return && extendedKey.shift) {
+    return true;
+  }
+  return inputText === "\u001B[13;2u"
+    || inputText === "\u001B[13;2~"
+    || inputText === "\u001B[27;2;13~"
+    || inputText === "[13;2u"
+    || inputText === "[13;2~"
+    || inputText === "[27;2;13~";
+}
+
 export function applyTuiTextInputKey(
   state: TuiTextInputState,
   inputText: string,
@@ -367,7 +380,7 @@ export function applyTuiTextInputKey(
 } {
   const extendedKey = key as Key & { home?: boolean; end?: boolean };
   const shiftTabPressed = inputText === "\u001B[Z" || Boolean(key.tab && (extendedKey as Key & { shift?: boolean }).shift);
-  const shiftReturnPressed = Boolean(key.return && (extendedKey as Key & { shift?: boolean }).shift);
+  const shiftReturnPressed = isShiftReturnInput(inputText, key);
   if (key.leftArrow || (key.ctrl && inputText === "b")) {
     return { nextState: moveTuiTextInputCursorLeft(state), submit: false, handled: true };
   }

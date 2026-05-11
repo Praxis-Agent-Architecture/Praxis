@@ -509,6 +509,7 @@ function createToolProgressEvent(input: {
   const toolCall = toolCallRecordFromProgress(input.progress);
   const family = familyForToolId(toolCall.toolId);
   const inputSummary = summarizeToolInput(toolCall);
+  const argumentsPreview = previewUnknown(toolCall.arguments, 2_000);
   const outputPreview = input.progress.phase === "started" ? undefined : previewUnknown(toolCall.output);
   const errorPreview = input.progress.phase === "started" ? undefined : previewUnknown(toolCall.error);
   const humanResultSummary = input.progress.phase === "started" ? [] : summarizeToolOutputForHumans(toolCall);
@@ -526,6 +527,7 @@ function createToolProgressEvent(input: {
       toolId: toolCall.toolId,
       toolStatus,
       inputSummary,
+      argumentsPreview,
       outputPreview,
       errorPreview,
       humanResultSummary,
@@ -1174,17 +1176,28 @@ async function withTimeout<T>(input: {
   }
 }
 
-function autoApproveForProfile(profile: PraxisApplicationPermissionProfile): RuntimeApprovalResolver | undefined {
-  if (profile !== "bapr" && profile !== "yolo") return undefined;
-  return async (envelope) => ({
+function shouldAutoApproveForProfile(profile: PraxisApplicationPermissionProfile, envelope: RuntimeApprovalEnvelope): boolean {
+  if (profile === "bapr") return true;
+  if (profile !== "yolo" && profile !== "permissive") return false;
+  const riskLevel = (stringValue(envelope.riskLevel) ?? "").toLowerCase();
+  return riskLevel !== "dangerous" && riskLevel !== "high";
+}
+
+function autoApprovalResolutionForProfile(
+  profile: PraxisApplicationPermissionProfile,
+  envelope: RuntimeApprovalEnvelope,
+): RuntimeApprovalResolution | undefined {
+  if (!shouldAutoApproveForProfile(profile, envelope)) return undefined;
+  return {
     status: "approved",
     resolvedBy: `application.profile.${profile}`,
-    reason: `${profile} profile auto-approves runtime approval requests`,
+    reason: `${profile} profile auto-approves this runtime approval request`,
     metadata: {
       approvalId: envelope.approvalId,
       profile,
+      riskLevel: envelope.riskLevel,
     },
-  });
+  };
 }
 
 function approvalFeatureKey(envelope: RuntimeApprovalEnvelope): string {
@@ -1298,10 +1311,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
   }
 
   function approvalResolverForRun(): RuntimeApprovalResolver | undefined {
-    if (options.approvalResolver) return options.approvalResolver;
-    const profileResolver = autoApproveForProfile(state.permissionProfile);
-    if (profileResolver) return profileResolver;
     return async (envelope) => {
+      const profileResolution = autoApprovalResolutionForProfile(state.permissionProfile, envelope);
+      if (profileResolution) return profileResolution;
+      if (options.approvalResolver) return await options.approvalResolver(envelope);
       const featureKey = approvalFeatureKey(envelope);
       if (state.alwaysApprovedApprovalKeys.has(featureKey)) {
         return {

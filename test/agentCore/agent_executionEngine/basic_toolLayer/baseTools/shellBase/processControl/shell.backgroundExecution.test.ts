@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   planShellBackgroundExecution,
   shellBackgroundExecutionDescriptor,
@@ -63,6 +64,27 @@ test("planShellBackgroundExecution rejects missing input, invalid resource confi
   assert.equal(scoped.ok, false);
   assert.equal(scoped.error.code, "SCOPE_REJECTED");
   assert.equal(scoped.error.boundary, "scope");
+});
+
+test("shell.backgroundExecution provider schema describes background command target", () => {
+  const lookup = createBaseToolRegistry().lookup("shell.backgroundExecution");
+  assert.equal(lookup.ok, true);
+  if (!lookup.ok) return;
+
+  const schema = lookup.definition.inputSchema;
+  assert.equal(schema.kind, "json-schema");
+  const root = schema.schema as {
+    properties?: {
+      target?: {
+        required?: readonly string[];
+        properties?: Record<string, unknown>;
+      };
+    };
+  };
+  assert.deepEqual(root.properties?.target?.required, ["command"]);
+  assert.ok(root.properties?.target?.properties?.command);
+  assert.ok(root.properties?.target?.properties?.shell);
+  assert.ok(root.properties?.target?.properties?.jobId);
 });
 
 test("planShellBackgroundExecution treats an explicit root scope as allowing child directories", () => {

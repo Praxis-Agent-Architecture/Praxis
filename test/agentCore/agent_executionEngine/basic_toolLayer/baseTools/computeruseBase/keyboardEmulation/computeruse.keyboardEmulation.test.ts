@@ -136,6 +136,32 @@ test("planKeyboardEmulation classifies malformed JSON, missing fields, invalid a
   if (!deniedScope.ok) assert.equal(deniedScope.error.code, "SCOPE_DENIED");
 });
 
+test("computeruse.keyboardEmulation provider schema constrains actions to object items", () => {
+  const lookup = createBaseToolRegistry().lookup("computeruse.keyboardEmulation");
+  assert.equal(lookup.ok, true);
+  if (!lookup.ok) return;
+
+  const schema = lookup.definition.inputSchema;
+  assert.equal(schema.kind, "json-schema");
+  const root = schema.schema as {
+    properties?: {
+      actions?: { type?: string; items?: { type?: string; required?: readonly string[] } };
+      target?: {
+        properties?: {
+          actions?: { type?: string; items?: { type?: string; required?: readonly string[] } };
+        };
+      };
+    };
+  };
+
+  assert.equal(root.properties?.actions?.type, "array");
+  assert.equal(root.properties?.actions?.items?.type, "object");
+  assert.deepEqual(root.properties?.actions?.items?.required, ["kind"]);
+  assert.equal(root.properties?.target?.properties?.actions?.type, "array");
+  assert.equal(root.properties?.target?.properties?.actions?.items?.type, "object");
+  assert.deepEqual(root.properties?.target?.properties?.actions?.items?.required, ["kind"]);
+});
+
 test("executeKeyboardEmulationCore requires guard and maps missing or failing provider to public-safe errors", async () => {
   const noGuard = await executeKeyboardEmulationCore({
     ...legalDryRunInput(),

@@ -163,8 +163,8 @@ export const shellCommandExecutionBaseToolDefinition = createShellBaseToolDefini
 >({
   toolId: "shell.commandExecution",
   title: "Shell Command Execution",
-  description: "Execute a shell command through the governed runtime shell executor.",
-  summary: "Use shell.commandExecution when the runtime has approved a one-shot shell command primitive.",
+  description: "Execute a short-lived shell command through the governed runtime shell executor. Do not use this for long-lived GUI/browser launches such as Chrome, Firefox, Edge, or xdg-open; use a background, detached, or process-control primitive instead.",
+  summary: "Use shell.commandExecution only for one-shot commands that are expected to exit promptly.",
   storageGroup: "shellExecution",
   riskLevel: "risky",
   permissionHints: ["shell:execute"],

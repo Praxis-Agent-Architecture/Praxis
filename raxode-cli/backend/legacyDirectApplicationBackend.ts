@@ -16,6 +16,7 @@ import type {
   PraxisApplicationAttachment,
   PraxisApplicationCommandResult,
   PraxisApplicationEvent,
+  PraxisApplicationPermissionProfile,
   PraxisApplicationRuntimeMode,
 } from "../../src/applicationLayer/index.js";
 
@@ -61,6 +62,23 @@ function defaultProjectRoot(): string {
 
 function defaultStateRoot(cwd: string): string {
   return path.resolve(process.env.PRAXIS_STATE_ROOT ?? process.env.RAXCODE_HOME ?? path.join(cwd, ".raxode"));
+}
+
+function normalizePermissionProfile(value: string | undefined): PraxisApplicationPermissionProfile {
+  switch (value) {
+    case "bapr":
+    case "yolo":
+    case "permissive":
+    case "standard":
+    case "restricted":
+      return value;
+    case "balanced":
+      return "permissive";
+    case "strict":
+      return "standard";
+    default:
+      return "standard";
+  }
 }
 
 function normalizeDirectPayload(raw: string): {
@@ -456,6 +474,10 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
   const cwd = path.resolve(options.cwd ?? process.env.PRAXIS_WORKSPACE_ROOT ?? process.cwd());
   const sessionId = options.sessionId ?? process.env.PRAXIS_DIRECT_SESSION_ID ?? `direct-${Date.now()}`;
   const stateRoot = defaultStateRoot(cwd);
+  const permissionProfile = normalizePermissionProfile(
+    process.env.RAXODE_APPLICATION_PERMISSION_PROFILE
+      ?? process.env.PRAXIS_PERMISSION_PROFILE,
+  );
   const reportsDir = path.resolve(options.stateRoot ?? stateRoot, "live-reports");
   await mkdir(reportsDir, { recursive: true });
   const logPath = path.join(reportsDir, `legacy-direct-application-${sessionId.replace(/[^\w.-]+/gu, "_")}-${Date.now()}.jsonl`);
@@ -593,7 +615,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     mode: options.mode ?? (process.env.RAXODE_LEGACY_APPLICATION_MODE === "dry-run" ? "dry-run" : "live"),
     model: process.env.AGENTCORE_CODEX_MODEL ?? "gpt-5.5",
     reasoningEffort: (process.env.AGENTCORE_CODEX_REASONING_EFFORT as never) ?? "low",
-    permissionProfile: "standard",
+    permissionProfile,
     now: options.now,
     liveProviderResolver: async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       onTextDelta: context?.onTextDelta,

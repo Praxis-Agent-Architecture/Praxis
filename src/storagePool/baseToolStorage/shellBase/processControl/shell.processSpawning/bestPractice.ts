@@ -280,7 +280,21 @@ export const shellProcessSpawningBaseToolDefinition = createShellBaseToolDefinit
     type: "object",
     additionalProperties: true,
     properties: {
-      target: { type: "object", additionalProperties: true },
+      target: {
+        type: "object",
+        additionalProperties: true,
+        properties: {
+          executable: { type: "string", minLength: 1 },
+          command: { type: "string", minLength: 1 },
+          args: { type: "array", items: { type: "string" } },
+          workingDirectory: { type: "string" },
+          shell: { type: "string", enum: ["sh", "bash", "zsh"] },
+          env: { type: "object", additionalProperties: { type: "string" } },
+          stdio: { type: "string", enum: ["pipe", "inherit", "ignore"] },
+        },
+      },
+      launchMode: { type: "string", enum: ["foreground", "background", "detached"] },
+      riskLevel: { type: "string", enum: ["low", "medium", "high"] },
       context: { type: "object", additionalProperties: true },
       preferredProvider: { type: "string", enum: ["anthropic", "openai", "deepmind", "praxis-native"] },
     },

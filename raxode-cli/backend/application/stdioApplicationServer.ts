@@ -53,7 +53,7 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
   const errorOutput = options.errorOutput ?? process.stderr;
   const created = await createApplicationProjectRuntime(options.projectRoot ?? defaultProjectRoot(), {
     applicationId: raxodeApplication.id,
-    mode: "dry-run",
+    mode: "live",
     model: "gpt-5.5",
     reasoningEffort: "low",
     permissionProfile: "standard",
@@ -90,37 +90,56 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     input,
     terminal: false,
   });
+  const pending = new Set<Promise<void>>();
 
   for await (const line of reader) {
-    let commandId = "unknown";
+    let parsed: { commandId: string; command: PraxisApplicationCommand } | undefined;
     try {
-      const parsed = parseCommandLine(line);
-      if (!parsed) continue;
-      commandId = parsed.commandId;
-      const result = await transport.dispatch(parsed.command);
-      writeJsonLine(output, {
-        type: "application.commandResult",
-        commandId,
-        result,
-      });
-      if (parsed.command.type === "application.close") {
-        reader.close();
-        break;
-      }
+      parsed = parseCommandLine(line);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       errorOutput.write(`raxode application protocol error: ${message}\n`);
       writeJsonLine(output, {
         type: "application.error",
-        commandId,
+        commandId: "unknown",
         error: {
           code: "APPLICATION_PROTOCOL_ERROR",
           message,
         },
         view: await transport.getView(),
       });
+      continue;
     }
+    if (!parsed) continue;
+    const task = (async () => {
+      try {
+        const result = await transport.dispatch(parsed.command);
+        writeJsonLine(output, {
+          type: "application.commandResult",
+          commandId: parsed.commandId,
+          result,
+        });
+        if (parsed.command.type === "application.close") {
+          reader.close();
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errorOutput.write(`raxode application protocol error: ${message}\n`);
+        writeJsonLine(output, {
+          type: "application.error",
+          commandId: parsed.commandId,
+          error: {
+            code: "APPLICATION_PROTOCOL_ERROR",
+            message,
+          },
+          view: await transport.getView(),
+        });
+      }
+    })();
+    pending.add(task);
+    task.finally(() => pending.delete(task)).catch(() => undefined);
   }
+  await Promise.allSettled([...pending]);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {

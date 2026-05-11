@@ -397,6 +397,26 @@ function omniProviderPermissionsCanDefault(profile: BaseToolPolicyProfile): bool
   return profile === "bapr" || profile === "yolo" || profile === "permissive";
 }
 
+function runtimeTapApprovalCanDefault(profile: BaseToolPolicyProfile): boolean {
+  return profile === "bapr" || profile === "yolo" || profile === "permissive";
+}
+
+function approvedRuntimeTapApproval(input: {
+  rawApproval: unknown;
+  profile: BaseToolPolicyProfile;
+  reason: string;
+  force?: boolean;
+}): Readonly<Record<string, unknown>> | undefined {
+  if (input.force !== true && !runtimeTapApprovalCanDefault(input.profile)) return undefined;
+  const rawApproval = isRecord(input.rawApproval) ? input.rawApproval : {};
+  return {
+    ...rawApproval,
+    accepted: true,
+    approvalId: readString(rawApproval.approvalId) ?? `runtime-profile-${input.profile}`,
+    reason: readString(rawApproval.reason) ?? input.reason,
+  };
+}
+
 function runtimeGrantedPermissionsForTool(toolId: string, profile: BaseToolPolicyProfile): readonly string[] {
   if (toolId.startsWith("git.")) return ["git:read", "filesystem:read"];
   if (toolId.startsWith("code.")) return ["filesystem:read", "filesystem:write"];
@@ -506,6 +526,12 @@ function withApprovedRuntimePermissions(
 ): Readonly<Record<string, unknown>> {
   const rawContext = isRecord(args.context) ? args.context : {};
   const approvedPermissions = runtimeGrantedPermissionsForTool(toolId, "bapr");
+  const approval = approvedRuntimeTapApproval({
+    rawApproval: rawContext.approval,
+    profile: "bapr",
+    force: true,
+    reason: "runtime approval was granted by the application approval surface",
+  });
   return {
     ...args,
     context: {
@@ -520,6 +546,7 @@ function withApprovedRuntimePermissions(
       contract: isRecord(rawContext.contract)
         ? { accepted: true, allowed: true, ...rawContext.contract }
         : { accepted: true, allowed: true },
+      ...(approval === undefined ? {} : { approval }),
     },
   };
 }
@@ -558,6 +585,11 @@ function enrichToolArguments(
     : [workspaceRoot, ...(allowedRoots ?? [])].filter((root): root is string => typeof root === "string" && root.trim().length > 0);
   const defaultServerId = defaultMcpServerId(toolId, args);
   const allowedServerIds = mergeStringLists(readStringArray(rawContext.allowedServerIds), defaultServerId === undefined ? undefined : [defaultServerId]);
+  const approval = approvedRuntimeTapApproval({
+    rawApproval: rawContext.approval,
+    profile: manifest.toolPolicy.profile,
+    reason: `${manifest.toolPolicy.profile} profile auto-approves runtime TAP approval fields`,
+  });
   const rawTarget = isRecord(args.target) ? args.target : {};
   let target = rawTarget;
   if (toolId.startsWith("git.") && workspaceRoot !== undefined) {
@@ -600,6 +632,7 @@ function enrichToolArguments(
       contract: isRecord(rawContext.contract)
         ? { accepted: true, allowed: true, ...rawContext.contract }
         : { accepted: true, allowed: true },
+      ...(approval === undefined ? {} : { approval }),
       ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
       ...(allowedRoots === undefined ? {} : { allowedRoots }),
       ...(allowedRepositoryRoots.length === 0 ? {} : { allowedRepositoryRoots }),

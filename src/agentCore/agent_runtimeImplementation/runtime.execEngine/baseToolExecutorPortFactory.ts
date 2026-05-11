@@ -12,6 +12,7 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { constants as fsConstants, mkdirSync } from "node:fs";
 import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { URL } from "node:url";
@@ -345,6 +346,20 @@ function resolveWithinAllowedRoots(context: RuntimeBaseToolExecutorContext, targ
   return success(resolved);
 }
 
+function resolveDetachedWorkingDirectory(context: RuntimeBaseToolExecutorContext, targetPath: string | undefined): BaseToolExecutorResult<string> {
+  if (targetPath === undefined) return success(workspaceRoot(context));
+  const workspaceScoped = resolveWithinAllowedRoots(context, targetPath);
+  if (workspaceScoped.ok) return workspaceScoped;
+
+  const resolved = path.resolve(workspaceRoot(context), targetPath);
+  const tempRoot = path.resolve(tmpdir());
+  if (resolved === tempRoot || resolved.startsWith(tempRoot + path.sep)) {
+    return success(resolved);
+  }
+
+  return workspaceScoped;
+}
+
 function maxOutputBytes(context: RuntimeBaseToolExecutorContext): number {
   return context.resourceLimits?.maxOutputBytes ?? 1024 * 1024;
 }
@@ -355,7 +370,7 @@ function genericRuntimeOutput(
   request: Readonly<Record<string, unknown>>,
   extra: Readonly<Record<string, unknown>> = {},
 ): Readonly<Record<string, unknown>> {
-  return {
+  return plainRuntimeJsonRecord({
     runtimeId: context.runtimeId,
     sessionId: context.sessionId,
     portPath,
@@ -364,7 +379,39 @@ function genericRuntimeOutput(
     source: "runtime-adapter",
     ...request,
     ...extra,
-  };
+  });
+}
+
+function plainRuntimeJsonValue(value: unknown, seen: WeakSet<object> = new WeakSet()): unknown {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+  if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
+  if (typeof value !== "object") return undefined;
+  if (seen.has(value)) return undefined;
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    const output: unknown[] = [];
+    for (const item of value) {
+      const clean = plainRuntimeJsonValue(item, seen);
+      if (clean !== undefined) output.push(clean);
+    }
+    return output;
+  }
+
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return undefined;
+
+  const output: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    const clean = plainRuntimeJsonValue(item, seen);
+    if (clean !== undefined) output[key] = clean;
+  }
+  return output;
+}
+
+function plainRuntimeJsonRecord(value: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  return plainRuntimeJsonValue(value) as Readonly<Record<string, unknown>>;
 }
 
 function artifactId(kind: string): string {
@@ -1085,11 +1132,49 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
     async startDetached(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.startDetached", request);
       if (delegated !== undefined) return delegated;
-      return success(genericRuntimeOutput(context, "shell.startDetached", { command: request.command, cwd: request.cwd }, {
+
+      if (context.policy?.allowShellExecution !== true && context.policy?.allowProcessExecution !== true) {
+        return failure("GOVERNANCE_REJECTED", "runtime detached shell execution requires allowShellExecution=true or allowProcessExecution=true");
+      }
+
+      const cwdResult = resolveDetachedWorkingDirectory(context, request.cwd);
+      if (!cwdResult.ok) return cwdResult;
+
+      const spawnSpec = processCommand({ command: request.command, shell: request.shell }, context, cwdResult.output);
+      if (!spawnSpec.ok) return spawnSpec;
+
+      emit(context, "shell.startDetached", "runtime.execEngine.baseToolExecutorPort.process.detached.starting", {
+        command: request.command,
+        cwd: cwdResult.output,
+      });
+
+      const detached = await launchDetachedProcess(
+        {
+          command: spawnSpec.output.command,
+          args: spawnSpec.output.args,
+          cwd: spawnSpec.output.cwd,
+          shell: spawnSpec.output.shell,
+        },
+        "shell.startDetached",
+      );
+      if (!detached.ok) return detached;
+
+      const sandbox = sandboxMetadata(context, spawnSpec.output.sandboxApplied);
+      emit(context, "shell.startDetached", "runtime.execEngine.baseToolExecutorPort.process.detached", {
+        command: request.command,
+        pid: detached.metadata?.pid,
+        sandbox,
+      });
+
+      return success(genericRuntimeOutput(context, "shell.startDetached", { command: request.command, cwd: cwdResult.output }, {
         launchId: request.launchId,
         status: "started",
         restartPolicy: request.restartPolicy,
-      }));
+        detachedHandle: request.launchId,
+        exitCode: detached.output.exitCode,
+        stdout: detached.output.stdout,
+        stderr: detached.output.stderr,
+      }), detached.events, { ...(detached.metadata ?? {}), sandbox });
     },
     async terminateProcess(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.terminateProcess", request);

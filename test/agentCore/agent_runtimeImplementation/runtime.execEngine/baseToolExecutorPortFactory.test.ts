@@ -794,6 +794,40 @@ test("runtime factory shell.run detaches Linux desktop browser launchers instead
   }
 });
 
+test("runtime factory shell.startDetached launches a governed detached shell command", async () => {
+  const workspace = await makeWorkspace();
+  const marker = path.join(workspace, "detached-launched.txt");
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-start-detached",
+    sessionId: "session-factory-start-detached",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowProcessExecution: true,
+      allowShellExecution: true,
+    },
+    resourceLimits: { timeoutMs: 100 },
+  });
+
+  const startedAt = Date.now();
+  const result = await executor.shell?.startDetached?.({
+    command: `printf detached-ok > '${marker}'; sleep 1`,
+    shell: "sh",
+    cwd: workspace,
+    launchId: "detached-test",
+    restartPolicy: "none",
+  });
+
+  assert.equal(result?.ok, true);
+  assert.ok(Date.now() - startedAt < 900);
+  if (result?.ok) {
+    assert.equal(asRecord(result.output).status, "started");
+    assert.equal(asRecord(result.output).detachedHandle, "detached-test");
+    assert.equal(asRecord(result.metadata).detached, true);
+  }
+  await waitForFileText(marker, "detached-ok");
+});
+
 test("runtime factory executor runs process-backed ports through linux bubblewrap when prepared", async () => {
   const workspace = await makeWorkspace();
   const prepared = await prepareSandboxRuntime(sandbox.linuxBubblewrap({

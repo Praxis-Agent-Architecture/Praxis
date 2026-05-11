@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   planShellProcessSpawn,
   shellProcessSpawningDescriptor,
@@ -63,6 +64,27 @@ test("planShellProcessSpawn rejects ambiguous targets, denied scope, and real ex
   assert.equal(real.ok, false);
   assert.equal(real.error.code, "REAL_EXECUTION_BLOCKED");
   assert.equal(real.error.boundary, "contract");
+});
+
+test("shell.processSpawning provider schema describes detached/browser launch shape", () => {
+  const lookup = createBaseToolRegistry().lookup("shell.processSpawning");
+  assert.equal(lookup.ok, true);
+  if (!lookup.ok) return;
+
+  const schema = lookup.definition.inputSchema;
+  assert.equal(schema.kind, "json-schema");
+  const root = schema.schema as {
+    properties?: {
+      launchMode?: { enum?: readonly string[] };
+      target?: {
+        properties?: Record<string, unknown>;
+      };
+    };
+  };
+  assert.deepEqual(root.properties?.launchMode?.enum, ["foreground", "background", "detached"]);
+  assert.ok(root.properties?.target?.properties?.executable);
+  assert.ok(root.properties?.target?.properties?.args);
+  assert.ok(root.properties?.target?.properties?.workingDirectory);
 });
 
 test("planShellProcessSpawn treats an explicit root scope as allowing child directories", () => {

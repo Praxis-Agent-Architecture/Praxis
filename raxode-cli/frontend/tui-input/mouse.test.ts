@@ -2,12 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DISABLE_TERMINAL_ALTERNATE_SCROLL,
+  DISABLE_TERMINAL_MOUSE_CAPTURE,
   DISABLE_TERMINAL_MOUSE_REPORTING,
+  ENABLE_TERMINAL_ALTERNATE_SCROLL,
+  ENABLE_TERMINAL_MOUSE_CAPTURE,
   ENABLE_TERMINAL_MOUSE_REPORTING,
   enableTerminalMouseReporting,
   isTerminalMouseInput,
   parseMouseScrollDelta,
   parseTerminalMouseEvents,
+  resolveTerminalMouseReportingMode,
   shouldEnableTerminalMouseReporting,
 } from "./mouse.js";
 
@@ -63,8 +68,15 @@ test("mouse input detector filters complete SGR mouse reports", () => {
 
 test("terminal mouse reporting is opt-in so native terminal drag selection works by default", () => {
   assert.equal(shouldEnableTerminalMouseReporting({}), false);
+  assert.equal(shouldEnableTerminalMouseReporting({}, { defaultEnabled: true }), true);
+  assert.equal(resolveTerminalMouseReportingMode({}, { defaultEnabled: true }), "capture");
+  assert.equal(resolveTerminalMouseReportingMode({}, { defaultEnabled: true, defaultMode: "alternate-scroll" }), "alternate-scroll");
   assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "1" }), true);
+  assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "capture" }), true);
+  assert.equal(resolveTerminalMouseReportingMode({ RAXODE_ENABLE_MOUSE: "wheel" }), "alternate-scroll");
+  assert.equal(resolveTerminalMouseReportingMode({ RAXODE_ENABLE_MOUSE: "selection" }), "alternate-scroll");
   assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "0" }), false);
+  assert.equal(shouldEnableTerminalMouseReporting({ RAXODE_ENABLE_MOUSE: "0" }, { defaultEnabled: true }), false);
 });
 
 test("terminal mouse reporting writes enable and cleanup sequences for tty outputs", () => {
@@ -90,6 +102,60 @@ test("terminal mouse reporting writes enable and cleanup sequences for tty outpu
   assert.deepEqual(writes, [
     ENABLE_TERMINAL_MOUSE_REPORTING,
     DISABLE_TERMINAL_MOUSE_REPORTING,
+  ]);
+  assert.equal(ENABLE_TERMINAL_MOUSE_REPORTING, ENABLE_TERMINAL_MOUSE_CAPTURE);
+  assert.equal(DISABLE_TERMINAL_MOUSE_REPORTING, DISABLE_TERMINAL_MOUSE_CAPTURE);
+});
+
+test("terminal mouse reporting can be enabled by a caller default", () => {
+  const previous = process.env.RAXODE_ENABLE_MOUSE;
+  delete process.env.RAXODE_ENABLE_MOUSE;
+  const writes: string[] = [];
+  try {
+    const cleanup = enableTerminalMouseReporting({
+      isTTY: true,
+      write: (chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      },
+    }, { defaultEnabled: true });
+    cleanup();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.RAXODE_ENABLE_MOUSE;
+    } else {
+      process.env.RAXODE_ENABLE_MOUSE = previous;
+    }
+  }
+  assert.deepEqual(writes, [
+    ENABLE_TERMINAL_MOUSE_REPORTING,
+    DISABLE_TERMINAL_MOUSE_REPORTING,
+  ]);
+});
+
+test("terminal alternate scroll mode avoids app-level click capture", () => {
+  const previous = process.env.RAXODE_ENABLE_MOUSE;
+  delete process.env.RAXODE_ENABLE_MOUSE;
+  const writes: string[] = [];
+  try {
+    const cleanup = enableTerminalMouseReporting({
+      isTTY: true,
+      write: (chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      },
+    }, { defaultEnabled: true, defaultMode: "alternate-scroll" });
+    cleanup();
+  } finally {
+    if (previous === undefined) {
+      delete process.env.RAXODE_ENABLE_MOUSE;
+    } else {
+      process.env.RAXODE_ENABLE_MOUSE = previous;
+    }
+  }
+  assert.deepEqual(writes, [
+    ENABLE_TERMINAL_ALTERNATE_SCROLL,
+    DISABLE_TERMINAL_ALTERNATE_SCROLL,
   ]);
 });
 

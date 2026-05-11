@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   planShellDetachedExecution,
   shellDetachedExecutionDescriptor,
@@ -106,4 +107,25 @@ test("planShellDetachedExecution requires permission, approval, and dry-run exec
   assert.equal(real.ok, false);
   assert.equal(real.error.code, "REAL_EXECUTION_BLOCKED");
   assert.equal(real.error.boundary, "contract");
+});
+
+test("shell.detachedExecution provider schema describes detached browser launch target", () => {
+  const lookup = createBaseToolRegistry().lookup("shell.detachedExecution");
+  assert.equal(lookup.ok, true);
+  if (!lookup.ok) return;
+
+  const schema = lookup.definition.inputSchema;
+  assert.equal(schema.kind, "json-schema");
+  const root = schema.schema as {
+    properties?: {
+      target?: {
+        required?: readonly string[];
+        properties?: Record<string, unknown>;
+      };
+    };
+  };
+  assert.deepEqual(root.properties?.target?.required, ["command"]);
+  assert.ok(root.properties?.target?.properties?.command);
+  assert.ok(root.properties?.target?.properties?.workingDirectory);
+  assert.ok(root.properties?.target?.properties?.restartPolicy);
 });

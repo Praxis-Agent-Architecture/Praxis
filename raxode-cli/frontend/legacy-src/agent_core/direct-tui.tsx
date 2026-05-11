@@ -48,6 +48,7 @@ import {
   applyTuiTextInputKey,
   createTuiTextInputState,
   isBackwardDeleteInput,
+  isShiftReturnInput,
   insertIntoTuiTextInput,
   setTuiTextInputValue,
   type TuiTextInputState,
@@ -6980,13 +6981,16 @@ const TranscriptPane = memo(function TranscriptPane({
   viewportLineCount: number;
   transientStatusLine: RenderLine | null;
 }): JSX.Element {
-  const renderedLineCount = visibleLines.length + (transientStatusLine ? 1 : 0);
+  const reservedStatusLines = transientStatusLine ? 1 : 0;
+  const bodyViewportLineCount = Math.max(0, viewportLineCount - reservedStatusLines);
+  const bodyLines = visibleLines.slice(Math.max(0, visibleLines.length - bodyViewportLineCount));
+  const renderedLineCount = bodyLines.length + reservedStatusLines;
   const fillerCount = Math.max(0, viewportLineCount - renderedLineCount);
 
   return (
     <Box flexDirection="column" flexGrow={1} flexShrink={1}>
       <Box flexDirection="column" height={viewportLineCount} flexGrow={1} flexShrink={1}>
-        {visibleLines.map((line, index) => (
+        {bodyLines.map((line, index) => (
           <Text key={`body-${index}-${line.text}`} color={colorForRenderLine(line.kind)}>
             {line.segments
               ? line.segments.map((segment, segmentIndex) => (
@@ -8047,7 +8051,10 @@ function PraxisDirectTuiApp(): JSX.Element {
         startedAt: queuedAt,
         label: backendStatusRef.current === "ready" ? "queued" : "waiting for backend",
       });
-      child.stdin.write(`${payload}\u0000`);
+      const writeResult = writeToBackend(child, `${payload}\u0000`);
+      if (!writeResult.ok) {
+        throw new Error(writeResult.message);
+      }
       recordSentComposerHistoryEntry(submission);
       return true;
     } catch (error) {
@@ -8213,6 +8220,48 @@ function PraxisDirectTuiApp(): JSX.Element {
         createdAt: at,
       }),
     });
+  };
+
+  const normalizeBackendWriteError = (error: unknown): string => {
+    if (typeof error === "object" && error !== null && "code" in error) {
+      const code = String((error as { code?: unknown }).code ?? "");
+      if (code === "EPIPE") {
+        return "backend input pipe closed";
+      }
+    }
+    return error instanceof Error ? error.message : String(error);
+  };
+
+  const writeToBackend = (
+    child: ChildProcessWithoutNullStreams | null,
+    payload: string,
+  ): { ok: true } | { ok: false; message: string } => {
+    if (
+      !child
+      || child.killed
+      || child.exitCode !== null
+      || child.signalCode !== null
+      || child.stdin.destroyed
+      || child.stdin.writableEnded
+    ) {
+      return { ok: false, message: "backend input pipe is not writable" };
+    }
+    try {
+      child.stdin.write(payload, (error) => {
+        if (!error) {
+          return;
+        }
+        const message = normalizeBackendWriteError(error);
+        appendInlineError(`Backend write failed: ${message}`);
+        setRunIndicator(null);
+        if (message.includes("pipe closed")) {
+          failPendingOutboundTurns("backend closed before confirming the queued input");
+        }
+      });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: normalizeBackendWriteError(error) };
+    }
   };
 
   const beginRewindInFlight = (
@@ -9073,16 +9122,15 @@ function PraxisDirectTuiApp(): JSX.Element {
       return;
     }
     const requestedAt = new Date().toISOString();
-    try {
-      child.stdin.write(`${JSON.stringify({
-        type: "direct_question_answer",
-        requestId: snapshot.requestId,
-        answers,
-        currentIndex: questionPanelState.currentQuestionIndex,
-        isFinal: true,
-      })}\u0000`);
-    } catch (error) {
-      appendInlineError(`Failed to submit answers: ${error instanceof Error ? error.message : String(error)}`);
+    const writeResult = writeToBackend(child, `${JSON.stringify({
+      type: "direct_question_answer",
+      requestId: snapshot.requestId,
+      answers,
+      currentIndex: questionPanelState.currentQuestionIndex,
+      isFinal: true,
+    })}\u0000`);
+    if (!writeResult.ok) {
+      appendInlineError(`Failed to submit answers: ${writeResult.message}`);
       setSlashPanelNotice({
         tone: "danger",
         text: "Question answer submission failed",
@@ -9652,12 +9700,11 @@ function PraxisDirectTuiApp(): JSX.Element {
       userText: option.userText,
     };
     beginRewindInFlight(mode, "pending_backend_rewind");
-    try {
-      child.stdin.write(`/rewind ${rewindRequestTurnIndex}\u0000`);
-    } catch (error) {
+    const writeResult = writeToBackend(child, `/rewind ${rewindRequestTurnIndex}\u0000`);
+    if (!writeResult.ok) {
       pendingTranscriptRewindRef.current = null;
       finishRewindInFlight();
-      appendInlineError(`Failed to request rewind: ${error instanceof Error ? error.message : String(error)}`);
+      appendInlineError(`Failed to request rewind: ${writeResult.message}`);
       return;
     }
     closeRewindOverlay();
@@ -9965,7 +10012,12 @@ function PraxisDirectTuiApp(): JSX.Element {
   }, [rushFooterNotice]);
 
   useEffect(() => {
-    return enableTerminalMouseReporting(process.stdout);
+    const cleanup = enableTerminalMouseReporting(process.stdout, {
+      defaultEnabled: true,
+      defaultMode: "alternate-scroll",
+    });
+    setTerminalSize((current) => ({ ...current }));
+    return cleanup;
   }, []);
 
   useEffect(() => {
@@ -10065,6 +10117,9 @@ function PraxisDirectTuiApp(): JSX.Element {
           PRAXIS_STATE_ROOT: stateRoot,
           PRAXIS_WORKSPACE_ROOT: launchWorkspace,
           PRAXIS_DIRECT_SESSION_ID: launchSessionId,
+          RAXODE_APPLICATION_PERMISSION_PROFILE: configFile?.permissions.requestedMode
+            ?? runtimeConfig?.permissions.requestedMode
+            ?? "bapr",
           NODE_NO_WARNINGS: process.env.NODE_NO_WARNINGS ?? "1",
           ...(pendingInitNote
             ? {
@@ -10127,6 +10182,25 @@ function PraxisDirectTuiApp(): JSX.Element {
     });
     child.stderr.on("data", (chunk: Buffer | string) => {
       flushChunk(typeof chunk === "string" ? chunk : chunk.toString("utf8"), "stderr");
+    });
+    child.stdin.on("error", (error) => {
+      const message = normalizeBackendWriteError(error);
+      setRunIndicator(null);
+      if (message.includes("pipe closed")) {
+        failPendingOutboundTurns("backend closed before confirming the queued input");
+      }
+      const at = new Date().toISOString();
+      dispatchSurfaceEvent({
+        type: "error.reported",
+        at,
+        message: createSurfaceMessage({
+          messageId: `stdin:${at}`,
+          kind: "error",
+          createdAt: at,
+          text: `backend input failed: ${message}`,
+          status: "warning",
+        }),
+      });
     });
     child.on("error", (error) => {
       setRunIndicator(null);
@@ -10224,7 +10298,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         child.kill("SIGTERM");
       }
     };
-  }, [appRoot, backendEpoch, pendingInitNote]);
+  }, [appRoot, backendEpoch, configFile?.permissions.requestedMode, pendingInitNote, runtimeConfig?.permissions.requestedMode]);
 
   useEffect(() => {
     if (!logPath) {
@@ -11598,11 +11672,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     }
     const child = childRef.current;
     if (child && !child.killed) {
-      try {
-        child.stdin.write("/exit\u0000");
-      } catch {
-        // ignore write races during shutdown
-      }
+      writeToBackend(child, "/exit\u0000");
       if (options?.force) {
         setTimeout(() => {
           if (!child.killed) {
@@ -11673,7 +11743,14 @@ function PraxisDirectTuiApp(): JSX.Element {
       });
       return;
     }
-    child.stdin.write(`${command}\u0000`);
+    const writeResult = writeToBackend(child, `${command}\u0000`);
+    if (!writeResult.ok) {
+      refreshConfigSnapshots();
+      setSlashPanelNotice({
+        tone: "warning",
+        text: `Backend refresh failed: ${writeResult.message}`,
+      });
+    }
   };
 
   const applySlashPanelAction = async (actionKey: string) => {
@@ -11688,13 +11765,12 @@ function PraxisDirectTuiApp(): JSX.Element {
         return false;
       }
       const requestedAt = new Date().toISOString();
-      try {
-        child.stdin.write(`${JSON.stringify({
-          type: "direct_init_request",
-          text: noteText,
-        })}\u0000`);
-      } catch (error) {
-        appendInlineError(`Failed to start initialization: ${error instanceof Error ? error.message : String(error)}`);
+      const writeResult = writeToBackend(child, `${JSON.stringify({
+        type: "direct_init_request",
+        text: noteText,
+      })}\u0000`);
+      if (!writeResult.ok) {
+        appendInlineError(`Failed to start initialization: ${writeResult.message}`);
         setSlashPanelNotice({
           tone: "danger",
           text: "Initialization request failed to send",
@@ -11741,11 +11817,19 @@ function PraxisDirectTuiApp(): JSX.Element {
           });
           return;
         }
-        child.stdin.write(`${formatHumanGateDecisionEnvelope({
+        const writeResult = writeToBackend(child, `${formatHumanGateDecisionEnvelope({
           gateId: gate.gateId,
           action,
           note,
         })}\u0000`);
+        if (!writeResult.ok) {
+          setSlashPanelNotice({
+            tone: "danger",
+            text: `Approval submission failed: ${writeResult.message}`,
+          });
+          appendInlineError(`Failed to submit approval: ${writeResult.message}`);
+          return;
+        }
         setDismissedHumanGateSignature(null);
         setSlashPanelNotice({
           tone: action === "reject" || action === "reject_stop" ? "warning" : "success",
@@ -12212,13 +12296,12 @@ function PraxisDirectTuiApp(): JSX.Element {
         return false;
       }
       const requestedAt = new Date().toISOString();
-      try {
-        child.stdin.write(`${JSON.stringify({
-          type: "direct_init_request",
-          text: noteText,
-        })}\u0000`);
-      } catch (error) {
-        appendInlineError(`Failed to start initialization: ${error instanceof Error ? error.message : String(error)}`);
+      const writeResult = writeToBackend(child, `${JSON.stringify({
+        type: "direct_init_request",
+        text: noteText,
+      })}\u0000`);
+      if (!writeResult.ok) {
+        appendInlineError(`Failed to start initialization: ${writeResult.message}`);
         setSlashPanelNotice({
           tone: "danger",
           text: "Initialization request failed to send",
@@ -12620,6 +12703,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     }
     const focusedPanelField = slashPanelView?.fields[slashPanelFocusIndex];
     const panelInputActive = focusedPanelField?.kind === "input";
+    const shiftReturnInput = isShiftReturnInput(inputText, key);
 
     const looksLikePastedChunk =
       Boolean(inputText)
@@ -12637,7 +12721,8 @@ function PraxisDirectTuiApp(): JSX.Element {
       && !key.upArrow
       && !key.downArrow
       && !key.backspace
-      && !key.delete;
+      && !key.delete
+      && !shiftReturnInput;
 
     if (looksLikePastedChunk) {
       if (panelInputActive) {
@@ -13442,6 +13527,29 @@ function PraxisDirectTuiApp(): JSX.Element {
             : (previous + 1) % slashState.suggestions.length);
         return;
       }
+    }
+
+    const canScrollTranscriptWithArrows =
+      maxScrollOffset > 0
+      && !showSlashMenu
+      && !activeSlashPanelId
+      && !workspacePickerInputState
+      && !activeFileMention
+      && !pendingComposerEditState
+      && !modelPicker?.open
+      && composerState.value.trim().length === 0
+      && composerAttachments.length === 0
+      && composerPastedContents.length === 0
+      && composerFileReferences.length === 0;
+    if (canScrollTranscriptWithArrows && key.upArrow) {
+      flushPendingPasteText();
+      setScrollOffset((previous) => applyScrollDelta(previous, 3, maxScrollOffset));
+      return;
+    }
+    if (canScrollTranscriptWithArrows && key.downArrow) {
+      flushPendingPasteText();
+      setScrollOffset((previous) => applyScrollDelta(previous, -3, maxScrollOffset));
+      return;
     }
 
     if (key.upArrow) {

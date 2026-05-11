@@ -261,7 +261,21 @@ export const shellBackgroundExecutionBaseToolDefinition = createShellBaseToolDef
     type: "object",
     additionalProperties: true,
     properties: {
-      target: { type: "object", additionalProperties: true },
+      target: {
+        type: "object",
+        additionalProperties: true,
+        required: ["command"],
+        properties: {
+          command: { type: "string", minLength: 1 },
+          workingDirectory: { type: "string" },
+          shell: { type: "string", enum: ["sh", "bash", "zsh"] },
+          jobId: { type: "string" },
+          monitorIntervalMs: { type: "integer", minimum: 100, maximum: 60_000 },
+          outputBufferLimitBytes: { type: "integer", minimum: 0, maximum: 10 * 1024 * 1024 },
+          captureOutput: { type: "boolean" },
+        },
+      },
+      riskLevel: { type: "string", enum: ["low", "medium", "high"] },
       context: { type: "object", additionalProperties: true },
       preferredProvider: { type: "string", enum: ["anthropic", "openai", "deepmind", "praxis-native"] },
     },
