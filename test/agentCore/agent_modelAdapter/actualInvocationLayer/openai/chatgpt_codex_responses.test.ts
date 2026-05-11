@@ -72,3 +72,35 @@ test("ChatGPT Codex responses uses product backend path and public-safe auth hea
   assert.equal(transportHeaders["ChatGPT-Account-ID"], "workspace-secret-id");
   assert.equal(transportHeaders["X-OpenAI-Fedramp"], "true");
 });
+
+test("ChatGPT Codex responses preserves Responses image input content blocks", async () => {
+  const auth = codexAuthEnvelope();
+  let capturedBody: Record<string, unknown> | undefined;
+
+  const result = await invokeChatGPTCodexResponses({
+    operation: "create",
+    runtime: { runtimeId: "runtime-vision" },
+    dryRun: false,
+    governance: { accepted: true },
+    auth: auth.envelope,
+    body: {
+      model: "gpt-5.5",
+      input: [{
+        role: "user",
+        content: [
+          { type: "input_text", text: "What is visible?" },
+          { type: "input_image", image_url: "data:image/png;base64,AAAA", detail: "high" },
+        ],
+      }],
+    },
+    caller: async (request) => {
+      capturedBody = request.body as Record<string, unknown>;
+      return { id: "resp_vision", object: "response" };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  const bodyText = JSON.stringify(capturedBody);
+  assert.match(bodyText, /input_image/u);
+  assert.match(bodyText, /data:image\/png;base64,AAAA/u);
+});

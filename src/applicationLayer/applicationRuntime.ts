@@ -5,6 +5,7 @@
 
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import {
   praxis,
@@ -25,8 +26,10 @@ import type {
   PraxisApplicationCommand,
   PraxisApplicationCommandResult,
   PraxisApplicationApprovalSummary,
+  PraxisApplicationAttachment,
   PraxisApplicationAgentEntryView,
   PraxisApplicationEvent,
+  PraxisApplicationInputEnvelope,
   PraxisApplicationManifestView,
   PraxisApplicationModelState,
   PraxisApplicationPermissionProfile,
@@ -97,6 +100,8 @@ type ApplicationConversationMessage = {
   createdAt: string;
   status?: "completed" | "failed";
 };
+
+type ApplicationInputAttachment = PraxisApplicationAttachment;
 
 const APPLICATION_SESSION_HISTORY_MAX_MESSAGES = 24;
 const APPLICATION_SESSION_HISTORY_MAX_CHARS = 24_000;
@@ -295,17 +300,55 @@ function formatConversationHistory(messages: readonly ApplicationConversationMes
   ].join("\n\n");
 }
 
+function formatAttachmentForPrompt(attachment: Readonly<{
+  id: string;
+  kind: string;
+  tokenText?: string;
+  displayName?: string;
+  localPath?: string;
+  remoteUrl?: string;
+  text?: string;
+  mimeType?: string;
+}>): string {
+  const fields = [
+    `id=${attachment.id}`,
+    `kind=${attachment.kind}`,
+    attachment.tokenText ? `token=${attachment.tokenText}` : undefined,
+    attachment.displayName ? `name=${attachment.displayName}` : undefined,
+    attachment.mimeType ? `mime=${attachment.mimeType}` : undefined,
+    attachment.localPath ? `localPath=${attachment.localPath}` : undefined,
+    attachment.remoteUrl ? `remoteUrl=${attachment.remoteUrl}` : undefined,
+    attachment.text ? `text=${truncateMiddle(attachment.text, 1200)}` : undefined,
+  ].filter((field): field is string => field !== undefined);
+  return `- ${fields.join(" | ")}`;
+}
+
+function formatApplicationInputAttachments(attachments: readonly ApplicationInputAttachment[] | undefined): string | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
+  const lines = [
+    "Application input attachments for this user request.",
+    "If an image attachment has localPath, inspect it through omni.viewImage before answering image-specific questions.",
+    "If a file attachment has localPath, use the appropriate code/search/file baseTool before claiming its contents.",
+    "",
+    ...attachments.map(formatAttachmentForPrompt),
+  ];
+  return lines.join("\n");
+}
+
 function buildTaskTextWithSessionHistory(input: {
   currentUserText: string;
   history: readonly ApplicationConversationMessage[];
+  attachments?: PraxisApplicationInputEnvelope["attachments"];
 }): string {
   const historyText = formatConversationHistory(input.history);
-  if (historyText === undefined) return input.currentUserText;
-  return [
+  const attachmentText = formatApplicationInputAttachments(input.attachments);
+  const sections = [
     historyText,
+    attachmentText,
     "Current user request:",
     input.currentUserText,
-  ].join("\n\n---\n\n");
+  ].filter((section): section is string => section !== undefined && section.trim().length > 0);
+  return sections.join("\n\n---\n\n");
 }
 
 function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
@@ -422,6 +465,16 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
       finalUrl ? `页面：${finalUrl}` : undefined,
       pageTitle ? `标题：${pageTitle}` : undefined,
       status !== undefined ? `HTTP：${status}` : undefined,
+    ].filter((line): line is string => line !== undefined).slice(0, 3);
+  }
+
+  if (toolCall.toolId === "omni.viewImage") {
+    const providerMetadata = objectValue(output?.providerMetadata);
+    const analysis = stringValue(providerMetadata?.analysis);
+    const backend = stringValue(providerMetadata?.backend);
+    return [
+      analysis ? `视觉分析：${truncateMiddle(analysis, 360)}` : "图片已传入视觉模型",
+      backend ? `后端：${backend}` : undefined,
     ].filter((line): line is string => line !== undefined).slice(0, 3);
   }
 
@@ -750,6 +803,321 @@ function createProviderNativeSearchAdapter(input: {
         },
       },
       events: ["raxode.application.nativeWebSearch.openai.called"],
+    };
+  };
+}
+
+function imageMimeTypeFromPath(imagePath: string, declared: string | undefined): string {
+  if (declared !== undefined && declared !== "unknown") return declared;
+  const extension = path.extname(imagePath).toLowerCase();
+  if (extension === ".jpg" || extension === ".jpeg") return "image/jpeg";
+  if (extension === ".webp") return "image/webp";
+  if (extension === ".gif") return "image/gif";
+  return "image/png";
+}
+
+function responsesImageDetail(detail: string | undefined): "low" | "high" {
+  return detail === "low" ? "low" : "high";
+}
+
+function responsesImageGenerationSize(value: string | undefined): string | undefined {
+  if (value === undefined || value === "auto") return value;
+  return /^\d+x\d+$/u.test(value) ? value : undefined;
+}
+
+function responsesImageGenerationQuality(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return ["auto", "low", "medium", "high"].includes(value) ? value : undefined;
+}
+
+function responsesImageGenerationFormat(value: string | undefined): "png" | "jpeg" | "webp" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "image/png" || value === "png") return "png";
+  if (value === "image/jpeg" || value === "jpeg" || value === "jpg") return "jpeg";
+  if (value === "image/webp" || value === "webp") return "webp";
+  return undefined;
+}
+
+function imageMimeTypeFromFormat(format: "png" | "jpeg" | "webp" | undefined, outputPath: string): string {
+  if (format === "jpeg") return "image/jpeg";
+  if (format === "webp") return "image/webp";
+  return imageMimeTypeFromPath(outputPath, "image/png");
+}
+
+function readImageGenerationCall(raw: unknown): { imageBase64: string; revisedPrompt?: string; imageCallId?: string } | undefined {
+  const record = objectValue(raw);
+  const output = Array.isArray(record?.output) ? record.output : [];
+  for (const item of output) {
+    const itemRecord = objectValue(item);
+    if (itemRecord?.type !== "image_generation_call") continue;
+    const imageBase64 = stringValue(itemRecord.result);
+    if (!imageBase64) continue;
+    return {
+      imageBase64,
+      revisedPrompt: stringValue(itemRecord.revised_prompt),
+      imageCallId: stringValue(itemRecord.id),
+    };
+  }
+  return undefined;
+}
+
+function normalizeAttachmentRef(value: string): string {
+  return value.trim().replace(/^\[|\]$/gu, "").replace(/\s+/gu, " ").toLowerCase();
+}
+
+function attachmentRefCandidates(attachment: ApplicationInputAttachment): string[] {
+  return [
+    attachment.id,
+    attachment.tokenText,
+    attachment.tokenText?.replace(/^\[|\]$/gu, ""),
+    attachment.displayName,
+    attachment.localPath,
+    attachment.remoteUrl,
+  ]
+    .filter((value): value is string => value !== undefined && value.trim().length > 0)
+    .map(normalizeAttachmentRef);
+}
+
+function resolveImageAttachment(input: {
+  imageRef?: string;
+  attachments?: readonly ApplicationInputAttachment[];
+}): ApplicationInputAttachment | undefined {
+  if (!input.imageRef || !input.attachments || input.attachments.length === 0) return undefined;
+  const normalizedRef = normalizeAttachmentRef(input.imageRef);
+  return input.attachments.find((attachment) => {
+    if (attachment.kind !== "image") return false;
+    return attachmentRefCandidates(attachment).includes(normalizedRef);
+  });
+}
+
+function createOpenAIResponsesImageVisionAdapter(input: {
+  auth: AuthEnvelope;
+  providerCaller: OpenAIV1ResponsesProviderCaller;
+  runtimeId: string;
+  model: string;
+  attachments?: readonly ApplicationInputAttachment[];
+}): NonNullable<NonNullable<BaseToolExecutorPort["omni"]>["transformMedia"]> {
+  return async (request): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType?: string }>> => {
+    const parameters = request.parameters ?? {};
+    if (request.operation === "omni.generateImage.generateimage") {
+      const prompt = stringValue(parameters.prompt);
+      const outputPath = stringValue(parameters.outputPath);
+      if (prompt === undefined || outputPath === undefined) {
+        return {
+          ok: false,
+          error: {
+            code: "PROVIDER_REJECTED",
+            message: "omni.generateImage requires target.prompt and target.outputPath for Responses image_generation",
+            publicSafe: true,
+          },
+        };
+      }
+      const outputFormat = responsesImageGenerationFormat(
+        stringValue(parameters.outputFormat)
+          ?? stringValue(parameters.targetFormat)
+          ?? stringValue(parameters.format)
+          ?? stringValue(parameters.mimeType),
+      );
+      const imageTool: Record<string, unknown> = {
+        type: "image_generation",
+        action: "generate",
+      };
+      const size = responsesImageGenerationSize(stringValue(parameters.size));
+      if (size !== undefined) imageTool.size = size;
+      const quality = responsesImageGenerationQuality(stringValue(parameters.quality));
+      if (quality !== undefined) imageTool.quality = quality;
+      if (outputFormat !== undefined) imageTool.output_format = outputFormat;
+
+      const result = await invokeChatGPTCodexResponses({
+        operation: "create",
+        method: "POST",
+        auth: input.auth,
+        caller: input.providerCaller,
+        runtime: {
+          runtimeId: input.runtimeId,
+          invocationId: `omni-generate-image:${Date.now()}`,
+          callerId: "raxode.application.omniGenerateImage",
+        },
+        requiredScopes: ["model.invoke", "chatgpt.codex.responses", "omni.image.generate"],
+        governance: { accepted: true },
+        contract: { accepted: true },
+        dryRun: false,
+        headers: { "content-type": "application/json" },
+        expectResponseObject: false,
+        body: {
+          model: input.model,
+          input: prompt,
+          tools: [imageTool],
+          tool_choice: { type: "image_generation" },
+          store: false,
+        },
+      });
+
+      if (!result.ok) {
+        return {
+          ok: false,
+          error: {
+            code: result.error.code,
+            message: result.error.message,
+            publicSafe: true,
+          },
+          events: result.events,
+        };
+      }
+
+      const generated = readImageGenerationCall(result.response.raw);
+      if (generated === undefined) {
+        return {
+          ok: false,
+          error: {
+            code: "RESPONSE_FORMAT_DRIFT",
+            message: "omni.generateImage Responses image_generation did not return an image_generation_call result",
+            publicSafe: true,
+          },
+          events: result.events,
+        };
+      }
+
+      const imageBytes = Buffer.from(generated.imageBase64, "base64");
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, imageBytes);
+      const mimeType = imageMimeTypeFromFormat(outputFormat, outputPath);
+      return {
+        ok: true,
+        output: {
+          artifactId: outputPath,
+          mimeType,
+        },
+        metadata: {
+          provider: "openai",
+          backend: "chatgpt-codex-responses-image-generation",
+          model: input.model,
+          outputPath,
+          mimeType,
+          byteLength: imageBytes.byteLength,
+          ...(generated.revisedPrompt ? { revisedPrompt: generated.revisedPrompt } : {}),
+          ...(generated.imageCallId ? { imageCallId: generated.imageCallId } : {}),
+        },
+        events: ["raxode.application.omniGenerateImage.openai.called"],
+      };
+    }
+
+    const imageRef = stringValue(parameters.imageRef) ?? request.inputArtifactId;
+    const attachment = resolveImageAttachment({
+      imageRef,
+      attachments: input.attachments,
+    });
+    const imagePath = stringValue(parameters.imagePath) ?? attachment?.localPath;
+    if (imagePath === undefined) {
+      return {
+        ok: false,
+        error: {
+          code: "PROVIDER_UNAVAILABLE",
+          message: imageRef
+            ? `omni.viewImage OpenAI vision adapter could not resolve imageRef to a local imagePath: ${imageRef}`
+            : "omni.viewImage OpenAI vision adapter requires a local imagePath or an application image attachment reference",
+          publicSafe: true,
+        },
+      };
+    }
+
+    const maxBytes = numberValue(parameters.maxBytes) ?? 20 * 1024 * 1024;
+    let bytes: Buffer;
+    try {
+      bytes = await readFile(imagePath);
+    } catch {
+      return {
+        ok: false,
+        error: {
+          code: "PROVIDER_UNAVAILABLE",
+          message: `omni.viewImage OpenAI vision adapter could not read imagePath: ${imagePath}`,
+          publicSafe: true,
+        },
+      };
+    }
+
+    if (bytes.byteLength > maxBytes) {
+      return {
+        ok: false,
+        error: {
+          code: "PROVIDER_REJECTED",
+          message: `omni.viewImage image exceeds maxBytes (${bytes.byteLength} > ${maxBytes})`,
+          publicSafe: true,
+        },
+      };
+    }
+
+    const mimeType = imageMimeTypeFromPath(imagePath, stringValue(parameters.mediaType) ?? attachment?.mimeType);
+    const detail = responsesImageDetail(stringValue(parameters.detail));
+    const result = await invokeChatGPTCodexResponses({
+      operation: "create",
+      method: "POST",
+      auth: input.auth,
+      caller: input.providerCaller,
+      runtime: {
+        runtimeId: input.runtimeId,
+        invocationId: `omni-view-image:${Date.now()}`,
+        callerId: "raxode.application.omniViewImage",
+      },
+      requiredScopes: ["model.invoke", "chatgpt.codex.responses"],
+      governance: { accepted: true },
+      contract: { accepted: true },
+      dryRun: false,
+      headers: { "content-type": "application/json" },
+      expectResponseObject: false,
+      body: {
+        model: input.model,
+        input: [{
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: [
+                "Analyze this image for a Praxis desktop/browser automation agent.",
+                "Return concise visible UI facts, actionable controls, and approximate screen-relative targets only when evident.",
+                "Do not invent unseen buttons or coordinates.",
+              ].join(" "),
+            },
+            {
+              type: "input_image",
+              image_url: `data:${mimeType};base64,${bytes.toString("base64")}`,
+              detail,
+            },
+          ],
+        }],
+        store: false,
+      },
+    });
+
+    if (!result.ok) {
+      return {
+        ok: false,
+        error: {
+          code: result.error.code,
+          message: result.error.message,
+          publicSafe: true,
+        },
+        events: result.events,
+      };
+    }
+
+    const analysis = readResponseText(result.response.raw);
+    return {
+      ok: true,
+      output: {
+        artifactId: request.inputArtifactId ?? `artifact:vision:${Date.now()}`,
+        mimeType,
+      },
+      metadata: {
+        provider: "openai",
+        backend: "chatgpt-codex-responses-vision",
+        model: input.model,
+        imagePath,
+        mimeType,
+        detail,
+        ...(analysis ? { analysis } : {}),
+      },
+      events: ["raxode.application.omniViewImage.openai.called"],
     };
   };
 }
@@ -1145,6 +1513,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     const taskText = buildTaskTextWithSessionHistory({
       currentUserText: command.input.text,
       history: historyBeforeTurn,
+      attachments: command.input.attachments,
     });
     publish({
       eventId: `${turnId}.submitted`,
@@ -1254,6 +1623,15 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
               auth: liveProvider.auth,
               providerCaller: liveProvider.providerCaller,
               runtimeId: state.runtimeId,
+            }),
+          },
+          omni: {
+            transformMedia: createOpenAIResponsesImageVisionAdapter({
+              auth: liveProvider.auth,
+              providerCaller: liveProvider.providerCaller,
+              runtimeId: state.runtimeId,
+              model: state.model.model,
+              attachments: command.input.attachments,
             }),
           },
         }

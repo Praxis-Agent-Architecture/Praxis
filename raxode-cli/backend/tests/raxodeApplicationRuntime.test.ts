@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -104,6 +106,282 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.match(secondBody, /已记住暗号 BLUE-ORBIT/u);
   assert.match(secondBody, /Current user request/u);
   assert.match(secondBody, /刚才的暗号是什么/u);
+});
+
+test("raxode application runtime routes omni.viewImage through Responses image input", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-vision-"));
+  const imagePath = path.join(workspace, "screenshot.png");
+  await writeFile(
+    imagePath,
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  );
+
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerBodies.push(envelope.body);
+          const bodyText = JSON.stringify(envelope.body);
+          if (bodyText.includes("input_image")) {
+            return { output_text: "The image contains a tiny test pixel." };
+          }
+          if (providerBodies.length === 1) {
+            return {
+              output: [{
+                type: "function_call",
+                name: "omni.viewImage",
+                call_id: "omni-view-image-call",
+                arguments: JSON.stringify({
+                  target: { imagePath, mediaType: "image/png", detail: "low" },
+                  context: { grantedPermissions: ["tool.execute"] },
+                }),
+              }],
+            };
+          }
+          return { output_text: "视觉链路已完成。" };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const sessionId = "session.raxode.vision.test";
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: workspace,
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    const result = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "请查看这张截图。",
+        cwd: workspace,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    const providerBodyText = JSON.stringify(providerBodies);
+    assert.match(providerBodyText, /input_image/u);
+    assert.match(providerBodyText, /data:image\/png;base64/u);
+    assert.match(providerBodyText, /The image contains a tiny test pixel/u);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("raxode application runtime resolves pasted image references to local attachment paths", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-attachment-vision-"));
+  const imagePath = path.join(workspace, "clipboard-image-1.png");
+  await writeFile(
+    imagePath,
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  );
+
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerBodies.push(envelope.body);
+          const bodyText = JSON.stringify(envelope.body);
+          if (bodyText.includes("input_image")) {
+            return { output_text: "The pasted image contains a tiny test pixel." };
+          }
+          if (providerBodies.length === 1) {
+            return {
+              output: [{
+                type: "function_call",
+                name: "omni.viewImage",
+                call_id: "omni-view-image-ref-call",
+                arguments: JSON.stringify({
+                  target: { imageRef: "Image #1", detail: "low" },
+                  context: { grantedPermissions: ["tool.execute"] },
+                }),
+              }],
+            };
+          }
+          return { output_text: "附件视觉链路已完成。" };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const sessionId = "session.raxode.attachment-vision.test";
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: workspace,
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    const result = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "你好！[Image #1]看一下这个图片里面是啥。",
+        cwd: workspace,
+        attachments: [{
+          id: "clipboard-image:1",
+          kind: "image",
+          tokenText: "[Image #1]",
+          displayName: "clipboard image 1",
+          localPath: imagePath,
+          mimeType: "image/png",
+        }],
+      },
+    });
+
+    assert.equal(result.ok, true);
+    const providerBodyText = JSON.stringify(providerBodies);
+    assert.match(providerBodyText, /Application input attachments for this user request/u);
+    assert.match(providerBodyText, /localPath=/u);
+    assert.match(providerBodyText, /input_image/u);
+    assert.match(providerBodyText, /data:image\/png;base64/u);
+    assert.match(providerBodyText, /The pasted image contains a tiny test pixel/u);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("raxode application runtime routes omni.generateImage through Responses image_generation", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-image-generation-"));
+  const outputPath = path.join(workspace, "generated.png");
+
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerBodies.push(envelope.body);
+          const bodyRecord = envelope.body as { tools?: readonly { type?: string }[] };
+          if (bodyRecord.tools?.some((tool) => tool.type === "image_generation")) {
+            return {
+              output: [{
+                id: "ig_test",
+                type: "image_generation_call",
+                status: "completed",
+                revised_prompt: "A tiny generated test image.",
+                result: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+              }],
+            };
+          }
+          if (providerBodies.length === 1) {
+            return {
+              output: [{
+                type: "function_call",
+                name: "omni.generateImage",
+                call_id: "omni-generate-image-call",
+                arguments: JSON.stringify({
+                  target: {
+                    prompt: "Draw a tiny test image.",
+                    outputPath,
+                    mimeType: "image/png",
+                    size: "1024x1024",
+                    quality: "low",
+                  },
+                  context: { grantedPermissions: ["tool.execute"] },
+                }),
+              }],
+            };
+          }
+          return { output_text: "图片生成链路已完成。" };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const sessionId = "session.raxode.generate-image.test";
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: workspace,
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    const result = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "生成一张测试图片。",
+        cwd: workspace,
+      },
+    });
+
+    assert.equal(result.ok, true);
+    const providerBodyText = JSON.stringify(providerBodies);
+    assert.match(providerBodyText, /"type":"image_generation"/u);
+    assert.match(providerBodyText, /"tool_choice":\{"type":"image_generation"\}/u);
+    const generated = await readFile(outputPath);
+    assert.equal(generated.byteLength > 0, true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test("raxode backend exposes application REST and WebSocket servers", async () => {

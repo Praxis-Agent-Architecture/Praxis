@@ -81,21 +81,60 @@ function readContentText(content: unknown): string {
     .join("\n");
 }
 
+function normalizeContentBlock(block: unknown): Record<string, unknown> | undefined {
+  if (!isRecord(block)) {
+    return undefined;
+  }
+
+  const type = typeof block.type === "string" ? block.type : undefined;
+  const text = block.text ?? block.input_text;
+  if (typeof text === "string") {
+    return {
+      ...block,
+      type: "input_text",
+      text,
+    };
+  }
+
+  if (type === "input_image") {
+    const imageUrl = block.image_url;
+    const fileId = block.file_id;
+    if (typeof imageUrl !== "string" && typeof fileId !== "string") {
+      return undefined;
+    }
+    return block;
+  }
+
+  return block;
+}
+
 function normalizeInputItem(item: unknown): Record<string, unknown> | undefined {
   if (!isRecord(item)) {
     return undefined;
   }
 
   const role = typeof item.role === "string" ? item.role : "user";
-  const text = readContentText(item.content);
-  if (text.trim().length === 0) {
+  if (typeof item.content === "string") {
+    return {
+      ...item,
+      role,
+      content: [{ type: "input_text", text: item.content }],
+    };
+  }
+
+  if (!Array.isArray(item.content)) {
     return item;
   }
+
+  const content = item.content
+    .map(normalizeContentBlock)
+    .filter((block): block is Record<string, unknown> => block !== undefined);
+  if (content.length === 0) return item;
 
   return {
     ...item,
     role,
-    content: [{ type: "input_text", text }],
+    content,
   };
 }
 

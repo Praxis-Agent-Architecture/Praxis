@@ -29,6 +29,27 @@ test("interpretModelDecision normalizes provider text into finalOutput", () => {
   assert.equal(result.decisions[0]?.finalOutput, "final answer");
 });
 
+test("interpretModelDecision does not expose raw Responses protocol as finalOutput", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-sse-protocol",
+    turnIndex: 0,
+    raw: [
+      "event: response.created",
+      "data: {\"type\":\"response.created\",\"response\":{\"instructions\":\"Praxis BaseTool calling protocol:\",\"tools\":[{\"name\":\"praxis_tool_shell_commandExecution\"}]}}",
+      "",
+      "event: response.output_item.done",
+      "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"summary\":[]}}",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.length, 1);
+  assert.equal(result.decisions[0]?.kind, "continue");
+  assert.equal(result.decisions[0]?.finalOutput, undefined);
+});
+
 test("interpretModelDecision maps function calls through provider tool mappings", () => {
   const result = interpretModelDecision({
     sessionId: "session-decision-tool",

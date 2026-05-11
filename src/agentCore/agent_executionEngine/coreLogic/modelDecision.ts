@@ -117,7 +117,8 @@ function extractText(raw: unknown): string {
   if (typeof raw === "string") {
     const deltas: string[] = [];
     const completed: string[] = [];
-    for (const object of sseDataObjects(raw)) {
+    const sseObjects = sseDataObjects(raw);
+    for (const object of sseObjects) {
       if (!isRecord(object)) continue;
       const eventType = readString(object.type);
       const delta = readStreamDelta(object.delta);
@@ -129,7 +130,9 @@ function extractText(raw: unknown): string {
         if (text.length > 0) completed.push(text);
       }
     }
-    return deltas.join("").trim() || completed.join("\n").trim() || raw.trim();
+    const text = deltas.join("").trim() || completed.join("\n").trim();
+    if (text.length > 0) return text;
+    return sseObjects.length > 0 ? "" : raw.trim();
   }
 
   if (!isRecord(raw)) return "";

@@ -26,7 +26,7 @@ export const ENABLE_TERMINAL_MOUSE_REPORTING = "\u001B[?1000h\u001B[?1006h";
 export const DISABLE_TERMINAL_MOUSE_REPORTING = "\u001B[?1000l\u001B[?1006l";
 
 export function shouldEnableTerminalMouseReporting(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.RAXODE_ENABLE_MOUSE === "1";
+  return env.RAXODE_ENABLE_MOUSE !== "0";
 }
 
 export function enableTerminalMouseReporting(output: Pick<NodeJS.WriteStream, "isTTY" | "write">): () => void {
