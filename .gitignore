@@ -80,3 +80,7 @@ docs/docs-status-baseline.md
 # Local leftovers after promoting Praxis_Agent_Architecture/ to repository root.
 /Praxis_Agent_Architecture/
 .migration-leftovers/
+
+
+
+test.workspacve/
