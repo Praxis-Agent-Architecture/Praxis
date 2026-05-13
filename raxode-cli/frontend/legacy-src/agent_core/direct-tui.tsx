@@ -197,10 +197,12 @@ import {
   createDirectTuiCmpActivityKey,
   type DirectTuiStreamingAssistantText,
   deriveDirectTuiCmpStatusDescriptor,
+  formatDirectTuiContextUsagePercent,
   isDirectTuiCmpActivityStage,
   resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
   resolveDirectTuiComposerSelectionTopRow,
+  resolveDirectTuiContextUsedTokens,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
 } from "./tui-input/direct-tui-presentation.js";
@@ -306,6 +308,7 @@ interface LiveContextRecord {
   promptKind?: string;
   activeTokens?: number;
   promptTokens?: number;
+  lastRequestInputTokens?: number;
   transcriptTokens?: number;
   summaryTokens?: number;
   historyMessages?: number;
@@ -877,6 +880,8 @@ const QUESTION_COMPOSER_PLACEHOLDER =
 const QUESTION_WAITING_DOT_FRAMES = ["●○○", "○●○", "○○●", "○●○"] as const;
 const LOG_TAIL_READ_CHUNK_BYTES = 32 * 1024;
 const LOG_TAIL_PROCESS_BATCH_SIZE = 40;
+const STREAMING_ASSISTANT_LIVE_MAX_LINES = 160;
+const STREAMING_ASSISTANT_LIVE_MAX_CHARS = 24_000;
 const SESSION_SNAPSHOT_PERSIST_DEBOUNCE_MS = Math.max(
   50,
   Number.isFinite(Number.parseFloat(process.env.RAXODE_SESSION_SAVE_DEBOUNCE_MS ?? "350"))
@@ -4481,6 +4486,13 @@ function compactRuntimeText(text: string): string {
   return `${normalized.slice(0, MAX_DEBUG_LINE_CHARS - 1).trimEnd()}…`;
 }
 
+function truncateRuntimeLine(text: string, maxLength: number): string {
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
 function resolveWorkspaceCheckpointFailure(input: {
   error: unknown;
   workspaceRoot: string;
@@ -5083,13 +5095,50 @@ function flattenTranscriptBlocksWithCache(
   });
 }
 
+function tailStreamingAssistantText(text: string): { text: string; trimmed: boolean } {
+  if (text.length <= STREAMING_ASSISTANT_LIVE_MAX_CHARS) {
+    return { text, trimmed: false };
+  }
+  const tail = text.slice(-STREAMING_ASSISTANT_LIVE_MAX_CHARS);
+  const firstNewline = tail.indexOf("\n");
+  return {
+    text: firstNewline >= 0 ? tail.slice(firstNewline + 1) : tail,
+    trimmed: true,
+  };
+}
+
 function renderStreamingAssistantLines(streamingAssistant: DirectTuiStreamingAssistantText | null): RenderLine[] {
   if (!streamingAssistant?.text) {
     return [];
   }
-  return streamingAssistant.text.split("\n").flatMap((chunk, index) => {
+  const tail = tailStreamingAssistantText(streamingAssistant.text);
+  let chunks = tail.text.split("\n");
+  let trimmed = tail.trimmed;
+  if (chunks.length > STREAMING_ASSISTANT_LIVE_MAX_LINES) {
+    chunks = chunks.slice(-STREAMING_ASSISTANT_LIVE_MAX_LINES);
+    trimmed = true;
+  }
+  const lines: RenderLine[] = [];
+  if (trimmed) {
+    const notice = "... live preview is showing the latest output; full text is preserved";
+    lines.push({
+      kind: "assistant",
+      text: `● ${notice}`,
+      continuationSegments: [
+        {
+          text: "  ",
+          color: TUI_THEME.textMuted,
+        },
+      ],
+      segments: [
+        { text: "● ", color: TUI_THEME.textMuted },
+        { text: notice, color: TUI_THEME.textMuted },
+      ],
+    });
+  }
+  chunks.forEach((chunk, index) => {
     const visibleText = chunk.length > 0 ? chunk : " ";
-    const prefix = index === 0 ? "● " : "  ";
+    const prefix = index === 0 && !trimmed ? "● " : "  ";
     const line: RenderLine = {
       kind: "assistant",
       text: `${prefix}${visibleText}`,
@@ -5104,8 +5153,25 @@ function renderStreamingAssistantLines(streamingAssistant: DirectTuiStreamingAss
         { text: visibleText, color: TUI_THEME.text },
       ],
     };
-    return line;
+    lines.push(line);
   });
+  return lines;
+}
+
+function toolSummaryChunkSegments(chunk: string, active: boolean, animationFrame: number): NonNullable<RenderLine["segments"]> {
+  if (active) {
+    return buildShimmerSegments(chunk, animationFrame);
+  }
+  if (chunk.startsWith("+") && !chunk.startsWith("+++")) {
+    return [{ text: chunk, color: "greenBright" }];
+  }
+  if (chunk.startsWith("-") && !chunk.startsWith("---")) {
+    return [{ text: chunk, color: TUI_THEME.red }];
+  }
+  if (chunk.startsWith("@@")) {
+    return [{ text: chunk, color: TUI_THEME.cyan }];
+  }
+  return [{ text: chunk, color: TUI_THEME.text }];
 }
 
 function toolSummaryTitleColor(familyKey: unknown): string {
@@ -5224,9 +5290,11 @@ function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimatio
         }
         const isIntentLine = index <= intentLineCount;
         const prefix = isIntentLine ? "  · " : "  └ ";
-        const detailSegments = toolSummaryActive && index === 1
-          ? buildShimmerSegments(chunk, toolSummaryAnimationFrame)
-          : [{ text: chunk, color: TUI_THEME.text }];
+        const detailSegments = toolSummaryChunkSegments(
+          chunk,
+          toolSummaryActive && index === 1,
+          toolSummaryAnimationFrame,
+        );
         lines.push({
           kind: "detail",
           text: `${prefix}${chunk}`,
@@ -5632,6 +5700,18 @@ function resolveWebSearchResultLines(record: LiveLogRecord): string[] {
   return [formatWebSearchOutcomeLine(record.inputSummary, record.status, record.capabilityKey)];
 }
 
+function isCodeDiffPreviewLine(line: string): boolean {
+  const trimmed = line.trimStart();
+  return trimmed.startsWith("@@")
+    || trimmed.startsWith("+")
+    || trimmed.startsWith("-")
+    || trimmed === "... diff preview trimmed";
+}
+
+function compactFamilyResultLine(line: string): string {
+  return isCodeDiffPreviewLine(line) ? truncateRuntimeLine(line, 180) : compactRuntimeText(line);
+}
+
 function resolveGenericFamilyIntentLine(record: LiveLogRecord): string | null {
   if (typeof record.familyIntentSummary === "string" && record.familyIntentSummary.trim()) {
     return compactRuntimeText(record.familyIntentSummary);
@@ -5649,9 +5729,10 @@ function resolveGenericFamilyResultLines(record: LiveLogRecord): string[] {
   if (Array.isArray(record.familyResultSummary)) {
     const normalized = record.familyResultSummary
       .filter((line): line is string => typeof line === "string" && line.trim().length > 0)
-      .map((line) => compactRuntimeText(line));
+      .map((line) => compactFamilyResultLine(line));
     if (normalized.length > 0) {
-      return normalized.slice(0, 3);
+      const hasCodeDiff = record.familyKey === "code" && normalized.some(isCodeDiffPreviewLine);
+      return normalized.slice(0, hasCodeDiff ? 16 : 3);
     }
   }
   const fallback = summarizeCapabilitySummary({
@@ -6300,6 +6381,7 @@ function normalizeContextSnapshot(
   promptKind?: string;
   activeTokens: number;
   promptTokens: number;
+  lastRequestInputTokens?: number;
   transcriptTokens: number;
   summaryTokens?: number;
   historyMessages?: number;
@@ -6323,6 +6405,9 @@ function normalizeContextSnapshot(
       ? input.promptTokens
       : undefined;
   const promptTokens = activeTokens;
+  const lastRequestInputTokens = typeof input.lastRequestInputTokens === "number" && Number.isFinite(input.lastRequestInputTokens)
+    ? input.lastRequestInputTokens
+    : undefined;
   const summaryTokens = typeof input.summaryTokens === "number" && Number.isFinite(input.summaryTokens)
     ? input.summaryTokens
     : undefined;
@@ -6343,6 +6428,7 @@ function normalizeContextSnapshot(
     promptKind: typeof input.promptKind === "string" ? input.promptKind : undefined,
     activeTokens: promptTokens,
     promptTokens,
+    lastRequestInputTokens,
     transcriptTokens,
     summaryTokens,
     historyMessages,
@@ -6878,17 +6964,9 @@ function renderContextBar(used: number, total: number, width = CONTEXT_BAR_WIDTH
   return `${"█".repeat(filled)}${"░".repeat(Math.max(0, width - filled))}`;
 }
 
-function formatContextUsagePercent(used: number, total: number): string {
-  const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, used / total));
-  if (used === 0) {
-    return "0%";
-  }
-  return ratio < 0.01 ? "<1%" : `${Math.round(ratio * 100)}%`;
-}
-
 function formatStatusContextUsageLine(used: number, total: number): string {
   const contextBar = renderContextBar(used, total, STATUS_CONTEXT_BAR_WIDTH);
-  const percent = formatContextUsagePercent(used, total);
+  const percent = formatDirectTuiContextUsagePercent(used, total);
   return `${contextBar} ${percent} as ${formatContextWindowLabel(used)} of ${formatContextWindowLabel(total)} tokens`;
 }
 
@@ -7230,7 +7308,7 @@ const TranscriptPane = memo(function TranscriptPane({
 }): JSX.Element {
   const reservedStatusLines = transientStatusLine ? 1 : 0;
   const bodyViewportLineCount = Math.max(0, viewportLineCount - reservedStatusLines);
-  const bodyLines = visibleLines.slice(Math.max(0, visibleLines.length - bodyViewportLineCount));
+  const bodyLines = visibleLines.slice(0, bodyViewportLineCount);
   const renderedLineCount = bodyLines.length + reservedStatusLines;
   const fillerCount = Math.max(0, viewportLineCount - renderedLineCount);
 
@@ -7238,10 +7316,10 @@ const TranscriptPane = memo(function TranscriptPane({
     <Box flexDirection="column" flexGrow={1} flexShrink={1}>
       <Box flexDirection="column" height={viewportLineCount} flexGrow={1} flexShrink={1}>
         {bodyLines.map((line, index) => {
-          const absoluteRow = visibleStartIndex + Math.max(0, visibleLines.length - bodyViewportLineCount) + index;
+          const absoluteRow = visibleStartIndex + index;
           return (
             <TranscriptLineView
-              key={`body-${absoluteRow}-${line.text}`}
+              key={`body-${absoluteRow}-${line.kind}`}
               line={line}
               row={absoluteRow}
               textSelection={textSelection}
@@ -14620,17 +14698,26 @@ function PraxisDirectTuiApp(): JSX.Element {
     ?? backendContextSnapshot?.maxInputTokens
     ?? backendContextSnapshot?.windowTokens
     ?? DEFAULT_CONTEXT_WINDOW;
-  const statusContextUsed = backendContextSnapshot?.promptTokens ?? 0;
+  const statusContextUsed = useMemo(
+    () => resolveDirectTuiContextUsedTokens({
+      snapshot: backendContextSnapshot,
+      draftContextTokens: 0,
+    }),
+    [backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens],
+  );
   const statusContextUsageLine = useMemo(
     () => formatStatusContextUsageLine(statusContextUsed, contextWindowSize),
     [statusContextUsed, contextWindowSize],
   );
   const draftContextTokens = estimateContextUnits(composerState.value);
   const estimatedContextUsed = useMemo(
-    () => (backendContextSnapshot?.promptTokens ?? 0) + draftContextTokens,
-    [backendContextSnapshot?.promptTokens, draftContextTokens],
+    () => resolveDirectTuiContextUsedTokens({
+      snapshot: backendContextSnapshot,
+      draftContextTokens,
+    }),
+    [backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens, draftContextTokens],
   );
-  const contextPercent = formatContextUsagePercent(estimatedContextUsed, contextWindowSize);
+  const contextPercent = formatDirectTuiContextUsagePercent(estimatedContextUsed, contextWindowSize);
   const contextBar = useMemo(
     () => renderContextBar(estimatedContextUsed, contextWindowSize),
     [estimatedContextUsed, contextWindowSize],
@@ -15088,11 +15175,12 @@ function PraxisDirectTuiApp(): JSX.Element {
     ],
     [shouldShowConversationHeader, conversationHeaderExpandedLines, transcriptLineWidth, transcriptLines, streamingAssistantLines],
   );
-  const maxScrollOffset = Math.max(0, transcriptScrollLines.length - transcriptViewportLineCount);
-  const visibleTranscriptEndIndex = transcriptScrollLines.length <= transcriptViewportLineCount
+  const transcriptBodyViewportLineCount = Math.max(0, transcriptViewportLineCount - (transientRunStatusLine ? 1 : 0));
+  const maxScrollOffset = Math.max(0, transcriptScrollLines.length - transcriptBodyViewportLineCount);
+  const visibleTranscriptEndIndex = transcriptScrollLines.length <= transcriptBodyViewportLineCount
     ? transcriptScrollLines.length
-    : Math.max(transcriptViewportLineCount, transcriptScrollLines.length - scrollOffset);
-  const visibleTranscriptStartIndex = Math.max(0, visibleTranscriptEndIndex - transcriptViewportLineCount);
+    : Math.max(transcriptBodyViewportLineCount, transcriptScrollLines.length - scrollOffset);
+  const visibleTranscriptStartIndex = Math.max(0, visibleTranscriptEndIndex - transcriptBodyViewportLineCount);
   useEffect(() => {
     const previous = previousTranscriptLineCountRef.current;
     const next = transcriptScrollLines.length;
@@ -15107,8 +15195,8 @@ function PraxisDirectTuiApp(): JSX.Element {
     }
   }, [maxScrollOffset, scrollOffset]);
   const visibleTranscriptLines = useMemo(
-    () => computeVisibleLines(transcriptScrollLines, transcriptViewportLineCount, scrollOffset),
-    [scrollOffset, transcriptScrollLines, transcriptViewportLineCount],
+    () => computeVisibleLines(transcriptScrollLines, transcriptBodyViewportLineCount, scrollOffset),
+    [scrollOffset, transcriptBodyViewportLineCount, transcriptScrollLines],
   );
   const composerOverlayLineCount =
     exitSummaryDisplay

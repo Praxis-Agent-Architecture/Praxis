@@ -460,6 +460,13 @@ function stringArrayMetadata(metadata: Readonly<Record<string, unknown>> | undef
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
+function recordMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): Record<string, unknown> | undefined {
+  const value = metadata?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
 function legacyToolStageRecord(input: {
   applicationEvent: PraxisApplicationEvent;
   sessionId: string;
@@ -474,6 +481,7 @@ function legacyToolStageRecord(input: {
   const humanResultSummary = running ? [] : stringArrayMetadata(metadata, "humanResultSummary");
   const errorPreview = running || humanResultSummary.length > 0 ? undefined : stringMetadata(metadata, "errorPreview");
   const resultMetadata = {
+    ...recordMetadata(metadata, "resultMetadata"),
     toolId,
     toolStatus,
     familyKey: stringMetadata(metadata, "familyKey"),

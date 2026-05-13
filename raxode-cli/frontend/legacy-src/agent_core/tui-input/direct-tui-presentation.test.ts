@@ -10,6 +10,7 @@ import {
   applyDirectTuiTextSelectionToRenderSegments,
   createDirectTuiCmpActivityKey,
   deriveDirectTuiCmpStatusDescriptor,
+  formatDirectTuiContextUsagePercent,
   hasDirectTuiFormalConversation,
   isDirectTuiCmpActivityStage,
   mergeDirectTuiStreamingAssistantLine,
@@ -17,6 +18,7 @@ import {
   resolveDirectTuiAssistantTurnResultAction,
   resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiConversationPhase,
+  resolveDirectTuiContextUsedTokens,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
 } from "./direct-tui-presentation.js";
@@ -63,6 +65,26 @@ test("conversation phase can activate immediately after submit before transcript
     conversationActivated: true,
     messages: [],
   }), "conversation");
+});
+
+test("context footer prefers provider input tokens over the local prompt estimate", () => {
+  const usedTokens = resolveDirectTuiContextUsedTokens({
+    snapshot: {
+      promptTokens: 912,
+      lastRequestInputTokens: 262_115,
+    },
+    draftContextTokens: 0,
+  });
+
+  assert.equal(usedTokens, 262_115);
+  assert.equal(formatDirectTuiContextUsagePercent(usedTokens, 258_400), "100%");
+});
+
+test("context footer falls back to prompt estimate when provider input tokens are missing", () => {
+  assert.equal(resolveDirectTuiContextUsedTokens({
+    snapshot: { promptTokens: 900 },
+    draftContextTokens: 100,
+  }), 1_000);
 });
 
 test("conversation header lives in the scrollable transcript instead of a fixed masthead", () => {

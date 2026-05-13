@@ -293,6 +293,10 @@ function stringArrayValue(value: unknown): string[] {
     : [];
 }
 
+function unknownArrayValue(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function truncateMiddle(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   if (normalized.length <= maxLength) return normalized;
@@ -318,6 +322,68 @@ function formatByteCount(bytes: number | undefined): string | undefined {
   if (bytes < 1024) return `${Math.round(bytes)} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function cleanRecord(input: Record<string, unknown>): Record<string, unknown> | undefined {
+  const entries = Object.entries(input).filter(([, value]) => {
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== undefined && value !== null && value !== "";
+  });
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function nestedObjectValue(...values: unknown[]): Record<string, unknown> | undefined {
+  for (const value of values) {
+    const record = objectValue(value);
+    if (record !== undefined) return record;
+  }
+  return undefined;
+}
+
+function firstStringValue(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    const normalized = stringValue(value);
+    if (normalized !== undefined) return normalized;
+  }
+  return undefined;
+}
+
+function countFromArrays(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (Array.isArray(value)) return value.length;
+  }
+  return undefined;
+}
+
+const CODE_MODIFY_DIFF_PREVIEW_MAX_BYTES = 3_000;
+const CODE_MODIFY_DIFF_PREVIEW_MAX_LINES = 16;
+
+function rawStringValue(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function codeModifyDiffPreviewLines(input: {
+  targetPath?: string;
+  replacements?: number;
+  searchText: string;
+  replacementText: string;
+}): string[] {
+  const combinedBytes = Buffer.byteLength(input.searchText) + Buffer.byteLength(input.replacementText);
+  if (combinedBytes > CODE_MODIFY_DIFF_PREVIEW_MAX_BYTES) {
+    return [];
+  }
+  const removed = input.searchText.split(/\r?\n/u).map((line) => `-${line.length > 0 ? line : " "}`);
+  const added = input.replacementText.split(/\r?\n/u).map((line) => `+${line.length > 0 ? line : " "}`);
+  const replacements = input.replacements ?? 1;
+  const header = `@@ ${input.targetPath ?? "file"} · ${replacements} replacement${replacements === 1 ? "" : "s"} @@`;
+  const lines = [header, ...removed, ...added];
+  if (lines.length <= CODE_MODIFY_DIFF_PREVIEW_MAX_LINES) {
+    return lines;
+  }
+  return [
+    ...lines.slice(0, CODE_MODIFY_DIFF_PREVIEW_MAX_LINES - 1),
+    "... diff preview trimmed",
+  ];
 }
 
 function estimateContextTokens(text: string): number {
@@ -695,9 +761,22 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
 
   if (toolCall.toolId === "code.modify" || toolCall.toolId === "code.replaceFile" || toolCall.toolId === "code.delete" || toolCall.toolId === "code.format") {
     const bytes = numberValue(output?.bytesWritten);
-    return [
+    const lines = [
       `${toolCall.toolId} completed${targetPath ? ` for ${targetPath}` : ""}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
     ];
+    if (toolCall.toolId === "code.modify") {
+      const searchText = rawStringValue(args.searchText);
+      const replacementText = rawStringValue(args.replacementText);
+      if (searchText !== undefined && replacementText !== undefined) {
+        lines.push(...codeModifyDiffPreviewLines({
+          targetPath,
+          replacements: numberValue(output?.replacements),
+          searchText,
+          replacementText,
+        }));
+      }
+    }
+    return lines;
   }
 
   return undefined;
@@ -730,33 +809,258 @@ function summarizeShellToolOutputForHumans(toolCall: AgentToolCallRecord, output
   return lines.slice(0, 3);
 }
 
+function summarizeGitToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("git.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const target = objectValue(args.target);
+  const repositoryPath = firstStringValue(target?.repositoryPath, args.repositoryPath, args.cwd, args.workingDirectory);
+  const branch = firstStringValue(target?.branchName, target?.branch, args.branchName, args.branch);
+  const ref = firstStringValue(target?.ref, target?.commit, target?.commitHash, args.ref, args.commit, args.commitHash);
+  const pathSummary = formatPathList([
+    ...stringArrayValue(target?.paths),
+    ...stringArrayValue(args.paths),
+    ...[firstStringValue(target?.path, args.path)].filter((item): item is string => item !== undefined),
+  ]);
+  const scope = repositoryPath ? ` in ${repositoryPath}` : "";
+  switch (toolCall.toolId) {
+    case "git.getRepositoryStatus":
+      return `Checking repository status${scope}`;
+    case "git.getWorkingTreeDiff":
+      return `Inspecting working tree diff${pathSummary !== "file" ? ` for ${pathSummary}` : scope}`;
+    case "git.getCommitHistory":
+      return `Reading commit history${branch ? ` on ${branch}` : scope}`;
+    case "git.showGitObjectDetails":
+      return `Inspecting git object ${ref ?? "ref"}${scope}`;
+    case "git.traceLineOwnership":
+      return `Tracing line ownership${pathSummary !== "file" ? ` for ${pathSummary}` : scope}`;
+    case "git.addToStaging":
+      return `Staging ${pathSummary}`;
+    case "git.resetStagingOrCommit":
+      return `Resetting git state${ref ? ` from ${ref}` : scope}`;
+    case "git.restoreWorkingTree":
+      return `Restoring ${pathSummary}`;
+    case "git.stashChanges":
+      return `Stashing working tree changes${scope}`;
+    case "git.fetchRemoteUpdates":
+      return `Fetching remote updates${scope}`;
+    case "git.pullRemoteChanges":
+      return `Pulling remote changes${branch ? ` for ${branch}` : scope}`;
+    case "git.pushLocalChanges":
+      return `Pushing local changes${branch ? ` for ${branch}` : scope}`;
+    default:
+      return repositoryPath ? `${toolCall.toolId} in ${repositoryPath}` : toolCall.toolId;
+  }
+}
+
+function summarizeGitToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("git.")) return undefined;
+  const envelope = objectValue(output?.resultEnvelope) ?? output;
+  const target = objectValue(output?.target) ?? objectValue(toolCall.arguments.target);
+  const branch = firstStringValue(envelope?.branch, envelope?.currentBranch, output?.branch, target?.branchName, target?.branch);
+  const commitHash = firstStringValue(envelope?.commitHash, output?.commitHash, output?.newHead);
+  const changedFileCount = countFromArrays(envelope?.entries, envelope?.changedFiles, output?.entries, output?.changedFiles, output?.committedFiles);
+  const ahead = numberValue(envelope?.ahead) ?? numberValue(output?.aheadCount);
+  const behind = numberValue(envelope?.behind) ?? numberValue(output?.behindCount);
+  const exitCode = numberValue(output?.exitCode);
+  const lines: string[] = [];
+  if (toolCall.toolId === "git.getRepositoryStatus") {
+    lines.push(`Repository status read${branch ? ` on ${branch}` : ""}`);
+  } else if (toolCall.toolId === "git.getWorkingTreeDiff") {
+    lines.push("Working tree diff read");
+  } else if (toolCall.toolId === "git.getCommitHistory") {
+    lines.push("Commit history read");
+  } else if (commitHash) {
+    lines.push(`${toolCall.toolId} completed at ${commitHash.slice(0, 12)}`);
+  } else {
+    lines.push(`${toolCall.toolId} completed${exitCode !== undefined ? ` with exit ${exitCode}` : ""}`);
+  }
+  if (changedFileCount !== undefined) lines.push(`${changedFileCount} file${changedFileCount === 1 ? "" : "s"} changed`);
+  if (ahead !== undefined || behind !== undefined) lines.push(`ahead ${ahead ?? 0}, behind ${behind ?? 0}`);
+  return lines.slice(0, 3);
+}
+
+function summarizeSearchToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("search.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const target = objectValue(args.target);
+  const query = firstStringValue(target?.query, args.query, args.q);
+  const url = firstStringValue(target?.url, args.url);
+  if (toolCall.toolId === "search.fetch") return `Fetching ${url ?? query ?? "page"}`;
+  return `Searching ${query ? truncateMiddle(query, 160) : "the web"}`;
+}
+
+function summarizeComputerUseToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("computeruse.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const target = objectValue(args.target);
+  const targetHint = firstStringValue(target?.targetHint, args.targetHint, target?.windowTitle, args.windowTitle);
+  const suffix = targetHint ? ` on ${targetHint}` : "";
+  if (toolCall.toolId.includes("Screenshot")) return `Capturing screenshot${suffix}`;
+  if (toolCall.toolId.includes("mouse")) return `Running mouse action${suffix}`;
+  if (toolCall.toolId === "computeruse.keyboardInputEmulation") {
+    const text = firstStringValue(target?.text, args.text);
+    return text ? `Typing ${JSON.stringify(truncateMiddle(text, 80))}${suffix}` : `Typing text${suffix}`;
+  }
+  if (toolCall.toolId === "computeruse.keyboardSubmitInput") {
+    const submitKey = firstStringValue(target?.submitKey, args.submitKey) ?? "Enter";
+    return `Pressing ${submitKey}${suffix}`;
+  }
+  if (toolCall.toolId === "computeruse.keyboardEmulation") {
+    const actions = unknownArrayValue(target?.actions ?? args.actions);
+    const firstAction = objectValue(actions[0]);
+    const actionKind = firstStringValue(firstAction?.kind);
+    return `Sending ${actions.length || 1} keyboard action${actions.length === 1 ? "" : "s"}${actionKind ? ` (${actionKind})` : ""}${suffix}`;
+  }
+  if (toolCall.toolId.includes("camera")) return `Using camera${suffix}`;
+  if (toolCall.toolId.includes("microphone")) return `Using microphone${suffix}`;
+  return targetHint ? `${toolCall.toolId} on ${targetHint}` : toolCall.toolId;
+}
+
+function summarizeComputerUseToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("computeruse.")) return undefined;
+  const target = objectValue(output?.target) ?? objectValue(toolCall.arguments.target);
+  const artifactId = firstStringValue(output?.artifactId, output?.screenshotArtifactId, objectValue(output?.imageArtifact)?.artifactId, objectValue(output?.artifact)?.artifactId);
+  const targetHint = firstStringValue(target?.targetHint, output?.targetHint);
+  const actionCount = unknownArrayValue(output?.actions ?? target?.actions).length || numberValue(output?.actionCount);
+  const lines: string[] = [];
+  if (toolCall.toolId.includes("Screenshot")) {
+    lines.push(`Screenshot captured${artifactId ? ` (${artifactId})` : ""}`);
+  } else if (toolCall.toolId.includes("keyboard")) {
+    lines.push(`Keyboard action completed${targetHint ? ` on ${targetHint}` : ""}`);
+  } else if (toolCall.toolId.includes("mouse")) {
+    lines.push(`Mouse action completed${targetHint ? ` on ${targetHint}` : ""}`);
+  } else if (toolCall.toolId.includes("camera")) {
+    lines.push(`Camera action completed${artifactId ? ` (${artifactId})` : ""}`);
+  } else if (toolCall.toolId.includes("microphone")) {
+    lines.push(`Microphone action completed${artifactId ? ` (${artifactId})` : ""}`);
+  } else {
+    lines.push(`${toolCall.toolId} completed`);
+  }
+  if (actionCount !== undefined && actionCount > 0) lines.push(`${actionCount} action${actionCount === 1 ? "" : "s"}`);
+  return lines.slice(0, 3);
+}
+
+function summarizeMcpToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("mcp.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const target = nestedObjectValue(args.target, args.input, objectValue(args.input)?.target);
+  const serverId = firstStringValue(target?.serverId, target?.connectionId, args.serverId, args.connectionId);
+  const toolName = firstStringValue(target?.toolName, target?.name, args.toolName, args.name);
+  const resourceUri = firstStringValue(target?.resourceUri, target?.uri, args.resourceUri, args.uri);
+  if (toolCall.toolId === "mcp.listTools") return `Listing MCP tools${serverId ? ` from ${serverId}` : ""}`;
+  if (toolCall.toolId === "mcp.call") return `Calling MCP tool ${toolName ?? "tool"}${serverId ? ` on ${serverId}` : ""}`;
+  if (toolCall.toolId === "mcp.listResources") return `Listing MCP resources${serverId ? ` from ${serverId}` : ""}`;
+  if (toolCall.toolId === "mcp.readResource") return `Reading MCP resource ${resourceUri ?? "resource"}${serverId ? ` from ${serverId}` : ""}`;
+  return `${toolCall.toolId}${serverId ? ` on ${serverId}` : ""}`;
+}
+
+function summarizeMcpToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("mcp.")) return undefined;
+  const envelope = objectValue(output?.resultEnvelope) ?? output;
+  const tools = unknownArrayValue(envelope?.tools ?? output?.tools);
+  const resources = unknownArrayValue(envelope?.resources ?? output?.resources);
+  const content = unknownArrayValue(envelope?.content ?? output?.content ?? objectValue(output?.resourceEnvelope)?.contents);
+  const target = objectValue(output?.target) ?? objectValue(toolCall.arguments.target);
+  const serverId = firstStringValue(target?.serverId, target?.connectionId, output?.serverId, output?.connectionId);
+  const toolName = firstStringValue(target?.toolName, target?.name, output?.toolName);
+  const resourceUri = firstStringValue(target?.resourceUri, target?.uri, objectValue(output?.resourceEnvelope)?.uri);
+  const lines = [`${toolCall.toolId} completed${serverId ? ` on ${serverId}` : ""}`];
+  if (tools.length > 0) lines.push(`${tools.length} tool${tools.length === 1 ? "" : "s"}`);
+  if (resources.length > 0) lines.push(`${resources.length} resource${resources.length === 1 ? "" : "s"}`);
+  if (content.length > 0) lines.push(`${content.length} content item${content.length === 1 ? "" : "s"}`);
+  if (toolName && lines.length < 3) lines.push(`Tool: ${toolName}`);
+  if (resourceUri && lines.length < 3) lines.push(`Resource: ${resourceUri}`);
+  return lines.slice(0, 3);
+}
+
+function summarizeSkillToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("skill.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const target = objectValue(args.target);
+  const skillName = firstStringValue(target?.skillName, target?.name, args.skillName, args.name, args.query);
+  switch (toolCall.toolId) {
+    case "skill.generate":
+      return `Generating skill${skillName ? ` ${skillName}` : ""}`;
+    case "skill.iterate":
+      return `Iterating skill${skillName ? ` ${skillName}` : ""}`;
+    case "skill.management":
+      return `Managing skills${skillName ? ` for ${skillName}` : ""}`;
+    case "skill.remove":
+      return `Removing skill${skillName ? ` ${skillName}` : ""}`;
+    case "skill.ripgrep":
+      return `Searching skills${skillName ? ` for ${skillName}` : ""}`;
+    case "skill.summarize":
+      return `Summarizing skill${skillName ? ` ${skillName}` : ""}`;
+    default:
+      return skillName ? `${toolCall.toolId} for ${skillName}` : toolCall.toolId;
+  }
+}
+
+function summarizeSkillToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("skill.")) return undefined;
+  const skillName = firstStringValue(output?.skillName, output?.name, objectValue(output?.container)?.name, objectValue(toolCall.arguments.target)?.skillName, toolCall.arguments.skillName);
+  const documents = unknownArrayValue(output?.documents);
+  const resources = unknownArrayValue(objectValue(output?.preparedInvocation)?.resources);
+  const mounts = unknownArrayValue(objectValue(output?.activation)?.mounts);
+  const matches = unknownArrayValue(output?.matches);
+  const lines = [`${toolCall.toolId} completed${skillName ? ` for ${skillName}` : ""}`];
+  if (documents.length > 0) lines.push(`${documents.length} document${documents.length === 1 ? "" : "s"}`);
+  if (resources.length > 0) lines.push(`${resources.length} resource${resources.length === 1 ? "" : "s"}`);
+  if (mounts.length > 0) lines.push(`${mounts.length} mount${mounts.length === 1 ? "" : "s"}`);
+  if (matches.length > 0 && lines.length < 3) lines.push(`${matches.length} match${matches.length === 1 ? "" : "es"}`);
+  return lines.slice(0, 3);
+}
+
+function summarizeOmniToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("omni.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const target = objectValue(args.target);
+  const imagePath = firstStringValue(target?.imagePath, args.imagePath, target?.imageRef, args.imageRef);
+  const prompt = firstStringValue(target?.prompt, args.prompt, args.text);
+  if (toolCall.toolId === "omni.viewImage") return `Viewing image ${imagePath ?? "input"}`;
+  if (toolCall.toolId === "omni.generateImage") return `Generating image${prompt ? ` from ${JSON.stringify(truncateMiddle(prompt, 120))}` : ""}`;
+  if (toolCall.toolId.includes("Audio")) return `${toolCall.toolId} audio`;
+  if (toolCall.toolId.includes("Video")) return `${toolCall.toolId} video`;
+  return imagePath ? `${toolCall.toolId} for ${imagePath}` : toolCall.toolId;
+}
+
+function summarizeOmniToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("omni.")) return undefined;
+  if (toolCall.toolId === "omni.viewImage") {
+    const providerMetadata = objectValue(output?.providerMetadata);
+    const analysis = stringValue(providerMetadata?.analysis);
+    const backend = stringValue(providerMetadata?.backend);
+    return [
+      analysis ? `视觉分析：${truncateMiddle(analysis, 360)}` : "图片已传入视觉模型",
+      backend ? `后端：${backend}` : undefined,
+    ].filter((line): line is string => line !== undefined).slice(0, 3);
+  }
+  const artifactId = firstStringValue(output?.artifactId, objectValue(output?.artifact)?.artifactId, output?.outputArtifactId);
+  const outputPath = firstStringValue(output?.outputPath, output?.imagePath, objectValue(output?.artifact)?.path, output?.path);
+  const mimeType = firstStringValue(output?.mimeType, objectValue(output?.artifact)?.mimeType);
+  const lines = [`${toolCall.toolId} completed${artifactId ? ` (${artifactId})` : ""}`];
+  if (outputPath) lines.push(`Output: ${outputPath}`);
+  if (mimeType) lines.push(`Type: ${mimeType}`);
+  return lines.slice(0, 3);
+}
+
 function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
   const codeSummary = summarizeCodeToolInput(toolCall);
   if (codeSummary !== undefined) return codeSummary;
   const shellSummary = summarizeShellToolInput(toolCall);
   if (shellSummary !== undefined) return shellSummary;
-  if (toolCall.toolId.startsWith("computeruse.")) {
-    const target = objectValue(toolCall.arguments.target);
-    const targetHint = stringValue(target?.targetHint) ?? stringValue(toolCall.arguments.targetHint);
-    if (toolCall.toolId === "computeruse.keyboardInputEmulation") {
-      const text = stringValue(target?.text) ?? stringValue(toolCall.arguments.text);
-      const textSummary = text === undefined
-        ? "typing text"
-        : `typing ${JSON.stringify(text.length > 80 ? `${text.slice(0, 77)}...` : text)}`;
-      return targetHint ? `${textSummary} into ${targetHint}` : textSummary;
-    }
-    if (toolCall.toolId === "computeruse.keyboardSubmitInput") {
-      const submitKey = stringValue(target?.submitKey) ?? stringValue(toolCall.arguments.submitKey) ?? "Enter";
-      return targetHint ? `pressing ${submitKey} in ${targetHint}` : `pressing ${submitKey}`;
-    }
-    if (toolCall.toolId.includes("mouse")) {
-      return targetHint ? `mouse action on ${targetHint}` : "mouse action";
-    }
-    if (toolCall.toolId.includes("Screenshot")) {
-      return targetHint ? `capturing ${targetHint}` : "capturing screenshot";
-    }
-    return targetHint ? `${toolCall.toolId} on ${targetHint}` : toolCall.toolId;
-  }
+  const gitSummary = summarizeGitToolInput(toolCall);
+  if (gitSummary !== undefined) return gitSummary;
+  const searchSummary = summarizeSearchToolInput(toolCall);
+  if (searchSummary !== undefined) return searchSummary;
+  const computerUseSummary = summarizeComputerUseToolInput(toolCall);
+  if (computerUseSummary !== undefined) return computerUseSummary;
+  const mcpSummary = summarizeMcpToolInput(toolCall);
+  if (mcpSummary !== undefined) return mcpSummary;
+  const skillSummary = summarizeSkillToolInput(toolCall);
+  if (skillSummary !== undefined) return skillSummary;
+  const omniSummary = summarizeOmniToolInput(toolCall);
+  if (omniSummary !== undefined) return omniSummary;
   const target = toolCall.arguments.target;
   if (target && typeof target === "object" && !Array.isArray(target)) {
     const targetRecord = target as Record<string, unknown>;
@@ -811,6 +1115,16 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
   if (codeSummary !== undefined) return codeSummary;
   const shellSummary = summarizeShellToolOutputForHumans(toolCall, output);
   if (shellSummary !== undefined) return shellSummary;
+  const gitSummary = summarizeGitToolOutputForHumans(toolCall, output);
+  if (gitSummary !== undefined) return gitSummary;
+  const computerUseSummary = summarizeComputerUseToolOutputForHumans(toolCall, output);
+  if (computerUseSummary !== undefined) return computerUseSummary;
+  const mcpSummary = summarizeMcpToolOutputForHumans(toolCall, output);
+  if (mcpSummary !== undefined) return mcpSummary;
+  const skillSummary = summarizeSkillToolOutputForHumans(toolCall, output);
+  if (skillSummary !== undefined) return skillSummary;
+  const omniSummary = summarizeOmniToolOutputForHumans(toolCall, output);
+  if (omniSummary !== undefined) return omniSummary;
   const envelope = objectValue(output?.resultEnvelope);
   const query = stringValue(envelope?.query);
   const answer = stringValue(envelope?.answer);
@@ -855,21 +1169,55 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
     ].filter((line): line is string => line !== undefined).slice(0, 3);
   }
 
-  if (toolCall.toolId === "omni.viewImage") {
-    const providerMetadata = objectValue(output?.providerMetadata);
-    const analysis = stringValue(providerMetadata?.analysis);
-    const backend = stringValue(providerMetadata?.backend);
-    return [
-      analysis ? `视觉分析：${truncateMiddle(analysis, 360)}` : "图片已传入视觉模型",
-      backend ? `后端：${backend}` : undefined,
-    ].filter((line): line is string => line !== undefined).slice(0, 3);
-  }
-
   const directSummary = stringValue(output?.summary)
     ?? stringValue(output?.answer)
     ?? stringValue(output?.text)
     ?? stringValue(toolCall.output);
   return directSummary ? [directSummary] : [`${toolCall.toolId} completed`];
+}
+
+function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string, unknown> | undefined {
+  const output = objectValue(toolCall.output);
+  const args = flattenedToolArguments(toolCall.arguments);
+  const target = objectValue(args.target);
+  const outputTarget = objectValue(output?.target);
+  const envelope = objectValue(output?.resultEnvelope) ?? output;
+  const providerMetadata = objectValue(output?.providerMetadata);
+  const targetPaths = [
+    ...stringArrayValue(args.targetPaths),
+    ...stringArrayValue(args.paths),
+    ...stringArrayValue(target?.paths),
+    ...[firstStringValue(args.targetPath, args.path, args.filePath, target?.path, output?.targetPath, outputTarget?.path, output?.outputPath, output?.imagePath)]
+      .filter((item): item is string => item !== undefined),
+  ].filter((item, index, array) => array.indexOf(item) === index);
+  const toolName = firstStringValue(target?.toolName, target?.name, output?.toolName);
+  const resourceUri = firstStringValue(target?.resourceUri, target?.uri, objectValue(output?.resourceEnvelope)?.uri);
+  const actionCount = unknownArrayValue(output?.actions ?? outputTarget?.actions).length;
+  const itemCount = countFromArrays(output?.items, output?.results, output?.content, objectValue(output?.resourceEnvelope)?.contents)
+    ?? (actionCount > 0 ? actionCount : undefined);
+  const resultCount = countFromArrays(output?.hits, output?.matches, output?.results);
+  const changedFileCount = countFromArrays(envelope?.entries, envelope?.changedFiles, output?.changedFiles, output?.committedFiles);
+  return cleanRecord({
+    targetPaths,
+    pathCount: targetPaths.length > 0 ? targetPaths.length : undefined,
+    targetName: firstStringValue(target?.serverId, target?.connectionId, output?.serverId, output?.connectionId, outputTarget?.targetHint, providerMetadata?.backend),
+    toolName,
+    resourceUri,
+    skillName: firstStringValue(args.skillName, target?.skillName, output?.skillName, output?.name, objectValue(output?.container)?.name),
+    branchName: firstStringValue(envelope?.branch, output?.branch, target?.branchName, target?.branch),
+    commitHash: firstStringValue(envelope?.commitHash, output?.commitHash, output?.newHead),
+    aheadCount: numberValue(envelope?.ahead) ?? numberValue(output?.aheadCount),
+    behindCount: numberValue(envelope?.behind) ?? numberValue(output?.behindCount),
+    changedFileCount,
+    itemCount,
+    resultCount,
+    matchCount: countFromArrays(output?.matches, envelope?.matches),
+    outputCount: countFromArrays(output?.documents, objectValue(output?.preparedInvocation)?.resources),
+    mountCount: countFromArrays(objectValue(output?.activation)?.mounts),
+    imageCount: toolCall.toolId.includes("Image") || toolCall.toolId.includes("Screenshot") || firstStringValue(output?.imagePath, output?.artifactId) ? 1 : undefined,
+    mimeType: firstStringValue(output?.mimeType, objectValue(output?.artifact)?.mimeType),
+    errorCode: stringValue(objectValue(toolCall.error)?.code),
+  });
 }
 
 function toolCallRecordFromProgress(progress: AgentToolCallProgressEvent): AgentToolCallRecord {
@@ -896,6 +1244,7 @@ function createToolProgressEvent(input: {
   const outputPreview = input.progress.phase === "started" ? undefined : previewUnknown(toolCall.output);
   const errorPreview = input.progress.phase === "started" ? undefined : previewUnknown(toolCall.error);
   const humanResultSummary = input.progress.phase === "started" ? [] : summarizeToolOutputForHumans(toolCall);
+  const resultMetadata = input.progress.phase === "started" ? undefined : createToolResultMetadata(toolCall);
   const toolStatus = input.progress.phase === "started"
     ? "running"
     : input.progress.phase;
@@ -914,6 +1263,7 @@ function createToolProgressEvent(input: {
       outputPreview,
       errorPreview,
       humanResultSummary,
+      resultMetadata,
       familyKey: family.familyKey,
       familyTitle: family.familyTitle,
       providerToolName: input.progress.providerToolName,

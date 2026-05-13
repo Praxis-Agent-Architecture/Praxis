@@ -10,6 +10,35 @@ import type { SurfaceMessage } from "../surface/types.js";
 
 export type DirectTuiConversationPhase = "intro" | "conversation";
 
+export interface DirectTuiContextUsageSnapshot {
+  promptTokens?: number;
+  lastRequestInputTokens?: number;
+}
+
+function finiteNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(0, value)
+    : undefined;
+}
+
+export function resolveDirectTuiContextUsedTokens(input: {
+  snapshot?: DirectTuiContextUsageSnapshot | null;
+  draftContextTokens?: number;
+}): number {
+  const providerInputTokens = finiteNonNegativeNumber(input.snapshot?.lastRequestInputTokens);
+  const promptTokens = finiteNonNegativeNumber(input.snapshot?.promptTokens);
+  const draftTokens = finiteNonNegativeNumber(input.draftContextTokens) ?? 0;
+  return (providerInputTokens ?? promptTokens ?? 0) + draftTokens;
+}
+
+export function formatDirectTuiContextUsagePercent(used: number, total: number): string {
+  const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, used / total));
+  if (used === 0) {
+    return "0%";
+  }
+  return ratio < 0.01 ? "<1%" : `${Math.round(ratio * 100)}%`;
+}
+
 export function hasDirectTuiFormalConversation(
   messages: readonly Pick<SurfaceMessage, "kind">[],
 ): boolean {

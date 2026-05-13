@@ -376,7 +376,7 @@ test("raxode application runtime emits tool argument previews for failed tool ca
   assert.match(String(failedToolEvent.metadata?.argumentsPreview), /desktop/u);
 });
 
-test("raxode application runtime emits semantic summaries for code and shell tools", async () => {
+test("raxode application runtime emits semantic summaries for capability families", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-tool-summary-"));
   const events: unknown[] = [];
   let providerCallCount = 0;
@@ -445,6 +445,39 @@ test("raxode application runtime emits semantic summaries for code and shell too
                   context: { workspaceRoot: workspace },
                 }),
               },
+              {
+                type: "function_call",
+                name: "git.getRepositoryStatus",
+                call_id: "git-summary-call",
+                arguments: JSON.stringify({
+                  target: {
+                    repositoryPath: workspace,
+                    porcelainVersion: "v1",
+                    includeUntracked: true,
+                  },
+                  context: {
+                    dryRun: true,
+                    workspaceRoot: workspace,
+                    allowedRepositoryRoots: [workspace],
+                  },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "mcp.listTools",
+                call_id: "mcp-summary-call",
+                arguments: JSON.stringify({
+                  target: {
+                    serverId: "summary-test-server",
+                    limit: 10,
+                  },
+                  context: {
+                    dryRun: true,
+                    allowedServerIds: ["summary-test-server"],
+                    grantedPermissions: ["mcp:tool:read"],
+                  },
+                }),
+              },
             ],
           };
         },
@@ -499,10 +532,36 @@ test("raxode application runtime emits semantic summaries for code and shell too
       && event.metadata?.toolId === "shell.commandExecution"
       && event.metadata?.toolStatus === "running"
     );
+    const gitStarted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "git.getRepositoryStatus"
+      && event.metadata?.toolStatus === "running"
+    );
+    const gitCompleted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "git.getRepositoryStatus"
+      && event.metadata?.toolStatus === "completed"
+    );
+    const mcpStarted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "mcp.listTools"
+      && event.metadata?.toolStatus === "running"
+    );
+    const mcpCompleted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "mcp.listTools"
+      && event.metadata?.toolStatus === "completed"
+    );
     assert.equal(scanStarted?.metadata?.inputSummary, "Scanning . (depth 2, up to 50 entries)");
     assert.match(String(overwriteStarted?.metadata?.inputSummary), /^Writing \.\.\/outside\.html/u);
     assert.match(JSON.stringify(overwriteFailed?.metadata?.humanResultSummary), /code\.overwrite/u);
     assert.equal(shellStarted?.metadata?.inputSummary, `Running pwd in ${workspace}`);
+    assert.equal(gitStarted?.metadata?.inputSummary, `Checking repository status in ${workspace}`);
+    assert.equal(gitCompleted?.metadata?.familyKey, "git");
+    assert.match(JSON.stringify(gitCompleted?.metadata?.humanResultSummary), /Repository status read/u);
+    assert.equal(mcpStarted?.metadata?.inputSummary, "Listing MCP tools from summary-test-server");
+    assert.equal(mcpCompleted?.metadata?.familyKey, "mcp");
+    assert.match(JSON.stringify(mcpCompleted?.metadata?.humanResultSummary), /mcp\.listTools completed/u);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
