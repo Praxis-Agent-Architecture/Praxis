@@ -17,6 +17,7 @@ import type {
   PraxisApplicationCommandResult,
   CreateApplicationProjectRuntimeOptions,
   PraxisApplicationEvent,
+  PraxisApplicationContextTelemetry,
   PraxisApplicationPermissionProfile,
   PraxisApplicationRuntimeMode,
   PraxisApplicationUsageTelemetry,
@@ -355,13 +356,19 @@ function hasUsageNumber(usage: PraxisApplicationUsageTelemetry | undefined): usa
   );
 }
 
+function hasContextNumber(context: PraxisApplicationContextTelemetry | undefined): context is PraxisApplicationContextTelemetry {
+  return context !== undefined && (
+    typeof context.activeTokens === "number" ||
+    typeof context.promptTokens === "number" ||
+    typeof context.transcriptTokens === "number"
+  );
+}
+
 function contextFor(result?: PraxisApplicationCommandResult) {
   const model = result?.view.model;
-  const usage = hasUsageNumber(result?.view.usage) ? result.view.usage : undefined;
-  const promptTokens = usage?.inputTokens;
-  const transcriptTokens = usage === undefined
-    ? undefined
-    : (usage.outputTokens ?? 0) + (usage.thinkingTokens ?? 0);
+  const context = hasContextNumber(result?.view.context) ? result.view.context : undefined;
+  const activeTokens = context?.activeTokens ?? context?.promptTokens ?? 0;
+  const transcriptTokens = context?.transcriptTokens ?? 0;
   return {
     provider: model?.provider ?? "openai",
     model: model?.model ?? "gpt-5.5",
@@ -371,9 +378,15 @@ function contextFor(result?: PraxisApplicationCommandResult) {
     inputBudgetThreshold: model?.inputBudgetThreshold ?? 0.95,
     usableInputTokens: model?.usableInputTokens ?? Math.floor(272_000 * 0.95),
     windowSource: model?.metadataSource ?? "manual-registry",
-    usageSource: usage?.source,
-    promptTokens,
+    contextSource: context?.source ?? "application.history.estimate",
+    usageSource: context?.source ?? "application.history.estimate",
+    activeTokens,
+    promptTokens: activeTokens,
     transcriptTokens,
+    summaryTokens: context?.summaryTokens ?? 0,
+    historyMessages: context?.historyMessages ?? 0,
+    estimated: context?.estimated ?? true,
+    compacted: context?.compacted ?? false,
   };
 }
 

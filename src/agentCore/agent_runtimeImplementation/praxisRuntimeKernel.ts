@@ -9,6 +9,8 @@
  */
 
 import type { AuthEnvelope } from "../agent_modelAdapter/authProfileLayer/authEnvelope.js";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { OpenAIV1ResponsesProviderCaller } from "../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
@@ -81,6 +83,7 @@ import {
   type BaseToolPolicyProfile,
   type PraxisAgent,
   type PraxisAgentInput,
+  type PromptMaterialSource,
 } from "./runtimeAgentManifest.js";
 import {
   approvalInterfaceEnvelope,
@@ -706,6 +709,7 @@ function promptMaterialsForTurn(input: {
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
 }): readonly PromptPackMaterialDraft[] {
+  const manifestPromptMaterials = promptPackMaterialsForManifest(input.manifest);
   const observationUsage = input.observations
     .map((observation) => {
       const toolId = typeof observation.material.metadata?.toolId === "string"
@@ -763,6 +767,7 @@ function promptMaterialsForTurn(input: {
         },
       }];
   return [
+    ...manifestPromptMaterials,
     {
       id: `task:${input.turnIndex}`,
       kind: "user",
@@ -816,7 +821,105 @@ function promptMaterialsForTurn(input: {
   ];
 }
 
+function promptMaterialSourceText(material: PromptMaterialSource, fallbackRef: string): string {
+  if (material.kind === "markdown") return material.text;
+  if (material.kind === "materialRef") return `Prompt material reference declared as ${material.ref || fallbackRef}.`;
+  try {
+    return readFileSync(path.resolve(material.path), "utf8");
+  } catch {
+    return `Prompt markdown file declared at ${material.path}.`;
+  }
+}
+
+function promptMaterialSourceRef(material: PromptMaterialSource, fallbackRef: string): string {
+  if (material.kind === "markdown") return material.ref || fallbackRef;
+  if (material.kind === "markdownFile") return material.ref || material.path;
+  return material.ref || fallbackRef;
+}
+
+function promptPackMaterialsForManifest(manifest: AgentManifest): readonly PromptPackMaterialDraft[] {
+  const materials: PromptPackMaterialDraft[] = [];
+  const promptPack = manifest.promptPack;
+
+  if (promptPack.base !== undefined) {
+    materials.push({
+      id: promptMaterialSourceRef(promptPack.base, `${promptPack.promptPackId}:base`),
+      kind: "system",
+      text: promptMaterialSourceText(promptPack.base, `${promptPack.promptPackId}:base`),
+      source: "manifest.promptPack.base",
+      priority: 900,
+      trusted: true,
+      scope: "manifest.promptPack",
+      promptSegmentKind: "stableSystemCore",
+      metadata: {
+        promptPackId: promptPack.promptPackId,
+        promptRole: "base",
+      },
+    });
+  }
+
+  for (const [index, inherited] of promptPack.inherits.entries()) {
+    materials.push({
+      id: `promptPack.inherits:${inherited}`,
+      kind: "runtime",
+      text: `PromptPack inherits ${inherited}.`,
+      source: "manifest.promptPack.inherits",
+      priority: 880 - index,
+      trusted: true,
+      scope: "manifest.promptPack",
+      promptSegmentKind: "projectContext",
+      metadata: {
+        promptPackId: promptPack.promptPackId,
+        promptRole: "inherit",
+      },
+    });
+  }
+
+  for (const [index, patch] of [...promptPack.patches, ...promptPack.stateMachineMutations].entries()) {
+    materials.push({
+      id: patch.patchId,
+      kind: "system",
+      text: promptMaterialSourceText(patch.material, patch.patchId),
+      source: `manifest.promptPack.${patch.operation}`,
+      priority: 870 - index,
+      trusted: true,
+      scope: "manifest.promptPack.patch",
+      promptSegmentKind: "declaredRuntimeContext",
+      metadata: {
+        promptPackId: promptPack.promptPackId,
+        promptRole: "patch",
+        patchId: patch.patchId,
+        operation: patch.operation,
+        targetRef: patch.targetRef,
+        sceneTrigger: patch.sceneTrigger ?? "",
+      },
+    });
+  }
+
+  for (const [index, materialRef] of promptPack.materials.entries()) {
+    materials.push({
+      id: `promptPack.material:${materialRef}`,
+      kind: "runtime",
+      text: `PromptPack material reference ${materialRef}.`,
+      source: "manifest.promptPack.materials",
+      priority: 830 - index,
+      trusted: true,
+      scope: "manifest.promptPack.materials",
+      promptSegmentKind: "projectContext",
+      metadata: {
+        promptPackId: promptPack.promptPackId,
+        promptRole: "materialRef",
+      },
+    });
+  }
+
+  return materials;
+}
+
 function observationPayloadText(observation: RuntimeObservationMaterial): string {
+  if (observation.artifactRef !== undefined) {
+    return observation.material.text;
+  }
   if (typeof observation.payload === "string") return observation.payload;
   try {
     return JSON.stringify(observation.payload);
@@ -859,6 +962,19 @@ function providerToolResultsFromObservations(
       };
     })
     .filter((result): result is ProviderToolResultEnvelope => result !== undefined);
+}
+
+function stablePromptCacheKey(manifest: AgentManifest, sessionId: string): string {
+  const hash = createHash("sha256")
+    .update([
+      "praxis.promptCache.v1",
+      manifest.identity.id,
+      manifest.harness.promptPack.promptPackId ?? "",
+      sessionId,
+    ].join("\n"))
+    .digest("hex")
+    .slice(0, 32);
+  return `praxis-${hash}`;
 }
 
 function kernelSseDataObjects(text: string): readonly unknown[] {
@@ -958,12 +1074,14 @@ function buildCodexResponsesBodyFromPromptPack(
     exposeProviderTools?: boolean;
     observations?: readonly RuntimeObservationMaterial[];
     previousProviderOutputItems?: readonly Readonly<Record<string, unknown>>[];
+    promptCacheKey?: string;
   } = {},
 ): Readonly<Record<string, unknown>> {
   const toolResultInputs = providerToolResultsFromObservations(options.observations ?? [])
     .map((result) => lowerProviderToolResult({ providerFamily: "openaiResponses", result }));
   const body: Record<string, unknown> = {
     model: manifest.model.model,
+    ...(options.promptCacheKey === undefined ? {} : { prompt_cache_key: options.promptCacheKey }),
     input: [
       {
         role: "developer",
@@ -2313,6 +2431,7 @@ export class PraxisRuntimeKernel {
           exposeProviderTools: options.exposeProviderTools,
           observations,
           previousProviderOutputItems: providerResponseOutputItems,
+          promptCacheKey: stablePromptCacheKey(manifest, sessionId),
         }),
         governance: { accepted: true },
         contract: { accepted: true },

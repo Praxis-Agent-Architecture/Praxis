@@ -155,9 +155,21 @@ test("legacy direct application backend writes live codex usage from framework t
           estimated?: boolean;
           source?: string;
         };
-        context?: { promptTokens?: number; transcriptTokens?: number; usageSource?: string };
+        context?: {
+          activeTokens?: number;
+          promptTokens?: number;
+          transcriptTokens?: number;
+          contextSource?: string;
+          usageSource?: string;
+        };
       };
-      context?: { promptTokens?: number; transcriptTokens?: number; usageSource?: string };
+      context?: {
+        activeTokens?: number;
+        promptTokens?: number;
+        transcriptTokens?: number;
+        contextSource?: string;
+        usageSource?: string;
+      };
     });
   const turnResult = rows.find((row) => row.event === "turn_result");
   assert.equal(turnResult?.core?.usage?.inputTokens, 44);
@@ -165,9 +177,11 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(turnResult?.core?.usage?.thinkingTokens, 3);
   assert.equal(turnResult?.core?.usage?.estimated, false);
   assert.equal(turnResult?.core?.usage?.source, "openai.responses.usage");
-  assert.equal(turnResult?.core?.context?.promptTokens, 44);
-  assert.equal(turnResult?.core?.context?.transcriptTokens, 10);
-  assert.equal(turnResult?.core?.context?.usageSource, "openai.responses.usage");
+  assert.equal(turnResult?.core?.context?.contextSource, "application.history.estimate");
+  assert.equal(turnResult?.core?.context?.usageSource, "application.history.estimate");
+  assert.equal(turnResult?.core?.context?.activeTokens, turnResult?.core?.context?.promptTokens);
+  assert.notEqual(turnResult?.core?.context?.promptTokens, 44);
+  assert.ok((turnResult?.core?.context?.transcriptTokens ?? 0) > 0);
   if (previousStreamFps === undefined) {
     delete process.env.RAXODE_STREAM_FPS;
   } else {

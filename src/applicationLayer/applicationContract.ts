@@ -84,6 +84,17 @@ export type PraxisApplicationUsageTelemetry = {
   modelCalls: number;
 };
 
+export type PraxisApplicationContextTelemetry = {
+  activeTokens: number;
+  promptTokens: number;
+  transcriptTokens: number;
+  summaryTokens: number;
+  historyMessages: number;
+  estimated: boolean;
+  compacted: boolean;
+  source: "application.history.estimate";
+};
+
 export type PraxisApplicationManifestView = {
   manifestId: string;
   manifestHash: string;
@@ -146,6 +157,7 @@ export type PraxisApplicationViewModel = {
     mainLoopSteps: number;
   };
   usage?: PraxisApplicationUsageTelemetry;
+  context?: PraxisApplicationContextTelemetry;
   finalOutput?: string;
   error?: {
     code: string;

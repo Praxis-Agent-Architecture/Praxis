@@ -99,7 +99,7 @@ export type RuntimeObservationMaterial = {
 };
 
 export const DEFAULT_TOOL_RESULT_SIZE_POLICY: ToolResultSizePolicy = {
-  maxInlineBytes: 20 * 1024 * 1024,
+  maxInlineBytes: 64 * 1024,
   overflowMode: "artifactRef",
 };
 

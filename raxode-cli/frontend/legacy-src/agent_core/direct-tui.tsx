@@ -304,8 +304,14 @@ interface LiveContextRecord {
   windowTokens?: number;
   windowSource?: string;
   promptKind?: string;
+  activeTokens?: number;
   promptTokens?: number;
   transcriptTokens?: number;
+  summaryTokens?: number;
+  historyMessages?: number;
+  contextSource?: string;
+  estimated?: boolean;
+  compacted?: boolean;
   maxOutputTokens?: number | null;
   maxInputTokens?: number;
   inputBudgetThreshold?: number;
@@ -6278,8 +6284,14 @@ function normalizeContextSnapshot(
   windowTokens: number;
   windowSource?: string;
   promptKind?: string;
+  activeTokens: number;
   promptTokens: number;
   transcriptTokens: number;
+  summaryTokens?: number;
+  historyMessages?: number;
+  contextSource?: string;
+  estimated?: boolean;
+  compacted?: boolean;
   maxOutputTokens?: number;
   maxInputTokens?: number;
   inputBudgetThreshold?: number;
@@ -6291,12 +6303,21 @@ function normalizeContextSnapshot(
   const windowTokens = typeof input.windowTokens === "number" && Number.isFinite(input.windowTokens)
     ? input.windowTokens
     : undefined;
-  const promptTokens = typeof input.promptTokens === "number" && Number.isFinite(input.promptTokens)
-    ? input.promptTokens
+  const activeTokens = typeof input.activeTokens === "number" && Number.isFinite(input.activeTokens)
+    ? input.activeTokens
+    : typeof input.promptTokens === "number" && Number.isFinite(input.promptTokens)
+      ? input.promptTokens
+      : undefined;
+  const promptTokens = activeTokens;
+  const summaryTokens = typeof input.summaryTokens === "number" && Number.isFinite(input.summaryTokens)
+    ? input.summaryTokens
+    : undefined;
+  const historyMessages = typeof input.historyMessages === "number" && Number.isFinite(input.historyMessages)
+    ? input.historyMessages
     : undefined;
   const transcriptTokens = typeof input.transcriptTokens === "number" && Number.isFinite(input.transcriptTokens)
     ? input.transcriptTokens
-    : undefined;
+    : 0;
   if (!windowTokens || promptTokens === undefined || transcriptTokens === undefined) {
     return null;
   }
@@ -6306,8 +6327,14 @@ function normalizeContextSnapshot(
     windowTokens,
     windowSource: typeof input.windowSource === "string" ? input.windowSource : undefined,
     promptKind: typeof input.promptKind === "string" ? input.promptKind : undefined,
+    activeTokens: promptTokens,
     promptTokens,
     transcriptTokens,
+    summaryTokens,
+    historyMessages,
+    contextSource: typeof input.contextSource === "string" ? input.contextSource : undefined,
+    estimated: typeof input.estimated === "boolean" ? input.estimated : undefined,
+    compacted: typeof input.compacted === "boolean" ? input.compacted : undefined,
     maxOutputTokens: typeof input.maxOutputTokens === "number" && Number.isFinite(input.maxOutputTokens)
       ? input.maxOutputTokens
       : undefined,

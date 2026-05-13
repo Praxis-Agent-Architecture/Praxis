@@ -9,6 +9,7 @@ export type {
   PraxisApplicationAuxiliaryTaskInput,
   PraxisApplicationCommand,
   PraxisApplicationCommandResult,
+  PraxisApplicationContextTelemetry,
   PraxisApplicationEvent,
   PraxisApplicationEventKind,
   PraxisApplicationInputEnvelope,

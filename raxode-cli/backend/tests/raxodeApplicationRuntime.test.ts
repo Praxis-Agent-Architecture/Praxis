@@ -88,6 +88,11 @@ test("raxode application runtime includes prior same-session turns in the next p
     },
   });
   assert.equal(first.ok, true);
+  const firstBody = JSON.stringify(providerBodies[0]);
+  assert.match(firstBody, /You are the Raxode coding agent/u);
+  assert.match(firstBody, /Implementation\/build requests must be executed in the workspace with tools/u);
+  const firstBodyRecord = providerBodies[0] as { prompt_cache_key?: string };
+  assert.match(firstBodyRecord.prompt_cache_key ?? "", /^praxis-[a-f0-9]{32}$/u);
   const second = await transport.dispatch({
     type: "application.submitTurn",
     sessionId,
@@ -100,12 +105,19 @@ test("raxode application runtime includes prior same-session turns in the next p
   });
   assert.equal(second.ok, true);
   assert.equal(providerBodies.length, 2);
+  const secondBodyRecord = providerBodies[1] as { prompt_cache_key?: string };
+  assert.equal(secondBodyRecord.prompt_cache_key, firstBodyRecord.prompt_cache_key);
   const secondBody = JSON.stringify(providerBodies[1]);
   assert.match(secondBody, /Previous conversation in this Raxode application session/u);
   assert.match(secondBody, /请记住暗号 BLUE-ORBIT/u);
   assert.match(secondBody, /已记住暗号 BLUE-ORBIT/u);
   assert.match(secondBody, /Current user request/u);
   assert.match(secondBody, /刚才的暗号是什么/u);
+  const secondContext = second.view.context;
+  assert.ok(secondContext);
+  assert.equal(secondContext.source, "application.history.estimate");
+  assert.ok(secondContext.activeTokens > 0);
+  assert.ok(secondContext.promptTokens > 0);
 });
 
 test("raxode application runtime routes omni.viewImage through Responses image input", async () => {
