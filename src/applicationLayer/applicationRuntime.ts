@@ -283,12 +283,41 @@ function numberValue(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function booleanValue(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function stringArrayValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => stringValue(item) ?? [])
+    : [];
+}
+
 function truncateMiddle(value: string, maxLength: number): string {
   const normalized = value.replace(/\s+/gu, " ").trim();
   if (normalized.length <= maxLength) return normalized;
   const headLength = Math.max(0, Math.floor((maxLength - 15) / 2));
   const tailLength = Math.max(0, maxLength - 15 - headLength);
   return `${normalized.slice(0, headLength)} ...[truncated]... ${normalized.slice(-tailLength)}`;
+}
+
+function flattenedToolArguments(argumentsRecord: Record<string, unknown>): Record<string, unknown> {
+  const target = objectValue(argumentsRecord.target);
+  return target === undefined ? argumentsRecord : { ...argumentsRecord, ...target };
+}
+
+function formatPathList(paths: readonly string[], maxItems = 4): string {
+  const cleanPaths = paths.map((item) => item.trim()).filter((item) => item.length > 0);
+  if (cleanPaths.length === 0) return "file";
+  const shown = cleanPaths.slice(0, maxItems).join(", ");
+  return cleanPaths.length > maxItems ? `${shown}, +${cleanPaths.length - maxItems} more` : shown;
+}
+
+function formatByteCount(bytes: number | undefined): string | undefined {
+  if (bytes === undefined || !Number.isFinite(bytes) || bytes < 0) return undefined;
+  if (bytes < 1024) return `${Math.round(bytes)} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function estimateContextTokens(text: string): number {
@@ -548,7 +577,164 @@ function buildTaskTextWithSessionHistory(input: {
   return sections.join("\n\n---\n\n");
 }
 
+function summarizeCodeToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("code.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const targetPath = stringValue(args.targetPath) ?? stringValue(args.path) ?? stringValue(args.filePath);
+  const targetPaths = [
+    ...stringArrayValue(args.targetPaths),
+    ...stringArrayValue(args.paths),
+    ...stringArrayValue(args.files),
+  ];
+  const directoryPath = stringValue(args.directoryPath) ?? stringValue(args.workspaceRoot);
+  const query = stringValue(args.query) ?? stringValue(args.pattern);
+  const content = stringValue(args.content);
+  const contentBytes = content === undefined ? undefined : Buffer.byteLength(content);
+  const bytesSuffix = formatByteCount(contentBytes);
+  const pathSummary = targetPaths.length > 0 ? formatPathList(targetPaths) : targetPath;
+
+  switch (toolCall.toolId) {
+    case "code.scan": {
+      const depth = numberValue(args.depth);
+      const maxEntries = numberValue(args.maxEntries);
+      const detail = [
+        depth !== undefined ? `depth ${depth}` : undefined,
+        maxEntries !== undefined ? `up to ${maxEntries} entries` : undefined,
+      ].filter((item): item is string => item !== undefined).join(", ");
+      return `Scanning ${directoryPath ?? "."}${detail ? ` (${detail})` : ""}`;
+    }
+    case "code.read":
+      return `Reading ${pathSummary ?? "file"}`;
+    case "code.search_Ripgrep":
+      return `Searching ${directoryPath ?? "."}${query ? ` for ${JSON.stringify(truncateMiddle(query, 80))}` : ""}`;
+    case "code.overwrite":
+      return `Writing ${targetPath ?? "file"}${bytesSuffix ? ` (${bytesSuffix})` : ""}`;
+    case "code.modify":
+      return `Editing ${targetPath ?? "file"}`;
+    case "code.replaceFile":
+      return `Replacing ${targetPath ?? "file"}`;
+    case "code.delete":
+      return `Deleting from ${targetPath ?? "file"}`;
+    case "code.format":
+      return `Formatting ${targetPath ?? pathSummary ?? "file"}`;
+    default:
+      if (pathSummary) return `${toolCall.toolId} on ${pathSummary}`;
+      if (directoryPath) return `${toolCall.toolId} in ${directoryPath}`;
+      return undefined;
+  }
+}
+
+function shellCommandFromArguments(toolCall: AgentToolCallRecord): {
+  command?: string;
+  cwd?: string;
+  shell?: string;
+} {
+  const args = flattenedToolArguments(toolCall.arguments);
+  const commandArray = stringArrayValue(args.command);
+  const command = stringValue(args.command)
+    ?? (commandArray.length > 0 ? commandArray.join(" ") : undefined)
+    ?? stringValue(args.script);
+  return {
+    command,
+    cwd: stringValue(args.workingDirectory) ?? stringValue(args.cwd),
+    shell: stringValue(args.shell) ?? stringValue(args.shellType),
+  };
+}
+
+function summarizeShellToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("shell.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const { command, cwd } = shellCommandFromArguments(toolCall);
+  const executionId = stringValue(args.executionId) ?? stringValue(args.launchId);
+  if (command) {
+    const verb = toolCall.toolId === "shell.detachedExecution" || toolCall.toolId === "shell.backgroundExecution"
+      ? "Launching"
+      : "Running";
+    return `${verb} ${truncateMiddle(command, 180)}${cwd ? ` in ${cwd}` : ""}`;
+  }
+  if (executionId) return `${toolCall.toolId} for ${executionId}`;
+  return undefined;
+}
+
+function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("code.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const targetPath = stringValue(output?.targetPath) ?? stringValue(args.targetPath) ?? stringValue(args.path);
+  const targetPaths = [
+    ...stringArrayValue(output?.targetPaths),
+    ...stringArrayValue(args.targetPaths),
+  ];
+  const directoryPath = stringValue(output?.directoryPath) ?? stringValue(args.directoryPath);
+
+  if (toolCall.toolId === "code.scan") {
+    const entries = Array.isArray(output?.entries) ? output.entries : [];
+    const truncated = booleanValue(output?.truncated);
+    return [
+      `Scanned ${directoryPath ?? "."}: ${entries.length} entr${entries.length === 1 ? "y" : "ies"}${truncated ? " (truncated)" : ""}`,
+    ];
+  }
+
+  if (toolCall.toolId === "code.read") {
+    const bytes = numberValue(output?.bytes);
+    const files = Array.isArray(output?.files) ? output.files : [];
+    const count = files.length > 0 ? files.length : Math.max(targetPaths.length, targetPath ? 1 : 0);
+    const targetSummary = targetPaths.length > 0 ? formatPathList(targetPaths) : targetPath ?? "file";
+    return [
+      `Read ${count > 1 ? `${count} files` : targetSummary}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
+    ];
+  }
+
+  if (toolCall.toolId === "code.overwrite") {
+    const applied = booleanValue(output?.applied);
+    const bytes = numberValue(output?.bytesWritten) ?? numberValue(output?.contentBytes);
+    const verb = applied === false ? "Planned write" : "Wrote";
+    return [
+      `${verb} ${targetPath ?? "file"}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
+    ];
+  }
+
+  if (toolCall.toolId === "code.modify" || toolCall.toolId === "code.replaceFile" || toolCall.toolId === "code.delete" || toolCall.toolId === "code.format") {
+    const bytes = numberValue(output?.bytesWritten);
+    return [
+      `${toolCall.toolId} completed${targetPath ? ` for ${targetPath}` : ""}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
+    ];
+  }
+
+  return undefined;
+}
+
+function summarizeShellToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("shell.")) return undefined;
+  const resultEnvelope = objectValue(output?.resultEnvelope);
+  const target = objectValue(output?.target);
+  const command = stringValue(output?.command)
+    ?? stringValue(target?.command)
+    ?? shellCommandFromArguments(toolCall).command;
+  const exitCode = numberValue(output?.exitCode);
+  const stdout = stringValue(output?.stdout);
+  const stderr = stringValue(output?.stderr);
+  const planned = booleanValue(resultEnvelope?.planned);
+  const handle = stringValue(resultEnvelope?.detachedHandle) ?? stringValue(target?.launchId);
+  const lines: string[] = [];
+
+  if (toolCall.toolId === "shell.detachedExecution" || toolCall.toolId === "shell.backgroundExecution") {
+    lines.push(`${planned ? "Planned launch" : "Launched"}${command ? `: ${truncateMiddle(command, 160)}` : ""}${handle ? ` (${handle})` : ""}`);
+  } else if (exitCode !== undefined) {
+    lines.push(`Command completed with exit ${exitCode}${command ? `: ${truncateMiddle(command, 120)}` : ""}`);
+  } else {
+    lines.push(`Command completed${command ? `: ${truncateMiddle(command, 160)}` : ""}`);
+  }
+
+  if (stdout) lines.push(`stdout: ${truncateMiddle(stdout, 220)}`);
+  if (stderr) lines.push(`stderr: ${truncateMiddle(stderr, 220)}`);
+  return lines.slice(0, 3);
+}
+
 function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  const codeSummary = summarizeCodeToolInput(toolCall);
+  if (codeSummary !== undefined) return codeSummary;
+  const shellSummary = summarizeShellToolInput(toolCall);
+  if (shellSummary !== undefined) return shellSummary;
   if (toolCall.toolId.startsWith("computeruse.")) {
     const target = objectValue(toolCall.arguments.target);
     const targetHint = stringValue(target?.targetHint) ?? stringValue(toolCall.arguments.targetHint);
@@ -621,6 +807,10 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
   }
 
   const output = objectValue(toolCall.output);
+  const codeSummary = summarizeCodeToolOutputForHumans(toolCall, output);
+  if (codeSummary !== undefined) return codeSummary;
+  const shellSummary = summarizeShellToolOutputForHumans(toolCall, output);
+  if (shellSummary !== undefined) return shellSummary;
   const envelope = objectValue(output?.resultEnvelope);
   const query = stringValue(envelope?.query);
   const answer = stringValue(envelope?.answer);

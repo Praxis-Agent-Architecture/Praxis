@@ -92,6 +92,8 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.match(firstBody, /You are the Raxode coding agent/u);
   assert.match(firstBody, /Implementation\/build requests must be executed in the workspace with tools/u);
   assert.match(firstBody, /The current workspace is the default target when the user does not name a path/u);
+  assert.match(firstBody, /A missing or empty project structure is a reason to create files/u);
+  assert.match(firstBody, /Do not tell the user.*save this as/u);
   const firstBodyRecord = providerBodies[0] as { prompt_cache_key?: string };
   assert.match(firstBodyRecord.prompt_cache_key ?? "", /^praxis-[a-f0-9]{32}$/u);
   const second = await transport.dispatch({
@@ -372,6 +374,138 @@ test("raxode application runtime emits tool argument previews for failed tool ca
   assert.ok(failedToolEvent);
   assert.match(String(failedToolEvent.metadata?.argumentsPreview), /Control\+L/u);
   assert.match(String(failedToolEvent.metadata?.argumentsPreview), /desktop/u);
+});
+
+test("raxode application runtime emits semantic summaries for code and shell tools", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-tool-summary-"));
+  const events: unknown[] = [];
+  let providerCallCount = 0;
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (_envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerCallCount += 1;
+          if (providerCallCount > 1) {
+            return { output_text: "工具摘要完成。" };
+          }
+          return {
+            output: [
+              {
+                type: "function_call",
+                name: "code.scan",
+                call_id: "code-scan-summary-call",
+                arguments: JSON.stringify({
+                  directoryPath: ".",
+                  depth: 2,
+                  maxEntries: 50,
+                  context: { workspaceRoot: workspace },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "code.overwrite",
+                call_id: "code-overwrite-summary-call",
+                arguments: JSON.stringify({
+                  workspaceRoot: workspace,
+                  targetPath: "../outside.html",
+                  maxBytes: 50_000,
+                  content: "<!doctype html><title>ok</title>",
+                  context: {
+                    workspaceRoot: workspace,
+                    dryRun: true,
+                    guard: { accepted: true, allowed: true, reason: "test" },
+                  },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "shell.commandExecution",
+                call_id: "shell-summary-call",
+                arguments: JSON.stringify({
+                  target: {
+                    command: "pwd",
+                    workingDirectory: workspace,
+                    shell: "sh",
+                  },
+                  context: { workspaceRoot: workspace },
+                }),
+              },
+            ],
+          };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const unsubscribe = transport.subscribe((event) => events.push(event));
+    try {
+      const start = await transport.dispatch({
+        type: "application.start",
+        sessionId: "session.raxode.tool-summary.test",
+        cwd: workspace,
+        mode: "live",
+      });
+      assert.equal(start.ok, true);
+      const result = await transport.dispatch({
+        type: "application.submitTurn",
+        sessionId: "session.raxode.tool-summary.test",
+        mode: "live",
+        input: {
+          type: "application.input",
+          text: "请写一个文件并运行 pwd。",
+          cwd: workspace,
+        },
+      });
+      assert.equal(result.ok, true);
+    } finally {
+      unsubscribe();
+    }
+
+    const toolEvents = events.map((event) => event as { kind?: string; metadata?: Record<string, unknown> });
+    const scanStarted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "code.scan"
+      && event.metadata?.toolStatus === "running"
+    );
+    const overwriteStarted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "code.overwrite"
+      && event.metadata?.toolStatus === "running"
+    );
+    const overwriteFailed = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "code.overwrite"
+      && event.metadata?.toolStatus === "failed"
+    );
+    const shellStarted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "shell.commandExecution"
+      && event.metadata?.toolStatus === "running"
+    );
+    assert.equal(scanStarted?.metadata?.inputSummary, "Scanning . (depth 2, up to 50 entries)");
+    assert.match(String(overwriteStarted?.metadata?.inputSummary), /^Writing \.\.\/outside\.html/u);
+    assert.match(JSON.stringify(overwriteFailed?.metadata?.humanResultSummary), /code\.overwrite/u);
+    assert.equal(shellStarted?.metadata?.inputSummary, `Running pwd in ${workspace}`);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test("raxode bapr carries application approval into detached shell TAP approval fields", async () => {
