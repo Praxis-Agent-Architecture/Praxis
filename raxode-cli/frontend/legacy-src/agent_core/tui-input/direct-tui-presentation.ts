@@ -48,6 +48,9 @@ export function shouldBreakDirectTuiAssistantSegmentOnStageStart(stage?: string 
   if (normalizedStage === "core/run") {
     return false;
   }
+  if (normalizedStage === "core/model.infer") {
+    return false;
+  }
   if (normalizedStage.startsWith("cmp/")) {
     return false;
   }

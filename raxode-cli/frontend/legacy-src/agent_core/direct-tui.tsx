@@ -1917,6 +1917,7 @@ function shouldHideDirectTuiStartupStageFromTranscript(stage?: string): boolean 
   }
   return stage === "core/skill_overlay_bootstrap"
     || stage === "core/memory_overlay_bootstrap"
+    || stage === "core/model.infer"
     || stage === "cmp/infra_bootstrap";
 }
 
@@ -11073,6 +11074,13 @@ function PraxisDirectTuiApp(): JSX.Element {
             });
             if (record.stage === "core/run") {
               setRunIndicator({ startedAt: at, label: "core thinking" });
+            } else if (record.stage === "core/model.infer") {
+              setRunIndicator((previous) => ({
+                startedAt: previous?.startedAt ?? at,
+                label: typeof record.text === "string" && record.text.trim()
+                  ? record.text.trim()
+                  : "waiting for model decision",
+              }));
             } else if (record.stage === "core/capability_bridge") {
               setRunIndicator((previous) => ({
                 startedAt: previous?.startedAt ?? at,
@@ -11444,6 +11452,15 @@ function PraxisDirectTuiApp(): JSX.Element {
             }
             if (record.stage === "core/run") {
               setRunIndicator(null);
+            }
+            if (record.stage === "core/model.infer") {
+              setRunIndicator((previous) =>
+                previous
+                  ? {
+                    startedAt: previous.startedAt,
+                    label: record.status === "failed" ? "model request failed" : "core thinking",
+                  }
+                  : null);
             }
             if (record.stage === "core/capability_bridge") {
               promoteSteerDispatchAfterToolCall();

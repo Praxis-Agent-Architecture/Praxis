@@ -193,6 +193,7 @@ test("background cmp stages do not break an in-flight assistant segment", () => 
   assert.equal(shouldBreakDirectTuiAssistantSegmentOnStageStart("cmp/icma"), false);
   assert.equal(shouldBreakDirectTuiAssistantSegmentOnStageStart("cmp/dbagent"), false);
   assert.equal(shouldBreakDirectTuiAssistantSegmentOnStageStart("core/run"), false);
+  assert.equal(shouldBreakDirectTuiAssistantSegmentOnStageStart("core/model.infer"), false);
 });
 
 test("foreground tool stages still break assistant segments by default", () => {

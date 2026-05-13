@@ -62,6 +62,8 @@ test("legacy direct application backend speaks direct ready and writes ordered l
     });
   const events = rows.map((row) => row.event);
   assert.deepEqual(events.slice(0, 4), ["session_start", "stdin_payload_received", "turn_start", "stage_start"]);
+  assert.ok(rows.some((row) => row.event === "stage_start" && row.text?.includes("Requesting")));
+  assert.ok(rows.some((row) => row.event === "stage_end" && row.text?.includes("returned a model decision")));
   assert.ok(events.includes("assistant_delta"));
   assert.deepEqual(events.slice(-4), ["stage_end", "turn_result", "stdin_payload_received", "session_end"]);
   assert.match(
@@ -177,10 +179,10 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(turnResult?.core?.usage?.thinkingTokens, 3);
   assert.equal(turnResult?.core?.usage?.estimated, false);
   assert.equal(turnResult?.core?.usage?.source, "openai.responses.usage");
-  assert.equal(turnResult?.core?.context?.contextSource, "application.history.estimate");
-  assert.equal(turnResult?.core?.context?.usageSource, "application.history.estimate");
+  assert.equal(turnResult?.core?.context?.contextSource, "openai.responses.usage");
+  assert.equal(turnResult?.core?.context?.usageSource, "openai.responses.usage");
   assert.equal(turnResult?.core?.context?.activeTokens, turnResult?.core?.context?.promptTokens);
-  assert.notEqual(turnResult?.core?.context?.promptTokens, 44);
+  assert.equal(turnResult?.core?.context?.promptTokens, 44);
   assert.ok((turnResult?.core?.context?.transcriptTokens ?? 0) > 0);
   if (previousStreamFps === undefined) {
     delete process.env.RAXODE_STREAM_FPS;

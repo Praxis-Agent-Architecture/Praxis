@@ -367,8 +367,16 @@ function hasContextNumber(context: PraxisApplicationContextTelemetry | undefined
 function contextFor(result?: PraxisApplicationCommandResult) {
   const model = result?.view.model;
   const context = hasContextNumber(result?.view.context) ? result.view.context : undefined;
-  const activeTokens = context?.activeTokens ?? context?.promptTokens ?? 0;
+  const usage = hasUsageNumber(result?.view.usage) ? result.view.usage : undefined;
+  const observedInputTokens = typeof usage?.inputTokens === "number" && Number.isFinite(usage.inputTokens)
+    ? usage.inputTokens
+    : undefined;
+  const estimatedActiveTokens = context?.activeTokens ?? context?.promptTokens ?? 0;
+  const activeTokens = observedInputTokens ?? estimatedActiveTokens;
   const transcriptTokens = context?.transcriptTokens ?? 0;
+  const source = observedInputTokens === undefined
+    ? context?.source ?? "application.history.estimate"
+    : usage?.source ?? "model.usage";
   return {
     provider: model?.provider ?? "openai",
     model: model?.model ?? "gpt-5.5",
@@ -378,14 +386,14 @@ function contextFor(result?: PraxisApplicationCommandResult) {
     inputBudgetThreshold: model?.inputBudgetThreshold ?? 0.95,
     usableInputTokens: model?.usableInputTokens ?? Math.floor(272_000 * 0.95),
     windowSource: model?.metadataSource ?? "manual-registry",
-    contextSource: context?.source ?? "application.history.estimate",
-    usageSource: context?.source ?? "application.history.estimate",
+    contextSource: source,
+    usageSource: usage?.source ?? context?.source ?? "application.history.estimate",
     activeTokens,
     promptTokens: activeTokens,
     transcriptTokens,
     summaryTokens: context?.summaryTokens ?? 0,
     historyMessages: context?.historyMessages ?? 0,
-    estimated: context?.estimated ?? true,
+    estimated: observedInputTokens === undefined ? context?.estimated ?? true : usage?.estimated ?? false,
     compacted: context?.compacted ?? false,
   };
 }
@@ -686,7 +694,13 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
   let turnIndex = 0;
   transport.subscribe((applicationEvent) => {
     const legacyTurnIndex = parseApplicationTurnIndex(applicationEvent.turnId, turnIndex || 1);
-    if (applicationEvent.kind === "model") {
+    const modelStageRecord = legacyModelStageRecord({
+      applicationEvent,
+      sessionId,
+      turnIndex: legacyTurnIndex,
+    });
+    if (modelStageRecord) {
+      void enqueueRuntimeEventLog(modelStageRecord);
       return;
     }
     const toolStageRecord = legacyToolStageRecord({
