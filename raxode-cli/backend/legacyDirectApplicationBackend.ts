@@ -32,6 +32,7 @@ type LegacyDirectBackendOptions = {
   sessionId?: string;
   stateRoot?: string;
   mode?: PraxisApplicationRuntimeMode;
+  initialTurnIndex?: number;
   now?: () => string;
   liveProviderResolver?: CreateApplicationProjectRuntimeOptions["liveProviderResolver"];
 };
@@ -83,6 +84,15 @@ function normalizePermissionProfile(value: string | undefined): PraxisApplicatio
     default:
       return "standard";
   }
+}
+
+function normalizeInitialTurnIndex(value: unknown): number {
+  const parsed = typeof value === "number"
+    ? value
+    : typeof value === "string"
+      ? Number.parseInt(value, 10)
+      : 0;
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
 }
 
 function normalizeDirectPayload(raw: string): {
@@ -372,11 +382,9 @@ function contextFor(result?: PraxisApplicationCommandResult) {
     ? usage.inputTokens
     : undefined;
   const estimatedActiveTokens = context?.activeTokens ?? context?.promptTokens ?? 0;
-  const activeTokens = observedInputTokens ?? estimatedActiveTokens;
+  const activeTokens = estimatedActiveTokens;
   const transcriptTokens = context?.transcriptTokens ?? 0;
-  const source = observedInputTokens === undefined
-    ? context?.source ?? "application.history.estimate"
-    : usage?.source ?? "model.usage";
+  const source = context?.source ?? "application.history.estimate";
   return {
     provider: model?.provider ?? "openai",
     model: model?.model ?? "gpt-5.5",
@@ -390,10 +398,11 @@ function contextFor(result?: PraxisApplicationCommandResult) {
     usageSource: usage?.source ?? context?.source ?? "application.history.estimate",
     activeTokens,
     promptTokens: activeTokens,
+    lastRequestInputTokens: observedInputTokens,
     transcriptTokens,
     summaryTokens: context?.summaryTokens ?? 0,
     historyMessages: context?.historyMessages ?? 0,
-    estimated: observedInputTokens === undefined ? context?.estimated ?? true : usage?.estimated ?? false,
+    estimated: context?.estimated ?? true,
     compacted: context?.compacted ?? false,
   };
 }
@@ -691,7 +700,10 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
 
   const transport = applicationLayer.createLocalApplicationTransport(created.runtime);
   const streamedTextByTurn = new Map<number, string>();
-  let turnIndex = 0;
+  const initialTurnIndex = normalizeInitialTurnIndex(
+    options.initialTurnIndex ?? process.env.PRAXIS_DIRECT_INITIAL_TURN_INDEX,
+  );
+  let turnIndex = initialTurnIndex;
   transport.subscribe((applicationEvent) => {
     const legacyTurnIndex = parseApplicationTurnIndex(applicationEvent.turnId, turnIndex || 1);
     const modelStageRecord = legacyModelStageRecord({
@@ -736,6 +748,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     ts: options.now?.() ?? new Date().toISOString(),
     event: "session_start",
     sessionId,
+    initialTurnIndex,
     context: contextFor(start),
   });
 

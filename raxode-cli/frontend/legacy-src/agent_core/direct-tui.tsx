@@ -185,7 +185,7 @@ import {
   type DirectTuiRewindModeOption,
   type DirectTuiRewindTurnOption,
 } from "./tui-input/rewind-state.js";
-import { resolveNextOptimisticTurnIndex } from "./tui-input/optimistic-turn-index.js";
+import { resolveLastKnownTurnIndex, resolveNextOptimisticTurnIndex } from "./tui-input/optimistic-turn-index.js";
 import {
   formatHumanGateDecisionEnvelope,
 } from "./live-agent-chat/human-gate-envelope.js";
@@ -2922,6 +2922,19 @@ function buildSurfaceStateFromSessionSnapshot(snapshot: DirectTuiSessionSnapshot
     } as never);
   }
   return nextState;
+}
+
+function resolveBackendResumeTurnIndex(params: {
+  surfaceState: SurfaceAppState;
+  usageLedger: DirectTuiSessionUsageEntry[];
+  pendingOutboundTurns?: PendingOutboundTurn[];
+}): number {
+  return resolveLastKnownTurnIndex({
+    existingTurns: params.surfaceState.turns,
+    transcriptMessages: selectTranscriptMessages(params.surfaceState),
+    usageLedger: params.usageLedger,
+    pendingOutboundTurns: params.pendingOutboundTurns ?? [],
+  });
 }
 
 function resolveInitialDirectTuiBootState(): {
@@ -7961,6 +7974,12 @@ function PraxisDirectTuiApp(): JSX.Element {
   const pendingSessionSwitchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backendLaunchWorkspaceRef = useRef<string | null>(null);
   const backendLaunchSessionIdRef = useRef<string | null>(null);
+  const backendLaunchInitialTurnIndexRef = useRef<number | null>(
+    resolveBackendResumeTurnIndex({
+      surfaceState: initialBootState.surfaceState,
+      usageLedger: initialBootState.usageLedger,
+    }),
+  );
   const dismissedFilePopupTokenRef = useRef<string | null>(null);
   const modelCatalogCacheRef = useRef(new Map<string, AvailableModelCatalogEntry[]>());
   const modelAvailabilityProbeInFlightRef = useRef(new Set<string>());
@@ -10526,6 +10545,11 @@ function PraxisDirectTuiApp(): JSX.Element {
     setPendingSessionSwitch(null);
     backendLaunchWorkspaceRef.current = currentCwd;
     backendLaunchSessionIdRef.current = sessionIdRef.current;
+    backendLaunchInitialTurnIndexRef.current = resolveBackendResumeTurnIndex({
+      surfaceState: surfaceStateRef.current,
+      usageLedger: sessionUsageLedgerRef.current,
+      pendingOutboundTurns: pendingOutboundTurnsRef.current,
+    });
     backendRestartPendingRef.current = true;
     setBackendStatus("starting");
     setBackendEpoch((previous) => previous + 1);
@@ -10550,6 +10574,11 @@ function PraxisDirectTuiApp(): JSX.Element {
       setPendingSessionSwitch(null);
       backendLaunchWorkspaceRef.current = currentCwd;
       backendLaunchSessionIdRef.current = sessionIdRef.current;
+      backendLaunchInitialTurnIndexRef.current = resolveBackendResumeTurnIndex({
+        surfaceState: surfaceStateRef.current,
+        usageLedger: sessionUsageLedgerRef.current,
+        pendingOutboundTurns: pendingOutboundTurnsRef.current,
+      });
       backendRestartPendingRef.current = true;
       setBackendStatus("starting");
       setBackendEpoch((previous) => previous + 1);
@@ -10571,8 +10600,15 @@ function PraxisDirectTuiApp(): JSX.Element {
     const stateRoot = resolveStateRoot(appRoot);
     const launchWorkspace = backendLaunchWorkspaceRef.current ?? currentCwd;
     const launchSessionId = backendLaunchSessionIdRef.current ?? sessionIdRef.current;
+    const launchInitialTurnIndex = backendLaunchInitialTurnIndexRef.current
+      ?? resolveBackendResumeTurnIndex({
+        surfaceState: surfaceStateRef.current,
+        usageLedger: sessionUsageLedgerRef.current,
+        pendingOutboundTurns: pendingOutboundTurnsRef.current,
+      });
     backendLaunchWorkspaceRef.current = null;
     backendLaunchSessionIdRef.current = null;
+    backendLaunchInitialTurnIndexRef.current = null;
     const backendCommand = useApplicationBackend
       ? process.execPath
       : (existsSync(sourceBackendPath) ? tsxBin : process.execPath);
@@ -10593,6 +10629,7 @@ function PraxisDirectTuiApp(): JSX.Element {
           PRAXIS_STATE_ROOT: stateRoot,
           PRAXIS_WORKSPACE_ROOT: launchWorkspace,
           PRAXIS_DIRECT_SESSION_ID: launchSessionId,
+          PRAXIS_DIRECT_INITIAL_TURN_INDEX: String(launchInitialTurnIndex),
           RAXODE_APPLICATION_PERMISSION_PROFILE: configFile?.permissions.requestedMode
             ?? runtimeConfig?.permissions.requestedMode
             ?? "bapr",
@@ -11741,11 +11778,18 @@ function PraxisDirectTuiApp(): JSX.Element {
   const restartBackendInPlace = (input?: {
     nextWorkspace?: string;
     nextSessionId?: string;
+    initialTurnIndex?: number;
   }) => {
     backendRestartPendingRef.current = true;
     setBackendStatus("starting");
     backendLaunchWorkspaceRef.current = input?.nextWorkspace ?? null;
     backendLaunchSessionIdRef.current = input?.nextSessionId ?? null;
+    backendLaunchInitialTurnIndexRef.current = input?.initialTurnIndex
+      ?? resolveBackendResumeTurnIndex({
+        surfaceState: surfaceStateRef.current,
+        usageLedger: sessionUsageLedgerRef.current,
+        pendingOutboundTurns: pendingOutboundTurnsRef.current,
+      });
     setBackendEpoch((previous) => previous + 1);
   };
 
@@ -11837,6 +11881,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     restartBackendInPlace({
       nextWorkspace: process.cwd(),
       nextSessionId: snapshot.sessionId,
+      initialTurnIndex: 0,
     });
     return true;
   };
@@ -11988,7 +12033,9 @@ function PraxisDirectTuiApp(): JSX.Element {
         workspace: effectiveWorkspace,
       };
     resetSwitchRuntimeState();
-    setConversationActivated(buildSurfaceStateFromSessionSnapshot(normalizedSnapshot).messages.some((message) => message.kind === "user"));
+    const targetSurfaceState = buildSurfaceStateFromSessionSnapshot(normalizedSnapshot);
+    const targetUsageLedger = normalizedSnapshot.usageLedger ?? [];
+    setConversationActivated(targetSurfaceState.messages.some((message) => message.kind === "user"));
     setSlashPanelNotice({
       tone: effectiveWorkspace === snapshot.workspace ? "info" : "warning",
       text: effectiveWorkspace === snapshot.workspace
@@ -12000,13 +12047,17 @@ function PraxisDirectTuiApp(): JSX.Element {
       targetAgentId: snapshot.agentId ?? snapshot.selectedAgentId ?? "agent.core:main",
       targetWorkspace: effectiveWorkspace,
       targetSessionName: snapshot.name,
-      targetSurfaceState: buildSurfaceStateFromSessionSnapshot(normalizedSnapshot),
+      targetSurfaceState,
       successNotice: `Resumed ${snapshot.name}`,
       autoClose: true,
     });
     restartBackendInPlace({
       nextWorkspace: effectiveWorkspace,
       nextSessionId: snapshot.sessionId,
+      initialTurnIndex: resolveBackendResumeTurnIndex({
+        surfaceState: targetSurfaceState,
+        usageLedger: targetUsageLedger,
+      }),
     });
   };
 
@@ -12100,6 +12151,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     restartBackendInPlace({
       nextWorkspace: currentCwd,
       nextSessionId: sessionId,
+      initialTurnIndex: 0,
     });
   };
 

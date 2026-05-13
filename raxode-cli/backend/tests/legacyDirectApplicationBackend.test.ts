@@ -50,6 +50,7 @@ test("legacy direct application backend speaks direct ready and writes ordered l
     .filter(Boolean)
     .map((line) => JSON.parse(line) as {
       event?: string;
+      turnIndex?: number;
       text?: string;
       elapsedMs?: number;
       core?: {
@@ -62,6 +63,7 @@ test("legacy direct application backend speaks direct ready and writes ordered l
     });
   const events = rows.map((row) => row.event);
   assert.deepEqual(events.slice(0, 4), ["session_start", "stdin_payload_received", "turn_start", "stage_start"]);
+  assert.equal(rows.find((row) => row.event === "turn_start")?.turnIndex, 1);
   assert.ok(rows.some((row) => row.event === "stage_start" && row.text?.includes("Requesting")));
   assert.ok(rows.some((row) => row.event === "stage_end" && row.text?.includes("returned a model decision")));
   assert.ok(events.includes("assistant_delta"));
@@ -77,6 +79,65 @@ test("legacy direct application backend speaks direct ready and writes ordered l
   assert.equal(rows.find((row) => row.event === "turn_result")?.core?.usage?.inputTokens, undefined);
   assert.equal(typeof rows.find((row) => row.event === "turn_result")?.core?.elapsedMs, "number");
   assert.match(rows.find((row) => row.event === "turn_result")?.core?.answer ?? "", /dry-run/u);
+  if (previousStreamFps === undefined) {
+    delete process.env.RAXODE_STREAM_FPS;
+  } else {
+    process.env.RAXODE_STREAM_FPS = previousStreamFps;
+  }
+  await rm(stateRoot, { recursive: true, force: true });
+});
+
+test("legacy direct application backend resumes turn indexes from the restored session offset", async () => {
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-legacy-direct-resume-"));
+  const previousStreamFps = process.env.RAXODE_STREAM_FPS;
+  process.env.RAXODE_STREAM_FPS = "1000";
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const errorOutput = new PassThrough();
+  let stdout = "";
+  let stderr = "";
+  output.on("data", (chunk: Buffer | string) => {
+    stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  errorOutput.on("data", (chunk: Buffer | string) => {
+    stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+
+  const done = startLegacyDirectApplicationBackend({
+    input,
+    output,
+    errorOutput,
+    cwd: process.cwd(),
+    sessionId: "direct-resume-test",
+    stateRoot,
+    mode: "dry-run",
+    initialTurnIndex: 3,
+    now: () => "2026-05-10T00:00:00.000Z",
+  });
+
+  input.write(`${JSON.stringify({
+    type: "direct_user_input",
+    text: "resume turn smoke",
+  })}\u0000/exit\u0000`);
+  input.end();
+  await done;
+
+  assert.equal(stderr, "");
+  const logPath = stdout.match(/log file: (.+)/u)?.[1]?.trim();
+  assert.ok(logPath);
+  const rows = (await readFile(logPath, "utf8"))
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as {
+      event?: string;
+      initialTurnIndex?: number;
+      turnIndex?: number;
+    });
+
+  assert.equal(rows.find((row) => row.event === "session_start")?.initialTurnIndex, 3);
+  assert.equal(rows.find((row) => row.event === "turn_start")?.turnIndex, 4);
+  assert.equal(rows.find((row) => row.event === "turn_result")?.turnIndex, 4);
+
   if (previousStreamFps === undefined) {
     delete process.env.RAXODE_STREAM_FPS;
   } else {
@@ -163,6 +224,7 @@ test("legacy direct application backend writes live codex usage from framework t
           transcriptTokens?: number;
           contextSource?: string;
           usageSource?: string;
+          lastRequestInputTokens?: number;
         };
       };
       context?: {
@@ -171,6 +233,7 @@ test("legacy direct application backend writes live codex usage from framework t
         transcriptTokens?: number;
         contextSource?: string;
         usageSource?: string;
+        lastRequestInputTokens?: number;
       };
     });
   const turnResult = rows.find((row) => row.event === "turn_result");
@@ -179,10 +242,11 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(turnResult?.core?.usage?.thinkingTokens, 3);
   assert.equal(turnResult?.core?.usage?.estimated, false);
   assert.equal(turnResult?.core?.usage?.source, "openai.responses.usage");
-  assert.equal(turnResult?.core?.context?.contextSource, "openai.responses.usage");
+  assert.equal(turnResult?.core?.context?.contextSource, "application.history.estimate");
   assert.equal(turnResult?.core?.context?.usageSource, "openai.responses.usage");
   assert.equal(turnResult?.core?.context?.activeTokens, turnResult?.core?.context?.promptTokens);
-  assert.equal(turnResult?.core?.context?.promptTokens, 44);
+  assert.notEqual(turnResult?.core?.context?.promptTokens, 44);
+  assert.equal(turnResult?.core?.context?.lastRequestInputTokens, 44);
   assert.ok((turnResult?.core?.context?.transcriptTokens ?? 0) > 0);
   if (previousStreamFps === undefined) {
     delete process.env.RAXODE_STREAM_FPS;

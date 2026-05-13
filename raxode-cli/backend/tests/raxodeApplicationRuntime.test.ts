@@ -91,6 +91,7 @@ test("raxode application runtime includes prior same-session turns in the next p
   const firstBody = JSON.stringify(providerBodies[0]);
   assert.match(firstBody, /You are the Raxode coding agent/u);
   assert.match(firstBody, /Implementation\/build requests must be executed in the workspace with tools/u);
+  assert.match(firstBody, /The current workspace is the default target when the user does not name a path/u);
   const firstBodyRecord = providerBodies[0] as { prompt_cache_key?: string };
   assert.match(firstBodyRecord.prompt_cache_key ?? "", /^praxis-[a-f0-9]{32}$/u);
   const second = await transport.dispatch({
@@ -118,6 +119,91 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.equal(secondContext.source, "application.history.estimate");
   assert.ok(secondContext.activeTokens > 0);
   assert.ok(secondContext.promptTokens > 0);
+});
+
+test("raxode application runtime pre-compacts session history when previous provider context is near the limit", async () => {
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+  const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+    applicationId: "application.raxode.coding",
+    mode: "live",
+    model: "gpt-5.5",
+    reasoningEffort: "low",
+    permissionProfile: "bapr",
+    now: () => "2026-05-10T00:00:00.000Z",
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+        providerBodies.push(envelope.body);
+        const index = providerBodies.length;
+        return {
+          status: 200,
+          headers: {},
+          body: [
+            `data: {"type":"response.output_text.delta","delta":"reply ${index}"}`,
+            "",
+            'data: {"type":"response.completed","response":{"usage":{"input_tokens":260000,"output_tokens":3}}}',
+            "",
+            "data: [DONE]",
+            "",
+          ].join("\n"),
+          providerRawShapePromoted: false,
+          publicSafe: true,
+        };
+      },
+    }),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const transport = createLocalApplicationTransport(created.runtime);
+  const sessionId = "session.raxode.precompact.test";
+  await transport.dispatch({
+    type: "application.start",
+    sessionId,
+    cwd: process.cwd(),
+    mode: "live",
+  });
+
+  let latest = await transport.dispatch({
+    type: "application.submitTurn",
+    sessionId,
+    mode: "live",
+    input: {
+      type: "application.input",
+      text: "message 1",
+      cwd: process.cwd(),
+    },
+  });
+  assert.equal(latest.ok, true);
+  for (let index = 2; index <= 5; index += 1) {
+    latest = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: `message ${index}`,
+        cwd: process.cwd(),
+      },
+    });
+    assert.equal(latest.ok, true);
+  }
+
+  assert.equal(providerBodies.length, 5);
+  const compactionEvent = latest.view.events.find((event) => event.eventId === "turn.5.context.compacted");
+  assert.ok(compactionEvent);
+  assert.equal(compactionEvent.metadata?.phase, "pre-turn");
+  assert.equal(compactionEvent.metadata?.reason, "previous-provider-context-limit");
+  assert.equal(latest.view.context?.compacted, true);
+  const fifthBody = JSON.stringify(providerBodies[4]);
+  assert.match(fifthBody, /Compacted prior context/u);
+  assert.match(fifthBody, /message 5/u);
 });
 
 test("raxode application runtime routes omni.viewImage through Responses image input", async () => {

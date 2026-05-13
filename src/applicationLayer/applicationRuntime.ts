@@ -123,6 +123,8 @@ const APPLICATION_SESSION_HISTORY_KEEP_RECENT_MESSAGES = 12;
 const APPLICATION_SESSION_HISTORY_MAX_CHARS = 24_000;
 const APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS = 4_000;
 const APPLICATION_SESSION_SUMMARY_MAX_CHARS = 6_000;
+const APPLICATION_SESSION_PRE_TURN_KEEP_RECENT_MESSAGES = 6;
+const APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD = 0.9;
 
 function defaultNow(): string {
   return new Date().toISOString();
@@ -312,6 +314,8 @@ function compactConversationHistory(input: {
   messages: readonly ApplicationConversationMessage[];
   previousSummary?: ApplicationConversationSummary;
   now: string;
+  force?: boolean;
+  keepRecentMessages?: number;
 }): { messages: ApplicationConversationMessage[]; summary?: ApplicationConversationSummary; compacted: boolean } {
   const normalizedMessages = input.messages.map((message) => ({
     ...message,
@@ -320,11 +324,11 @@ function compactConversationHistory(input: {
   const totalChars = normalizedMessages.reduce((sum, message) => sum + message.text.length + message.role.length + message.turnId.length + 32, 0);
   const overMessageBudget = normalizedMessages.length > APPLICATION_SESSION_HISTORY_MAX_MESSAGES;
   const overCharBudget = totalChars > APPLICATION_SESSION_HISTORY_MAX_CHARS;
-  if (!overMessageBudget && !overCharBudget) {
+  if (!input.force && !overMessageBudget && !overCharBudget) {
     return { messages: normalizedMessages, summary: input.previousSummary, compacted: false };
   }
 
-  const keepCount = Math.min(APPLICATION_SESSION_HISTORY_KEEP_RECENT_MESSAGES, normalizedMessages.length);
+  const keepCount = Math.min(input.keepRecentMessages ?? APPLICATION_SESSION_HISTORY_KEEP_RECENT_MESSAGES, normalizedMessages.length);
   const keptMessages = normalizedMessages.slice(-keepCount);
   const compactedMessages = normalizedMessages.slice(0, Math.max(0, normalizedMessages.length - keepCount));
   if (compactedMessages.length === 0) {
@@ -347,6 +351,86 @@ function compactConversationHistory(input: {
       source: "application.history.autoCompact.v1",
     },
     compacted: true,
+  };
+}
+
+function modelAutoCompactTokenLimit(model: PraxisApplicationModelState): number | undefined {
+  const baseLimit = model.usableInputTokens ?? model.maxInputTokens ?? model.contextWindowTokens;
+  if (baseLimit === undefined || !Number.isFinite(baseLimit) || baseLimit <= 0) return undefined;
+  return Math.max(1, Math.floor(baseLimit * APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD));
+}
+
+function estimateTaskTextTokens(input: {
+  currentUserText: string;
+  history: readonly ApplicationConversationMessage[];
+  summary?: ApplicationConversationSummary;
+  attachments?: PraxisApplicationInputEnvelope["attachments"];
+}): number {
+  return estimateContextTokens(buildTaskTextWithSessionHistory(input));
+}
+
+function prepareHistoryForTurn(input: {
+  currentUserText: string;
+  history: readonly ApplicationConversationMessage[];
+  summary?: ApplicationConversationSummary;
+  attachments?: PraxisApplicationInputEnvelope["attachments"];
+  model: PraxisApplicationModelState;
+  previousUsage?: PraxisApplicationUsageTelemetry;
+  now: string;
+}): {
+  history: ApplicationConversationMessage[];
+  summary?: ApplicationConversationSummary;
+  compacted: boolean;
+  reason?: "estimated-context-limit" | "previous-provider-context-limit";
+  beforeTokens: number;
+  afterTokens: number;
+  limit?: number;
+} {
+  const limit = modelAutoCompactTokenLimit(input.model);
+  const beforeTokens = estimateTaskTextTokens({
+    currentUserText: input.currentUserText,
+    history: input.history,
+    summary: input.summary,
+    attachments: input.attachments,
+  });
+  const previousInputTokens = input.previousUsage?.inputTokens;
+  const overEstimatedContextLimit = limit !== undefined && beforeTokens >= limit;
+  const overPreviousProviderLimit = limit !== undefined &&
+    previousInputTokens !== undefined &&
+    Number.isFinite(previousInputTokens) &&
+    previousInputTokens >= limit;
+  if (!overEstimatedContextLimit && !overPreviousProviderLimit) {
+    return {
+      history: [...input.history],
+      summary: input.summary,
+      compacted: false,
+      beforeTokens,
+      afterTokens: beforeTokens,
+      limit,
+    };
+  }
+
+  const compacted = compactConversationHistory({
+    messages: input.history,
+    previousSummary: input.summary,
+    now: input.now,
+    force: true,
+    keepRecentMessages: APPLICATION_SESSION_PRE_TURN_KEEP_RECENT_MESSAGES,
+  });
+  const afterTokens = estimateTaskTextTokens({
+    currentUserText: input.currentUserText,
+    history: compacted.messages,
+    summary: compacted.summary,
+    attachments: input.attachments,
+  });
+  return {
+    history: compacted.messages,
+    summary: compacted.summary,
+    compacted: compacted.compacted,
+    reason: overEstimatedContextLimit ? "estimated-context-limit" : "previous-provider-context-limit",
+    beforeTokens,
+    afterTokens,
+    limit,
   };
 }
 
@@ -1787,10 +1871,43 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     const turnId = `turn.${state.turns}`;
     const historyBeforeTurn = state.conversationHistory.get(state.sessionId) ?? [];
     const summaryBeforeTurn = state.conversationSummaries.get(state.sessionId);
-    const taskText = buildTaskTextWithSessionHistory({
+    const preparedHistory = prepareHistoryForTurn({
       currentUserText: command.input.text,
       history: historyBeforeTurn,
       summary: summaryBeforeTurn,
+      attachments: command.input.attachments,
+      model: state.model,
+      previousUsage: state.usage,
+      now: now(),
+    });
+    if (preparedHistory.compacted) {
+      state.conversationHistory.set(state.sessionId, preparedHistory.history);
+      if (preparedHistory.summary !== undefined) {
+        state.conversationSummaries.set(state.sessionId, preparedHistory.summary);
+      } else {
+        state.conversationSummaries.delete(state.sessionId);
+      }
+      publish({
+        eventId: `${turnId}.context.compacted`,
+        kind: "runtime",
+        status: "running",
+        message: "application context compacted before provider call",
+        turnId,
+        metadata: {
+          phase: "pre-turn",
+          reason: preparedHistory.reason,
+          beforeTokens: preparedHistory.beforeTokens,
+          afterTokens: preparedHistory.afterTokens,
+          limit: preparedHistory.limit,
+          keptMessages: preparedHistory.history.length,
+          compactedMessages: preparedHistory.summary?.compactedMessages ?? 0,
+        },
+      });
+    }
+    const taskText = buildTaskTextWithSessionHistory({
+      currentUserText: command.input.text,
+      history: preparedHistory.history,
+      summary: preparedHistory.summary,
       attachments: command.input.attachments,
     });
     publish({
@@ -1801,7 +1918,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       turnId,
       metadata: {
         attachments: command.input.attachments?.length ?? 0,
-        historyMessages: historyBeforeTurn.length,
+        historyMessages: preparedHistory.history.length,
+        contextTokens: preparedHistory.afterTokens,
+        compactedBeforeTurn: preparedHistory.compacted,
       },
     });
 
@@ -1934,7 +2053,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     applyRunResult(state, result);
     const compactedHistory = compactConversationHistory({
       messages: [
-      ...historyBeforeTurn,
+      ...preparedHistory.history,
       {
         role: "user",
         text: command.input.text,
@@ -1949,7 +2068,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         status: result.ok ? "completed" : "failed",
       },
       ],
-      previousSummary: summaryBeforeTurn,
+      previousSummary: preparedHistory.summary,
       now: now(),
     });
     state.conversationHistory.set(state.sessionId, compactedHistory.messages);

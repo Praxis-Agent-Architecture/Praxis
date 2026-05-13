@@ -17,9 +17,20 @@ function coerceTurnId(value: unknown): number {
   return parseDirectTuiTurnIndex(trimmed);
 }
 
+function coerceEmbeddedTurnId(value: unknown): number {
+  if (typeof value !== "string") {
+    return 0;
+  }
+  const match = /(?:^|:)turn-(\d+)(?::|$)/u.exec(value.trim());
+  if (!match) {
+    return 0;
+  }
+  return parseDirectTuiTurnIndex(`turn-${match[1]}`);
+}
+
 export function resolveNextOptimisticTurnIndex(params: {
   existingTurns: Array<{ turnIndex?: number }>;
-  transcriptMessages: Array<{ turnId?: string }>;
+  transcriptMessages: Array<{ turnId?: string; messageId?: string }>;
   usageLedger: Array<{ turnId?: string }>;
   pendingOutboundTurns: Array<{ turnIndex: number }>;
 }): number {
@@ -30,6 +41,7 @@ export function resolveNextOptimisticTurnIndex(params: {
   }
   for (const message of params.transcriptMessages) {
     maxTurnIndex = Math.max(maxTurnIndex, coerceTurnId(message.turnId));
+    maxTurnIndex = Math.max(maxTurnIndex, coerceEmbeddedTurnId(message.messageId));
   }
   for (const usage of params.usageLedger) {
     maxTurnIndex = Math.max(maxTurnIndex, coerceTurnId(usage.turnId));
@@ -39,4 +51,13 @@ export function resolveNextOptimisticTurnIndex(params: {
   }
 
   return maxTurnIndex + 1;
+}
+
+export function resolveLastKnownTurnIndex(params: {
+  existingTurns: Array<{ turnIndex?: number }>;
+  transcriptMessages: Array<{ turnId?: string; messageId?: string }>;
+  usageLedger: Array<{ turnId?: string }>;
+  pendingOutboundTurns: Array<{ turnIndex: number }>;
+}): number {
+  return Math.max(0, resolveNextOptimisticTurnIndex(params) - 1);
 }
