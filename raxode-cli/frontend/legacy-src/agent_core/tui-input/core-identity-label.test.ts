@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildCoreIdentityLabelPresentation,
+  buildOpenAIStatusIdentityRows,
   formatApiRouteIdentityText,
   formatChatGPTPlanLabel,
   resolveChatGPTPlanTone,
@@ -56,4 +57,63 @@ test("buildCoreIdentityLabelPresentation falls back to route identity for api au
   assert.equal(presentation.kind, "route");
   assert.equal(presentation.text, "Anthropic Endpoint (Messages API)");
   assert.deepEqual(presentation.valueSegments, [{ text: "Anthropic Endpoint (Messages API)" }]);
+});
+
+test("buildOpenAIStatusIdentityRows describes ChatGPT subscription auth with plan and account facts", () => {
+  const rows = buildOpenAIStatusIdentityRows({
+    authStatus: {
+      authMode: "chatgpt_oauth",
+      activeAuthProfileId: "auth.openai.official",
+      activeProviderProfileId: "profile.provider.openai.official",
+      email: "user@example.com",
+      planType: "pro",
+      accountId: "acct_123",
+      accessTokenExpiresAt: "2026-05-12T12:00:00.000Z",
+      refreshTokenPresent: true,
+    },
+    routeKind: "openai_responses",
+    baseURL: "https://chatgpt.com/backend-api/codex",
+  });
+
+  assert.deepEqual(rows.map((row) => [row.label, row.text]), [
+    ["OpenAI auth path:", "ChatGPT subscription"],
+    ["OpenAI identity:", "ChatGPT Account with Pro Subscription"],
+    ["ChatGPT plan:", "Pro"],
+    ["ChatGPT account:", "acct_123"],
+    ["ChatGPT email:", "user@example.com"],
+    ["OpenAI auth profile:", "auth.openai.official"],
+    ["OpenAI provider profile:", "profile.provider.openai.official"],
+    ["OpenAI route:", "GPT Endpoint (Responses API)"],
+    ["OpenAI base URL:", "https://chatgpt.com/backend-api/codex"],
+    ["OAuth refresh token:", "present"],
+    ["Access token expires:", "2026-05-12T12:00:00.000Z"],
+  ]);
+  assert.deepEqual(rows[1]?.segments, [
+    { text: "ChatGPT Account with " },
+    { text: "Pro", tone: "success" },
+    { text: " Subscription" },
+  ]);
+});
+
+test("buildOpenAIStatusIdentityRows describes API key auth without pretending it has a ChatGPT plan", () => {
+  const rows = buildOpenAIStatusIdentityRows({
+    authStatus: {
+      authMode: "api_key",
+      activeAuthProfileId: "auth.openai.default",
+      activeProviderProfileId: "profile.provider.openai.default",
+      refreshTokenPresent: false,
+    },
+    routeKind: "openai_chat_completions",
+    baseURL: "https://api.example.com/v1",
+  });
+
+  assert.deepEqual(rows.map((row) => [row.label, row.text]), [
+    ["OpenAI auth path:", "API key"],
+    ["OpenAI identity:", "GPT Compatible (Completions API)"],
+    ["OpenAI auth profile:", "auth.openai.default"],
+    ["OpenAI provider profile:", "profile.provider.openai.default"],
+    ["OpenAI route:", "GPT Compatible (Completions API)"],
+    ["OpenAI base URL:", "https://api.example.com/v1"],
+  ]);
+  assert.equal(rows.some((row) => row.label === "ChatGPT plan:"), false);
 });

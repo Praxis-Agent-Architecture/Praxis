@@ -12,6 +12,23 @@ export interface CoreIdentityLabelPresentation {
   valueSegments: CoreIdentityValueSegment[];
 }
 
+export interface OpenAIStatusAuthSnapshot {
+  authMode: "api_key" | "chatgpt_oauth" | "none";
+  activeAuthProfileId?: string;
+  activeProviderProfileId?: string;
+  email?: string;
+  planType?: string;
+  accountId?: string;
+  accessTokenExpiresAt?: string;
+  refreshTokenPresent: boolean;
+}
+
+export interface OpenAIStatusIdentityRow {
+  label: string;
+  text: string;
+  segments?: CoreIdentityValueSegment[];
+}
+
 function humanizeUnknownPlanLabel(planType: string): string {
   return planType
     .trim()
@@ -108,4 +125,74 @@ export function buildCoreIdentityLabelPresentation(input: {
     text: routeText,
     valueSegments: [{ text: routeText }],
   };
+}
+
+export function buildOpenAIStatusIdentityRows(input: {
+  authStatus: OpenAIStatusAuthSnapshot;
+  routeKind: ProviderRouteKind;
+  baseURL?: string | null;
+}): OpenAIStatusIdentityRow[] {
+  const rows: OpenAIStatusIdentityRow[] = [];
+  const identity = buildCoreIdentityLabelPresentation({
+    authMode: input.authStatus.authMode,
+    planType: input.authStatus.planType,
+    routeKind: input.routeKind,
+  });
+  if (input.authStatus.authMode === "chatgpt_oauth") {
+    const planLabel = formatChatGPTPlanLabel(input.authStatus.planType);
+    rows.push(
+      { label: "OpenAI auth path:", text: "ChatGPT subscription" },
+      {
+        label: "OpenAI identity:",
+        text: identity.text,
+        segments: identity.valueSegments,
+      },
+      {
+        label: "ChatGPT plan:",
+        text: planLabel,
+        segments: [{ text: planLabel, tone: resolveChatGPTPlanTone(input.authStatus.planType) }],
+      },
+    );
+    if (input.authStatus.accountId) {
+      rows.push({ label: "ChatGPT account:", text: input.authStatus.accountId });
+    }
+    if (input.authStatus.email) {
+      rows.push({ label: "ChatGPT email:", text: input.authStatus.email });
+    }
+  } else if (input.authStatus.authMode === "api_key") {
+    rows.push(
+      { label: "OpenAI auth path:", text: "API key" },
+      {
+        label: "OpenAI identity:",
+        text: identity.text,
+        segments: identity.valueSegments,
+      },
+    );
+  } else {
+    rows.push(
+      { label: "OpenAI auth path:", text: "Unconfigured" },
+      { label: "OpenAI identity:", text: "No OpenAI credentials configured" },
+    );
+  }
+
+  if (input.authStatus.activeAuthProfileId) {
+    rows.push({ label: "OpenAI auth profile:", text: input.authStatus.activeAuthProfileId });
+  }
+  if (input.authStatus.activeProviderProfileId) {
+    rows.push({ label: "OpenAI provider profile:", text: input.authStatus.activeProviderProfileId });
+  }
+  rows.push({ label: "OpenAI route:", text: formatApiRouteIdentityText(input.routeKind) });
+  if (input.baseURL) {
+    rows.push({ label: "OpenAI base URL:", text: input.baseURL });
+  }
+  if (input.authStatus.authMode === "chatgpt_oauth") {
+    rows.push({
+      label: "OAuth refresh token:",
+      text: input.authStatus.refreshTokenPresent ? "present" : "missing",
+    });
+    if (input.authStatus.accessTokenExpiresAt) {
+      rows.push({ label: "Access token expires:", text: input.authStatus.accessTokenExpiresAt });
+    }
+  }
+  return rows;
 }

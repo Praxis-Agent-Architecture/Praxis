@@ -148,6 +148,9 @@ import {
   createDirectTuiAssistantStreamCoalescer,
 } from "./tui-input/direct-assistant-stream.js";
 import {
+  buildOpenAIStatusIdentityRows,
+} from "./tui-input/core-identity-label.js";
+import {
   appendDirectTuiCheckpointEvent,
   listDirectTuiTurnCheckpoints,
   upsertDirectTuiTurnCheckpoint,
@@ -186,6 +189,9 @@ import { resolveNextOptimisticTurnIndex } from "./tui-input/optimistic-turn-inde
 import {
   formatHumanGateDecisionEnvelope,
 } from "./live-agent-chat/human-gate-envelope.js";
+import {
+  resolveProviderRouteKind,
+} from "./integrations/model-route-features.js";
 import {
   applyDirectTuiTextSelectionToRenderSegments,
   createDirectTuiCmpActivityKey,
@@ -1230,6 +1236,7 @@ interface SlashPanelContext {
   agents: DirectTuiAgentEntry[];
   selectedAgentId: string;
   openAIAuthStatus: ReturnType<typeof getOpenAIAuthStatus>;
+  openAIConfig: OpenAILiveConfig | null;
   embeddingConfig: ReturnType<typeof loadResolvedEmbeddingConfig>;
   rateLimitRecord: StatusRateLimitCacheRecord | null;
   rateLimitRefreshState: "idle" | "loading";
@@ -2992,7 +2999,26 @@ function buildSlashPanelView(
   const workspaceInputValue = inputState.value || resolvePanelDraftValue(draft, "workspacePath", context.currentCwd);
   const statusText = notice?.text ?? panelStatusForBackendStatus(context.backendStatus);
   const rateLimitView = composeStatusRateLimitDisplayView(context.rateLimitRecord);
-  const openAIAuthModeLabel = formatOpenAIAuthModeLabel(context.openAIAuthStatus.authMode);
+  const openAIRouteKind = resolveProviderRouteKind({
+    provider: "openai",
+    baseURL: context.openAIConfig?.baseURL ?? context.route,
+    apiStyle: context.openAIConfig?.apiStyle,
+  });
+  const openAIStatusIdentityRows = buildOpenAIStatusIdentityRows({
+    authStatus: context.openAIAuthStatus,
+    routeKind: openAIRouteKind,
+    baseURL: context.openAIConfig?.baseURL ?? context.route,
+  });
+  const officialUsageUnavailableText =
+    context.openAIAuthStatus.authMode === "api_key"
+      ? "Not applicable (API key billing is provider-side)"
+      : context.openAIAuthStatus.authMode !== "chatgpt_oauth"
+        ? "Unavailable (ChatGPT subscription login required)"
+        : rateLimitView.availability === "error"
+          ? `Unavailable (${rateLimitView.error ?? "refresh failed"})`
+          : context.rateLimitRefreshState === "loading"
+            ? "Refreshing official usage snapshot..."
+            : "Unavailable";
   const modelEffortOptions = buildModelEffortOptions();
   const visibleSessions = context.sessions.slice(0, 12);
   const visibleAgents = context.agents.slice(0, 12);
@@ -3148,8 +3174,11 @@ function buildSlashPanelView(
           createBodyKeyValueLine("Praxis package version:", PRAXIS_DISPLAY_VERSION, { indent: 4, labelWidth: 28 }),
           createBodyKeyValueLine("Permissions mode:", modeChoice, { indent: 4, labelWidth: 28 }),
           createBodyKeyValueLine("Active agents:", String(context.agents.length), { indent: 4, labelWidth: 28 }),
-          createBodyKeyValueLine("OpenAI auth mode:", openAIAuthModeLabel, { indent: 4, labelWidth: 28 }),
-          createBodyKeyValueLine("ChatGPT plan:", context.openAIAuthStatus.planType ?? "Unknown", { indent: 4, labelWidth: 28 }),
+          ...openAIStatusIdentityRows.map((row) => createBodyKeyValueLine(row.label, row.text, {
+            indent: 4,
+            labelWidth: 28,
+            valueSegments: row.segments,
+          })),
           createBodyKeyValueLine(
             "Embedding model:",
             context.embeddingConfig?.model ?? context.configFile?.embedding.lanceDbModel ?? "Unconfigured",
@@ -3165,13 +3194,7 @@ function buildSlashPanelView(
             : [
                 createBodyKeyValueLine(
                   "Official usage:",
-                  context.openAIAuthStatus.authMode !== "chatgpt_oauth"
-                    ? "Unavailable (ChatGPT subscription required)"
-                    : rateLimitView.availability === "error"
-                      ? `Unavailable (${rateLimitView.error ?? "refresh failed"})`
-                      : context.rateLimitRefreshState === "loading"
-                        ? "Refreshing official usage snapshot..."
-                        : "Unavailable",
+                  officialUsageUnavailableText,
                   { indent: 4, labelWidth: 28 },
                 ),
               ]),
@@ -14556,6 +14579,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     agents: agentEntries,
     selectedAgentId,
     openAIAuthStatus,
+    openAIConfig: config,
     embeddingConfig,
     rateLimitRecord: statusRateLimitRecord,
     rateLimitRefreshState: statusRateLimitRefreshState,
@@ -14582,7 +14606,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     capabilityViewerSnapshot,
     cmpSummaryLines,
     cmpViewerSnapshot,
-    config?.baseURL,
+    config,
     configFile,
     contextPercent,
     contextWindowLabel,
