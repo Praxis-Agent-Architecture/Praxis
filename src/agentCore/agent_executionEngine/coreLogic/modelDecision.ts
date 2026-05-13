@@ -49,6 +49,7 @@ export type ModelDecision = {
   decisionId: string;
   kind: ModelDecisionKind;
   finalOutput?: string;
+  preambleText?: string;
   toolCall?: ModelDecisionToolCall;
   ephemeralProcedurePlan?: EphemeralProcedurePlan;
   toolContextExpansion?: ModelDecisionToolContextExpansion;
@@ -241,6 +242,7 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
     mappings: request.providerToolMappings,
     providerRawRef: rawRef,
   });
+  const visiblePreambleText = extractText(request.raw);
 
   for (const [index, call] of providerToolCalls.entries()) {
     if (call.malformedArguments !== undefined) {
@@ -341,6 +343,7 @@ export function interpretModelDecision(request: ModelDecisionInterpretRequest): 
         toolId: call.toolId,
         arguments: call.arguments,
       },
+      ...(index === 0 && visiblePreambleText.length > 0 ? { preambleText: visiblePreambleText } : {}),
       providerRawRef: rawRef,
       observationRefs: [],
       metadata: { providerFunctionName: call.providerName, providerFamily: call.providerFamily },

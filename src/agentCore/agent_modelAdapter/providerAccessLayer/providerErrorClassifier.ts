@@ -60,6 +60,7 @@ function providerMessage(error: unknown): string | undefined {
 export function classifyProviderAccessError(error: unknown): ProviderAccessError {
   const status = providerStatus(error);
   const codeText = providerCode(error);
+  const messageText = providerMessage(error)?.toLowerCase() ?? "";
   let code: ProviderAccessErrorCode = "CALLER_FAILED";
 
   if (status === 401 || status === 403) {
@@ -69,6 +70,15 @@ export function classifyProviderAccessError(error: unknown): ProviderAccessError
   } else if (status === 408 || codeText.includes("timeout") || codeText.includes("abort")) {
     code = "PROVIDER_TIMEOUT";
   } else if (status !== undefined && status >= 500) {
+    code = "PROVIDER_UNAVAILABLE";
+  } else if (
+    messageText.includes("terminated") ||
+    messageText.includes("fetch failed") ||
+    messageText.includes("socket hang up") ||
+    messageText.includes("econnreset") ||
+    messageText.includes("connection reset") ||
+    messageText.includes("network error")
+  ) {
     code = "PROVIDER_UNAVAILABLE";
   } else if (codeText.includes("format") || codeText.includes("schema") || codeText.includes("parse") || codeText.includes("drift")) {
     code = "RESPONSE_FORMAT_DRIFT";

@@ -63,6 +63,68 @@ function sortTranscriptMessagesByTurn(
   });
 }
 
+function toolSummaryFamilyKey(message: SurfaceMessage): string | undefined {
+  const value = message.metadata?.familyKey;
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim().toLowerCase()
+    : undefined;
+}
+
+function isToolPreviewMessage(message: SurfaceMessage): boolean {
+  return message.kind === "status"
+    && message.metadata?.source === "tool_summary"
+    && message.metadata?.summaryRole === "tool_preview";
+}
+
+function isFinalToolSummaryMessage(message: SurfaceMessage): boolean {
+  return message.kind === "status"
+    && message.metadata?.source === "tool_summary"
+    && message.metadata?.summaryRole !== "tool_preview";
+}
+
+function toolSummaryVisibilityKey(message: SurfaceMessage): string | undefined {
+  const turnId = message.turnId?.trim();
+  const familyKey = toolSummaryFamilyKey(message);
+  return turnId && familyKey ? `${turnId}:${familyKey}` : undefined;
+}
+
+function toolSummaryTurnVisibilityKey(message: SurfaceMessage): string | undefined {
+  const turnId = message.turnId?.trim();
+  return turnId ? `${turnId}:*` : undefined;
+}
+
+function filterSupersededToolPreviewMessages(messages: readonly SurfaceMessage[]): SurfaceMessage[] {
+  const laterFinalSummaryKeys = new Set<string>();
+  const visible: SurfaceMessage[] = [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message) {
+      continue;
+    }
+    const visibilityKey = toolSummaryVisibilityKey(message);
+    const turnVisibilityKey = toolSummaryTurnVisibilityKey(message);
+    const familyKey = toolSummaryFamilyKey(message);
+    if (
+      isToolPreviewMessage(message)
+      && (
+        (visibilityKey !== undefined && laterFinalSummaryKeys.has(visibilityKey))
+        || ((familyKey === undefined || familyKey === "tool") && turnVisibilityKey !== undefined && laterFinalSummaryKeys.has(turnVisibilityKey))
+      )
+    ) {
+      continue;
+    }
+    visible.push(message);
+    if (isFinalToolSummaryMessage(message) && visibilityKey) {
+      laterFinalSummaryKeys.add(visibilityKey);
+      const finalTurnVisibilityKey = toolSummaryTurnVisibilityKey(message);
+      if (finalTurnVisibilityKey) {
+        laterFinalSummaryKeys.add(finalTurnVisibilityKey);
+      }
+    }
+  }
+  return visible.reverse();
+}
+
 export function selectTranscriptMessages(
   state: SurfaceState,
   options: {
@@ -73,8 +135,8 @@ export function selectTranscriptMessages(
   const scoped = options.turnId
     ? state.messages.filter((message) => message.turnId === options.turnId)
     : state.messages;
-  const ordered = sortTranscriptMessagesByTurn(state, scoped);
-  if (!options.limit || options.limit <= 0 || scoped.length <= options.limit) {
+  const ordered = filterSupersededToolPreviewMessages(sortTranscriptMessagesByTurn(state, scoped));
+  if (!options.limit || options.limit <= 0 || ordered.length <= options.limit) {
     return ordered;
   }
   return ordered.slice(ordered.length - options.limit);

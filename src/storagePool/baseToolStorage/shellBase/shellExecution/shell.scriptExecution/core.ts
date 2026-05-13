@@ -11,6 +11,10 @@ import type {
   ShellToolContext,
   ShellToolResult,
 } from "../shell.commandExecution/core.js";
+import {
+  describeShellWorkspaceWrite,
+  shellWorkspaceWriteGuardMessage,
+} from "../../_shared/workspaceWriteGuard.js";
 
 export type ShellScriptLanguage = "sh" | "bash" | "zsh" | "fish" | "powershell" | "unknown";
 
@@ -57,6 +61,7 @@ export type ShellScriptExecutionErrorCode =
   | "INVALID_STDIN"
   | "GOVERNANCE_REJECTED"
   | "SCOPE_DENIED"
+  | "WORKSPACE_WRITE_REQUIRES_CODE_TOOL"
   | "REAL_SCRIPT_EXECUTION_NOT_ALLOWED"
   | ShellCommandExecutionErrorCode;
 
@@ -375,6 +380,15 @@ function normalizeShellScriptExecution(
   const script = normalizeScript(request.script);
   if (typeof script !== "string") {
     return script;
+  }
+
+  const workspaceWriteReason = describeShellWorkspaceWrite(script);
+  if (workspaceWriteReason !== undefined) {
+    return failure(
+      "WORKSPACE_WRITE_REQUIRES_CODE_TOOL",
+      shellWorkspaceWriteGuardMessage(workspaceWriteReason),
+      "governance",
+    );
   }
 
   const language = normalizeLanguage(request.language);

@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import {
   praxis,
   type AgentManifest,
+  type AgentModelCallRecord,
   type AgentModelCallProgressEvent,
   type BaseToolExecutorPort,
   type BaseToolExecutorResult,
@@ -66,6 +67,7 @@ export type PraxisApplicationRuntimeOptions = {
     runtimeId: string;
     turnId?: string;
     onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void;
+    onProviderStreamEvent?: (event: Readonly<Record<string, unknown>>) => void;
   }) => Promise<{ auth: AuthEnvelope; providerCaller: OpenAIV1ResponsesProviderCaller } | undefined>;
   now?: () => string;
 };
@@ -365,6 +367,7 @@ function rawStringValue(value: unknown): string | undefined {
 function codeModifyDiffPreviewLines(input: {
   targetPath?: string;
   replacements?: number;
+  startLine?: number;
   searchText: string;
   replacementText: string;
 }): string[] {
@@ -372,10 +375,15 @@ function codeModifyDiffPreviewLines(input: {
   if (combinedBytes > CODE_MODIFY_DIFF_PREVIEW_MAX_BYTES) {
     return [];
   }
-  const removed = input.searchText.split(/\r?\n/u).map((line) => `-${line.length > 0 ? line : " "}`);
-  const added = input.replacementText.split(/\r?\n/u).map((line) => `+${line.length > 0 ? line : " "}`);
+  const formatDiffLine = (marker: "+" | "-", index: number, line: string): string => {
+    const lineNumber = input.startLine === undefined ? "?" : String(input.startLine + index);
+    return `${marker}${lineNumber.padStart(4, " ")} | ${line.length > 0 ? line : " "}`;
+  };
+  const removed = input.searchText.split(/\r?\n/u).map((line, index) => formatDiffLine("-", index, line));
+  const added = input.replacementText.split(/\r?\n/u).map((line, index) => formatDiffLine("+", index, line));
   const replacements = input.replacements ?? 1;
-  const header = `@@ ${input.targetPath ?? "file"} · ${replacements} replacement${replacements === 1 ? "" : "s"} @@`;
+  const lineSuffix = input.startLine === undefined ? "" : ` · line ${input.startLine}`;
+  const header = `@@ ${input.targetPath ?? "file"}${lineSuffix} · ${replacements} replacement${replacements === 1 ? "" : "s"} @@`;
   const lines = [header, ...removed, ...added];
   if (lines.length <= CODE_MODIFY_DIFF_PREVIEW_MAX_LINES) {
     return lines;
@@ -384,6 +392,57 @@ function codeModifyDiffPreviewLines(input: {
     ...lines.slice(0, CODE_MODIFY_DIFF_PREVIEW_MAX_LINES - 1),
     "... diff preview trimmed",
   ];
+}
+
+function textLineCount(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (value.length === 0) return 0;
+  return value.split(/\r\n|\r|\n/u).length;
+}
+
+function rangeDeletedLineCount(value: unknown): number | undefined {
+  const range = objectValue(value);
+  const startLine = numberValue(range?.startLine) ?? numberValue(range?.start);
+  const endLine = numberValue(range?.endLine) ?? numberValue(range?.end);
+  if (startLine === undefined || endLine === undefined || endLine < startLine) {
+    return undefined;
+  }
+  return Math.floor(endLine - startLine + 1);
+}
+
+function codeChangeLineStats(toolCall: AgentToolCallRecord): {
+  codeAdditions?: number;
+  codeDeletions?: number;
+} | undefined {
+  if (!toolCall.toolId.startsWith("code.")) return undefined;
+  const args = flattenedToolArguments(toolCall.arguments);
+  const output = objectValue(toolCall.output);
+  switch (toolCall.toolId) {
+    case "code.modify": {
+      const replacements = numberValue(output?.replacements);
+      const multiplier = replacements !== undefined && replacements > 0 ? Math.floor(replacements) : 1;
+      const replacementLines = textLineCount(rawStringValue(args.replacementText));
+      const searchLines = textLineCount(rawStringValue(args.searchText));
+      return cleanRecord({
+        codeAdditions: replacementLines === undefined ? undefined : replacementLines * multiplier,
+        codeDeletions: searchLines === undefined ? undefined : searchLines * multiplier,
+      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
+    }
+    case "code.overwrite":
+      return cleanRecord({
+        codeAdditions: textLineCount(rawStringValue(args.content)),
+      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
+    case "code.replaceFile":
+      return cleanRecord({
+        codeAdditions: textLineCount(rawStringValue(args.newContent)),
+      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
+    case "code.delete":
+      return cleanRecord({
+        codeDeletions: numberValue(output?.deletedLines) ?? rangeDeletedLineCount(args.range),
+      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
+    default:
+      return undefined;
+  }
 }
 
 function estimateContextTokens(text: string): number {
@@ -771,6 +830,7 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
         lines.push(...codeModifyDiffPreviewLines({
           targetPath,
           replacements: numberValue(output?.replacements),
+          startLine: numberValue(output?.firstMatchedLine),
           searchText,
           replacementText,
         }));
@@ -1197,6 +1257,7 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
     ?? (actionCount > 0 ? actionCount : undefined);
   const resultCount = countFromArrays(output?.hits, output?.matches, output?.results);
   const changedFileCount = countFromArrays(envelope?.entries, envelope?.changedFiles, output?.changedFiles, output?.committedFiles);
+  const changeLineStats = codeChangeLineStats(toolCall);
   return cleanRecord({
     targetPaths,
     pathCount: targetPaths.length > 0 ? targetPaths.length : undefined,
@@ -1216,6 +1277,8 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
     mountCount: countFromArrays(objectValue(output?.activation)?.mounts),
     imageCount: toolCall.toolId.includes("Image") || toolCall.toolId.includes("Screenshot") || firstStringValue(output?.imagePath, output?.artifactId) ? 1 : undefined,
     mimeType: firstStringValue(output?.mimeType, objectValue(output?.artifact)?.mimeType),
+    codeAdditions: changeLineStats?.codeAdditions,
+    codeDeletions: changeLineStats?.codeDeletions,
     errorCode: stringValue(objectValue(toolCall.error)?.code),
   });
 }
@@ -1990,6 +2053,21 @@ function addOptionalNumber(left: number | undefined, right: number | undefined):
   return (left ?? 0) + (right ?? 0);
 }
 
+function usageContextTotalTokens(usage: NonNullable<AgentModelCallRecord["usage"]>): number | undefined {
+  if (typeof usage.totalTokens === "number" && Number.isFinite(usage.totalTokens)) {
+    return usage.totalTokens;
+  }
+  if (
+    typeof usage.inputTokens === "number"
+    && Number.isFinite(usage.inputTokens)
+    && typeof usage.outputTokens === "number"
+    && Number.isFinite(usage.outputTokens)
+  ) {
+    return usage.inputTokens + usage.outputTokens;
+  }
+  return undefined;
+}
+
 function summarizeRunUsage(result: Extract<AgentRunResult, { ok: true }>): PraxisApplicationUsageTelemetry | undefined {
   const usageRecords = result.modelCalls
     .map((call) => call.usage)
@@ -2011,6 +2089,16 @@ function summarizeRunUsage(result: Extract<AgentRunResult, { ok: true }>): Praxi
     estimated: false,
     modelCalls: 0,
   });
+  const lastUsage = [...usageRecords].reverse().find((usage) =>
+    typeof usage.inputTokens === "number" && Number.isFinite(usage.inputTokens));
+  if (lastUsage?.inputTokens !== undefined) {
+    summary.lastInputTokens = lastUsage.inputTokens;
+  }
+  const lastTotalUsage = [...usageRecords].reverse().find((usage) => usageContextTotalTokens(usage) !== undefined);
+  const lastTotalTokens = lastTotalUsage === undefined ? undefined : usageContextTotalTokens(lastTotalUsage);
+  if (lastTotalTokens !== undefined) {
+    summary.lastTotalTokens = lastTotalTokens;
+  }
 
   return summary.modelCalls > 0 ? summary : undefined;
 }
@@ -2493,29 +2581,61 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     });
 
     let liveProvider: { auth: AuthEnvelope; providerCaller: OpenAIV1ResponsesProviderCaller } | undefined;
+    let emitTextDelta: ((delta: string, metadata?: Readonly<Record<string, unknown>>) => void) | undefined;
+    let emitProviderStreamEvent: ((event: Readonly<Record<string, unknown>>) => void) | undefined;
     if (state.mode === "live") {
       try {
         let streamSequence = 0;
+        let emittedAssistantText = "";
+        emitTextDelta = (delta, metadata) => {
+          if (delta.length === 0) return;
+          if (metadata?.source === "model_tool_preamble" && emittedAssistantText.includes(delta)) {
+            return;
+          }
+          emittedAssistantText += delta;
+          streamSequence += 1;
+          publish({
+            eventId: `${turnId}.stream.${streamSequence}`,
+            kind: "stream",
+            status: "running",
+            message: delta,
+            turnId,
+            metadata: {
+              ...(metadata ?? {}),
+              sequence: streamSequence,
+              channel: "assistant",
+            },
+          });
+        };
+        emitProviderStreamEvent = (event) => {
+          streamSequence += 1;
+          const message = typeof event.argumentsDelta === "string"
+            ? event.argumentsDelta
+            : typeof event.arguments === "string"
+              ? event.arguments
+              : typeof event.providerToolName === "string"
+                ? event.providerToolName
+                : typeof event.phase === "string"
+                  ? event.phase
+                  : "provider stream event";
+          publish({
+            eventId: `${turnId}.stream.${streamSequence}`,
+            kind: "stream",
+            status: "running",
+            message,
+            turnId,
+            metadata: {
+              ...event,
+              sequence: streamSequence,
+            },
+          });
+        };
         liveProvider = await options.liveProviderResolver?.(compiled.manifest, {
           sessionId: state.sessionId,
           runtimeId: state.runtimeId,
           turnId,
-          onTextDelta: (delta, metadata) => {
-            if (delta.length === 0) return;
-            streamSequence += 1;
-            publish({
-              eventId: `${turnId}.stream.${streamSequence}`,
-              kind: "stream",
-              status: "running",
-              message: delta,
-              turnId,
-              metadata: {
-                ...(metadata ?? {}),
-                sequence: streamSequence,
-                channel: "assistant",
-              },
-            });
-          },
+          onTextDelta: emitTextDelta,
+          onProviderStreamEvent: emitProviderStreamEvent,
         });
       } catch (error) {
         state.status = "failed";
@@ -2588,6 +2708,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           status: "running",
         }));
       },
+      onTextDelta: emitTextDelta,
       now,
     });
     applyRunResult(state, result);

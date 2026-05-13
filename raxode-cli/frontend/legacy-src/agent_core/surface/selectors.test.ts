@@ -169,6 +169,160 @@ test("surface selectors preserve insertion order within the same turn", () => {
   );
 });
 
+test("surface selectors hide superseded tool preview messages after family summary arrives", () => {
+  const state = reduceSurfaceEvents(createInitialSurfaceState(), [
+    createSurfaceEvent({
+      eventId: "event:turn.started:turn-2",
+      type: "turn.started",
+      emittedAt: "2026-04-11T09:25:00.000Z",
+      at: "2026-04-11T09:25:00.000Z",
+      source: "core",
+      turn: createSurfaceTurn({
+        turnId: "turn-2",
+        id: "turn-2",
+        turnIndex: 2,
+        status: "running",
+        startedAt: "2026-04-11T09:25:00.000Z",
+        updatedAt: "2026-04-11T09:25:00.000Z",
+        outputMessageIds: [],
+        taskIds: [],
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:preview-code-1",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:25:01.000Z",
+      at: "2026-04-11T09:25:01.000Z",
+      source: "ui",
+      message: createSurfaceMessage({
+        messageId: "preview-code-1",
+        id: "preview-code-1",
+        kind: "status",
+        createdAt: "2026-04-11T09:25:01.000Z",
+        turnId: "turn-2",
+        text: "Tool ready\nScanning . (depth 2, up to 100 entries)",
+        metadata: {
+          source: "tool_summary",
+          familyKey: "code",
+          summaryRole: "tool_preview",
+        },
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:family-code-1",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:25:02.000Z",
+      at: "2026-04-11T09:25:02.000Z",
+      source: "ui",
+      message: createSurfaceMessage({
+        messageId: "family-code-1",
+        id: "family-code-1",
+        kind: "status",
+        createdAt: "2026-04-11T09:25:02.000Z",
+        turnId: "turn-2",
+        text: "Code\nScanning . (depth 2, up to 100 entries)\nScanned .: 4 entries",
+        metadata: {
+          source: "tool_summary",
+          familyKey: "code",
+          summaryRole: "family",
+        },
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:preview-code-2",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:25:03.000Z",
+      at: "2026-04-11T09:25:03.000Z",
+      source: "ui",
+      message: createSurfaceMessage({
+        messageId: "preview-code-2",
+        id: "preview-code-2",
+        kind: "status",
+        createdAt: "2026-04-11T09:25:03.000Z",
+        turnId: "turn-2",
+        text: "Code composing\nReading package.json",
+        metadata: {
+          source: "tool_summary",
+          familyKey: "code",
+          summaryRole: "tool_preview",
+        },
+      }),
+    }),
+  ]);
+
+  assert.deepEqual(
+    selectTranscriptMessages(state, { turnId: "turn-2" }).map((message) => message.id),
+    ["family-code-1", "preview-code-2"],
+  );
+});
+
+test("surface selectors hide generic tool preview messages after any later family summary in the same turn", () => {
+  const state = reduceSurfaceEvents(createInitialSurfaceState(), [
+    createSurfaceEvent({
+      eventId: "event:turn.started:turn-3",
+      type: "turn.started",
+      emittedAt: "2026-04-11T09:26:00.000Z",
+      at: "2026-04-11T09:26:00.000Z",
+      source: "core",
+      turn: createSurfaceTurn({
+        turnId: "turn-3",
+        id: "turn-3",
+        turnIndex: 3,
+        status: "running",
+        startedAt: "2026-04-11T09:26:00.000Z",
+        updatedAt: "2026-04-11T09:26:00.000Z",
+        outputMessageIds: [],
+        taskIds: [],
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:preview-tool-1",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:26:01.000Z",
+      at: "2026-04-11T09:26:01.000Z",
+      source: "ui",
+      message: createSurfaceMessage({
+        messageId: "preview-tool-1",
+        id: "preview-tool-1",
+        kind: "status",
+        createdAt: "2026-04-11T09:26:01.000Z",
+        turnId: "turn-3",
+        text: "Tool ready\nRunning pwd",
+        metadata: {
+          source: "tool_summary",
+          familyKey: "tool",
+          summaryRole: "tool_preview",
+        },
+      }),
+    }),
+    createSurfaceEvent({
+      eventId: "event:message.appended:shell-family-1",
+      type: "message.appended",
+      emittedAt: "2026-04-11T09:26:02.000Z",
+      at: "2026-04-11T09:26:02.000Z",
+      source: "ui",
+      message: createSurfaceMessage({
+        messageId: "shell-family-1",
+        id: "shell-family-1",
+        kind: "status",
+        createdAt: "2026-04-11T09:26:02.000Z",
+        turnId: "turn-3",
+        text: "Shell\nRunning pwd\nCommand completed with exit 0: pwd",
+        metadata: {
+          source: "tool_summary",
+          familyKey: "shell",
+          summaryRole: "family",
+        },
+      }),
+    }),
+  ]);
+
+  assert.deepEqual(
+    selectTranscriptMessages(state, { turnId: "turn-3" }).map((message) => message.id),
+    ["shell-family-1"],
+  );
+});
+
 test("surface selectors keep late previous-turn output before the next optimistic user turn", () => {
   const state = reduceSurfaceEvents(createInitialSurfaceState(), [
     createSurfaceEvent({

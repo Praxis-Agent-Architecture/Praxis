@@ -378,9 +378,16 @@ function contextFor(result?: PraxisApplicationCommandResult) {
   const model = result?.view.model;
   const context = hasContextNumber(result?.view.context) ? result.view.context : undefined;
   const usage = hasUsageNumber(result?.view.usage) ? result.view.usage : undefined;
-  const observedInputTokens = typeof usage?.inputTokens === "number" && Number.isFinite(usage.inputTokens)
-    ? usage.inputTokens
-    : undefined;
+  const observedInputTokens = typeof usage?.lastInputTokens === "number" && Number.isFinite(usage.lastInputTokens)
+    ? usage.lastInputTokens
+    : typeof usage?.inputTokens === "number" && Number.isFinite(usage.inputTokens)
+      ? usage.inputTokens
+      : undefined;
+  const observedTotalTokens = typeof usage?.lastTotalTokens === "number" && Number.isFinite(usage.lastTotalTokens)
+    ? usage.lastTotalTokens
+    : typeof usage?.totalTokens === "number" && Number.isFinite(usage.totalTokens)
+      ? usage.totalTokens
+      : undefined;
   const estimatedActiveTokens = context?.activeTokens ?? context?.promptTokens ?? 0;
   const activeTokens = estimatedActiveTokens;
   const transcriptTokens = context?.transcriptTokens ?? 0;
@@ -399,6 +406,7 @@ function contextFor(result?: PraxisApplicationCommandResult) {
     activeTokens,
     promptTokens: activeTokens,
     lastRequestInputTokens: observedInputTokens,
+    lastRequestTotalTokens: observedTotalTokens,
     transcriptTokens,
     summaryTokens: context?.summaryTokens ?? 0,
     historyMessages: context?.historyMessages ?? 0,
@@ -418,6 +426,8 @@ function usageFor(result: PraxisApplicationCommandResult) {
     thinkingTokens: usage.thinkingTokens,
     totalTokens: usage.totalTokens,
     cachedInputTokens: usage.cachedInputTokens,
+    lastInputTokens: usage.lastInputTokens,
+    lastTotalTokens: usage.lastTotalTokens,
     source: usage.source,
     estimated: usage.estimated,
   };
@@ -460,6 +470,11 @@ function stringArrayMetadata(metadata: Readonly<Record<string, unknown>> | undef
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
 }
 
+function numberMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): number | undefined {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
 function recordMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): Record<string, unknown> | undefined {
   const value = metadata?.[key];
   return value && typeof value === "object" && !Array.isArray(value)
@@ -482,6 +497,7 @@ function legacyToolStageRecord(input: {
   const errorPreview = running || humanResultSummary.length > 0 ? undefined : stringMetadata(metadata, "errorPreview");
   const resultMetadata = {
     ...recordMetadata(metadata, "resultMetadata"),
+    toolCallId: stringMetadata(metadata, "toolCallId"),
     toolId,
     toolStatus,
     familyKey: stringMetadata(metadata, "familyKey"),
@@ -496,6 +512,7 @@ function legacyToolStageRecord(input: {
     stage: "core/capability_bridge",
     status: running ? "running" : (toolStatus === "failed" ? "failed" : "completed"),
     capabilityKey: toolId,
+    toolCallId: stringMetadata(metadata, "toolCallId"),
     familyKey: stringMetadata(metadata, "familyKey"),
     familyTitle: stringMetadata(metadata, "familyTitle"),
     inputSummary: stringMetadata(metadata, "inputSummary"),
@@ -534,6 +551,33 @@ function legacyModelStageRecord(input: {
         ? `${model} returned a model decision.`
         : stringMetadata(metadata, "errorMessage") ?? `${model} model request failed.`,
     resultMetadata: metadata,
+  };
+}
+
+function legacyToolCallPreviewRecord(input: {
+  applicationEvent: PraxisApplicationEvent;
+  sessionId: string;
+  turnIndex: number;
+}): Record<string, unknown> | undefined {
+  if (input.applicationEvent.kind !== "stream") return undefined;
+  const metadata = input.applicationEvent.metadata;
+  if (stringMetadata(metadata, "channel") !== "tool_call_preview") return undefined;
+  const phase = stringMetadata(metadata, "phase") ?? "delta";
+  return {
+    ts: input.applicationEvent.createdAt,
+    event: "tool_call_preview",
+    sessionId: input.sessionId,
+    turnIndex: input.turnIndex,
+    status: phase,
+    stage: "core/tool_call.preview",
+    toolCallId: stringMetadata(metadata, "callId"),
+    itemId: stringMetadata(metadata, "itemId"),
+    outputIndex: numberMetadata(metadata, "outputIndex"),
+    providerToolName: stringMetadata(metadata, "providerToolName"),
+    text: input.applicationEvent.message,
+    argumentsDelta: stringMetadata(metadata, "argumentsDelta"),
+    arguments: stringMetadata(metadata, "arguments"),
+    rawType: stringMetadata(metadata, "rawType"),
   };
 }
 
@@ -689,6 +733,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     now: options.now,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       onTextDelta: context?.onTextDelta,
+      onProviderStreamEvent: context?.onProviderStreamEvent,
     })),
     approvalResolver,
   });
@@ -708,12 +753,27 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
 
   const transport = applicationLayer.createLocalApplicationTransport(created.runtime);
   const streamedTextByTurn = new Map<number, string>();
+  const legacyTurnIndexByApplicationTurnId = new Map<string, number>();
   const initialTurnIndex = normalizeInitialTurnIndex(
     options.initialTurnIndex ?? process.env.PRAXIS_DIRECT_INITIAL_TURN_INDEX,
   );
   let turnIndex = initialTurnIndex;
+  let activeLegacyTurnIndex: number | undefined;
   transport.subscribe((applicationEvent) => {
-    const legacyTurnIndex = parseApplicationTurnIndex(applicationEvent.turnId, turnIndex || 1);
+    const legacyTurnIndex = (() => {
+      const applicationTurnId = applicationEvent.turnId;
+      if (applicationTurnId) {
+        const existing = legacyTurnIndexByApplicationTurnId.get(applicationTurnId);
+        if (existing !== undefined) {
+          return existing;
+        }
+        if (activeLegacyTurnIndex !== undefined) {
+          legacyTurnIndexByApplicationTurnId.set(applicationTurnId, activeLegacyTurnIndex);
+          return activeLegacyTurnIndex;
+        }
+      }
+      return parseApplicationTurnIndex(applicationTurnId, turnIndex || 1);
+    })();
     const modelStageRecord = legacyModelStageRecord({
       applicationEvent,
       sessionId,
@@ -730,6 +790,15 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     });
     if (toolStageRecord) {
       void enqueueRuntimeEventLog(toolStageRecord);
+      return;
+    }
+    const toolCallPreviewRecord = legacyToolCallPreviewRecord({
+      applicationEvent,
+      sessionId,
+      turnIndex: legacyTurnIndex,
+    });
+    if (toolCallPreviewRecord) {
+      void enqueueRuntimeEventLog(toolCallPreviewRecord);
       return;
     }
     if (applicationEvent.kind !== "stream" || applicationEvent.message.length === 0) {
@@ -779,6 +848,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     }
     if (payload.startsWith("/rewind")) {
       await transport.dispatch({ type: "application.rewind", sessionId, turnIndex: Math.max(0, turnIndex - 1) });
+      legacyTurnIndexByApplicationTurnId.clear();
       await writeLog(logPath, {
         ts: options.now?.() ?? new Date().toISOString(),
         event: "rewind_applied",
@@ -811,17 +881,24 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     });
 
     const dispatchStartedAtMs = Date.now();
-    const result = await transport.dispatch({
-      type: "application.submitTurn",
-      sessionId,
-      mode: options.mode ?? (process.env.RAXODE_LEGACY_APPLICATION_MODE === "dry-run" ? "dry-run" : "live"),
-      input: {
-        type: "application.input",
-        text: normalized.text,
-        attachments: normalized.attachments,
-        cwd,
-      },
-    });
+    activeLegacyTurnIndex = turnIndex;
+    const result = await (async () => {
+      try {
+        return await transport.dispatch({
+          type: "application.submitTurn",
+          sessionId,
+          mode: options.mode ?? (process.env.RAXODE_LEGACY_APPLICATION_MODE === "dry-run" ? "dry-run" : "live"),
+          input: {
+            type: "application.input",
+            text: normalized.text,
+            attachments: normalized.attachments,
+            cwd,
+          },
+        });
+      } finally {
+        activeLegacyTurnIndex = undefined;
+      }
+    })();
     const dispatchElapsedMs = Math.max(0, Date.now() - dispatchStartedAtMs);
     await runtimeEventLogQueue;
     const finalText = result.view.finalOutput ?? result.view.error?.message ?? "";

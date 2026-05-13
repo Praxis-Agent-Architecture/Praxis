@@ -10,8 +10,10 @@ import {
   applyDirectTuiTextSelectionToRenderSegments,
   createDirectTuiCmpActivityKey,
   deriveDirectTuiCmpStatusDescriptor,
-  formatDirectTuiContextUsagePercent,
+  formatDirectTuiContextRemainingPercent,
+  formatDirectTuiContextUsedPercent,
   hasDirectTuiFormalConversation,
+  isDirectTuiLiveToolSummaryState,
   isDirectTuiCmpActivityStage,
   mergeDirectTuiStreamingAssistantLine,
   resolveDirectTuiAssistantDeltaAction,
@@ -19,6 +21,9 @@ import {
   resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiConversationPhase,
   resolveDirectTuiContextUsedTokens,
+  resolveDirectTuiToolSummaryResultLineLimit,
+  resolveDirectTuiToolPreviewSummaryLines,
+  resolveDirectTuiToolSummaryKey,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
 } from "./direct-tui-presentation.js";
@@ -77,7 +82,21 @@ test("context footer prefers provider input tokens over the local prompt estimat
   });
 
   assert.equal(usedTokens, 262_115);
-  assert.equal(formatDirectTuiContextUsagePercent(usedTokens, 258_400), "100%");
+  assert.equal(formatDirectTuiContextRemainingPercent(usedTokens, 258_400), "0%");
+});
+
+test("context footer prefers provider total tokens when available", () => {
+  const usedTokens = resolveDirectTuiContextUsedTokens({
+    snapshot: {
+      promptTokens: 912,
+      lastRequestInputTokens: 147_374,
+      lastRequestTotalTokens: 153_601,
+    },
+    draftContextTokens: 0,
+  });
+
+  assert.equal(usedTokens, 153_601);
+  assert.equal(formatDirectTuiContextRemainingPercent(usedTokens, 258_400), "43%");
 });
 
 test("context footer falls back to prompt estimate when provider input tokens are missing", () => {
@@ -85,6 +104,16 @@ test("context footer falls back to prompt estimate when provider input tokens ar
     snapshot: { promptTokens: 900 },
     draftContextTokens: 100,
   }), 1_000);
+});
+
+test("context footer reports Codex-style remaining context with a fixed baseline", () => {
+  assert.equal(formatDirectTuiContextRemainingPercent(27_199, 258_400), "94%");
+  assert.equal(formatDirectTuiContextRemainingPercent(0, 258_400), "100%");
+});
+
+test("context footer reports Codex-style used context with a fixed baseline", () => {
+  assert.equal(formatDirectTuiContextUsedPercent(27_199, 258_400), "6%");
+  assert.equal(formatDirectTuiContextUsedPercent(0, 258_400), "0%");
 });
 
 test("conversation header lives in the scrollable transcript instead of a fixed masthead", () => {
@@ -222,6 +251,221 @@ test("foreground tool stages still break assistant segments by default", () => {
   assert.equal(shouldBreakDirectTuiAssistantSegmentOnStageStart("core/capability_bridge"), true);
   assert.equal(shouldBreakDirectTuiAssistantSegmentOnStageStart("workspace/readback"), true);
   assert.equal(shouldBreakDirectTuiAssistantSegmentOnStageStart(undefined), true);
+});
+
+test("tool summary keys separate repeated calls in the same family", () => {
+  assert.equal(resolveDirectTuiToolSummaryKey({
+    turnId: "turn-2",
+    familyKey: "shell",
+    toolCallId: "call_shell_1",
+  }), "turn-2:call_shell_1");
+
+  assert.equal(resolveDirectTuiToolSummaryKey({
+    turnId: "turn-2",
+    familyKey: "shell",
+    toolCallId: "call_shell_2",
+  }), "turn-2:call_shell_2");
+});
+
+test("tool summary key falls back to family only when no call id is available", () => {
+  assert.equal(resolveDirectTuiToolSummaryKey({
+    turnId: "turn-3",
+    familyKey: "code",
+  }), "turn-3:code");
+});
+
+test("tool preview summary lines render shell arguments as a friendly action", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Shell",
+    phase: "delta",
+    providerToolName: "praxis_tool_shell_commandExecution",
+    capabilityKey: "shell.commandExecution",
+    argumentsPreview: "{\"target\":{\"command\":\"npm run check && curl http://localhost:3000\",\"workingDirectory\":\"/tmp/app\"}}",
+  }), [
+    "Shell composing",
+    "Running npm run check && curl http://localhost:3000 in /tmp/app",
+  ]);
+});
+
+test("tool preview summary lines block shell workspace writes while composing", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Tool",
+    phase: "delta",
+    providerToolName: "tool_call",
+    argumentsPreview: JSON.stringify({
+      target: {
+        command: "set -e\nmkdir -p public notes\ncat > package.json <<'EOF'\n{}\nEOF\nnode server.js",
+        workingDirectory: ".",
+      },
+    }),
+  }), [
+    "Shell blocked",
+    "cat redirection writes workspace files; use code.overwrite, code.modify, or code.replaceFile for workspace file changes.",
+  ]);
+
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Shell",
+    phase: "delta",
+    providerToolName: "praxis_tool_shell_commandExecution",
+    capabilityKey: "shell.commandExecution",
+    argumentsPreview: "{\"target\":{\"command\":\"cat <<'EOF' > package.json\\n{}\\nEOF",
+  }), [
+    "Shell blocked",
+    "cat heredoc redirection writes workspace files; use code.overwrite, code.modify, or code.replaceFile for workspace file changes.",
+  ]);
+});
+
+test("tool preview summary lines render code scan and read arguments as friendly actions", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Code",
+    phase: "delta",
+    providerToolName: "praxis_tool_code_scan",
+    capabilityKey: "code.scan",
+    argumentsPreview: "{\"directoryPath\":\".\",\"depth\":2,\"maxEntries\":200,\"context\":{\"workspaceRoot\":\".\"}}",
+  }), [
+    "Code composing",
+    "Scanning . (depth 2, up to 200 entries)",
+  ]);
+
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Code",
+    phase: "delta",
+    providerToolName: "praxis_tool_code_read",
+    capabilityKey: "code.read",
+    argumentsPreview: "{\"targetPaths\":[\"package.json\",\"tsconfig.json\"],\"maxBytesPerFile\":20000}",
+  }), [
+    "Code composing",
+    "Reading package.json, tsconfig.json",
+  ]);
+});
+
+test("tool preview summary lines render procedure arguments without raw JSON", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Tool",
+    phase: "started",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview: "{\"procedureId\":\"inspect-current-workspace\",\"purpose\":\"Inspect current directory before creating the requested app\",\"executionMode\":\"parallel\",\"steps\":[{\"stepId\":\"pwd-list\",\"baseToolId\":\"shell.commandExecution\"}]}",
+  }), [
+    "Tool composing",
+    "Composing procedure: Inspect current directory before creating the requested app",
+    "Steps: pwd-list",
+  ]);
+});
+
+test("tool preview summary lines do not misclassify procedure shell steps as direct shell writes", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Tool",
+    phase: "delta",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview: JSON.stringify({
+      procedureId: "create-app",
+      purpose: "Create files through a procedure",
+      executionMode: "serial",
+      steps: [{
+        stepId: "write-package",
+        baseToolId: "shell.commandExecution",
+        input: {
+          command: "cat > package.json <<'EOF'\n{}\nEOF",
+          cwd: ".",
+        },
+      }],
+    }),
+  }), [
+    "Tool composing",
+    "Composing procedure: Create files through a procedure",
+    "Steps: write-package",
+  ]);
+});
+
+test("tool preview summary lines tolerate incomplete streamed JSON", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Shell",
+    phase: "delta",
+    providerToolName: "praxis_tool_shell_commandExecution",
+    capabilityKey: "shell.commandExecution",
+    argumentsPreview: "{\"target\":{\"command\":\"npm run check && curl http://localhost:3000",
+  }), [
+    "Shell composing",
+    "Running npm run check && curl http://localhost:3000",
+  ]);
+
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Tool",
+    phase: "delta",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview: "{\"procedureId\":\"inspect-current-workspace\",\"purpose\":\"Inspect current directory before creating the requested app\",\"steps\":[",
+  }), [
+    "Tool composing",
+    "Composing procedure: Inspect current directory before creating the requested app",
+  ]);
+});
+
+test("tool preview summary lines show code edit diff stats while composing", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Code",
+    phase: "delta",
+    providerToolName: "praxis_tool_code_modify",
+    capabilityKey: "code.modify",
+    argumentsPreview: JSON.stringify({
+      targetPath: "src/app.ts",
+      searchText: "const a = 1;\nconst b = 2;",
+      replacementText: "const a = 1;\nconst b = 3;\nconst c = 4;",
+    }),
+  }), [
+    "Code composing (+3 -2)",
+    "Editing src/app.ts",
+  ]);
+
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Code",
+    phase: "delta",
+    providerToolName: "praxis_tool_code_overwrite",
+    capabilityKey: "code.overwrite",
+    argumentsPreview: "{\"targetPath\":\"src/new.ts\",\"content\":\"export const a = 1;\\nexport const b = 2;",
+  }), [
+    "Code composing (+2)",
+    "Writing src/new.ts",
+  ]);
+});
+
+test("tool preview summary lines keep stable code diff stats during partial argument gaps", () => {
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Code",
+    phase: "delta",
+    providerToolName: "praxis_tool_code_overwrite",
+    capabilityKey: "code.overwrite",
+    argumentsPreview: "{\"targetPath\":\"index.html\"}",
+    stableCodeDiffStats: "(+72)",
+  }), [
+    "Code composing (+72)",
+    "Writing index.html",
+  ]);
+});
+
+test("tool summary result line limit preserves code modify additions", () => {
+  const resultLines = [
+    "code.modify completed for test.md (27 B)",
+    "@@ test.md · line 9 · 1 replacement @@",
+    "-   9 | 34",
+    "+   9 | 114514",
+  ];
+
+  assert.equal(resolveDirectTuiToolSummaryResultLineLimit({
+    familyKey: "code",
+    resultLines,
+  }), 16);
+
+  assert.equal(resolveDirectTuiToolSummaryResultLineLimit({
+    familyKey: "shell",
+    resultLines,
+  }), 3);
+});
+
+test("tool summary live-state detection includes composing previews", () => {
+  assert.equal(isDirectTuiLiveToolSummaryState("active"), true);
+  assert.equal(isDirectTuiLiveToolSummaryState("composing"), true);
+  assert.equal(isDirectTuiLiveToolSummaryState("ready"), false);
+  assert.equal(isDirectTuiLiveToolSummaryState(undefined), false);
 });
 
 test("cmp activity stage detection excludes infra bootstrap", () => {

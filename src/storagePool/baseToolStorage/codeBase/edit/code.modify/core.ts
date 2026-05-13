@@ -102,6 +102,7 @@ export type CodeModifyOutput = {
   beforeBytes: number;
   afterBytes: number;
   bytesWritten: number;
+  firstMatchedLine?: number;
   applied: boolean;
   dryRun: boolean;
   unsafeSideEffects: false;
@@ -148,6 +149,19 @@ function toolFailure(
     audit: [{ type: "basicTool.code.modify.rejected", toolId: "code.modify", invocationId: "code.modify", dryRun: true }],
     events: ["basicTool.code.modify.rejected"],
   };
+}
+
+function lineNumberForOffset(source: string, offset: number): number | undefined {
+  if (offset < 0) {
+    return undefined;
+  }
+  let line = 1;
+  for (let index = 0; index < offset; index += 1) {
+    if (source.charCodeAt(index) === 10) {
+      line += 1;
+    }
+  }
+  return line;
 }
 
 export function planCodeModify(request: CodeModifyRequest = {}): CodeModifyResult {
@@ -278,6 +292,10 @@ export async function executeCodeModify(
 
   try {
     const current = await provider.readText({ targetPath: plan.plan.targetPath, context: request.context?.auditMetadata });
+    const firstMatchedLine = lineNumberForOffset(
+      current.content,
+      current.content.indexOf(request.searchText ?? ""),
+    );
     const next = replaceOccurrences(
       current.content,
       request.searchText ?? "",
@@ -302,6 +320,7 @@ export async function executeCodeModify(
         beforeBytes: byteLength(current.content),
         afterBytes: byteLength(next.content),
         bytesWritten: write.bytesWritten,
+        firstMatchedLine,
         applied: true,
         dryRun: false,
       },

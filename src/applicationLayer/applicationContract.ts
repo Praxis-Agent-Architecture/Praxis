@@ -79,6 +79,8 @@ export type PraxisApplicationUsageTelemetry = {
   thinkingTokens?: number;
   totalTokens?: number;
   cachedInputTokens?: number;
+  lastInputTokens?: number;
+  lastTotalTokens?: number;
   source?: string;
   estimated: boolean;
   modelCalls: number;

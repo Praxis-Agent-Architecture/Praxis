@@ -9,6 +9,11 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import {
+  describeShellWorkspaceWrite,
+  shellWorkspaceWriteGuardMessage,
+} from "../../_shared/workspaceWriteGuard.js";
+
 export type ShellExecutionBoundary =
   | "input"
   | "contract"
@@ -77,6 +82,7 @@ export type ShellCommandExecutionErrorCode =
   | "INVALID_TIMEOUT"
   | "GOVERNANCE_REJECTED"
   | "SCOPE_DENIED"
+  | "WORKSPACE_WRITE_REQUIRES_CODE_TOOL"
   | "SANDBOX_PROVIDER_UNSUPPORTED"
   | "SANDBOX_UNAVAILABLE"
   | "REAL_COMMAND_EXECUTION_NOT_ALLOWED"
@@ -429,6 +435,15 @@ function normalizeShellCommandExecution(
   const args = normalizeArgs(request.args);
   if (!Array.isArray(args)) {
     return args;
+  }
+
+  const workspaceWriteReason = describeShellWorkspaceWrite([command, ...args].join(" "));
+  if (workspaceWriteReason !== undefined) {
+    return failure(
+      "WORKSPACE_WRITE_REQUIRES_CODE_TOOL",
+      shellWorkspaceWriteGuardMessage(workspaceWriteReason),
+      "governance",
+    );
   }
 
   const cwd = normalizeCwd(request.cwd);

@@ -13,7 +13,10 @@ export type DirectTuiConversationPhase = "intro" | "conversation";
 export interface DirectTuiContextUsageSnapshot {
   promptTokens?: number;
   lastRequestInputTokens?: number;
+  lastRequestTotalTokens?: number;
 }
+
+const DIRECT_TUI_CONTEXT_BASELINE_TOKENS = 12_000;
 
 function finiteNonNegativeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
@@ -25,18 +28,29 @@ export function resolveDirectTuiContextUsedTokens(input: {
   snapshot?: DirectTuiContextUsageSnapshot | null;
   draftContextTokens?: number;
 }): number {
+  const providerTotalTokens = finiteNonNegativeNumber(input.snapshot?.lastRequestTotalTokens);
   const providerInputTokens = finiteNonNegativeNumber(input.snapshot?.lastRequestInputTokens);
   const promptTokens = finiteNonNegativeNumber(input.snapshot?.promptTokens);
   const draftTokens = finiteNonNegativeNumber(input.draftContextTokens) ?? 0;
-  return (providerInputTokens ?? promptTokens ?? 0) + draftTokens;
+  return (providerTotalTokens ?? providerInputTokens ?? promptTokens ?? 0) + draftTokens;
 }
 
-export function formatDirectTuiContextUsagePercent(used: number, total: number): string {
-  const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, used / total));
-  if (used === 0) {
-    return "0%";
+export function resolveDirectTuiContextRemainingPercent(used: number, total: number): number {
+  if (total <= DIRECT_TUI_CONTEXT_BASELINE_TOKENS) {
+    return 0;
   }
-  return ratio < 0.01 ? "<1%" : `${Math.round(ratio * 100)}%`;
+  const effectiveWindow = total - DIRECT_TUI_CONTEXT_BASELINE_TOKENS;
+  const effectiveUsed = Math.max(0, used - DIRECT_TUI_CONTEXT_BASELINE_TOKENS);
+  const remaining = Math.max(0, effectiveWindow - effectiveUsed);
+  return Math.round(Math.max(0, Math.min(100, (remaining / effectiveWindow) * 100)));
+}
+
+export function formatDirectTuiContextRemainingPercent(used: number, total: number): string {
+  return `${resolveDirectTuiContextRemainingPercent(used, total)}%`;
+}
+
+export function formatDirectTuiContextUsedPercent(used: number, total: number): string {
+  return `${100 - resolveDirectTuiContextRemainingPercent(used, total)}%`;
 }
 
 export function hasDirectTuiFormalConversation(
@@ -84,6 +98,480 @@ export function shouldBreakDirectTuiAssistantSegmentOnStageStart(stage?: string 
     return false;
   }
   return true;
+}
+
+export function resolveDirectTuiToolSummaryKey(input: {
+  turnId: string;
+  familyKey?: string | null;
+  toolCallId?: string | null;
+}): string {
+  const normalizedToolCallId = input.toolCallId?.trim();
+  if (normalizedToolCallId) {
+    return `${input.turnId}:${normalizedToolCallId}`;
+  }
+  const normalizedFamilyKey = input.familyKey?.trim();
+  return `${input.turnId}:${normalizedFamilyKey || "tool"}`;
+}
+
+function previewObjectValue(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function previewStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function previewNumberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function previewStringArrayValue(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => previewStringValue(item) ?? [])
+    : [];
+}
+
+function compactPreviewText(value: string): string {
+  return value.replace(/\s+/gu, " ").trim();
+}
+
+function truncatePreviewText(value: string, maxLength: number): string {
+  const compacted = compactPreviewText(value);
+  if (compacted.length <= maxLength) return compacted;
+  const headLength = Math.max(0, Math.floor((maxLength - 15) / 2));
+  const tailLength = Math.max(0, maxLength - 15 - headLength);
+  return `${compacted.slice(0, headLength)} ...[truncated]... ${compacted.slice(-tailLength)}`;
+}
+
+function formatPreviewPathList(paths: readonly string[], maxItems = 4): string {
+  const cleanPaths = paths.map((item) => item.trim()).filter((item) => item.length > 0);
+  if (cleanPaths.length === 0) return "file";
+  const shown = cleanPaths.slice(0, maxItems).join(", ");
+  return cleanPaths.length > maxItems ? `${shown}, +${cleanPaths.length - maxItems} more` : shown;
+}
+
+function decodePreviewJsonStringFragment(value: string): string {
+  try {
+    return JSON.parse(`"${value}"`) as string;
+  } catch {
+    return value
+      .replace(/\\"/gu, "\"")
+      .replace(/\\\\/gu, "\\")
+      .trim();
+  }
+}
+
+function extractPreviewStringField(source: string | undefined | null, field: string): string | undefined {
+  const text = source?.trim();
+  if (!text) return undefined;
+  const closedPattern = new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, "u");
+  const closed = text.match(closedPattern)?.[1];
+  if (closed !== undefined) return previewStringValue(decodePreviewJsonStringFragment(closed));
+  const openPattern = new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)$`, "u");
+  const open = text.match(openPattern)?.[1];
+  return open === undefined ? undefined : previewStringValue(decodePreviewJsonStringFragment(open));
+}
+
+function extractPreviewNumberField(source: string | undefined | null, field: string): number | undefined {
+  const text = source?.trim();
+  if (!text) return undefined;
+  const match = text.match(new RegExp(`"${field}"\\s*:\\s*(-?\\d+(?:\\.\\d+)?)`, "u"))?.[1];
+  if (match === undefined) return undefined;
+  const parsed = Number(match);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parsePreviewArguments(source: string | undefined | null): Record<string, unknown> | undefined {
+  const text = source?.trim();
+  if (!text || (!text.startsWith("{") && !text.startsWith("["))) return undefined;
+  try {
+    return previewObjectValue(JSON.parse(text));
+  } catch {
+    return undefined;
+  }
+}
+
+function flattenPreviewArguments(argumentsRecord: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (argumentsRecord === undefined) return {};
+  const target = previewObjectValue(argumentsRecord.target);
+  return target === undefined ? argumentsRecord : { ...argumentsRecord, ...target };
+}
+
+function previewToolIdFromProviderName(providerToolName?: string | null): string | undefined {
+  const normalized = providerToolName?.trim();
+  if (!normalized) return undefined;
+  if (normalized === "praxis_ephemeral_procedure") return "praxis.ephemeralProcedure";
+  if (normalized.startsWith("praxis_tool_")) {
+    return normalized.slice("praxis_tool_".length).replace(/_/gu, ".");
+  }
+  return normalized.replace(/_/gu, ".");
+}
+
+function friendlyProviderToolName(providerToolName?: string | null): string {
+  return previewToolIdFromProviderName(providerToolName) ?? "tool call";
+}
+
+function summarizeCodeToolPreview(input: {
+  toolId: string;
+  argumentsRecord?: Record<string, unknown>;
+  argumentsPreview?: string | null;
+}): string | undefined {
+  if (!input.toolId.startsWith("code.")) return undefined;
+  const args = flattenPreviewArguments(input.argumentsRecord);
+  const targetPath = previewStringValue(args.targetPath)
+    ?? previewStringValue(args.path)
+    ?? previewStringValue(args.filePath)
+    ?? extractPreviewStringField(input.argumentsPreview, "targetPath")
+    ?? extractPreviewStringField(input.argumentsPreview, "path")
+    ?? extractPreviewStringField(input.argumentsPreview, "filePath");
+  const targetPaths = [
+    ...previewStringArrayValue(args.targetPaths),
+    ...previewStringArrayValue(args.paths),
+    ...previewStringArrayValue(args.files),
+  ];
+  const directoryPath = previewStringValue(args.directoryPath)
+    ?? previewStringValue(args.workspaceRoot)
+    ?? extractPreviewStringField(input.argumentsPreview, "directoryPath")
+    ?? extractPreviewStringField(input.argumentsPreview, "workspaceRoot");
+  const pathSummary = targetPaths.length > 0 ? formatPreviewPathList(targetPaths) : targetPath;
+  switch (input.toolId) {
+    case "code.scan": {
+      const depth = previewNumberValue(args.depth) ?? extractPreviewNumberField(input.argumentsPreview, "depth");
+      const maxEntries = previewNumberValue(args.maxEntries) ?? extractPreviewNumberField(input.argumentsPreview, "maxEntries");
+      const detail = [
+        depth !== undefined ? `depth ${depth}` : undefined,
+        maxEntries !== undefined ? `up to ${maxEntries} entries` : undefined,
+      ].filter((item): item is string => item !== undefined).join(", ");
+      return `Scanning ${directoryPath ?? "."}${detail ? ` (${detail})` : ""}`;
+    }
+    case "code.read":
+      return `Reading ${pathSummary ?? "file"}`;
+    case "code.search.Ripgrep":
+    case "code.search_Ripgrep": {
+      const query = previewStringValue(args.query)
+        ?? previewStringValue(args.pattern)
+        ?? extractPreviewStringField(input.argumentsPreview, "query")
+        ?? extractPreviewStringField(input.argumentsPreview, "pattern");
+      return `Searching ${directoryPath ?? "."}${query ? ` for ${JSON.stringify(truncatePreviewText(query, 80))}` : ""}`;
+    }
+    case "code.overwrite":
+      return `Writing ${targetPath ?? "file"}`;
+    case "code.modify":
+      return `Editing ${targetPath ?? "file"}`;
+    case "code.replaceFile":
+      return `Replacing ${targetPath ?? "file"}`;
+    case "code.delete":
+      return `Deleting from ${targetPath ?? "file"}`;
+    case "code.format":
+      return `Formatting ${targetPath ?? pathSummary ?? "file"}`;
+    default:
+      if (pathSummary) return `${input.toolId} on ${pathSummary}`;
+      if (directoryPath) return `${input.toolId} in ${directoryPath}`;
+      return undefined;
+  }
+}
+
+function previewTextLineCount(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (value.length === 0) return 0;
+  return value.split(/\r\n|\r|\n/u).length;
+}
+
+function previewRangeDeletionCount(value: unknown): number | undefined {
+  const range = previewObjectValue(value);
+  const startLine = previewNumberValue(range?.startLine) ?? previewNumberValue(range?.start);
+  const endLine = previewNumberValue(range?.endLine) ?? previewNumberValue(range?.end);
+  if (startLine === undefined || endLine === undefined || endLine < startLine) {
+    return undefined;
+  }
+  return Math.floor(endLine - startLine + 1);
+}
+
+function formatCodePreviewDiffStats(input: {
+  additions?: number;
+  deletions?: number;
+}): string | undefined {
+  const additions = input.additions !== undefined && Number.isFinite(input.additions)
+    ? Math.max(0, Math.floor(input.additions))
+    : undefined;
+  const deletions = input.deletions !== undefined && Number.isFinite(input.deletions)
+    ? Math.max(0, Math.floor(input.deletions))
+    : undefined;
+  const parts = [
+    additions !== undefined ? `+${additions}` : undefined,
+    deletions !== undefined ? `-${deletions}` : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? `(${parts.join(" ")})` : undefined;
+}
+
+function resolveCodePreviewDiffStats(input: {
+  toolId: string;
+  argumentsRecord?: Record<string, unknown>;
+  argumentsPreview?: string | null;
+}): string | undefined {
+  if (!input.toolId.startsWith("code.")) return undefined;
+  const args = flattenPreviewArguments(input.argumentsRecord);
+  switch (input.toolId) {
+    case "code.modify": {
+      const searchText = previewStringValue(args.searchText)
+        ?? extractPreviewStringField(input.argumentsPreview, "searchText");
+      const replacementText = previewStringValue(args.replacementText)
+        ?? extractPreviewStringField(input.argumentsPreview, "replacementText");
+      return formatCodePreviewDiffStats({
+        additions: previewTextLineCount(replacementText),
+        deletions: previewTextLineCount(searchText),
+      });
+    }
+    case "code.overwrite": {
+      const content = previewStringValue(args.content)
+        ?? extractPreviewStringField(input.argumentsPreview, "content");
+      return formatCodePreviewDiffStats({
+        additions: previewTextLineCount(content),
+      });
+    }
+    case "code.replaceFile": {
+      const newContent = previewStringValue(args.newContent)
+        ?? extractPreviewStringField(input.argumentsPreview, "newContent");
+      return formatCodePreviewDiffStats({
+        additions: previewTextLineCount(newContent),
+      });
+    }
+    case "code.delete":
+      return formatCodePreviewDiffStats({
+        deletions: previewRangeDeletionCount(args.range),
+      });
+    default:
+      return undefined;
+  }
+}
+
+function normalizeCodePreviewDiffStats(value: string | undefined | null): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return /^\((?:\+\d+|-\d+)(?:\s+(?:\+\d+|-\d+))*\)$/u.test(trimmed) ? trimmed : undefined;
+}
+
+const SHELL_FILE_WRITE_REDIRECTION_PATTERN = /(?:^|[\s;|&])(?:>|>>|1>|1>>)\s*(?!&|\/dev\/null(?:\s|$))(['"]?)([^'"\s;&|]+)\1/u;
+const SHELL_CAT_WRITE_PATTERN = /(?:^|[\s;|&])cat\s+>\s*(?!\/dev\/null(?:\s|$))(['"]?)([^'"\s;&|]+)\1/u;
+const SHELL_CAT_HEREDOC_WRITE_PATTERN = /(?:^|[\s;|&])cat\b[^;&|]*<<[^;&|]*>\s*(?!\/dev\/null(?:\s|$))(['"]?)([^'"\s;&|]+)\1/u;
+const SHELL_TEE_WRITE_PATTERN = /(?:^|[\s;|&])tee\s+(?:-[a-zA-Z]*a[a-zA-Z]*\s+)?(?!\/dev\/null(?:\s|$))(['"]?)([^'"\s;&|]+)\1/u;
+const SHELL_PROGRAMMATIC_FILE_WRITE_PATTERN =
+  /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|write_text|openSync\s*\([^)]*['"]w|open\s*\([^)]*['"]w)\b/u;
+const SHELL_PROGRAMMATIC_FILE_WRITE_TARGET_PATTERN =
+  /\b(?:writeFileSync|writeFile|appendFileSync|appendFile|createWriteStream|write_text|openSync|open)\s*\(\s*['"]([^'"]+)['"]/u;
+
+function compactShellPreviewSource(source: string): string {
+  return source.replace(/\\\r?\n/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+function isAllowedTemporaryShellPreviewWriteTarget(target: string | undefined): boolean {
+  if (target === undefined) return false;
+  return target === "/dev/null"
+    || target.startsWith("/tmp/")
+    || target.startsWith("/var/tmp/")
+    || target.startsWith("/run/user/");
+}
+
+function matchShellPreviewWorkspaceWriteTarget(pattern: RegExp, source: string): string | undefined {
+  const match = pattern.exec(source);
+  if (match === null) return undefined;
+  const target = match[2];
+  return isAllowedTemporaryShellPreviewWriteTarget(target) ? undefined : target;
+}
+
+function shellPreviewCommand(input: {
+  argumentsRecord?: Record<string, unknown>;
+  argumentsPreview?: string | null;
+}): string | undefined {
+  const args = flattenPreviewArguments(input.argumentsRecord);
+  const commandArray = previewStringArrayValue(args.command);
+  return previewStringValue(args.command)
+    ?? (commandArray.length > 0 ? commandArray.join(" ") : undefined)
+    ?? previewStringValue(args.script)
+    ?? extractPreviewStringField(input.argumentsPreview, "command")
+    ?? extractPreviewStringField(input.argumentsPreview, "script");
+}
+
+function shellPreviewWorkspaceWriteReason(command: string | undefined): string | undefined {
+  if (command === undefined) return undefined;
+  const compacted = compactShellPreviewSource(command);
+  if (compacted.length === 0) return undefined;
+  if (matchShellPreviewWorkspaceWriteTarget(SHELL_CAT_WRITE_PATTERN, compacted) !== undefined) {
+    return "cat redirection writes workspace files";
+  }
+  if (matchShellPreviewWorkspaceWriteTarget(SHELL_CAT_HEREDOC_WRITE_PATTERN, compacted) !== undefined) {
+    return "cat heredoc redirection writes workspace files";
+  }
+  if (matchShellPreviewWorkspaceWriteTarget(SHELL_TEE_WRITE_PATTERN, compacted) !== undefined) {
+    return "tee writes workspace files";
+  }
+  if (matchShellPreviewWorkspaceWriteTarget(SHELL_FILE_WRITE_REDIRECTION_PATTERN, compacted) !== undefined) {
+    return "shell output redirection writes workspace files";
+  }
+  if (SHELL_PROGRAMMATIC_FILE_WRITE_PATTERN.test(compacted)) {
+    const target = SHELL_PROGRAMMATIC_FILE_WRITE_TARGET_PATTERN.exec(compacted)?.[1];
+    if (isAllowedTemporaryShellPreviewWriteTarget(target)) return undefined;
+    return "ad-hoc shell scripts write workspace files";
+  }
+  return undefined;
+}
+
+function shellWorkspaceWriteBlockedLine(reason: string): string {
+  return `${reason}; use code.overwrite, code.modify, or code.replaceFile for workspace file changes.`;
+}
+
+function summarizeShellToolPreview(input: {
+  toolId: string;
+  argumentsRecord?: Record<string, unknown>;
+  argumentsPreview?: string | null;
+}): string | undefined {
+  if (!input.toolId.startsWith("shell.")) return undefined;
+  const args = flattenPreviewArguments(input.argumentsRecord);
+  const command = shellPreviewCommand(input);
+  const cwd = previewStringValue(args.workingDirectory)
+    ?? previewStringValue(args.cwd)
+    ?? extractPreviewStringField(input.argumentsPreview, "workingDirectory")
+    ?? extractPreviewStringField(input.argumentsPreview, "cwd");
+  if (command) {
+    const workspaceWriteReason = shellPreviewWorkspaceWriteReason(command);
+    if (workspaceWriteReason !== undefined) {
+      return shellWorkspaceWriteBlockedLine(workspaceWriteReason);
+    }
+    const verb = input.toolId === "shell.detachedExecution" || input.toolId === "shell.backgroundExecution"
+      ? "Launching"
+      : "Running";
+    return `${verb} ${truncatePreviewText(command, 180)}${cwd ? ` in ${cwd}` : ""}`;
+  }
+  const executionId = previewStringValue(args.executionId)
+    ?? previewStringValue(args.launchId)
+    ?? extractPreviewStringField(input.argumentsPreview, "executionId")
+    ?? extractPreviewStringField(input.argumentsPreview, "launchId");
+  return executionId ? `${input.toolId} for ${executionId}` : undefined;
+}
+
+function summarizeProcedurePreview(input: {
+  toolId: string;
+  providerToolName?: string | null;
+  argumentsRecord?: Record<string, unknown>;
+  argumentsPreview?: string | null;
+}): string[] | undefined {
+  if (!isProcedureToolPreview(input)) {
+    return undefined;
+  }
+  const purpose = previewStringValue(input.argumentsRecord?.purpose)
+    ?? extractPreviewStringField(input.argumentsPreview, "purpose");
+  const steps = Array.isArray(input.argumentsRecord?.steps)
+    ? input.argumentsRecord.steps.flatMap((step) => {
+      const stepRecord = previewObjectValue(step);
+      return previewStringValue(stepRecord?.stepId)
+        ?? previewStringValue(stepRecord?.baseToolId)
+        ?? [];
+    })
+    : [];
+  return [
+    purpose ? `Composing procedure: ${truncatePreviewText(purpose, 160)}` : "Composing procedure",
+    steps.length > 0 ? `Steps: ${formatPreviewPathList(steps, 3)}` : undefined,
+  ].filter((line): line is string => line !== undefined);
+}
+
+function isProcedureToolPreview(input: {
+  toolId: string;
+  providerToolName?: string | null;
+}): boolean {
+  return input.toolId === "praxis.ephemeralProcedure"
+    || input.providerToolName === "praxis_ephemeral_procedure";
+}
+
+function summarizeGenericToolPreview(input: {
+  providerToolName?: string | null;
+  argumentsRecord?: Record<string, unknown>;
+  argumentsPreview?: string | null;
+}): string {
+  const args = flattenPreviewArguments(input.argumentsRecord);
+  const command = previewStringValue(args.command) ?? extractPreviewStringField(input.argumentsPreview, "command");
+  const query = previewStringValue(args.query) ?? extractPreviewStringField(input.argumentsPreview, "query");
+  const url = previewStringValue(args.url) ?? extractPreviewStringField(input.argumentsPreview, "url");
+  const target = command ?? query ?? url;
+  return target
+    ? truncatePreviewText(target, 180)
+    : `Model is composing ${friendlyProviderToolName(input.providerToolName)}`;
+}
+
+export function resolveDirectTuiToolPreviewSummaryLines(input: {
+  title: string;
+  phase?: string | null;
+  providerToolName?: string | null;
+  capabilityKey?: string | null;
+  argumentsPreview?: string | null;
+  stableCodeDiffStats?: string | null;
+}): string[] {
+  const title = input.title.trim() || "Tool";
+  const phase = input.phase?.trim() || "started";
+  const toolId = input.capabilityKey?.trim()
+    || previewToolIdFromProviderName(input.providerToolName)
+    || "tool.call";
+  const argumentsRecord = parsePreviewArguments(input.argumentsPreview);
+  const isProcedurePreview = isProcedureToolPreview({ toolId, providerToolName: input.providerToolName });
+  const shellWorkspaceWriteReason = isProcedurePreview
+    ? undefined
+    : shellPreviewWorkspaceWriteReason(shellPreviewCommand({
+      argumentsRecord,
+      argumentsPreview: input.argumentsPreview,
+    }));
+  const shellWorkspaceWriteBlocked = shellWorkspaceWriteReason !== undefined;
+  const codePreviewDiffStats = resolveCodePreviewDiffStats({
+    toolId,
+    argumentsRecord,
+    argumentsPreview: input.argumentsPreview,
+  }) ?? normalizeCodePreviewDiffStats(input.stableCodeDiffStats);
+  const procedureLines = summarizeProcedurePreview({
+    toolId,
+    providerToolName: input.providerToolName,
+    argumentsRecord,
+    argumentsPreview: input.argumentsPreview,
+  });
+  const actionLine = procedureLines?.[0]
+    ?? (shellWorkspaceWriteReason !== undefined ? shellWorkspaceWriteBlockedLine(shellWorkspaceWriteReason) : undefined)
+    ?? summarizeCodeToolPreview({ toolId, argumentsRecord, argumentsPreview: input.argumentsPreview })
+    ?? summarizeShellToolPreview({ toolId, argumentsRecord, argumentsPreview: input.argumentsPreview })
+    ?? summarizeGenericToolPreview({
+      providerToolName: input.providerToolName,
+      argumentsRecord,
+      argumentsPreview: input.argumentsPreview,
+    });
+  const displayTitle = shellWorkspaceWriteBlocked && title === "Tool" ? "Shell" : title;
+  const displayPhase = shellWorkspaceWriteBlocked
+    ? "blocked"
+    : phase === "done"
+      ? "ready"
+      : "composing";
+  return [
+    `${displayTitle} ${displayPhase}${codePreviewDiffStats ? ` ${codePreviewDiffStats}` : ""}`,
+    actionLine,
+    ...(procedureLines?.slice(1) ?? []),
+  ];
+}
+
+export function isDirectTuiCodeDiffPreviewLine(line: string): boolean {
+  const trimmed = line.trimStart();
+  return trimmed.startsWith("@@")
+    || /^[-+]\s*[0-9?]+\s+\|/u.test(trimmed)
+    || trimmed === "... diff preview trimmed";
+}
+
+export function resolveDirectTuiToolSummaryResultLineLimit(input: {
+  familyKey?: string | null;
+  resultLines: readonly string[];
+}): number {
+  const familyKey = input.familyKey?.trim().toLowerCase();
+  const hasCodeDiff = familyKey === "code" && input.resultLines.some(isDirectTuiCodeDiffPreviewLine);
+  return hasCodeDiff ? 16 : 3;
+}
+
+export function isDirectTuiLiveToolSummaryState(summaryState: unknown): boolean {
+  return summaryState === "active" || summaryState === "composing";
 }
 
 export function isDirectTuiCmpActivityStage(stage?: string | null): boolean {

@@ -112,6 +112,10 @@ import {
   prepareSandboxRuntime,
   type SandboxRuntimePrepareResult,
 } from "./runtime.sandboxPlane/sandboxRuntimeProvider.js";
+import {
+  describeShellWorkspaceWrite,
+  shellWorkspaceWriteGuardMessage,
+} from "../../storagePool/baseToolStorage/shellBase/_shared/workspaceWriteGuard.js";
 
 export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
@@ -169,6 +173,7 @@ export type PraxisRuntimeKernelOptions = {
     runSmoke?: boolean;
     failOnUnavailable?: boolean;
   };
+  onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void | Promise<void>;
   onModelCallProgress?: (event: AgentModelCallProgressEvent) => void | Promise<void>;
   onToolCallProgress?: (event: AgentToolCallProgressEvent) => void | Promise<void>;
   now?: () => string;
@@ -393,6 +398,46 @@ function readStringArray(value: unknown): readonly string[] {
     if (text !== undefined && !values.includes(text)) values.push(text);
   }
   return values;
+}
+
+function procedureShellStepCommandSource(step: EphemeralProcedureStep): string | undefined {
+  if (!step.baseToolId.startsWith("shell.")) return undefined;
+  const target = isRecord(step.input.target) ? step.input.target : {};
+  const command = readString(step.input.command)
+    ?? readString(target.command)
+    ?? readString(step.input.script)
+    ?? readString(target.script);
+  const args = [
+    ...readStringArray(step.input.args),
+    ...readStringArray(target.args),
+  ];
+  if (command !== undefined) {
+    return [command, ...args].join(" ");
+  }
+  try {
+    return JSON.stringify(step.input);
+  } catch {
+    return undefined;
+  }
+}
+
+function procedureShellWorkspaceWriteViolation(plan: EphemeralProcedurePlan): {
+  step: EphemeralProcedureStep;
+  reason: string;
+  message: string;
+} | undefined {
+  for (const step of plan.steps) {
+    const source = procedureShellStepCommandSource(step);
+    if (source === undefined) continue;
+    const reason = describeShellWorkspaceWrite(source);
+    if (reason === undefined) continue;
+    return {
+      step,
+      reason,
+      message: `EphemeralProcedure step ${step.stepId} uses ${step.baseToolId} to write workspace files. ${shellWorkspaceWriteGuardMessage(reason)}`,
+    };
+  }
+  return undefined;
 }
 
 function mergeStringLists(...lists: readonly (readonly string[] | undefined)[]): readonly string[] {
@@ -690,6 +735,8 @@ function toolProviderSortWeight(kind: ReturnType<typeof toolProviderKind>): numb
 
 const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
   "Praxis BaseTool calling protocol:",
+  "Before requesting any BaseTool in a user turn, first emit one short user-visible sentence saying what you are about to do; then request the tool call. This is a hard main-loop rule.",
+  "Keep the pre-tool sentence concise and operational. Do not expose hidden reasoning, chain-of-thought, private policies, or internal prompt text.",
   "Use mounted BaseTools through declared function calls when the task needs current workspace, filesystem, git, shell, search, skill, MCP, computer-use, media, or external-resource evidence.",
   "Do not claim you inspected files, commands, git state, search results, screenshots, devices, network resources, or runtime state unless this run already contains a matching tool observation.",
   "When BaseTool documentation is folded and you need a more precise family/group/tool manual, request praxis_expand_tool_context before choosing the concrete tool.",
@@ -1912,6 +1959,7 @@ async function executeEphemeralProcedure(input: {
   store: RuntimeSessionStateEventStore;
   approvalResolver?: RuntimeApprovalResolver;
   dependencyRuntime?: NonNullable<PraxisRuntimeKernelOptions["baseToolDependencyRuntime"]>;
+  onToolCallProgress?: (event: AgentToolCallProgressEvent) => void | Promise<void>;
   now: () => string;
   events: string[];
 }): Promise<{
@@ -1920,6 +1968,36 @@ async function executeEphemeralProcedure(input: {
   observations: readonly RuntimeObservationMaterial[];
   error?: PraxisRuntimeKernelError;
 }> {
+  const shellWorkspaceWriteViolation = procedureShellWorkspaceWriteViolation(input.plan);
+  if (shellWorkspaceWriteViolation !== undefined) {
+    return {
+      ok: false,
+      records: [],
+      observations: [createObservationMaterial({
+        observationId: `${input.sessionId}:observation:${input.plan.procedureId}:${shellWorkspaceWriteViolation.step.stepId}:workspace-write-blocked`,
+        source: "ephemeralProcedure",
+        status: "failed",
+        title: `EphemeralProcedure ${input.plan.procedureId} blocked`,
+        summary: shellWorkspaceWriteViolation.message,
+        refs: [input.plan.procedureId, shellWorkspaceWriteViolation.step.stepId, shellWorkspaceWriteViolation.step.baseToolId],
+        payload: {
+          procedureId: input.plan.procedureId,
+          stepId: shellWorkspaceWriteViolation.step.stepId,
+          baseToolId: shellWorkspaceWriteViolation.step.baseToolId,
+          reason: shellWorkspaceWriteViolation.reason,
+          recommendedTools: ["code.overwrite", "code.modify", "code.replaceFile"],
+        },
+        metadata: metadataRecord({
+          procedureId: input.plan.procedureId,
+          stepId: shellWorkspaceWriteViolation.step.stepId,
+          baseToolId: shellWorkspaceWriteViolation.step.baseToolId,
+          blockedBy: "shellWorkspaceWriteGuard",
+        }),
+      })],
+      error: kernelError("PROCEDURE_INVOCATION_FAILED", shellWorkspaceWriteViolation.message, "tool"),
+    };
+  }
+
   if (input.plan.approval.required) {
     const approval = await requestRuntimeApproval({
       runtimeId: input.runtimeId,
@@ -1975,24 +2053,37 @@ async function executeEphemeralProcedure(input: {
     }
 
     const wave = input.plan.executionMode === "serial" ? ready.slice(0, 1) : ready;
-    const results = await Promise.all(wave.map((step) => executeBaseToolDecision({
-      runtimeId: input.runtimeId,
-      sessionId: input.sessionId,
-      manifest: input.manifest,
-      executor: input.executor,
-      toolCallId: `${input.plan.procedureId}:${step.stepId}`,
-      toolId: step.baseToolId,
-      args: step.input,
-      allowToolExecution: input.allowToolExecution,
-      store: input.store,
-      approvalResolver: input.approvalResolver,
-      dependencyRuntime: input.dependencyRuntime,
-      now: input.now,
-      events: input.events,
-    })));
+    const results = await Promise.all(wave.map(async (step) => {
+      const toolCallId = `${input.plan.procedureId}:${step.stepId}`;
+      await input.onToolCallProgress?.({
+        phase: "started",
+        callId: toolCallId,
+        toolId: step.baseToolId,
+        arguments: step.input,
+      });
+      const result = await executeBaseToolDecision({
+        runtimeId: input.runtimeId,
+        sessionId: input.sessionId,
+        manifest: input.manifest,
+        executor: input.executor,
+        toolCallId,
+        toolId: step.baseToolId,
+        args: step.input,
+        allowToolExecution: input.allowToolExecution,
+        store: input.store,
+        approvalResolver: input.approvalResolver,
+        dependencyRuntime: input.dependencyRuntime,
+        now: input.now,
+        events: input.events,
+      });
+      await input.onToolCallProgress?.({
+        phase: result.record.ok ? "completed" : "failed",
+        record: result.record,
+      });
+      return { step, result };
+    }));
 
-    for (const [index, result] of results.entries()) {
-      const step = wave[index];
+    for (const { step, result } of results) {
       records.push(result.record);
       observations.push(createObservationMaterial({
         observationId: `${input.sessionId}:observation:${input.plan.procedureId}:${step.stepId}`,
@@ -2883,6 +2974,15 @@ export class PraxisRuntimeKernel {
               events: ["agentCore.execution.mainLoop.runner.toolCallRejected"],
             };
           }
+          const preambleText = decision.preambleText?.trim();
+          if (preambleText) {
+            await options.onTextDelta?.(preambleText, {
+              source: "model_tool_preamble",
+              decisionId: decision.decisionId,
+              toolCallId: decision.toolCall.callId,
+              toolId: decision.toolCall.toolId,
+            });
+          }
           await recordHandoffPlan({
             store,
             sessionId,
@@ -3065,6 +3165,7 @@ export class PraxisRuntimeKernel {
             store,
             approvalResolver: options.approvalResolver,
             dependencyRuntime: options.baseToolDependencyRuntime,
+            onToolCallProgress: options.onToolCallProgress,
             now,
             events,
           });

@@ -19,6 +19,10 @@ import {
   stringValue,
   trimmedString,
 } from "../_shared/processControlJson.js";
+import {
+  describeShellWorkspaceWrite,
+  shellWorkspaceWriteGuardMessage,
+} from "../../_shared/workspaceWriteGuard.js";
 
 export type ShellBackgroundExecutionPermission = ShellProcessSpawningPermission;
 
@@ -71,6 +75,7 @@ export type ShellBackgroundExecutionErrorCode =
   | "PERMISSION_DENIED"
   | "APPROVAL_REQUIRED"
   | "APPROVAL_REJECTED"
+  | "WORKSPACE_WRITE_REQUIRES_CODE_TOOL"
   | "REAL_EXECUTION_BLOCKED";
 
 export type ShellBackgroundExecutionError = {
@@ -204,6 +209,17 @@ function normalizeTarget(
   const command = trimmedString(targetRecord?.command) ?? "";
   if (command.length === 0) {
     return failure("MISSING_COMMAND", "shell.backgroundExecution requires a non-empty command", "input", context, workingDirectoryForAudit);
+  }
+
+  const workspaceWriteReason = describeShellWorkspaceWrite(command);
+  if (workspaceWriteReason !== undefined) {
+    return failure(
+      "WORKSPACE_WRITE_REQUIRES_CODE_TOOL",
+      shellWorkspaceWriteGuardMessage(workspaceWriteReason),
+      "contract",
+      context,
+      workingDirectoryForAudit,
+    );
   }
 
   if (targetRecord?.shell !== undefined && typeof targetRecord.shell !== "string") {

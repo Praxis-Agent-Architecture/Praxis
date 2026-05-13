@@ -90,9 +90,14 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.equal(first.ok, true);
   const firstBody = JSON.stringify(providerBodies[0]);
   assert.match(firstBody, /You are the Raxode coding agent/u);
+  assert.match(firstBody, /choose the file tool before the command tool/u);
+  assert.match(firstBody, /Do not pack project source into a Shell heredoc/u);
   assert.match(firstBody, /Implementation\/build requests must be executed in the workspace with tools/u);
   assert.match(firstBody, /The current workspace is the default target when the user does not name a path/u);
   assert.match(firstBody, /A missing or empty project structure is a reason to create files/u);
+  assert.match(firstBody, /make Code tools the first write path after the workspace scan/u);
+  assert.match(firstBody, /shell steps must never create or modify workspace files/u);
+  assert.match(firstBody, /file creation and edits must be expressed as code\.\* tool inputs/u);
   assert.match(firstBody, /Do not tell the user.*save this as/u);
   const firstBodyRecord = providerBodies[0] as { prompt_cache_key?: string };
   assert.match(firstBodyRecord.prompt_cache_key ?? "", /^praxis-[a-f0-9]{32}$/u);
@@ -242,7 +247,10 @@ test("raxode application runtime routes omni.viewImage through Responses image i
           providerBodies.push(envelope.body);
           const bodyText = JSON.stringify(envelope.body);
           if (bodyText.includes("input_image")) {
-            return { output_text: "The image contains a tiny test pixel." };
+            return {
+              output_text: "The image contains a tiny test pixel.",
+              usage: { input_tokens: 100_000, output_tokens: 4 },
+            };
           }
           if (providerBodies.length === 1) {
             return {
@@ -255,9 +263,13 @@ test("raxode application runtime routes omni.viewImage through Responses image i
                   context: { grantedPermissions: ["tool.execute"] },
                 }),
               }],
+              usage: { input_tokens: 10, output_tokens: 2 },
             };
           }
-          return { output_text: "视觉链路已完成。" };
+          return {
+            output_text: "视觉链路已完成。",
+            usage: { input_tokens: 11, output_tokens: 3 },
+          };
         },
       }),
     });
@@ -289,6 +301,8 @@ test("raxode application runtime routes omni.viewImage through Responses image i
     assert.match(providerBodyText, /input_image/u);
     assert.match(providerBodyText, /data:image\/png;base64/u);
     assert.match(providerBodyText, /The image contains a tiny test pixel/u);
+    assert.equal(result.view.usage?.inputTokens, 21);
+    assert.equal(result.view.usage?.lastInputTokens, 11);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }
@@ -389,6 +403,7 @@ test("raxode application runtime emits semantic summaries for capability familie
   };
 
   try {
+    await writeFile(path.join(workspace, "src.ts"), "const a = 1;\nconst b = 2;\n");
     const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
       applicationId: "application.raxode.coding",
       mode: "live",
@@ -428,6 +443,21 @@ test("raxode application runtime emits semantic summaries for capability familie
                   context: {
                     workspaceRoot: workspace,
                     dryRun: true,
+                    guard: { accepted: true, allowed: true, reason: "test" },
+                  },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "code.modify",
+                call_id: "code-modify-summary-call",
+                arguments: JSON.stringify({
+                  workspaceRoot: workspace,
+                  targetPath: "src.ts",
+                  searchText: "const a = 1;\nconst b = 2;",
+                  replacementText: "const a = 1;\nconst b = 3;\nconst c = 4;",
+                  context: {
+                    workspaceRoot: workspace,
                     guard: { accepted: true, allowed: true, reason: "test" },
                   },
                 }),
@@ -527,6 +557,11 @@ test("raxode application runtime emits semantic summaries for capability familie
       && event.metadata?.toolId === "code.overwrite"
       && event.metadata?.toolStatus === "failed"
     );
+    const modifyFinished = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "code.modify"
+      && event.metadata?.toolStatus !== "running"
+    );
     const shellStarted = toolEvents.find((event) =>
       event.kind === "tool"
       && event.metadata?.toolId === "shell.commandExecution"
@@ -555,6 +590,8 @@ test("raxode application runtime emits semantic summaries for capability familie
     assert.equal(scanStarted?.metadata?.inputSummary, "Scanning . (depth 2, up to 50 entries)");
     assert.match(String(overwriteStarted?.metadata?.inputSummary), /^Writing \.\.\/outside\.html/u);
     assert.match(JSON.stringify(overwriteFailed?.metadata?.humanResultSummary), /code\.overwrite/u);
+    assert.equal((modifyFinished?.metadata?.resultMetadata as Record<string, unknown> | undefined)?.codeAdditions, 3);
+    assert.equal((modifyFinished?.metadata?.resultMetadata as Record<string, unknown> | undefined)?.codeDeletions, 2);
     assert.equal(shellStarted?.metadata?.inputSummary, `Running pwd in ${workspace}`);
     assert.equal(gitStarted?.metadata?.inputSummary, `Checking repository status in ${workspace}`);
     assert.equal(gitCompleted?.metadata?.familyKey, "git");
@@ -562,6 +599,232 @@ test("raxode application runtime emits semantic summaries for capability familie
     assert.equal(mcpStarted?.metadata?.inputSummary, "Listing MCP tools from summary-test-server");
     assert.equal(mcpCompleted?.metadata?.familyKey, "mcp");
     assert.match(JSON.stringify(mcpCompleted?.metadata?.humanResultSummary), /mcp\.listTools completed/u);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("raxode application runtime streams internal procedure tool progress", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-procedure-progress-"));
+  const events: unknown[] = [];
+  let providerCallCount = 0;
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    await writeFile(path.join(workspace, "README.md"), "# demo\n");
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (_envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerCallCount += 1;
+          if (providerCallCount > 1) {
+            return { output_text: "procedure progress finished." };
+          }
+          return {
+            output: [{
+              type: "function_call",
+              name: "praxis_ephemeral_procedure",
+              call_id: "procedure-progress-call",
+              arguments: JSON.stringify({
+                procedureId: "visible-procedure-progress",
+                purpose: "Inspect workspace with visible internal steps",
+                executionMode: "serial",
+                steps: [
+                  {
+                    stepId: "scan",
+                    baseToolId: "code.scan",
+                    input: {
+                      directoryPath: ".",
+                      depth: 1,
+                      maxEntries: 10,
+                      context: { workspaceRoot: workspace },
+                    },
+                  },
+                  {
+                    stepId: "pwd",
+                    baseToolId: "shell.commandExecution",
+                    input: {
+                      command: "pwd",
+                      args: [],
+                      cwd: workspace,
+                      shellType: "sh",
+                      context: { workspaceRoot: workspace },
+                    },
+                  },
+                ],
+              }),
+            }],
+          };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const unsubscribe = transport.subscribe((event) => events.push(event));
+    try {
+      const start = await transport.dispatch({
+        type: "application.start",
+        sessionId: "session.raxode.procedure-progress.test",
+        cwd: workspace,
+        mode: "live",
+      });
+      assert.equal(start.ok, true);
+      const result = await transport.dispatch({
+        type: "application.submitTurn",
+        sessionId: "session.raxode.procedure-progress.test",
+        mode: "live",
+        input: {
+          type: "application.input",
+          text: "用 procedure 检查当前目录。",
+          cwd: workspace,
+        },
+      });
+      assert.equal(result.ok, true);
+    } finally {
+      unsubscribe();
+    }
+
+    const indexedEvents = events.map((event, index) => ({
+      index,
+      event: event as { kind?: string; metadata?: Record<string, unknown> },
+    }));
+    const scanStarted = indexedEvents.find(({ event }) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "code.scan"
+      && event.metadata?.toolStatus === "running"
+    );
+    const scanCompleted = indexedEvents.find(({ event }) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "code.scan"
+      && event.metadata?.toolStatus === "completed"
+    );
+    const shellStarted = indexedEvents.find(({ event }) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "shell.commandExecution"
+      && event.metadata?.toolStatus === "running"
+    );
+    const finalEvent = indexedEvents.find(({ event }) => event.kind === "final");
+
+    assert.ok(scanStarted);
+    assert.ok(scanCompleted);
+    assert.ok(shellStarted);
+    assert.ok(finalEvent);
+    assert.equal(scanStarted.event.metadata?.toolCallId, "visible-procedure-progress:scan");
+    assert.equal(shellStarted.event.metadata?.toolCallId, "visible-procedure-progress:pwd");
+    assert.ok(scanStarted.index < scanCompleted.index);
+    assert.ok(shellStarted.index < finalEvent.index);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("raxode application runtime rejects procedure shell steps that write workspace files before execution", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-procedure-shell-write-"));
+  const events: unknown[] = [];
+  const providerBodies: unknown[] = [];
+  let providerCallCount = 0;
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerBodies.push(envelope.body);
+          providerCallCount += 1;
+          if (providerCallCount > 1) {
+            return { output_text: "我会改用 Code 工具写文件。" };
+          }
+          return {
+            output: [{
+              type: "function_call",
+              name: "praxis_ephemeral_procedure",
+              call_id: "procedure-shell-write-call",
+              arguments: JSON.stringify({
+                procedureId: "bad-shell-write-procedure",
+                purpose: "Create a project with a shell heredoc",
+                executionMode: "serial",
+                steps: [{
+                  stepId: "write-package",
+                  baseToolId: "shell.commandExecution",
+                  input: {
+                    command: "cat > package.json <<'EOF'\n{}\nEOF",
+                    args: [],
+                    cwd: workspace,
+                    shellType: "sh",
+                    context: { workspaceRoot: workspace },
+                  },
+                }],
+              }),
+            }],
+          };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const unsubscribe = transport.subscribe((event) => events.push(event));
+    try {
+      const start = await transport.dispatch({
+        type: "application.start",
+        sessionId: "session.raxode.procedure-shell-write.test",
+        cwd: workspace,
+        mode: "live",
+      });
+      assert.equal(start.ok, true);
+      const result = await transport.dispatch({
+        type: "application.submitTurn",
+        sessionId: "session.raxode.procedure-shell-write.test",
+        mode: "live",
+        input: {
+          type: "application.input",
+          text: "用 procedure 创建 package.json。",
+          cwd: workspace,
+        },
+      });
+      assert.equal(result.ok, true);
+    } finally {
+      unsubscribe();
+    }
+
+    const shellStarted = events.find((event) => {
+      const typed = event as { kind?: string; metadata?: Record<string, unknown> };
+      return typed.kind === "tool"
+        && typed.metadata?.toolId === "shell.commandExecution"
+        && typed.metadata?.toolStatus === "running";
+    });
+    assert.equal(shellStarted, undefined);
+    assert.equal(providerCallCount, 2);
+    assert.match(JSON.stringify(providerBodies[1]), /EphemeralProcedure step write-package uses shell\.commandExecution/u);
+    assert.match(JSON.stringify(providerBodies[1]), /code\.overwrite/u);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

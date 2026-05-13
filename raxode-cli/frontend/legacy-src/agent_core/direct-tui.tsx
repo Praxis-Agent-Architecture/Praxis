@@ -197,12 +197,18 @@ import {
   createDirectTuiCmpActivityKey,
   type DirectTuiStreamingAssistantText,
   deriveDirectTuiCmpStatusDescriptor,
-  formatDirectTuiContextUsagePercent,
+  formatDirectTuiContextRemainingPercent,
+  formatDirectTuiContextUsedPercent,
   isDirectTuiCmpActivityStage,
+  isDirectTuiLiveToolSummaryState,
+  resolveDirectTuiContextRemainingPercent,
   resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
   resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiContextUsedTokens,
+  resolveDirectTuiToolPreviewSummaryLines,
+  resolveDirectTuiToolSummaryResultLineLimit,
+  resolveDirectTuiToolSummaryKey,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
 } from "./tui-input/direct-tui-presentation.js";
@@ -309,6 +315,7 @@ interface LiveContextRecord {
   activeTokens?: number;
   promptTokens?: number;
   lastRequestInputTokens?: number;
+  lastRequestTotalTokens?: number;
   transcriptTokens?: number;
   summaryTokens?: number;
   historyMessages?: number;
@@ -347,7 +354,15 @@ interface LiveLogRecord {
   familyIntentSummary?: string;
   familyOutcomeKind?: "succeeded" | "failed" | "blocked" | "timed_out" | "partial";
   familyResultSummary?: string[];
+  toolCallId?: string;
+  itemId?: string;
+  outputIndex?: number;
+  providerToolName?: string;
+  argumentsDelta?: string;
+  arguments?: string;
+  rawType?: string;
   resultMetadata?: {
+    toolCallId?: string;
     selectedBackend?: string;
     resolvedBackend?: string;
     fallbackApplied?: boolean;
@@ -384,6 +399,8 @@ interface LiveLogRecord {
     commitHash?: string;
     branchName?: string;
     mimeType?: string;
+    codeAdditions?: number;
+    codeDeletions?: number;
   };
   output?: unknown;
   error?: unknown;
@@ -403,6 +420,7 @@ interface LiveLogRecord {
       thinkingTokens?: number;
       totalTokens?: number;
       cachedInputTokens?: number;
+      lastTotalTokens?: number;
       source?: string;
       estimated?: boolean;
     };
@@ -419,6 +437,7 @@ interface RenderLine {
   text: string;
   fillChar?: string;
   fillColor?: string;
+  fillBackgroundColor?: string;
   segments?: Array<{
     text: string;
     color?: string;
@@ -4917,6 +4936,7 @@ function expandRenderLinesForWidth(lines: RenderLine[], maxWidth: number): Rende
             {
               text: line.fillChar!.repeat(fillWidth),
               color: line.fillColor ?? colorForRenderLine(wrappedLine.kind),
+              backgroundColor: line.fillBackgroundColor,
             },
           ],
         };
@@ -5008,6 +5028,15 @@ function renderMarkdownSegments(line: string, baseColor: string): Array<{ text: 
   return segments.length > 0
     ? segments
     : [{ text: line, color: baseColor }];
+}
+
+function markdownFenceLanguage(line: string): string | undefined {
+  const match = line.trim().match(/^```([A-Za-z0-9_-]*)\s*$/u);
+  return match === null ? undefined : (match[1] ?? "");
+}
+
+function isMarkdownFenceLine(line: string): boolean {
+  return markdownFenceLanguage(line) !== undefined;
 }
 
 function renderQuestionReceiptLines(payload: QuestionReceiptPayload): RenderLine[] {
@@ -5136,9 +5165,16 @@ function renderStreamingAssistantLines(streamingAssistant: DirectTuiStreamingAss
       ],
     });
   }
-  chunks.forEach((chunk, index) => {
+  let inFencedCodeBlock = false;
+  let renderedLineIndex = 0;
+  chunks.forEach((chunk) => {
+    if (isMarkdownFenceLine(chunk)) {
+      inFencedCodeBlock = !inFencedCodeBlock;
+      return;
+    }
     const visibleText = chunk.length > 0 ? chunk : " ";
-    const prefix = index === 0 && !trimmed ? "● " : "  ";
+    const prefix = renderedLineIndex === 0 && !trimmed ? "● " : "  ";
+    renderedLineIndex += 1;
     const line: RenderLine = {
       kind: "assistant",
       text: `${prefix}${visibleText}`,
@@ -5150,7 +5186,7 @@ function renderStreamingAssistantLines(streamingAssistant: DirectTuiStreamingAss
       ],
       segments: [
         { text: prefix, color: TUI_THEME.textMuted },
-        { text: visibleText, color: TUI_THEME.text },
+        { text: visibleText, color: inFencedCodeBlock ? TUI_THEME.violet : TUI_THEME.text },
       ],
     };
     lines.push(line);
@@ -5158,20 +5194,85 @@ function renderStreamingAssistantLines(streamingAssistant: DirectTuiStreamingAss
   return lines;
 }
 
-function toolSummaryChunkSegments(chunk: string, active: boolean, animationFrame: number): NonNullable<RenderLine["segments"]> {
-  if (active) {
-    return buildShimmerSegments(chunk, animationFrame);
+type CodeDiffPreviewLine = {
+  marker: "+" | "-";
+  lineNumber: string;
+  content: string;
+};
+
+function parseCodeDiffPreviewLine(chunk: string): CodeDiffPreviewLine | undefined {
+  const match = /^([+-])\s*([0-9?]+)\s+\|\s?(.*)$/u.exec(chunk);
+  if (match === null) {
+    return undefined;
+  }
+  return {
+    marker: match[1] as "+" | "-",
+    lineNumber: match[2],
+    content: match[3] && match[3].length > 0 ? match[3] : " ",
+  };
+}
+
+function buildCodeDiffPreviewSegments(input: {
+  prefix: string;
+  chunk: string;
+}): NonNullable<RenderLine["segments"]> | undefined {
+  const diffLine = parseCodeDiffPreviewLine(input.chunk);
+  if (diffLine === undefined) {
+    return undefined;
+  }
+  const isAdded = diffLine.marker === "+";
+  const backgroundColor = isAdded ? "green" : "red";
+  const markerColor = isAdded ? "greenBright" : "redBright";
+  return [
+    { text: input.prefix, color: TUI_THEME.textMuted, backgroundColor },
+    { text: diffLine.lineNumber.padStart(4, " "), color: TUI_THEME.textMuted, backgroundColor },
+    { text: ` ${diffLine.marker} `, color: markerColor, backgroundColor },
+    { text: diffLine.content, color: TUI_THEME.text, backgroundColor },
+  ];
+}
+
+function toolSummaryChunkSegments(input: {
+  chunk: string;
+  prefix?: string;
+  active: boolean;
+  animationFrame: number;
+}): NonNullable<RenderLine["segments"]> {
+  const prefix = input.prefix ?? "";
+  const chunk = input.chunk;
+  if (prefix.length > 0) {
+    const diffSegments = buildCodeDiffPreviewSegments({ prefix, chunk });
+    if (diffSegments !== undefined) {
+      return diffSegments;
+    }
+  }
+  if (input.active) {
+    return [
+      ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
+      ...buildShimmerSegments(chunk, input.animationFrame),
+    ];
   }
   if (chunk.startsWith("+") && !chunk.startsWith("+++")) {
-    return [{ text: chunk, color: "greenBright" }];
+    return [
+      ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
+      { text: chunk, color: "greenBright" },
+    ];
   }
   if (chunk.startsWith("-") && !chunk.startsWith("---")) {
-    return [{ text: chunk, color: TUI_THEME.red }];
+    return [
+      ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
+      { text: chunk, color: TUI_THEME.red },
+    ];
   }
   if (chunk.startsWith("@@")) {
-    return [{ text: chunk, color: TUI_THEME.cyan }];
+    return [
+      ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
+      { text: chunk, color: TUI_THEME.cyan },
+    ];
   }
-  return [{ text: chunk, color: TUI_THEME.text }];
+  return [
+    ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
+    { text: chunk, color: TUI_THEME.text },
+  ];
 }
 
 function toolSummaryTitleColor(familyKey: unknown): string {
@@ -5210,6 +5311,46 @@ function toolSummaryTitleColor(familyKey: unknown): string {
   }
 }
 
+function toolSummaryTitleSegments(input: {
+  prefix: string;
+  title: string;
+  dotColor: string;
+  titleColor: string;
+}): NonNullable<RenderLine["segments"]> {
+  const segments: NonNullable<RenderLine["segments"]> = [
+    { text: input.prefix, color: input.dotColor },
+  ];
+  const pattern = /([+-]\d+)/gu;
+  let cursor = 0;
+  for (const match of input.title.matchAll(pattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) {
+      segments.push({
+        text: input.title.slice(cursor, index),
+        color: input.titleColor,
+      });
+    }
+    const token = match[1] ?? "";
+    segments.push({
+      text: token,
+      color: token.startsWith("+") ? "greenBright" : TUI_THEME.red,
+    });
+    cursor = index + token.length;
+  }
+  if (cursor < input.title.length) {
+    segments.push({
+      text: input.title.slice(cursor),
+      color: input.titleColor,
+    });
+  }
+  return segments;
+}
+
+function extractToolPreviewCodeDiffStatsFromTitle(title: string | undefined): string | undefined {
+  const match = title?.match(/\((?:\+\d+|-\d+)(?:\s+(?:\+\d+|-\d+))*\)/u);
+  return match?.[0];
+}
+
 function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimationFrame = 0): RenderBlock[] {
   const blocks: RenderBlock[] = [];
   for (const message of messages) {
@@ -5219,7 +5360,7 @@ function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimatio
     const isTurnStats = displayMessage.kind === "status" && displayMessage.metadata?.source === "turn_stats";
     const isToolSummary = displayMessage.kind === "status" && displayMessage.metadata?.source === "tool_summary";
     const isQuestionReceipt = displayMessage.metadata?.source === "question_receipt";
-    const toolSummaryActive = displayMessage.metadata?.summaryState === "active";
+    const toolSummaryActive = isDirectTuiLiveToolSummaryState(displayMessage.metadata?.summaryState);
     const toolSummaryColor = toolSummaryTitleColor(displayMessage.metadata?.familyKey);
 
     if (displayMessage.kind === "assistant" || displayMessage.kind === "user") {
@@ -5235,22 +5376,32 @@ function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimatio
         },
       ];
 
-      chunks.forEach((chunk, index) => {
+      let inFencedCodeBlock = false;
+      let renderedLineIndex = 0;
+      chunks.forEach((chunk) => {
+        if (isMarkdownFenceLine(chunk)) {
+          inFencedCodeBlock = !inFencedCodeBlock;
+          return;
+        }
         const visibleText = chunk.length > 0 ? chunk : " ";
+        const renderedIndex = renderedLineIndex;
+        renderedLineIndex += 1;
         lines.push({
           kind: displayMessage.kind,
-          text: `${index === 0 ? prefix : indent}${visibleText}`,
+          text: `${renderedIndex === 0 ? prefix : indent}${visibleText}`,
           continuationSegments,
           segments: [
             {
-              text: index === 0 ? prefix : indent,
+              text: renderedIndex === 0 ? prefix : indent,
               color: displayMessage.kind === "assistant" ? TUI_THEME.textMuted : TUI_THEME.mint,
               backgroundColor: userBackground,
             },
-            ...renderMarkdownSegments(visibleText, baseColor).map((segment) => ({
-              ...segment,
-              backgroundColor: userBackground,
-            })),
+            ...(inFencedCodeBlock
+              ? [{ text: visibleText, color: TUI_THEME.violet, backgroundColor: userBackground }]
+              : renderMarkdownSegments(visibleText, baseColor).map((segment) => ({
+                ...segment,
+                backgroundColor: userBackground,
+              }))),
           ],
         });
       });
@@ -5275,33 +5426,42 @@ function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimatio
         : 0;
       chunks.forEach((chunk, index) => {
         if (index === 0) {
-          const toolSummaryDotColor = toolSummaryActive
+          const titleHasCodeDiffStats = extractToolPreviewCodeDiffStatsFromTitle(chunk) !== undefined;
+          const toolSummaryDotColor = toolSummaryActive && !titleHasCodeDiffStats
             ? (Math.floor(toolSummaryAnimationFrame / 3) % 2 === 0 ? TUI_THEME.textMuted : toolSummaryColor)
             : TUI_THEME.textMuted;
           lines.push({
             kind: "detail",
             text: `● ${chunk}`,
-            segments: [
-              { text: "● ", color: toolSummaryDotColor },
-              { text: chunk, color: toolSummaryColor },
-            ],
+            segments: toolSummaryTitleSegments({
+              prefix: "● ",
+              title: chunk,
+              dotColor: toolSummaryDotColor,
+              titleColor: toolSummaryColor,
+            }),
           });
           return;
         }
         const isIntentLine = index <= intentLineCount;
         const prefix = isIntentLine ? "  · " : "  └ ";
-        const detailSegments = toolSummaryChunkSegments(
+        const detailSegments = toolSummaryChunkSegments({
           chunk,
-          toolSummaryActive && index === 1,
-          toolSummaryAnimationFrame,
-        );
+          prefix,
+          active: toolSummaryActive && index === 1,
+          animationFrame: toolSummaryAnimationFrame,
+        });
+        const diffPreviewLine = parseCodeDiffPreviewLine(chunk);
         lines.push({
           kind: "detail",
           text: `${prefix}${chunk}`,
-          segments: [
-            { text: prefix, color: TUI_THEME.textMuted },
-            ...detailSegments,
-          ],
+          segments: detailSegments,
+          fillChar: diffPreviewLine !== undefined ? " " : undefined,
+          fillColor: diffPreviewLine !== undefined
+            ? TUI_THEME.text
+            : undefined,
+          fillBackgroundColor: diffPreviewLine !== undefined
+            ? (diffPreviewLine.marker === "+" ? "green" : "red")
+            : undefined,
         });
       });
     } else if (isQuestionReceipt) {
@@ -5416,7 +5576,13 @@ function shouldConsumeRecordAfterTurnInterrupt(record: LiveLogRecord): boolean {
 }
 
 function createTaskId(record: LiveLogRecord): string {
-  return `${record.stage ?? record.label ?? "stage"}:${record.turnIndex ?? 0}:${record.capabilityKey ?? "none"}`;
+  const toolCallId = record.toolCallId ?? record.resultMetadata?.toolCallId;
+  return [
+    record.stage ?? record.label ?? "stage",
+    record.turnIndex ?? 0,
+    record.capabilityKey ?? "none",
+    toolCallId ?? "none",
+  ].join(":");
 }
 
 function formatStageStatus(record: LiveLogRecord, phase: "start" | "end"): string {
@@ -5459,6 +5625,28 @@ function capabilityFamilySpec(capabilityKey?: string | null): { key: string; tit
     key: family.familyKey,
     title: family.familyTitle,
   };
+}
+
+function capabilityKeyFromProviderToolName(providerToolName?: string | null): string | null {
+  const normalized = providerToolName?.trim();
+  if (!normalized) {
+    return null;
+  }
+  return normalized.replace(/^praxis_tool_/u, "").replace(/_/gu, ".");
+}
+
+function toolCallPreviewIdentity(record: LiveLogRecord): string | null {
+  const toolCallId = record.toolCallId?.trim();
+  if (toolCallId) {
+    return toolCallId;
+  }
+  const itemId = record.itemId?.trim();
+  if (itemId) {
+    return itemId;
+  }
+  return typeof record.outputIndex === "number" && Number.isFinite(record.outputIndex)
+    ? `output-${record.outputIndex}`
+    : null;
 }
 
 function pickFirstSentence(text: string): string {
@@ -5640,6 +5828,23 @@ function resolveFamilyStatusLabel(
   return null;
 }
 
+function formatCodeChangeStats(input?: {
+  codeAdditions?: number;
+  codeDeletions?: number;
+} | null): string | undefined {
+  const additions = typeof input?.codeAdditions === "number" && Number.isFinite(input.codeAdditions)
+    ? Math.max(0, Math.floor(input.codeAdditions))
+    : undefined;
+  const deletions = typeof input?.codeDeletions === "number" && Number.isFinite(input.codeDeletions)
+    ? Math.max(0, Math.floor(input.codeDeletions))
+    : undefined;
+  const parts = [
+    additions !== undefined ? `+${additions}` : undefined,
+    deletions !== undefined ? `-${deletions}` : undefined,
+  ].filter((part): part is string => part !== undefined);
+  return parts.length > 0 ? `(${parts.join(" ")})` : undefined;
+}
+
 function resolveFamilyBlockTitle(input: {
   familyTitle?: string | null;
   familyKey?: string | null;
@@ -5647,6 +5852,7 @@ function resolveFamilyBlockTitle(input: {
   familyOutcomeKind?: LiveLogRecord["familyOutcomeKind"];
   status?: string | null;
   hadFailure: boolean;
+  titleSuffix?: string | null;
 }): string {
   if ((input.familyKey ?? "").trim().toLowerCase() === "websearch") {
     return resolveWebSearchBlockTitle({
@@ -5663,13 +5869,19 @@ function resolveFamilyBlockTitle(input: {
     ? compactRuntimeText(input.familyTitle)
     : fallbackTitle;
   const statusLabel = resolveFamilyStatusLabel(input.familyOutcomeKind, input.status);
+  const appendSuffix = (title: string) => {
+    const suffix = typeof input.titleSuffix === "string" && input.titleSuffix.trim()
+      ? input.titleSuffix.trim()
+      : "";
+    return suffix && !title.endsWith(suffix) ? `${title} ${suffix}` : title;
+  };
   if (input.hadFailure || statusLabel) {
     if (statusLabel && new RegExp(`${statusLabel}$`, "iu").test(baseTitle)) {
-      return baseTitle;
+      return appendSuffix(baseTitle);
     }
-    return `${baseTitle} ${statusLabel ?? "failed"}`;
+    return appendSuffix(`${baseTitle} ${statusLabel ?? "failed"}`);
   }
-  return baseTitle;
+  return appendSuffix(baseTitle);
 }
 
 function formatWebSearchOutcomeLine(
@@ -6382,6 +6594,7 @@ function normalizeContextSnapshot(
   activeTokens: number;
   promptTokens: number;
   lastRequestInputTokens?: number;
+  lastRequestTotalTokens?: number;
   transcriptTokens: number;
   summaryTokens?: number;
   historyMessages?: number;
@@ -6408,6 +6621,9 @@ function normalizeContextSnapshot(
   const lastRequestInputTokens = typeof input.lastRequestInputTokens === "number" && Number.isFinite(input.lastRequestInputTokens)
     ? input.lastRequestInputTokens
     : undefined;
+  const lastRequestTotalTokens = typeof input.lastRequestTotalTokens === "number" && Number.isFinite(input.lastRequestTotalTokens)
+    ? input.lastRequestTotalTokens
+    : undefined;
   const summaryTokens = typeof input.summaryTokens === "number" && Number.isFinite(input.summaryTokens)
     ? input.summaryTokens
     : undefined;
@@ -6429,6 +6645,7 @@ function normalizeContextSnapshot(
     activeTokens: promptTokens,
     promptTokens,
     lastRequestInputTokens,
+    lastRequestTotalTokens,
     transcriptTokens,
     summaryTokens,
     historyMessages,
@@ -6966,8 +7183,8 @@ function renderContextBar(used: number, total: number, width = CONTEXT_BAR_WIDTH
 
 function formatStatusContextUsageLine(used: number, total: number): string {
   const contextBar = renderContextBar(used, total, STATUS_CONTEXT_BAR_WIDTH);
-  const percent = formatDirectTuiContextUsagePercent(used, total);
-  return `${contextBar} ${percent} as ${formatContextWindowLabel(used)} of ${formatContextWindowLabel(total)} tokens`;
+  const percent = formatDirectTuiContextRemainingPercent(used, total);
+  return `${contextBar} ${percent} left as ${formatContextWindowLabel(used)} used of ${formatContextWindowLabel(total)} tokens`;
 }
 
 function isFooterModeCycleInput(
@@ -8041,6 +8258,14 @@ function PraxisDirectTuiApp(): JSX.Element {
     hadFailure: boolean;
     intentLines: string[];
     resultLines: string[];
+  }>());
+  const toolPreviewStateRef = useRef(new Map<string, {
+    familyKey: string;
+    familyTitle: string;
+    providerToolName?: string;
+    capabilityKey?: string;
+    argumentsPreview: string;
+    codeDiffStats?: string;
   }>());
   const toolSummaryRevisionRef = useRef(new Map<string, number>());
   const nextComposerImageIndexRef = useRef(1);
@@ -9931,6 +10156,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     rawAssistantDeltaTextRef.current.clear();
     turnUserTextRef.current.clear();
     toolFamilyStateRef.current.clear();
+    toolPreviewStateRef.current.clear();
     toolSummaryRevisionRef.current.clear();
     pendingTranscriptRewindRef.current = null;
     pendingOutboundTurnsRef.current = [];
@@ -10250,6 +10476,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     activeTasksRef.current = [];
     activeTurnIdsRef.current.clear();
     toolFamilyStateRef.current.clear();
+    toolPreviewStateRef.current.clear();
     toolSummaryRevisionRef.current.clear();
     assistantSegmentIndexRef.current.clear();
     activeAssistantMessageIdRef.current.clear();
@@ -11151,7 +11378,81 @@ function PraxisDirectTuiApp(): JSX.Element {
             continue;
           }
 
-          if (record.event === "stage_start") {
+          if (record.event === "tool_call_preview") {
+            const previewIdentity = toolCallPreviewIdentity(record);
+            if (!previewIdentity) {
+              continue;
+            }
+            const providerToolName = record.providerToolName ?? undefined;
+            const capabilityKey = capabilityKeyFromProviderToolName(providerToolName) ?? undefined;
+            const family = capabilityFamilySpec(capabilityKey);
+            const familyKey = family?.key ?? "tool";
+            const familyTitle = family?.title ?? "Tool";
+            const stateKey = resolveDirectTuiToolSummaryKey({
+              turnId,
+              familyKey,
+              toolCallId: previewIdentity,
+            });
+            const previousPreview = toolPreviewStateRef.current.get(stateKey);
+            const argumentsPreviewSource = record.status === "done" && typeof record.arguments === "string"
+              ? record.arguments
+              : `${previousPreview?.argumentsPreview ?? ""}${record.argumentsDelta ?? ""}`;
+            const argumentsPreview = argumentsPreviewSource;
+            const nextPreview = {
+              familyKey,
+              familyTitle,
+              providerToolName: providerToolName ?? previousPreview?.providerToolName,
+              capabilityKey: capabilityKey ?? previousPreview?.capabilityKey,
+              argumentsPreview,
+              codeDiffStats: previousPreview?.codeDiffStats,
+            };
+            const previewLines = resolveDirectTuiToolPreviewSummaryLines({
+              title: familyTitle,
+              phase: record.status,
+              providerToolName: nextPreview.providerToolName,
+              capabilityKey: nextPreview.capabilityKey,
+              argumentsPreview,
+              stableCodeDiffStats: nextPreview.codeDiffStats,
+            });
+            toolPreviewStateRef.current.set(stateKey, {
+              ...nextPreview,
+              codeDiffStats: extractToolPreviewCodeDiffStatsFromTitle(previewLines[0]) ?? nextPreview.codeDiffStats,
+            });
+            dispatchSurfaceEvent({
+              type: "message.appended",
+              at,
+              message: createSurfaceMessage({
+                messageId: `tool-preview:${stateKey}`,
+                sessionId: sessionIdRef.current,
+                turnId,
+                kind: "status",
+                text: previewLines.join("\n"),
+                createdAt: at,
+                updatedAt: at,
+                capabilityKey: nextPreview.capabilityKey,
+                metadata: {
+                  source: "tool_summary",
+                  familyKey,
+                  summaryRole: "tool_preview",
+                  summaryState: record.status === "done" ? "ready" : "active",
+                  toolCallId: record.toolCallId,
+                  itemId: record.itemId,
+                  providerToolName: nextPreview.providerToolName,
+                },
+              }),
+            });
+            setRunIndicator((previous) => ({
+              startedAt: previous?.startedAt ?? at,
+              label: nextPreview.capabilityKey
+                ? `model composing ${nextPreview.capabilityKey}`
+                : nextPreview.providerToolName
+                ? `model composing ${nextPreview.providerToolName}`
+                : "model composing tool call",
+            }));
+            continue;
+          }
+
+	          if (record.event === "stage_start") {
             const cmpStage = typeof record.stage === "string" ? record.stage : undefined;
             const cmpActivityKey = createDirectTuiCmpActivityKey({
               turnIndex: record.turnIndex,
@@ -11210,7 +11511,11 @@ function PraxisDirectTuiApp(): JSX.Element {
                 capabilityKey: record.capabilityKey,
               });
               if (familyKey && shouldRenderFamilyBlock) {
-                const stateKey = `${turnId}:${familyKey}`;
+                const stateKey = resolveDirectTuiToolSummaryKey({
+                  turnId,
+                  familyKey,
+                  toolCallId: record.toolCallId ?? record.resultMetadata?.toolCallId,
+                });
                 const previousFamily = toolFamilyStateRef.current.get(stateKey) ?? {
                   hadFailure: false,
                   intentLines: [],
@@ -11253,6 +11558,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                         familyOutcomeKind: record.familyOutcomeKind,
                         status: record.status,
                         hadFailure: nextFamily.hadFailure,
+                        titleSuffix: formatCodeChangeStats(record.resultMetadata),
                       }),
                       ...nextFamily.intentLines,
                       ...nextFamily.resultLines,
@@ -11356,7 +11662,13 @@ function PraxisDirectTuiApp(): JSX.Element {
                 familyKey: familyKeyFromTelemetry,
                 capabilityKey: record.capabilityKey,
               });
-              const familyStateKey = familyKey ? `${turnId}:${familyKey}` : null;
+              const familyStateKey = familyKey
+                ? resolveDirectTuiToolSummaryKey({
+                  turnId,
+                  familyKey,
+                  toolCallId: record.toolCallId ?? record.resultMetadata?.toolCallId,
+                })
+                : null;
               const previousFamilyState = familyStateKey
                 ? toolFamilyStateRef.current.get(familyStateKey)
                 : undefined;
@@ -11407,7 +11719,10 @@ function PraxisDirectTuiApp(): JSX.Element {
                         : [...previousFamily.intentLines, nextIntentLine]
                     )
                     : previousFamily.intentLines,
-                  resultLines: combinedResultLines.slice(0, 3),
+                  resultLines: combinedResultLines.slice(0, resolveDirectTuiToolSummaryResultLineLimit({
+                    familyKey,
+                    resultLines: combinedResultLines,
+                  })),
                 };
                 toolFamilyStateRef.current.set(familyStateKey, nextFamily);
                 const blockTitle = resolveFamilyBlockTitle({
@@ -11417,6 +11732,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                   familyOutcomeKind: record.familyOutcomeKind,
                   status: record.status,
                   hadFailure: nextFamily.hadFailure,
+                  titleSuffix: formatCodeChangeStats(record.resultMetadata),
                 });
                 dispatchSurfaceEvent({
                   type: "message.appended",
@@ -11737,6 +12053,11 @@ function PraxisDirectTuiApp(): JSX.Element {
             for (const key of [...toolFamilyStateRef.current.keys()]) {
               if (key.startsWith(`${turnId}:`)) {
                 toolFamilyStateRef.current.delete(key);
+              }
+            }
+            for (const key of [...toolPreviewStateRef.current.keys()]) {
+              if (key.startsWith(`${turnId}:`)) {
+                toolPreviewStateRef.current.delete(key);
               }
             }
             for (const key of [...toolSummaryRevisionRef.current.keys()]) {
@@ -14639,7 +14960,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const hasActiveToolSummary = useMemo(
     () => transcriptMessages.some((message) =>
       message.metadata?.source === "tool_summary"
-      && message.metadata?.summaryState === "active"
+      && isDirectTuiLiveToolSummaryState(message.metadata?.summaryState)
       && !!message.turnId
       && activeTurnIds.has(message.turnId)),
     [activeTurnIds, transcriptMessages],
@@ -14703,7 +15024,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       snapshot: backendContextSnapshot,
       draftContextTokens: 0,
     }),
-    [backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens],
+    [backendContextSnapshot?.lastRequestTotalTokens, backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens],
   );
   const statusContextUsageLine = useMemo(
     () => formatStatusContextUsageLine(statusContextUsed, contextWindowSize),
@@ -14715,9 +15036,9 @@ function PraxisDirectTuiApp(): JSX.Element {
       snapshot: backendContextSnapshot,
       draftContextTokens,
     }),
-    [backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens, draftContextTokens],
+    [backendContextSnapshot?.lastRequestTotalTokens, backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens, draftContextTokens],
   );
-  const contextPercent = formatDirectTuiContextUsagePercent(estimatedContextUsed, contextWindowSize);
+  const contextPercent = `${formatDirectTuiContextUsedPercent(estimatedContextUsed, contextWindowSize)} used`;
   const contextBar = useMemo(
     () => renderContextBar(estimatedContextUsed, contextWindowSize),
     [estimatedContextUsed, contextWindowSize],

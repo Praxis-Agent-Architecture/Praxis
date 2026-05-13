@@ -254,7 +254,7 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
       toolId: "praxis.runtime.ephemeralProcedure",
       providerName: "praxis_ephemeral_procedure",
       providerKind: "baseTool",
-      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability.",
+      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability. Procedure steps must obey each BaseTool contract: shell steps must never create or modify workspace files with redirection, heredocs, cat, tee, or ad-hoc file writes; use code.overwrite, code.modify, or code.replaceFile steps for workspace file changes.",
       inputSchema: normalizeProviderInputSchema({
         type: "object",
         additionalProperties: true,
@@ -276,8 +276,15 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
               required: ["stepId", "baseToolId", "input"],
               properties: {
                 stepId: { type: "string" },
-                baseToolId: { type: "string" },
-                input: { type: "object", additionalProperties: true },
+                baseToolId: {
+                  type: "string",
+                  description: "Mounted BaseTool id. Use code.overwrite/code.modify/code.replaceFile for workspace file edits; shell.* steps are only for commands, process control, and verification.",
+                },
+                input: {
+                  type: "object",
+                  additionalProperties: true,
+                  description: "Input for the selected BaseTool. Do not put workspace file contents into shell commands; file creation and edits must be expressed as code.* tool inputs.",
+                },
                 dependsOn: { type: "array", items: { type: "string" } },
                 riskLevel: { type: "string", enum: ["low", "medium", "high"] },
                 outputRef: { type: "string" },

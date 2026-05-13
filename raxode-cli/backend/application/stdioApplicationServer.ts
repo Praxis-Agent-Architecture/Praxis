@@ -60,6 +60,7 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     now: options.now,
     liveProviderResolver: async (manifest, context) => createRaxodeLiveProvider(manifest, {
       onTextDelta: context?.onTextDelta,
+      onProviderStreamEvent: context?.onProviderStreamEvent,
     }),
   });
   if (!created.ok) {

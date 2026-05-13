@@ -26,6 +26,25 @@ export type RaxodeLiveProvider = {
   authSource: string;
 };
 
+export type RaxodeProviderStreamEvent = {
+  channel: "tool_call_preview";
+  phase: "started" | "delta" | "done";
+  itemId?: string;
+  outputIndex?: number;
+  callId?: string;
+  providerToolName?: string;
+  argumentsDelta?: string;
+  arguments?: string;
+  rawType?: string;
+};
+
+export type RaxodeToolCallPreviewState = Map<string, {
+  itemId?: string;
+  outputIndex?: number;
+  callId?: string;
+  providerToolName?: string;
+}>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -63,12 +82,116 @@ export function readSseTextDelta(payload: string): string {
   return "";
 }
 
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+export function readSseToolCallPreviewEvent(payload: string): RaxodeProviderStreamEvent | undefined {
+  if (payload.length === 0 || payload === "[DONE]") return undefined;
+  try {
+    const parsed = JSON.parse(payload) as unknown;
+    if (!isRecord(parsed)) return undefined;
+    const type = readString(parsed.type);
+    const outputIndex = readNumber(parsed.output_index);
+    const itemId = readString(parsed.item_id);
+    if ((type === "response.output_item.added" || type === "response.output_item.done") && isRecord(parsed.item)) {
+      const item = parsed.item;
+      if (item.type !== "function_call") return undefined;
+      return {
+        channel: "tool_call_preview",
+        phase: type === "response.output_item.added" ? "started" : "done",
+        itemId: readString(item.id) ?? itemId,
+        outputIndex,
+        callId: readString(item.call_id),
+        providerToolName: readString(item.name),
+        arguments: readString(item.arguments),
+        rawType: type,
+      };
+    }
+    if (type === "response.function_call_arguments.delta") {
+      const delta = readString(parsed.delta);
+      if (delta === undefined) return undefined;
+      return {
+        channel: "tool_call_preview",
+        phase: "delta",
+        itemId,
+        outputIndex,
+        callId: readString(parsed.call_id),
+        argumentsDelta: delta,
+        rawType: type,
+      };
+    }
+    if (type === "response.function_call_arguments.done") {
+      return {
+        channel: "tool_call_preview",
+        phase: "done",
+        itemId,
+        outputIndex,
+        callId: readString(parsed.call_id),
+        arguments: readString(parsed.arguments),
+        rawType: type,
+      };
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function looksLikeSseChunk(value: string): boolean {
   return /(?:^|\n)(?:event|data):\s*/u.test(value);
 }
 
-export function extractAndPublishSseDeltas(buffer: string, onTextDelta?: (delta: string) => void): string {
-  if (!onTextDelta) return buffer;
+function previewStateKeys(event: RaxodeProviderStreamEvent): string[] {
+  return [
+    event.itemId ? `item:${event.itemId}` : undefined,
+    event.callId ? `call:${event.callId}` : undefined,
+    typeof event.outputIndex === "number" ? `output:${event.outputIndex}` : undefined,
+  ].filter((key): key is string => key !== undefined);
+}
+
+function rememberToolCallPreviewEvent(
+  state: RaxodeToolCallPreviewState,
+  event: RaxodeProviderStreamEvent,
+): RaxodeProviderStreamEvent {
+  const known = previewStateKeys(event)
+    .map((key) => state.get(key))
+    .find((entry) => entry !== undefined);
+  const enriched: RaxodeProviderStreamEvent = {
+    ...event,
+    itemId: event.itemId ?? known?.itemId,
+    outputIndex: event.outputIndex ?? known?.outputIndex,
+    callId: event.callId ?? known?.callId,
+    providerToolName: event.providerToolName ?? known?.providerToolName,
+  };
+  const shouldRemember = enriched.itemId !== undefined
+    || enriched.callId !== undefined
+    || enriched.providerToolName !== undefined;
+  if (shouldRemember) {
+    const snapshot = {
+      itemId: enriched.itemId,
+      outputIndex: enriched.outputIndex,
+      callId: enriched.callId,
+      providerToolName: enriched.providerToolName,
+    };
+    for (const key of previewStateKeys(enriched)) {
+      state.set(key, snapshot);
+    }
+  }
+  return enriched;
+}
+
+export function extractAndPublishSseDeltas(
+  buffer: string,
+  onTextDelta?: (delta: string) => void,
+  onProviderStreamEvent?: (event: RaxodeProviderStreamEvent) => void,
+  toolCallPreviewState: RaxodeToolCallPreviewState = new Map(),
+): string {
+  if (!onTextDelta && !onProviderStreamEvent) return buffer;
   const normalized = buffer.replace(/\r\n/gu, "\n");
   const frames = normalized.split("\n\n");
   const remainder = frames.pop() ?? "";
@@ -80,14 +203,21 @@ export function extractAndPublishSseDeltas(buffer: string, onTextDelta?: (delta:
       .join("\n");
     const delta = readSseTextDelta(payload);
     if (delta) {
-      onTextDelta(delta);
+      onTextDelta?.(delta);
+    }
+    const toolCallPreviewEvent = readSseToolCallPreviewEvent(payload);
+    if (toolCallPreviewEvent) {
+      onProviderStreamEvent?.(rememberToolCallPreviewEvent(toolCallPreviewState, toolCallPreviewEvent));
     }
   }
   return remainder;
 }
 
-function createStreamingProviderTransport(onTextDelta?: (delta: string) => void): ProviderTransport {
-  if (!onTextDelta) return fetchProviderTransport;
+function createStreamingProviderTransport(
+  onTextDelta?: (delta: string) => void,
+  onProviderStreamEvent?: (event: RaxodeProviderStreamEvent) => void,
+): ProviderTransport {
+  if (!onTextDelta && !onProviderStreamEvent) return fetchProviderTransport;
   return async (request: ProviderTransportRequest): Promise<ProviderTransportResponse> => {
     const controller = new AbortController();
     const timeout =
@@ -119,6 +249,7 @@ function createStreamingProviderTransport(onTextDelta?: (delta: string) => void)
       let raw = "";
       let pendingSse = "";
       let shouldParseSse = contentType.includes("text/event-stream");
+      const toolCallPreviewState: RaxodeToolCallPreviewState = new Map();
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) break;
@@ -126,7 +257,12 @@ function createStreamingProviderTransport(onTextDelta?: (delta: string) => void)
         raw += text;
         shouldParseSse ||= looksLikeSseChunk(text);
         if (shouldParseSse) {
-          pendingSse = extractAndPublishSseDeltas(`${pendingSse}${text}`, onTextDelta);
+          pendingSse = extractAndPublishSseDeltas(
+            `${pendingSse}${text}`,
+            onTextDelta,
+            onProviderStreamEvent,
+            toolCallPreviewState,
+          );
         }
       }
       const tail = decoder.decode();
@@ -134,11 +270,21 @@ function createStreamingProviderTransport(onTextDelta?: (delta: string) => void)
         raw += tail;
         shouldParseSse ||= looksLikeSseChunk(tail);
         if (shouldParseSse) {
-          pendingSse = extractAndPublishSseDeltas(`${pendingSse}${tail}`, onTextDelta);
+          pendingSse = extractAndPublishSseDeltas(
+            `${pendingSse}${tail}`,
+            onTextDelta,
+            onProviderStreamEvent,
+            toolCallPreviewState,
+          );
         }
       }
       if (shouldParseSse && pendingSse.trim().length > 0) {
-        extractAndPublishSseDeltas(`${pendingSse}\n\n`, onTextDelta);
+        extractAndPublishSseDeltas(
+          `${pendingSse}\n\n`,
+          onTextDelta,
+          onProviderStreamEvent,
+          toolCallPreviewState,
+        );
       }
 
       let body: unknown = raw;
@@ -166,6 +312,7 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   codexAuthPath?: string;
   timeoutMs?: number;
   onTextDelta?: (delta: string) => void;
+  onProviderStreamEvent?: (event: RaxodeProviderStreamEvent) => void;
 } = {}): RaxodeLiveProvider {
   const codexAuthPath = options.codexAuthPath ?? path.join(process.env.HOME ?? "", ".codex", "auth.json");
   const credentialRef = createCredentialRef({
@@ -201,7 +348,7 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   return {
     auth: auth.resolved.envelope,
     providerCaller: createProviderCaller({
-      transport: createStreamingProviderTransport(options.onTextDelta),
+      transport: createStreamingProviderTransport(options.onTextDelta, options.onProviderStreamEvent),
       authMaterial: auth.resolved.privateMaterial,
       timeoutMs: options.timeoutMs ?? 600_000,
     }),

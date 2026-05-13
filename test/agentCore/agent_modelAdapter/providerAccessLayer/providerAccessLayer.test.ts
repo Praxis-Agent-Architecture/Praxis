@@ -141,6 +141,7 @@ test("provider errors and probes stay public-safe", () => {
   assert.equal(classifyProviderAccessError({ status: 429 }).code, "PROVIDER_RATE_LIMITED");
   assert.equal(classifyProviderAccessError({ code: "AbortError" }).code, "PROVIDER_TIMEOUT");
   assert.equal(classifyProviderAccessError({ status: 503 }).code, "PROVIDER_UNAVAILABLE");
+  assert.equal(classifyProviderAccessError({ message: "terminated" }).code, "PROVIDER_UNAVAILABLE");
   assert.equal(classifyProviderAccessError({ code: "schema_drift" }).code, "RESPONSE_FORMAT_DRIFT");
 
   const credentialRef = ref();
