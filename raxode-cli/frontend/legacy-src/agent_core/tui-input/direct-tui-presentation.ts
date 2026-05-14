@@ -174,6 +174,22 @@ function extractPreviewStringField(source: string | undefined | null, field: str
   return open === undefined ? undefined : previewStringValue(decodePreviewJsonStringFragment(open));
 }
 
+function extractPreviewStringFields(source: string | undefined | null, field: string): string[] {
+  const text = source?.trim();
+  if (!text) return [];
+  const values: string[] = [];
+  const closedPattern = new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`, "gu");
+  for (const match of text.matchAll(closedPattern)) {
+    const value = previewStringValue(decodePreviewJsonStringFragment(match[1] ?? ""));
+    if (value !== undefined && !values.includes(value)) values.push(value);
+  }
+  const openPattern = new RegExp(`"${field}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)$`, "u");
+  const openMatch = text.match(openPattern)?.[1];
+  const open = openMatch === undefined ? undefined : previewStringValue(decodePreviewJsonStringFragment(openMatch));
+  if (open !== undefined && !values.includes(open)) values.push(open);
+  return values;
+}
+
 function extractPreviewNumberField(source: string | undefined | null, field: string): number | undefined {
   const text = source?.trim();
   if (!text) return undefined;
@@ -279,6 +295,12 @@ function previewTextLineCount(value: string | undefined): number | undefined {
   return value.split(/\r\n|\r|\n/u).length;
 }
 
+function formatPreviewBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${Math.floor(bytes)} B`;
+  return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+}
+
 function previewRangeDeletionCount(value: unknown): number | undefined {
   const range = previewObjectValue(value);
   const startLine = previewNumberValue(range?.startLine) ?? previewNumberValue(range?.start);
@@ -304,6 +326,11 @@ function formatCodePreviewDiffStats(input: {
     deletions !== undefined ? `-${deletions}` : undefined,
   ].filter((part): part is string => part !== undefined);
   return parts.length > 0 ? `(${parts.join(" ")})` : undefined;
+}
+
+function sumPreviewTextLineCounts(values: readonly string[]): number | undefined {
+  if (values.length === 0) return undefined;
+  return values.reduce((total, value) => total + (previewTextLineCount(value) ?? 0), 0);
 }
 
 function resolveCodePreviewDiffStats(input: {
@@ -345,12 +372,6 @@ function resolveCodePreviewDiffStats(input: {
     default:
       return undefined;
   }
-}
-
-function normalizeCodePreviewDiffStats(value: string | undefined | null): string | undefined {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  return /^\((?:\+\d+|-\d+)(?:\s+(?:\+\d+|-\d+))*\)$/u.test(trimmed) ? trimmed : undefined;
 }
 
 const SHELL_FILE_WRITE_REDIRECTION_PATTERN = /(?:^|[\s;|&])(?:>|>>|1>|1>>)\s*(?!&|\/dev\/null(?:\s|$))(['"]?)([^'"\s;&|]+)\1/u;
@@ -469,10 +490,33 @@ function summarizeProcedurePreview(input: {
         ?? previewStringValue(stepRecord?.baseToolId)
         ?? [];
     })
-    : [];
+    : extractPreviewStringFields(input.argumentsPreview, "stepId");
+  const tools = Array.isArray(input.argumentsRecord?.steps)
+    ? input.argumentsRecord.steps.flatMap((step) => {
+      const stepRecord = previewObjectValue(step);
+      return previewStringValue(stepRecord?.baseToolId) ?? [];
+    })
+    : extractPreviewStringFields(input.argumentsPreview, "baseToolId");
+  const targets = [
+    ...extractPreviewStringFields(input.argumentsPreview, "targetPath"),
+    ...extractPreviewStringFields(input.argumentsPreview, "path"),
+    ...extractPreviewStringFields(input.argumentsPreview, "filePath"),
+  ].filter((target, index, all) => all.indexOf(target) === index);
+  const streamedBytes = input.argumentsRecord === undefined
+    ? (input.argumentsPreview?.length ?? 0)
+    : 0;
+  const streamedContentLineCount = input.argumentsRecord === undefined
+    ? previewTextLineCount(extractPreviewStringField(input.argumentsPreview, "content")
+      ?? extractPreviewStringField(input.argumentsPreview, "newContent"))
+    : undefined;
   return [
     purpose ? `Composing procedure: ${truncatePreviewText(purpose, 160)}` : "Composing procedure",
+    streamedBytes > 0
+      ? `Receiving plan details (${formatPreviewBytes(streamedBytes)}${streamedContentLineCount !== undefined ? `, +${streamedContentLineCount} lines` : ""})`
+      : undefined,
     steps.length > 0 ? `Steps: ${formatPreviewPathList(steps, 3)}` : undefined,
+    tools.length > 0 ? `Tools: ${formatPreviewPathList(tools, 3)}` : undefined,
+    targets.length > 0 ? `Targets: ${formatPreviewPathList(targets, 4)}` : undefined,
   ].filter((line): line is string => line !== undefined);
 }
 
@@ -505,7 +549,6 @@ export function resolveDirectTuiToolPreviewSummaryLines(input: {
   providerToolName?: string | null;
   capabilityKey?: string | null;
   argumentsPreview?: string | null;
-  stableCodeDiffStats?: string | null;
 }): string[] {
   const title = input.title.trim() || "Tool";
   const phase = input.phase?.trim() || "started";
@@ -525,7 +568,7 @@ export function resolveDirectTuiToolPreviewSummaryLines(input: {
     toolId,
     argumentsRecord,
     argumentsPreview: input.argumentsPreview,
-  }) ?? normalizeCodePreviewDiffStats(input.stableCodeDiffStats);
+  });
   const procedureLines = summarizeProcedurePreview({
     toolId,
     providerToolName: input.providerToolName,
@@ -552,6 +595,86 @@ export function resolveDirectTuiToolPreviewSummaryLines(input: {
     actionLine,
     ...(procedureLines?.slice(1) ?? []),
   ];
+}
+
+export type DirectTuiProcedurePlannedToolPreview = {
+  familyKey: string;
+  familyTitle: string;
+  lines: string[];
+};
+
+export function resolveDirectTuiProcedurePlannedToolPreviews(input: {
+  phase?: string | null;
+  providerToolName?: string | null;
+  capabilityKey?: string | null;
+  argumentsPreview?: string | null;
+}): DirectTuiProcedurePlannedToolPreview[] {
+  const toolId = input.capabilityKey?.trim()
+    || previewToolIdFromProviderName(input.providerToolName)
+    || "tool.call";
+  if (!isProcedureToolPreview({ toolId, providerToolName: input.providerToolName })) {
+    return [];
+  }
+  const argumentsRecord = parsePreviewArguments(input.argumentsPreview);
+  const plannedToolIds = Array.isArray(argumentsRecord?.steps)
+    ? argumentsRecord.steps.flatMap((step) => {
+      const stepRecord = previewObjectValue(step);
+      return previewStringValue(stepRecord?.baseToolId) ?? [];
+    })
+    : extractPreviewStringFields(input.argumentsPreview, "baseToolId");
+  const uniqueToolIds = plannedToolIds.filter((plannedToolId, index, all) => all.indexOf(plannedToolId) === index);
+  const targets = [
+    ...extractPreviewStringFields(input.argumentsPreview, "targetPath"),
+    ...extractPreviewStringFields(input.argumentsPreview, "path"),
+    ...extractPreviewStringFields(input.argumentsPreview, "filePath"),
+  ].filter((target, index, all) => all.indexOf(target) === index);
+  const contentLineCount = sumPreviewTextLineCounts([
+    ...extractPreviewStringFields(input.argumentsPreview, "content"),
+    ...extractPreviewStringFields(input.argumentsPreview, "newContent"),
+    ...extractPreviewStringFields(input.argumentsPreview, "replacementText"),
+  ]);
+  const codePreviewDiffStats = formatCodePreviewDiffStats({
+    additions: sumPreviewTextLineCounts([
+      ...extractPreviewStringFields(input.argumentsPreview, "content"),
+      ...extractPreviewStringFields(input.argumentsPreview, "newContent"),
+      ...extractPreviewStringFields(input.argumentsPreview, "replacementText"),
+    ]),
+    deletions: sumPreviewTextLineCounts(extractPreviewStringFields(input.argumentsPreview, "searchText")),
+  });
+  const displayPhase = input.phase?.trim() === "done" ? "ready" : "composing";
+  const previews: DirectTuiProcedurePlannedToolPreview[] = [];
+  const codeToolIds = uniqueToolIds.filter((plannedToolId) => plannedToolId.startsWith("code."));
+  if (codeToolIds.length > 0) {
+    const targetSummary = targets.length > 0 ? formatPreviewPathList(targets, 4) : undefined;
+    previews.push({
+      familyKey: "code",
+      familyTitle: "Code",
+      lines: [
+        `Code ${displayPhase}${codePreviewDiffStats ? ` ${codePreviewDiffStats}` : ""}`,
+        targetSummary !== undefined
+          ? `Writing ${targetSummary}`
+          : `${displayPhase === "ready" ? "Ready" : "Composing"} ${formatPreviewPathList(codeToolIds, 3)}`,
+        contentLineCount !== undefined ? `Receiving content (+${contentLineCount} lines)` : undefined,
+      ].filter((line): line is string => line !== undefined),
+    });
+  }
+  const shellToolIds = uniqueToolIds.filter((plannedToolId) => plannedToolId.startsWith("shell."));
+  if (shellToolIds.length > 0) {
+    const shellPreviewLine = summarizeShellToolPreview({
+      toolId: shellToolIds[0] ?? "shell.commandExecution",
+      argumentsPreview: input.argumentsPreview,
+    });
+    previews.push({
+      familyKey: "shell",
+      familyTitle: "Shell",
+      lines: [
+        `Shell ${displayPhase}`,
+        shellPreviewLine
+          ?? `${displayPhase === "ready" ? "Ready" : "Composing"} ${formatPreviewPathList(shellToolIds, 3)}`,
+      ],
+    });
+  }
+  return previews;
 }
 
 export function isDirectTuiCodeDiffPreviewLine(line: string): boolean {

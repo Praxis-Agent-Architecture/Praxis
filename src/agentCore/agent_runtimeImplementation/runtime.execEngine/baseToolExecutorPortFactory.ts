@@ -480,13 +480,16 @@ async function launchDetachedProcess(
     cwd: string;
     shell?: boolean | string;
     env?: Readonly<Record<string, string>>;
+    allowQuickExit?: boolean;
   },
   portPath: string,
 ): Promise<BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string; durationMs?: number }>> {
   const startedAt = Date.now();
+  const launchGraceMs = request.allowQuickExit === true ? 80 : 750;
 
   return await new Promise((resolve) => {
     let settled = false;
+    let launchConfirmed = false;
     const child = spawn(request.command, [...(request.args ?? [])], {
       cwd: request.cwd,
       env: request.env === undefined ? undefined : { ...process.env, ...request.env },
@@ -507,7 +510,7 @@ async function launchDetachedProcess(
 
     child.once("close", (code) => {
       if (settled) return;
-      if ((code ?? 0) === 0) {
+      if (request.allowQuickExit === true && (code ?? 0) === 0) {
         settle(
           success(
             {
@@ -522,25 +525,29 @@ async function launchDetachedProcess(
         );
         return;
       }
-      settle(failure("PROVIDER_FAILURE", `desktop launcher exited with code ${code ?? 1}`, [`runtime.execEngine.baseToolExecutorPort.${portPath}.failed`]));
+      const quickExitPrefix = launchConfirmed
+        ? "detached process exited after launch"
+        : "detached process exited during startup";
+      settle(failure("PROVIDER_FAILURE", `${quickExitPrefix} with code ${code ?? 1}`, [`runtime.execEngine.baseToolExecutorPort.${portPath}.failed`]));
     });
 
     setTimeout(() => {
       if (settled) return;
+      launchConfirmed = true;
       child.unref();
       settle(
         success(
           {
             exitCode: 0,
-            stdout: `launched detached desktop process${child.pid === undefined ? "" : ` pid ${child.pid}`}\n`,
+            stdout: `launched detached process${child.pid === undefined ? "" : ` pid ${child.pid}`}\n`,
             stderr: "",
             durationMs: Date.now() - startedAt,
           },
           [`runtime.execEngine.baseToolExecutorPort.${portPath}.detached`],
-          { detached: true, desktopLauncher: true, pid: child.pid },
+          { detached: true, desktopLauncher: request.allowQuickExit === true, pid: child.pid },
         ),
       );
-    }, 80).unref();
+    }, launchGraceMs).unref();
   });
 }
 
@@ -781,6 +788,7 @@ async function runChildProcess(request: {
         cwd: spawnSpec.output.cwd,
         shell: spawnSpec.output.shell,
         env: request.env,
+        allowQuickExit: true,
       },
       portPath,
     );

@@ -21,6 +21,7 @@ import {
   resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiConversationPhase,
   resolveDirectTuiContextUsedTokens,
+  resolveDirectTuiProcedurePlannedToolPreviews,
   resolveDirectTuiToolSummaryResultLineLimit,
   resolveDirectTuiToolPreviewSummaryLines,
   resolveDirectTuiToolSummaryKey,
@@ -349,6 +350,7 @@ test("tool preview summary lines render procedure arguments without raw JSON", (
     "Tool composing",
     "Composing procedure: Inspect current directory before creating the requested app",
     "Steps: pwd-list",
+    "Tools: shell.commandExecution",
   ]);
 });
 
@@ -374,6 +376,7 @@ test("tool preview summary lines do not misclassify procedure shell steps as dir
     "Tool composing",
     "Composing procedure: Create files through a procedure",
     "Steps: write-package",
+    "Tools: shell.commandExecution",
   ]);
 });
 
@@ -397,7 +400,94 @@ test("tool preview summary lines tolerate incomplete streamed JSON", () => {
   }), [
     "Tool composing",
     "Composing procedure: Inspect current directory before creating the requested app",
+    "Receiving plan details (124 B)",
   ]);
+});
+
+test("tool preview summary lines show progress for partially streamed procedure write steps", () => {
+  const argumentsPreview = [
+    "{\"procedureId\":\"create-app\",\"purpose\":\"Create a markdown editor\",\"steps\":[",
+    "{\"stepId\":\"write-index\",\"baseToolId\":\"code.overwrite\",\"input\":{",
+    "\"targetPath\":\"index.html\",\"content\":\"<!doctype html>\\n<html>\\n<body>",
+  ].join("");
+  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
+    title: "Tool",
+    phase: "delta",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview,
+  }), [
+    "Tool composing",
+    "Composing procedure: Create a markdown editor",
+    "Receiving plan details (205 B, +3 lines)",
+    "Steps: write-index",
+    "Tools: code.overwrite",
+    "Targets: index.html",
+  ]);
+  assert.deepEqual(resolveDirectTuiProcedurePlannedToolPreviews({
+    phase: "delta",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview,
+  }), [{
+    familyKey: "code",
+    familyTitle: "Code",
+    lines: [
+      "Code composing (+3)",
+      "Writing index.html",
+      "Receiving content (+3 lines)",
+    ],
+  }]);
+  assert.deepEqual(resolveDirectTuiProcedurePlannedToolPreviews({
+    phase: "done",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview,
+  })[0]?.lines.slice(0, 2), [
+    "Code ready (+3)",
+    "Writing index.html",
+  ]);
+});
+
+test("procedure planned shell preview shows the command like a direct shell call", () => {
+  const argumentsPreview = [
+    "{\"procedureId\":\"create-app\",\"purpose\":\"Check and create\",\"steps\":[",
+    "{\"stepId\":\"make-dirs\",\"baseToolId\":\"shell.commandExecution\",\"input\":{",
+    "\"command\":\"mkdir -p public notes\",\"workingDirectory\":\".\"",
+    "}}]}",
+  ].join("");
+  assert.deepEqual(resolveDirectTuiProcedurePlannedToolPreviews({
+    phase: "delta",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview,
+  }), [{
+    familyKey: "shell",
+    familyTitle: "Shell",
+    lines: [
+      "Shell composing",
+      "Running mkdir -p public notes in .",
+    ],
+  }]);
+});
+
+test("procedure planned code preview counts the currently open streamed content field", () => {
+  const argumentsPreview = [
+    "{\"procedureId\":\"create-app\",\"purpose\":\"Create files\",\"steps\":[",
+    "{\"stepId\":\"write-a\",\"baseToolId\":\"code.overwrite\",\"input\":{",
+    "\"targetPath\":\"a.txt\",\"content\":\"one\\ntwo\"}},",
+    "{\"stepId\":\"write-b\",\"baseToolId\":\"code.overwrite\",\"input\":{",
+    "\"targetPath\":\"b.txt\",\"content\":\"alpha\\nbeta\\ngamma",
+  ].join("");
+  assert.deepEqual(resolveDirectTuiProcedurePlannedToolPreviews({
+    phase: "delta",
+    providerToolName: "praxis_ephemeral_procedure",
+    argumentsPreview,
+  }), [{
+    familyKey: "code",
+    familyTitle: "Code",
+    lines: [
+      "Code composing (+5)",
+      "Writing a.txt, b.txt",
+      "Receiving content (+5 lines)",
+    ],
+  }]);
 });
 
 test("tool preview summary lines show code edit diff stats while composing", () => {
@@ -425,20 +515,6 @@ test("tool preview summary lines show code edit diff stats while composing", () 
   }), [
     "Code composing (+2)",
     "Writing src/new.ts",
-  ]);
-});
-
-test("tool preview summary lines keep stable code diff stats during partial argument gaps", () => {
-  assert.deepEqual(resolveDirectTuiToolPreviewSummaryLines({
-    title: "Code",
-    phase: "delta",
-    providerToolName: "praxis_tool_code_overwrite",
-    capabilityKey: "code.overwrite",
-    argumentsPreview: "{\"targetPath\":\"index.html\"}",
-    stableCodeDiffStats: "(+72)",
-  }), [
-    "Code composing (+72)",
-    "Writing index.html",
   ]);
 });
 

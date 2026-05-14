@@ -206,6 +206,7 @@ import {
   resolveDirectTuiAssistantTurnResultAction,
   resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiContextUsedTokens,
+  resolveDirectTuiProcedurePlannedToolPreviews,
   resolveDirectTuiToolPreviewSummaryLines,
   resolveDirectTuiToolSummaryResultLineLimit,
   resolveDirectTuiToolSummaryKey,
@@ -5346,11 +5347,6 @@ function toolSummaryTitleSegments(input: {
   return segments;
 }
 
-function extractToolPreviewCodeDiffStatsFromTitle(title: string | undefined): string | undefined {
-  const match = title?.match(/\((?:\+\d+|-\d+)(?:\s+(?:\+\d+|-\d+))*\)/u);
-  return match?.[0];
-}
-
 function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimationFrame = 0): RenderBlock[] {
   const blocks: RenderBlock[] = [];
   for (const message of messages) {
@@ -5426,8 +5422,7 @@ function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimatio
         : 0;
       chunks.forEach((chunk, index) => {
         if (index === 0) {
-          const titleHasCodeDiffStats = extractToolPreviewCodeDiffStatsFromTitle(chunk) !== undefined;
-          const toolSummaryDotColor = toolSummaryActive && !titleHasCodeDiffStats
+          const toolSummaryDotColor = toolSummaryActive
             ? (Math.floor(toolSummaryAnimationFrame / 3) % 2 === 0 ? TUI_THEME.textMuted : toolSummaryColor)
             : TUI_THEME.textMuted;
           lines.push({
@@ -8265,8 +8260,8 @@ function PraxisDirectTuiApp(): JSX.Element {
     providerToolName?: string;
     capabilityKey?: string;
     argumentsPreview: string;
-    codeDiffStats?: string;
   }>());
+  const toolPlannedPreviewFingerprintRef = useRef(new Map<string, string>());
   const toolSummaryRevisionRef = useRef(new Map<string, number>());
   const nextComposerImageIndexRef = useRef(1);
   const nextComposerPastedContentIndexRef = useRef(1);
@@ -10157,6 +10152,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     turnUserTextRef.current.clear();
     toolFamilyStateRef.current.clear();
     toolPreviewStateRef.current.clear();
+    toolPlannedPreviewFingerprintRef.current.clear();
     toolSummaryRevisionRef.current.clear();
     pendingTranscriptRewindRef.current = null;
     pendingOutboundTurnsRef.current = [];
@@ -10477,6 +10473,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     activeTurnIdsRef.current.clear();
     toolFamilyStateRef.current.clear();
     toolPreviewStateRef.current.clear();
+    toolPlannedPreviewFingerprintRef.current.clear();
     toolSummaryRevisionRef.current.clear();
     assistantSegmentIndexRef.current.clear();
     activeAssistantMessageIdRef.current.clear();
@@ -11404,7 +11401,6 @@ function PraxisDirectTuiApp(): JSX.Element {
               providerToolName: providerToolName ?? previousPreview?.providerToolName,
               capabilityKey: capabilityKey ?? previousPreview?.capabilityKey,
               argumentsPreview,
-              codeDiffStats: previousPreview?.codeDiffStats,
             };
             const previewLines = resolveDirectTuiToolPreviewSummaryLines({
               title: familyTitle,
@@ -11412,12 +11408,8 @@ function PraxisDirectTuiApp(): JSX.Element {
               providerToolName: nextPreview.providerToolName,
               capabilityKey: nextPreview.capabilityKey,
               argumentsPreview,
-              stableCodeDiffStats: nextPreview.codeDiffStats,
             });
-            toolPreviewStateRef.current.set(stateKey, {
-              ...nextPreview,
-              codeDiffStats: extractToolPreviewCodeDiffStatsFromTitle(previewLines[0]) ?? nextPreview.codeDiffStats,
-            });
+            toolPreviewStateRef.current.set(stateKey, nextPreview);
             dispatchSurfaceEvent({
               type: "message.appended",
               at,
@@ -11441,6 +11433,48 @@ function PraxisDirectTuiApp(): JSX.Element {
                 },
               }),
             });
+            for (const plannedPreview of resolveDirectTuiProcedurePlannedToolPreviews({
+              phase: record.status,
+              providerToolName: nextPreview.providerToolName,
+              capabilityKey: nextPreview.capabilityKey,
+              argumentsPreview,
+            })) {
+              const plannedStateKey = resolveDirectTuiToolSummaryKey({
+                turnId,
+                familyKey: plannedPreview.familyKey,
+                toolCallId: `${previewIdentity}:planned:${plannedPreview.familyKey}`,
+              });
+              const plannedSummaryState = record.status === "done" ? "ready" : "active";
+              const plannedText = plannedPreview.lines.join("\n");
+              const plannedFingerprint = `${plannedSummaryState}\n${plannedText}`;
+              if (toolPlannedPreviewFingerprintRef.current.get(plannedStateKey) === plannedFingerprint) {
+                continue;
+              }
+              toolPlannedPreviewFingerprintRef.current.set(plannedStateKey, plannedFingerprint);
+              dispatchSurfaceEvent({
+                type: "message.appended",
+                at,
+                message: createSurfaceMessage({
+                  messageId: `tool-preview:${plannedStateKey}`,
+                  sessionId: sessionIdRef.current,
+                  turnId,
+                  kind: "status",
+                  text: plannedPreview.lines.join("\n"),
+                  createdAt: at,
+                  updatedAt: at,
+                  metadata: {
+                    source: "tool_summary",
+                    familyKey: plannedPreview.familyKey,
+                    summaryRole: "tool_preview",
+                    summaryState: plannedSummaryState,
+                    toolCallId: `${record.toolCallId ?? previewIdentity}:planned:${plannedPreview.familyKey}`,
+                    itemId: record.itemId,
+                    providerToolName: nextPreview.providerToolName,
+                    plannedFromProcedure: true,
+                  },
+                }),
+              });
+            }
             setRunIndicator((previous) => ({
               startedAt: previous?.startedAt ?? at,
               label: nextPreview.capabilityKey
@@ -12058,6 +12092,11 @@ function PraxisDirectTuiApp(): JSX.Element {
             for (const key of [...toolPreviewStateRef.current.keys()]) {
               if (key.startsWith(`${turnId}:`)) {
                 toolPreviewStateRef.current.delete(key);
+              }
+            }
+            for (const key of [...toolPlannedPreviewFingerprintRef.current.keys()]) {
+              if (key.startsWith(`${turnId}:`)) {
+                toolPlannedPreviewFingerprintRef.current.delete(key);
               }
             }
             for (const key of [...toolSummaryRevisionRef.current.keys()]) {

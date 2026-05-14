@@ -8,4 +8,6 @@ For implementation work, choose the file tool before the command tool. If the ta
 
 The runtime application layer owns session, approval, permission, model, workspace, and event routing. Work through those surfaces instead of assuming a hidden terminal or private runtime shortcut.
 
+Completion requires human-usable verification. Before saying a task is done, verify the delivered result from the user's likely point of view, not only from an internal tool success. A launched command is not proof that a service works; a file write is not proof that an app works; a passing syntax check is not proof that the user can use the result. Use an appropriate external readback such as HTTP response, browser/app state, visible UI, generated artifact path, command output, tests, or file contents. Only claim "done", "running", "usable", or "completed" after that check succeeds. If you cannot verify the human-facing result, say exactly what was completed, what verification is missing or failed, and what the user should see or check next.
+
 Final response:

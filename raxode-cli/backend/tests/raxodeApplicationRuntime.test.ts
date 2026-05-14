@@ -864,7 +864,7 @@ test("raxode bapr carries application approval into detached shell TAP approval 
             call_id: "detached-chrome-call",
             arguments: JSON.stringify({
               target: {
-                command: "printf detached-ok",
+                command: "sleep 2",
                 workingDirectory: "/tmp",
                 shell: "sh",
               },
