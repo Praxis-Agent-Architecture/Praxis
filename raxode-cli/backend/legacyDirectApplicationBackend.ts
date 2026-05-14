@@ -362,7 +362,8 @@ function hasUsageNumber(usage: PraxisApplicationUsageTelemetry | undefined): usa
     typeof usage.inputTokens === "number" ||
     typeof usage.outputTokens === "number" ||
     typeof usage.thinkingTokens === "number" ||
-    typeof usage.totalTokens === "number"
+    typeof usage.totalTokens === "number" ||
+    typeof usage.cachedInputTokens === "number"
   );
 }
 

@@ -22,6 +22,7 @@ test("direct session summary aggregates usage totals and resume selector", () =>
           model: "gpt-5.4",
           status: "success",
           inputTokens: 2_000_000,
+          cachedInputTokens: 1_800_000,
           outputTokens: 500_000,
           thinkingTokens: 100_000,
           startedAt: "2026-04-16T00:00:00.000Z",
@@ -33,7 +34,8 @@ test("direct session summary aggregates usage totals and resume selector", () =>
           provider: "openai",
           model: "gpt-5.4-mini",
           status: "failed",
-          inputTokens: 500_000,
+          inputTokens: 1_000_000,
+          cachedInputTokens: 500_000,
           outputTokens: 250_000,
           startedAt: "2026-04-16T00:00:02.000Z",
           endedAt: "2026-04-16T00:00:03.000Z",
@@ -48,15 +50,16 @@ test("direct session summary aggregates usage totals and resume selector", () =>
     generatedAt: "2026-04-16T00:00:04.000Z",
   });
 
-  assert.equal(summary.inputTokens, 2_500_000);
+  assert.equal(summary.inputTokens, 3_000_000);
   assert.equal(summary.outputTokens, 750_000);
   assert.equal(summary.thinkingTokens, 100_000);
   assert.equal(summary.requestCount, 2);
   assert.equal(summary.successCount, 1);
   assert.equal(summary.successRate, 0.5);
+  assert.equal(summary.averageCacheHitRate, 2_300_000 / 3_000_000);
   assert.equal(summary.resumeSelector, "alpha");
   assert.equal(summary.estimatedPrice, true);
-  assert.equal(summary.totalPriceUsd, 8.6);
+  assert.equal(summary.totalPriceUsd, 8.8);
 });
 
 test("pricing helpers format session values for the exit panel", () => {

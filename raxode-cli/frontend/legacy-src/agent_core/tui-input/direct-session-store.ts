@@ -34,6 +34,7 @@ export interface DirectTuiSessionUsageEntry {
   reasoningEffort?: string;
   status: "success" | "failed" | "blocked" | "cancelled";
   inputTokens?: number;
+  cachedInputTokens?: number;
   outputTokens?: number;
   thinkingTokens?: number;
   startedAt: string;
@@ -49,6 +50,7 @@ export interface DirectTuiSessionExitSummary {
   requestCount: number;
   successCount: number;
   successRate: number;
+  averageCacheHitRate?: number;
   totalPriceUsd?: number;
   estimatedPrice: boolean;
   resumeSelector: string;
@@ -111,7 +113,7 @@ export interface DirectTuiSessionIndexRecord {
   messageCount: number;
   exitSummaryPreview?: Pick<
     DirectTuiSessionExitSummary,
-    "successRate" | "requestCount" | "totalPriceUsd" | "resumeSelector" | "generatedAt"
+    "successRate" | "requestCount" | "averageCacheHitRate" | "totalPriceUsd" | "resumeSelector" | "generatedAt"
   >;
 }
 
@@ -473,6 +475,7 @@ export function loadDirectTuiSessionSnapshot(
           reasoningEffort: typeof record.reasoningEffort === "string" ? record.reasoningEffort : undefined,
           status: record.status,
           inputTokens: typeof record.inputTokens === "number" ? record.inputTokens : undefined,
+          cachedInputTokens: typeof record.cachedInputTokens === "number" ? record.cachedInputTokens : undefined,
           outputTokens: typeof record.outputTokens === "number" ? record.outputTokens : undefined,
           thinkingTokens: typeof record.thinkingTokens === "number" ? record.thinkingTokens : undefined,
           startedAt: record.startedAt,
@@ -505,6 +508,7 @@ export function loadDirectTuiSessionSnapshot(
           requestCount: summary.requestCount,
           successCount: summary.successCount,
           successRate: summary.successRate,
+          averageCacheHitRate: typeof summary.averageCacheHitRate === "number" ? summary.averageCacheHitRate : undefined,
           totalPriceUsd: typeof summary.totalPriceUsd === "number" ? summary.totalPriceUsd : undefined,
           estimatedPrice: summary.estimatedPrice,
           resumeSelector: summary.resumeSelector,
@@ -579,6 +583,7 @@ export function saveDirectTuiSessionSnapshot(
       ? {
         successRate: snapshot.exitSummary.successRate,
         requestCount: snapshot.exitSummary.requestCount,
+        averageCacheHitRate: snapshot.exitSummary.averageCacheHitRate,
         totalPriceUsd: snapshot.exitSummary.totalPriceUsd,
         resumeSelector: snapshot.exitSummary.resumeSelector,
         generatedAt: snapshot.exitSummary.generatedAt,

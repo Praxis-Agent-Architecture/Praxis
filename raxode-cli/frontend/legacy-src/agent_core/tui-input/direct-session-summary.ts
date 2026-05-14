@@ -54,10 +54,16 @@ export function buildDirectTuiSessionExitSummary(input: {
 }): DirectTuiSessionExitSummary {
   const usageEntries = input.snapshot.usageLedger ?? [];
   const totals = usageEntries.reduce((accumulator, entry) => {
-    accumulator.inputTokens += typeof entry.inputTokens === "number" ? entry.inputTokens : 0;
+    const inputTokens = typeof entry.inputTokens === "number" ? entry.inputTokens : 0;
+    const cachedInputTokens = typeof entry.cachedInputTokens === "number" ? entry.cachedInputTokens : undefined;
+    accumulator.inputTokens += inputTokens;
     accumulator.outputTokens += typeof entry.outputTokens === "number" ? entry.outputTokens : 0;
     accumulator.thinkingTokens += typeof entry.thinkingTokens === "number" ? entry.thinkingTokens : 0;
     accumulator.requestCount += 1;
+    if (cachedInputTokens !== undefined && inputTokens > 0) {
+      accumulator.cacheHitInputTokens += inputTokens;
+      accumulator.cachedInputTokens += Math.max(0, Math.min(inputTokens, cachedInputTokens));
+    }
     if (entry.status === "success") {
       accumulator.successCount += 1;
     }
@@ -77,6 +83,8 @@ export function buildDirectTuiSessionExitSummary(input: {
     thinkingTokens: 0,
     requestCount: 0,
     successCount: 0,
+    cacheHitInputTokens: 0,
+    cachedInputTokens: 0,
     totalPriceUsd: 0,
     estimatedPrice: false,
   });
@@ -91,6 +99,9 @@ export function buildDirectTuiSessionExitSummary(input: {
     requestCount: totals.requestCount,
     successCount: totals.successCount,
     successRate: totals.requestCount > 0 ? totals.successCount / totals.requestCount : 1,
+    averageCacheHitRate: totals.cacheHitInputTokens > 0
+      ? totals.cachedInputTokens / totals.cacheHitInputTokens
+      : undefined,
     totalPriceUsd: totals.requestCount > 0 ? totals.totalPriceUsd : undefined,
     estimatedPrice: totals.estimatedPrice,
     resumeSelector,

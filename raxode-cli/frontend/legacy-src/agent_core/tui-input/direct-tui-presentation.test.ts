@@ -25,6 +25,7 @@ import {
   resolveDirectTuiToolSummaryResultLineLimit,
   resolveDirectTuiToolPreviewSummaryLines,
   resolveDirectTuiToolSummaryKey,
+  stabilizeDirectTuiProcedurePlannedToolPreviewLines,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
 } from "./direct-tui-presentation.js";
@@ -488,6 +489,24 @@ test("procedure planned code preview counts the currently open streamed content 
       "Receiving content (+5 lines)",
     ],
   }]);
+});
+
+test("procedure planned code preview stabilization keeps early streamed counts from flickering backward", () => {
+  assert.deepEqual(stabilizeDirectTuiProcedurePlannedToolPreviewLines({
+    previousLines: [
+      "Code composing (+450)",
+      "Writing package.json, server.js",
+      "Receiving content (+450 lines)",
+    ],
+    nextLines: [
+      "Code composing (+380)",
+      "Writing package.json, server.js",
+    ],
+  }), [
+    "Code composing (+450)",
+    "Writing package.json, server.js",
+    "Receiving content (+450 lines)",
+  ]);
 });
 
 test("tool preview summary lines show code edit diff stats while composing", () => {

@@ -603,6 +603,52 @@ export type DirectTuiProcedurePlannedToolPreview = {
   lines: string[];
 };
 
+function parseProcedureCodeAdditionsLine(line: string | undefined): number | undefined {
+  const match = line?.match(/\(\+(\d+)(?:\s+-\d+)?\)/u)?.[1];
+  if (match === undefined) return undefined;
+  const parsed = Number(match);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseProcedureReceivingContentLine(line: string | undefined): number | undefined {
+  const match = line?.match(/^Receiving content \(\+(\d+) lines\)$/u)?.[1];
+  if (match === undefined) return undefined;
+  const parsed = Number(match);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function stabilizeDirectTuiProcedurePlannedToolPreviewLines(input: {
+  previousLines?: readonly string[] | null;
+  nextLines: readonly string[];
+}): string[] {
+  const nextLines = [...input.nextLines];
+  if (!nextLines[0]?.startsWith("Code ")) return nextLines;
+
+  const previousAdditions = parseProcedureCodeAdditionsLine(input.previousLines?.[0]);
+  const nextAdditions = parseProcedureCodeAdditionsLine(nextLines[0]);
+  if (previousAdditions !== undefined && (nextAdditions === undefined || nextAdditions < previousAdditions)) {
+    nextLines[0] = nextLines[0].replace(/\s+\(\+\d+(?:\s+-\d+)?\)/u, "");
+    nextLines[0] = `${nextLines[0]} (+${previousAdditions})`;
+  }
+
+  const previousContentLines = input.previousLines
+    ?.map(parseProcedureReceivingContentLine)
+    .find((value): value is number => value !== undefined);
+  if (previousContentLines !== undefined) {
+    const receivingIndex = nextLines.findIndex((line) => parseProcedureReceivingContentLine(line) !== undefined);
+    if (receivingIndex >= 0) {
+      const nextContentLines = parseProcedureReceivingContentLine(nextLines[receivingIndex]);
+      if (nextContentLines === undefined || nextContentLines < previousContentLines) {
+        nextLines[receivingIndex] = `Receiving content (+${previousContentLines} lines)`;
+      }
+    } else {
+      nextLines.push(`Receiving content (+${previousContentLines} lines)`);
+    }
+  }
+
+  return nextLines;
+}
+
 export function resolveDirectTuiProcedurePlannedToolPreviews(input: {
   phase?: string | null;
   providerToolName?: string | null;

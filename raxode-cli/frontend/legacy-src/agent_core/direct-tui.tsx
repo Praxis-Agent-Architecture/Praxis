@@ -142,7 +142,6 @@ import {
   buildDirectTuiSessionExitSummary,
   formatDirectTuiPercent,
   formatDirectTuiTokenCount,
-  formatDirectTuiUsd,
 } from "./tui-input/direct-session-summary.js";
 import {
   createDirectTuiAssistantStreamCoalescer,
@@ -212,6 +211,7 @@ import {
   resolveDirectTuiToolSummaryKey,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
+  stabilizeDirectTuiProcedurePlannedToolPreviewLines,
 } from "./tui-input/direct-tui-presentation.js";
 import {
   buildTerminalTableBodyLines,
@@ -761,6 +761,7 @@ async function readClipboardImageAttachment(params: {
 
 function formatTurnUsageDetail(input?: {
   inputTokens?: number;
+  cachedInputTokens?: number;
   outputTokens?: number;
   thinkingTokens?: number;
   elapsedMs?: number;
@@ -770,7 +771,12 @@ function formatTurnUsageDetail(input?: {
   }
   const parts: string[] = [];
   if (typeof input.inputTokens === "number" && Number.isFinite(input.inputTokens)) {
-    parts.push(`input ${input.inputTokens} tokens`);
+    const cacheHitText = typeof input.cachedInputTokens === "number"
+      && Number.isFinite(input.cachedInputTokens)
+      && input.inputTokens > 0
+      ? ` (${Math.round(Math.min(1, Math.max(0, input.cachedInputTokens / input.inputTokens)) * 100)}% cache hit)`
+      : "";
+    parts.push(`input ${input.inputTokens} tokens${cacheHitText}`);
   }
   if (typeof input.outputTokens === "number" && Number.isFinite(input.outputTokens)) {
     parts.push(`output ${input.outputTokens} tokens`);
@@ -825,7 +831,7 @@ function buildExitSummaryPanelLines(
     `Input Tokens:`,
     `Output Tokens:`,
     `Thinking Budget:`,
-    `Total Price:`,
+    `Average Cache Hit Rate:`,
     `Success Rate:`,
     resumeCommand,
   ];
@@ -833,7 +839,7 @@ function buildExitSummaryPanelLines(
     formatDirectTuiTokenCount(summary.inputTokens),
     formatDirectTuiTokenCount(summary.outputTokens),
     formatDirectTuiTokenCount(summary.thinkingTokens),
-    formatDirectTuiUsd(summary.totalPriceUsd),
+    summary.averageCacheHitRate === undefined ? "N/A" : formatDirectTuiPercent(summary.averageCacheHitRate),
     formatDirectTuiPercent(summary.successRate),
     "",
   ];
@@ -8262,6 +8268,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     argumentsPreview: string;
   }>());
   const toolPlannedPreviewFingerprintRef = useRef(new Map<string, string>());
+  const toolPlannedPreviewLinesRef = useRef(new Map<string, string[]>());
   const toolSummaryRevisionRef = useRef(new Map<string, number>());
   const nextComposerImageIndexRef = useRef(1);
   const nextComposerPastedContentIndexRef = useRef(1);
@@ -10153,6 +10160,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     toolFamilyStateRef.current.clear();
     toolPreviewStateRef.current.clear();
     toolPlannedPreviewFingerprintRef.current.clear();
+    toolPlannedPreviewLinesRef.current.clear();
     toolSummaryRevisionRef.current.clear();
     pendingTranscriptRewindRef.current = null;
     pendingOutboundTurnsRef.current = [];
@@ -10474,6 +10482,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     toolFamilyStateRef.current.clear();
     toolPreviewStateRef.current.clear();
     toolPlannedPreviewFingerprintRef.current.clear();
+    toolPlannedPreviewLinesRef.current.clear();
     toolSummaryRevisionRef.current.clear();
     assistantSegmentIndexRef.current.clear();
     activeAssistantMessageIdRef.current.clear();
@@ -11445,12 +11454,17 @@ function PraxisDirectTuiApp(): JSX.Element {
                 toolCallId: `${previewIdentity}:planned:${plannedPreview.familyKey}`,
               });
               const plannedSummaryState = record.status === "done" ? "ready" : "active";
-              const plannedText = plannedPreview.lines.join("\n");
+              const plannedLines = stabilizeDirectTuiProcedurePlannedToolPreviewLines({
+                previousLines: toolPlannedPreviewLinesRef.current.get(plannedStateKey),
+                nextLines: plannedPreview.lines,
+              });
+              const plannedText = plannedLines.join("\n");
               const plannedFingerprint = `${plannedSummaryState}\n${plannedText}`;
               if (toolPlannedPreviewFingerprintRef.current.get(plannedStateKey) === plannedFingerprint) {
                 continue;
               }
               toolPlannedPreviewFingerprintRef.current.set(plannedStateKey, plannedFingerprint);
+              toolPlannedPreviewLinesRef.current.set(plannedStateKey, plannedLines);
               dispatchSurfaceEvent({
                 type: "message.appended",
                 at,
@@ -11459,7 +11473,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                   sessionId: sessionIdRef.current,
                   turnId,
                   kind: "status",
-                  text: plannedPreview.lines.join("\n"),
+                  text: plannedText,
                   createdAt: at,
                   updatedAt: at,
                   metadata: {
@@ -12005,6 +12019,7 @@ function PraxisDirectTuiApp(): JSX.Element {
             const turnUsage = record.core?.usage;
             const usageDetail = formatTurnUsageDetail({
               inputTokens: turnUsage?.inputTokens,
+              cachedInputTokens: turnUsage?.cachedInputTokens,
               outputTokens: turnUsage?.outputTokens,
               thinkingTokens: turnUsage?.thinkingTokens,
               elapsedMs: record.core?.elapsedMs ?? record.elapsedMs,
@@ -12021,6 +12036,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                   ? "blocked"
                   : "failed",
               inputTokens: turnUsage?.inputTokens,
+              cachedInputTokens: turnUsage?.cachedInputTokens,
               outputTokens: turnUsage?.outputTokens,
               thinkingTokens: turnUsage?.thinkingTokens,
               estimated: turnUsage?.estimated === true,
@@ -12097,6 +12113,11 @@ function PraxisDirectTuiApp(): JSX.Element {
             for (const key of [...toolPlannedPreviewFingerprintRef.current.keys()]) {
               if (key.startsWith(`${turnId}:`)) {
                 toolPlannedPreviewFingerprintRef.current.delete(key);
+              }
+            }
+            for (const key of [...toolPlannedPreviewLinesRef.current.keys()]) {
+              if (key.startsWith(`${turnId}:`)) {
+                toolPlannedPreviewLinesRef.current.delete(key);
               }
             }
             for (const key of [...toolSummaryRevisionRef.current.keys()]) {

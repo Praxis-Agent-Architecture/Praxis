@@ -365,7 +365,7 @@ test("legacy direct application backend writes live codex usage from framework t
         body: [
           'data: {"type":"response.output_text.delta","delta":"usage ok"}',
           "",
-          'data: {"type":"response.completed","response":{"usage":{"input_tokens":44,"output_tokens":7,"total_tokens":54,"output_tokens_details":{"reasoning_tokens":3}}}}',
+          'data: {"type":"response.completed","response":{"usage":{"input_tokens":44,"output_tokens":7,"total_tokens":54,"input_tokens_details":{"cached_tokens":40},"output_tokens_details":{"reasoning_tokens":3}}}}',
           "",
           "data: [DONE]",
           "",
@@ -397,6 +397,7 @@ test("legacy direct application backend writes live codex usage from framework t
           outputTokens?: number;
           thinkingTokens?: number;
           totalTokens?: number;
+          cachedInputTokens?: number;
           lastTotalTokens?: number;
           estimated?: boolean;
           source?: string;
@@ -426,6 +427,7 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(turnResult?.core?.usage?.outputTokens, 7);
   assert.equal(turnResult?.core?.usage?.thinkingTokens, 3);
   assert.equal(turnResult?.core?.usage?.totalTokens, 54);
+  assert.equal(turnResult?.core?.usage?.cachedInputTokens, 40);
   assert.equal(turnResult?.core?.usage?.lastTotalTokens, 54);
   assert.equal(turnResult?.core?.usage?.estimated, false);
   assert.equal(turnResult?.core?.usage?.source, "openai.responses.usage");
