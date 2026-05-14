@@ -213,6 +213,115 @@ test("raxode application runtime pre-compacts session history when previous prov
   assert.match(fifthBody, /message 5/u);
 });
 
+test("raxode application runtime does not pre-compact only because prior turn aggregate usage exceeds the limit", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-no-aggregate-precompact-"));
+  const imagePath = path.join(workspace, "screenshot.png");
+  await writeFile(
+    imagePath,
+    Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+      "base64",
+    ),
+  );
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+          providerBodies.push(envelope.body);
+          const bodyText = JSON.stringify(envelope.body);
+          if (bodyText.includes("input_image")) {
+            return {
+              output_text: "The image contains a tiny test pixel.",
+              usage: { input_tokens: 100_000, output_tokens: 4 },
+            };
+          }
+          if (providerBodies.length === 1) {
+            return {
+              output: [{
+                type: "function_call",
+                name: "omni.viewImage",
+                call_id: "omni-view-image-call",
+                arguments: JSON.stringify({
+                  target: { imagePath, mediaType: "image/png", detail: "low" },
+                  context: { grantedPermissions: ["tool.execute"] },
+                }),
+              }],
+              usage: { input_tokens: 260_000, output_tokens: 2 },
+            };
+          }
+          return {
+            output_text: `reply ${providerBodies.length}`,
+            usage: { input_tokens: 100_000, output_tokens: 3 },
+          };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const transport = createLocalApplicationTransport(created.runtime);
+    const sessionId = "session.raxode.no-aggregate-precompact.test";
+    await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: workspace,
+      mode: "live",
+    });
+
+    const first = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "message 1",
+        cwd: workspace,
+      },
+    });
+    assert.equal(first.ok, true);
+    assert.equal(first.view.usage?.inputTokens, 360_000);
+    assert.equal(first.view.usage?.lastInputTokens, 100_000);
+    const providerCallsAfterFirstTurn = providerBodies.length;
+
+    const latest = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "message 2",
+        cwd: workspace,
+      },
+    });
+    assert.equal(latest.ok, true);
+    assert.equal(latest.view.usage?.inputTokens, 100_000);
+    assert.equal(latest.view.usage?.lastInputTokens, 100_000);
+    assert.equal(latest.view.events.some((event) => event.eventId === "turn.2.context.compacted"), false);
+    const secondTurnBodies = providerBodies.slice(providerCallsAfterFirstTurn);
+    assert.ok(secondTurnBodies.length > 0);
+    for (const body of secondTurnBodies) {
+      assert.doesNotMatch(JSON.stringify(body), /Compacted prior context/u);
+    }
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("raxode application runtime routes omni.viewImage through Responses image input", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-vision-"));
   const imagePath = path.join(workspace, "screenshot.png");

@@ -887,12 +887,16 @@ const CONTEXT_BAR_WIDTH = 10;
 const STATUS_CONTEXT_BAR_WIDTH = 20;
 const STARTUP_WORD = "RAXODE";
 const STARTUP_ANIMATION_INTERVAL_MS = 200;
-const ANIMATION_TICK_MS = 1000 / 60;
+function resolvePositiveFps(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseFloat(value ?? "");
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+const RAXODE_RENDER_FPS = resolvePositiveFps(process.env.RAXODE_RENDER_FPS, 120);
+const ANIMATION_TICK_MS = Math.max(1, 1000 / RAXODE_RENDER_FPS);
 const LOG_TAIL_POLL_INTERVAL_MS = Math.max(
   1,
-  1000 / Math.max(1, Number.isFinite(Number.parseFloat(process.env.RAXODE_RENDER_FPS ?? "120"))
-    ? Number.parseFloat(process.env.RAXODE_RENDER_FPS ?? "120")
-    : 120),
+  1000 / Math.max(1, RAXODE_RENDER_FPS),
 );
 const TERMINAL_TITLE_SPINNER_INTERVAL_MS = 160;
 const REWIND_SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
@@ -906,6 +910,12 @@ const QUESTION_COMPOSER_PLACEHOLDER =
 const QUESTION_WAITING_DOT_FRAMES = ["●○○", "○●○", "○○●", "○●○"] as const;
 const LOG_TAIL_READ_CHUNK_BYTES = 32 * 1024;
 const LOG_TAIL_PROCESS_BATCH_SIZE = 40;
+const TOOL_PREVIEW_DELTA_RENDER_INTERVAL_MS = Math.max(
+  250,
+  Number.isFinite(Number.parseFloat(process.env.RAXODE_TOOL_PREVIEW_DELTA_FPS ?? "1"))
+    ? 1000 / Math.max(1, Number.parseFloat(process.env.RAXODE_TOOL_PREVIEW_DELTA_FPS ?? "1"))
+    : 1000,
+);
 const STREAMING_ASSISTANT_LIVE_MAX_LINES = 160;
 const STREAMING_ASSISTANT_LIVE_MAX_CHARS = 24_000;
 const SESSION_SNAPSHOT_PERSIST_DEBOUNCE_MS = Math.max(
@@ -4981,6 +4991,13 @@ function createMessagePrefix(kind: SurfaceMessage["kind"]): string {
   return renderMessagePrefix(kind).label;
 }
 
+function toolPreviewDeltaHasVisibleSignal(delta: unknown): boolean {
+  if (typeof delta !== "string" || delta.length === 0) {
+    return false;
+  }
+  return /"(?:providerToolName|baseToolId|stepId|targetPath|targetPaths|path|filePath|command|script|content|newContent|replacementText|searchText|purpose)"\s*:/u.test(delta);
+}
+
 function renderMarkdownSegments(line: string, baseColor: string): Array<{ text: string; color?: string }> {
   if (line.length === 0) {
     return [{ text: " ", color: baseColor }];
@@ -8266,6 +8283,12 @@ function PraxisDirectTuiApp(): JSX.Element {
     providerToolName?: string;
     capabilityKey?: string;
     argumentsPreview: string;
+    lastRenderedAt?: number;
+    renderedFingerprint?: string;
+  }>());
+  const toolPreviewIdentityMetadataRef = useRef(new Map<string, {
+    providerToolName?: string;
+    capabilityKey?: string;
   }>());
   const toolPlannedPreviewFingerprintRef = useRef(new Map<string, string>());
   const toolPlannedPreviewLinesRef = useRef(new Map<string, string[]>());
@@ -10159,6 +10182,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     turnUserTextRef.current.clear();
     toolFamilyStateRef.current.clear();
     toolPreviewStateRef.current.clear();
+    toolPreviewIdentityMetadataRef.current.clear();
     toolPlannedPreviewFingerprintRef.current.clear();
     toolPlannedPreviewLinesRef.current.clear();
     toolSummaryRevisionRef.current.clear();
@@ -10481,6 +10505,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     activeTurnIdsRef.current.clear();
     toolFamilyStateRef.current.clear();
     toolPreviewStateRef.current.clear();
+    toolPreviewIdentityMetadataRef.current.clear();
     toolPlannedPreviewFingerprintRef.current.clear();
     toolPlannedPreviewLinesRef.current.clear();
     toolSummaryRevisionRef.current.clear();
@@ -10757,10 +10782,10 @@ function PraxisDirectTuiApp(): JSX.Element {
     return Math.min(maxStep, step);
   }, [animationTick, directTuiAnimationMode]);
   const cmpContextAnimationFrame = cmpContextActive
-    ? Math.floor(animationTick / 8)
+    ? Math.floor(animationTick / 6)
     : 0;
   const runStatusAnimationFrame = runIndicator
-    ? Math.floor(animationTick / 8)
+    ? Math.floor(animationTick / 6)
     : 0;
   const rewindAnimationFrame = rewindInFlight
     ? Math.floor(animationTick / REWIND_SPINNER_FRAME_STEP)
@@ -10770,7 +10795,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     : 0;
   const questionPanelActive = activeSlashPanelId === "question" && questionViewerSnapshot?.status === "active";
   const questionAnimationFrame = Math.floor(animationTick / 6);
-  const toolSummaryAnimationFrame = Math.floor(animationTick / 5);
+  const toolSummaryAnimationFrame = Math.floor(animationTick / 6);
   const shouldAnimate =
     (directTuiAnimationMode === "fresh" && startupAnimationStep < STARTUP_WORD.length + STARTUP_RAINBOW_COLORS.length)
     || cmpContextActive
@@ -11389,8 +11414,13 @@ function PraxisDirectTuiApp(): JSX.Element {
             if (!previewIdentity) {
               continue;
             }
-            const providerToolName = record.providerToolName ?? undefined;
-            const capabilityKey = capabilityKeyFromProviderToolName(providerToolName) ?? undefined;
+            const previousIdentityMetadata = toolPreviewIdentityMetadataRef.current.get(previewIdentity);
+            const providerToolName = record.providerToolName ?? previousIdentityMetadata?.providerToolName;
+            const capabilityKey = capabilityKeyFromProviderToolName(providerToolName) ?? previousIdentityMetadata?.capabilityKey;
+            toolPreviewIdentityMetadataRef.current.set(previewIdentity, {
+              providerToolName,
+              capabilityKey,
+            });
             const family = capabilityFamilySpec(capabilityKey);
             const familyKey = family?.key ?? "tool";
             const familyTitle = family?.title ?? "Tool";
@@ -11410,7 +11440,20 @@ function PraxisDirectTuiApp(): JSX.Element {
               providerToolName: providerToolName ?? previousPreview?.providerToolName,
               capabilityKey: capabilityKey ?? previousPreview?.capabilityKey,
               argumentsPreview,
+              lastRenderedAt: previousPreview?.lastRenderedAt,
+              renderedFingerprint: previousPreview?.renderedFingerprint,
             };
+            const isTerminalPreviewPhase = record.status === "done" || record.status === "started";
+            const nowMs = Date.now();
+            const shouldRenderPreview =
+              isTerminalPreviewPhase
+              || previousPreview?.lastRenderedAt === undefined
+              || nowMs - previousPreview.lastRenderedAt >= TOOL_PREVIEW_DELTA_RENDER_INTERVAL_MS
+              || toolPreviewDeltaHasVisibleSignal(record.argumentsDelta);
+            if (!shouldRenderPreview) {
+              toolPreviewStateRef.current.set(stateKey, nextPreview);
+              continue;
+            }
             const previewLines = resolveDirectTuiToolPreviewSummaryLines({
               title: familyTitle,
               phase: record.status,
@@ -11418,30 +11461,39 @@ function PraxisDirectTuiApp(): JSX.Element {
               capabilityKey: nextPreview.capabilityKey,
               argumentsPreview,
             });
-            toolPreviewStateRef.current.set(stateKey, nextPreview);
-            dispatchSurfaceEvent({
-              type: "message.appended",
-              at,
-              message: createSurfaceMessage({
-                messageId: `tool-preview:${stateKey}`,
-                sessionId: sessionIdRef.current,
-                turnId,
-                kind: "status",
-                text: previewLines.join("\n"),
-                createdAt: at,
-                updatedAt: at,
-                capabilityKey: nextPreview.capabilityKey,
-                metadata: {
-                  source: "tool_summary",
-                  familyKey,
-                  summaryRole: "tool_preview",
-                  summaryState: record.status === "done" ? "ready" : "active",
-                  toolCallId: record.toolCallId,
-                  itemId: record.itemId,
-                  providerToolName: nextPreview.providerToolName,
-                },
-              }),
+            const previewSummaryState = record.status === "done" ? "ready" : "active";
+            const previewText = previewLines.join("\n");
+            const previewFingerprint = `${previewSummaryState}\n${previewText}`;
+            toolPreviewStateRef.current.set(stateKey, {
+              ...nextPreview,
+              lastRenderedAt: nowMs,
+              renderedFingerprint: previewFingerprint,
             });
+            if (previousPreview?.renderedFingerprint !== previewFingerprint) {
+              dispatchSurfaceEvent({
+                type: "message.appended",
+                at,
+                message: createSurfaceMessage({
+                  messageId: `tool-preview:${stateKey}`,
+                  sessionId: sessionIdRef.current,
+                  turnId,
+                  kind: "status",
+                  text: previewText,
+                  createdAt: at,
+                  updatedAt: at,
+                  capabilityKey: nextPreview.capabilityKey,
+                  metadata: {
+                    source: "tool_summary",
+                    familyKey,
+                    summaryRole: "tool_preview",
+                    summaryState: previewSummaryState,
+                    toolCallId: record.toolCallId,
+                    itemId: record.itemId,
+                    providerToolName: nextPreview.providerToolName,
+                  },
+                }),
+              });
+            }
             for (const plannedPreview of resolveDirectTuiProcedurePlannedToolPreviews({
               phase: record.status,
               providerToolName: nextPreview.providerToolName,
@@ -11933,6 +11985,10 @@ function PraxisDirectTuiApp(): JSX.Element {
               setRunIndicator(null);
             }
             if (record.stage === "core/model.infer") {
+              const modelCallContext = normalizeContextSnapshot(record.context);
+              if (modelCallContext) {
+                setBackendContextSnapshot(modelCallContext);
+              }
               setRunIndicator((previous) =>
                 previous
                   ? {

@@ -538,6 +538,8 @@ function legacyModelStageRecord(input: {
   const modelPhase = stringMetadata(metadata, "modelPhase");
   if (modelPhase !== "started" && modelPhase !== "completed" && modelPhase !== "failed") return undefined;
   const model = stringMetadata(metadata, "model") ?? stringMetadata(metadata, "carrierId") ?? "model";
+  const usage = recordMetadata(metadata, "usage");
+  const context = recordMetadata(metadata, "context");
   return {
     ts: input.applicationEvent.createdAt,
     event: modelPhase === "started" ? "stage_start" : "stage_end",
@@ -551,6 +553,8 @@ function legacyModelStageRecord(input: {
       : modelPhase === "completed"
         ? `${model} returned a model decision.`
         : stringMetadata(metadata, "errorMessage") ?? `${model} model request failed.`,
+    usage,
+    context,
     resultMetadata: metadata,
   };
 }

@@ -87,7 +87,7 @@ test("context footer prefers provider input tokens over the local prompt estimat
   assert.equal(formatDirectTuiContextRemainingPercent(usedTokens, 258_400), "0%");
 });
 
-test("context footer prefers provider total tokens when available", () => {
+test("context footer uses provider input tokens for real input-window occupancy", () => {
   const usedTokens = resolveDirectTuiContextUsedTokens({
     snapshot: {
       promptTokens: 912,
@@ -97,7 +97,7 @@ test("context footer prefers provider total tokens when available", () => {
     draftContextTokens: 0,
   });
 
-  assert.equal(usedTokens, 153_601);
+  assert.equal(usedTokens, 147_374);
   assert.equal(formatDirectTuiContextRemainingPercent(usedTokens, 258_400), "43%");
 });
 
@@ -108,13 +108,13 @@ test("context footer falls back to prompt estimate when provider input tokens ar
   }), 1_000);
 });
 
-test("context footer reports Codex-style remaining context with a fixed baseline", () => {
-  assert.equal(formatDirectTuiContextRemainingPercent(27_199, 258_400), "94%");
+test("context footer reports remaining context directly against the usable input window", () => {
+  assert.equal(formatDirectTuiContextRemainingPercent(27_199, 258_400), "89%");
   assert.equal(formatDirectTuiContextRemainingPercent(0, 258_400), "100%");
 });
 
-test("context footer reports Codex-style used context with a fixed baseline", () => {
-  assert.equal(formatDirectTuiContextUsedPercent(27_199, 258_400), "6%");
+test("context footer reports used context directly against the usable input window", () => {
+  assert.equal(formatDirectTuiContextUsedPercent(27_199, 258_400), "11%");
   assert.equal(formatDirectTuiContextUsedPercent(0, 258_400), "0%");
 });
 

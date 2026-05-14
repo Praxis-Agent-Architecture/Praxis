@@ -547,7 +547,7 @@ function prepareHistoryForTurn(input: {
     summary: input.summary,
     attachments: input.attachments,
   });
-  const previousInputTokens = input.previousUsage?.inputTokens;
+  const previousInputTokens = input.previousUsage?.lastInputTokens ?? input.previousUsage?.inputTokens;
   const overEstimatedContextLimit = limit !== undefined && beforeTokens >= limit;
   const overPreviousProviderLimit = limit !== undefined &&
     previousInputTokens !== undefined &&
@@ -1343,7 +1343,11 @@ function createModelProgressEvent(input: {
   progress: AgentModelCallProgressEvent;
   turnId: string;
   status: PraxisApplicationStatus;
+  model: PraxisApplicationModelState;
 }): Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> {
+  const usage = input.progress.phase === "started" ? undefined : input.progress.usage;
+  const contextInputTokens = usage?.inputTokens;
+  const contextTotalTokens = usage === undefined ? undefined : usageContextTotalTokens(usage);
   return {
     eventId: `${input.turnId}.model.${input.progress.invocationId}.${input.progress.phase}`,
     kind: "model",
@@ -1361,6 +1365,30 @@ function createModelProgressEvent(input: {
       provider: input.progress.provider,
       carrierId: input.progress.carrierId,
       model: input.progress.model,
+      usage,
+      context: contextInputTokens === undefined
+        ? undefined
+        : {
+            provider: input.progress.provider,
+            model: input.progress.model,
+            promptKind: "applicationLayer",
+            windowTokens: input.model.contextWindowTokens,
+            maxInputTokens: input.model.maxInputTokens,
+            inputBudgetThreshold: input.model.inputBudgetThreshold,
+            usableInputTokens: input.model.usableInputTokens,
+            windowSource: input.model.metadataSource,
+            contextSource: "provider.model-call.usage",
+            usageSource: usage?.source ?? "provider.model-call.usage",
+            activeTokens: contextInputTokens,
+            promptTokens: contextInputTokens,
+            lastRequestInputTokens: contextInputTokens,
+            lastRequestTotalTokens: contextTotalTokens,
+            transcriptTokens: 0,
+            summaryTokens: 0,
+            historyMessages: 0,
+            estimated: usage?.estimated ?? false,
+            compacted: false,
+          },
       errorMessage: input.progress.phase === "failed" ? input.progress.error?.message : undefined,
     },
   };
@@ -2698,6 +2726,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           progress,
           turnId,
           status: "running",
+          model: state.model,
         }));
       },
       onToolCallProgress: (progress) => {

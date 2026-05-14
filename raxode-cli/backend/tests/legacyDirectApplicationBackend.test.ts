@@ -391,6 +391,7 @@ test("legacy direct application backend writes live codex usage from framework t
     .filter(Boolean)
     .map((line) => JSON.parse(line) as {
       event?: string;
+      stage?: string;
       core?: {
         usage?: {
           inputTokens?: number;
@@ -412,6 +413,15 @@ test("legacy direct application backend writes live codex usage from framework t
           lastRequestTotalTokens?: number;
         };
       };
+      usage?: {
+        inputTokens?: number;
+        outputTokens?: number;
+        thinkingTokens?: number;
+        totalTokens?: number;
+        cachedInputTokens?: number;
+        source?: string;
+        estimated?: boolean;
+      };
       context?: {
         activeTokens?: number;
         promptTokens?: number;
@@ -422,6 +432,12 @@ test("legacy direct application backend writes live codex usage from framework t
         lastRequestTotalTokens?: number;
       };
     });
+  const modelEnd = rows.find((row) => row.event === "stage_end" && row.stage === "core/model.infer");
+  assert.equal(modelEnd?.usage?.inputTokens, 44);
+  assert.equal(modelEnd?.usage?.cachedInputTokens, 40);
+  assert.equal(modelEnd?.context?.contextSource, "provider.model-call.usage");
+  assert.equal(modelEnd?.context?.lastRequestInputTokens, 44);
+  assert.equal(modelEnd?.context?.lastRequestTotalTokens, 54);
   const turnResult = rows.find((row) => row.event === "turn_result");
   assert.equal(turnResult?.core?.usage?.inputTokens, 44);
   assert.equal(turnResult?.core?.usage?.outputTokens, 7);

@@ -622,6 +622,12 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   const heatState = result.state.states.find((record) => record.phase === "toolContextHeat");
   assert.deepEqual(heatState?.metadata.usage, [{ toolId: "code.read", count: 1 }]);
   assert.equal(result.state.events.some((record) => record.type === "runtime.baseTool.dependencies.preflight"), true);
+  const firstProviderBodyText = JSON.stringify(providerBodies[0]);
+  const secondProviderBodyText = JSON.stringify(providerBodies[1]);
+  assert.match(firstProviderBodyText, /runtime:base-tool-protocol/u);
+  assert.match(secondProviderBodyText, /runtime:base-tool-protocol/u);
+  assert.doesNotMatch(firstProviderBodyText, /runtime:base-tool-protocol:\d+/u);
+  assert.doesNotMatch(secondProviderBodyText, /runtime:base-tool-protocol:\d+/u);
   const secondProviderBody = providerBodies[1] as { input?: readonly { type?: string; call_id?: string; output?: string }[] };
   const nativeFunctionCall = secondProviderBody.input?.find((item) => item.type === "function_call");
   const nativeToolResult = secondProviderBody.input?.find((item) => item.type === "function_call_output");

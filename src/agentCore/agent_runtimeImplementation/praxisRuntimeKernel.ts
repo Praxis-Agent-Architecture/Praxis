@@ -287,6 +287,7 @@ export type AgentModelCallProgressEvent =
       carrierId: string;
       model?: string;
       ok: boolean;
+      usage?: AgentModelUsageRecord;
       error?: PraxisRuntimeKernelError;
     };
 
@@ -827,7 +828,7 @@ function promptMaterialsForTurn(input: {
       metadata: { turnIndex: input.turnIndex },
     },
     {
-      id: `runtime:base-tool-protocol:${input.turnIndex}`,
+      id: "runtime:base-tool-protocol",
       kind: "runtime",
       text: PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
       source: "runtime.baseToolCallingProtocol",
@@ -837,7 +838,6 @@ function promptMaterialsForTurn(input: {
       promptSegmentKind: "stableSystemCore",
       metadata: {
         promptSegmentKind: "stableSystemCore",
-        turnIndex: input.turnIndex,
         mountedToolCount: input.manifest.harness.tools.length,
       },
     },
@@ -2529,6 +2529,17 @@ export class PraxisRuntimeKernel {
         clientName: manifest.model.clientName,
         clientVersion: manifest.model.clientVersion,
       });
+      const modelUsage = modelResult.ok && modelResult.usage
+        ? {
+          inputTokens: modelResult.usage.inputTokens,
+          outputTokens: modelResult.usage.outputTokens,
+          thinkingTokens: modelResult.usage.reasoningTokens,
+          totalTokens: modelResult.usage.totalTokens,
+          cachedInputTokens: modelResult.usage.cachedInputTokens,
+          source: modelResult.usage.source,
+          estimated: modelResult.usage.estimated,
+        }
+        : undefined;
       await options.onModelCallProgress?.({
         phase: modelResult.ok ? "completed" : "failed",
         invocationId: modelInvocationId,
@@ -2537,6 +2548,7 @@ export class PraxisRuntimeKernel {
         carrierId: manifest.model.carrierId,
         model: manifest.model.model,
         ok: modelResult.ok,
+        usage: modelUsage,
         error: modelResult.ok
           ? undefined
           : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model"),
@@ -2546,17 +2558,7 @@ export class PraxisRuntimeKernel {
         invocationId: modelInvocationId,
         raw: modelResult.ok ? modelResult.raw : null,
         ok: modelResult.ok,
-        usage: modelResult.ok && modelResult.usage
-          ? {
-            inputTokens: modelResult.usage.inputTokens,
-            outputTokens: modelResult.usage.outputTokens,
-            thinkingTokens: modelResult.usage.reasoningTokens,
-            totalTokens: modelResult.usage.totalTokens,
-            cachedInputTokens: modelResult.usage.cachedInputTokens,
-            source: modelResult.usage.source,
-            estimated: modelResult.usage.estimated,
-          }
-          : undefined,
+        usage: modelUsage,
       });
       await store.appendInvocation(invocation(sessionId, modelInvocationId, "model", manifest.model.carrierId, modelResult.ok, now(), {
         turn,
