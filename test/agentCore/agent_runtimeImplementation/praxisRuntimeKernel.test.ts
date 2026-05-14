@@ -430,6 +430,7 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
     dryRun: false,
     allowProviderCall: true,
     auth: authEnvelope(),
+    toolContextSelection: { toolIds: ["code.read", "code_read"] },
     providerCaller: async (envelope) => {
       capturedBody = envelope.body;
       return { output_text: "tools listed" };
@@ -522,6 +523,11 @@ test("PraxisRuntimeKernel.runManifest lets the model expand folded BaseTool cont
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.finalOutput, "expanded shell context was visible");
+  const firstBody = bodies[0] as { tools?: readonly { name?: string }[] };
+  const secondBody = bodies[1] as { tools?: readonly { name?: string }[] };
+  assert.equal(firstBody.tools?.some((item) => item.name === "praxis_expand_tool_context"), true);
+  assert.equal(firstBody.tools?.some((item) => item.name === "praxis_tool_shell_commandExecution"), false);
+  assert.equal(secondBody.tools?.some((item) => item.name === "praxis_tool_shell_commandExecution"), true);
   const secondBodyText = JSON.stringify(bodies[1]);
   assert.match(secondBodyText, /BaseTool group: shellBase\/shellExecution/);
   assert.match(secondBodyText, /shell\.commandExecution/);

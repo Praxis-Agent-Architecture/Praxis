@@ -327,6 +327,51 @@ test("assemblePromptPack preserves developer input order inside the same segment
   );
 });
 
+test("assemblePromptPack hashes provider-visible prompt text without runtime heat metadata jitter", () => {
+  const material = (score: number, expanded: boolean) => ({
+    id: "tool:code.read",
+    kind: "tool" as const,
+    text: "Tool: code.read\nDescription: Read files.",
+    source: "runtime.baseToolContextFolding",
+    sourceCategory: "declared-built-in" as const,
+    priority: 60,
+    estimatedTokens: 8,
+    trusted: true,
+    promptSegmentKind: "toolDeclarations" as const,
+    internalOnly: false,
+    metadata: {
+      toolMaterialType: "declaration",
+      toolName: "praxis_tool_code_read",
+      inputSchema: { type: "object", properties: { path: { type: "string" } } },
+      baseToolContextExpanded: expanded,
+      baseToolContextScore: score,
+      baseToolContextNodeId: "tool:code.read",
+    },
+  });
+
+  const first = assemblePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    materials: [material(0, false)],
+  });
+  const second = assemblePromptPack({
+    runtimeId: "runtime",
+    sessionId: "session",
+    materials: [material(25, true)],
+  });
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  if (!first.ok || !second.ok) return;
+
+  const firstToolSegment = first.promptPack.cachePlan.segments.find((segment) => segment.segmentKind === "toolDeclarations");
+  const secondToolSegment = second.promptPack.cachePlan.segments.find((segment) => segment.segmentKind === "toolDeclarations");
+  assert.equal(firstToolSegment?.segmentHash, secondToolSegment?.segmentHash);
+  assert.notEqual(
+    firstToolSegment?.providerHints.internalStateHash,
+    secondToolSegment?.providerHints.internalStateHash,
+  );
+});
+
 test("assemblePromptPack rejects missing materials, bad budgets, and unsafe injection", () => {
   const empty = assemblePromptPack({ runtimeId: "runtime", sessionId: "session", materials: [] });
   assert.equal(empty.ok, false);

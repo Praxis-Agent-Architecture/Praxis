@@ -76,6 +76,7 @@ export type LowerPraxisToolsForProviderRequest = {
   tools?: readonly AgentManifest["harness"]["tools"][number][];
   mappings?: readonly ProviderToolNameMapping[];
   includeRuntimeDecisionTools?: boolean;
+  visibleToolIds?: readonly string[];
 };
 
 export type RaiseProviderToolCallsRequest = {
@@ -371,15 +372,25 @@ function cachePlanFor(
   providerFamily: ProviderToolSchemaFamily,
   declarations: readonly PraxisToolDeclaration[],
   declarationHash: string,
+  exposure?: {
+    mountedConcreteToolCount: number;
+    exposedConcreteToolCount: number;
+    foldedConcreteToolCount: number;
+  },
 ): ProviderCacheHintPlan {
   const dynamicCount = declarations.filter((declaration) => declaration.providerKind === "dynamic").length;
   const cacheRiskWarnings = dynamicCount === 0 ? [] : [`${dynamicCount} dynamic provider tools can reduce prompt cache hit rate`];
+  const exposureHints = exposure === undefined ? {} : {
+    mountedConcreteToolCount: exposure.mountedConcreteToolCount,
+    exposedConcreteToolCount: exposure.exposedConcreteToolCount,
+    foldedConcreteToolCount: exposure.foldedConcreteToolCount,
+  };
   const providerHints =
     providerFamily === "anthropicMessages"
-      ? { cacheControlTarget: "tools", prefixOrder: ["tools", "system", "messages"] }
+      ? { cacheControlTarget: "tools", prefixOrder: ["tools", "system", "messages"], ...exposureHints }
       : providerFamily === "geminiGenerateContent"
-        ? { explicitCachedContentCandidate: true, prefixOrder: ["tools", "system", "messages"] }
-        : { readUsageTelemetry: "cached_input_tokens", prefixOrder: ["tools", "system", "messages"] };
+        ? { explicitCachedContentCandidate: true, prefixOrder: ["tools", "system", "messages"], ...exposureHints }
+        : { readUsageTelemetry: "cached_input_tokens", prefixOrder: ["tools", "system", "messages"], ...exposureHints };
   return {
     providerFamily,
     stableToolDeclarationHash: declarationHash,
@@ -390,8 +401,14 @@ function cachePlanFor(
 }
 
 export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProviderRequest): ProviderToolDeclarationBundle {
-  const tools = request.tools ?? request.manifest?.harness.tools ?? [];
-  const mappings = request.mappings ?? createProviderToolMappings(tools);
+  const allTools = request.tools ?? request.manifest?.harness.tools ?? [];
+  const mappings = request.mappings ?? createProviderToolMappings(allTools);
+  const visibleToolIds = request.visibleToolIds === undefined
+    ? undefined
+    : new Set(request.visibleToolIds.map((toolId) => toolId.trim()).filter(Boolean));
+  const tools = visibleToolIds === undefined
+    ? allTools
+    : allTools.filter((tool) => visibleToolIds.has(tool.toolId));
   const declarations = [
     ...createPraxisToolDeclarations({ tools, mappings }),
     ...(request.includeRuntimeDecisionTools === false ? [] : runtimeDecisionDeclarations()),
@@ -409,7 +426,11 @@ export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProvider
     mappings,
     declarationHash,
     providerPayload: providerPayloadFor(request.providerFamily, providerTools),
-    cacheHintPlan: cachePlanFor(request.providerFamily, declarations, declarationHash),
+    cacheHintPlan: cachePlanFor(request.providerFamily, declarations, declarationHash, {
+      mountedConcreteToolCount: allTools.length,
+      exposedConcreteToolCount: tools.length,
+      foldedConcreteToolCount: Math.max(0, allTools.length - tools.length),
+    }),
     warnings: declarations.some((declaration) => declaration.providerName.length > 64)
       ? ["one or more provider tool names were truncated to provider-safe length"]
       : [],

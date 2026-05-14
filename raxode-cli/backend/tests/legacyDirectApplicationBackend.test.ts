@@ -436,13 +436,23 @@ test("legacy direct application backend writes live codex usage from framework t
         promptPack?: {
           cacheablePrefixEstimatedTokens?: number;
           dynamicEstimatedTokens?: number;
-          segments?: Array<{ segmentKind?: string; segmentHash?: string; estimatedTokens?: number }>;
+          segments?: Array<{
+            segmentKind?: string;
+            segmentHash?: string;
+            estimatedTokens?: number;
+            providerHints?: { internalStateHash?: string };
+          }>;
         };
         providerBody?: {
           estimatedTokens?: number;
           inputEstimatedTokens?: number;
           toolsEstimatedTokens?: number;
           toolCount?: number;
+          fingerprints?: {
+            bodyHash?: string;
+            toolsHash?: string;
+            inputHash?: string;
+          };
         };
       };
     });
@@ -455,8 +465,11 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(modelEnd?.cacheDebug?.kind, "praxis.modelCall.cacheDebug");
   assert.ok((modelEnd?.cacheDebug?.promptPack?.segments?.length ?? 0) > 0);
   assert.ok((modelEnd?.cacheDebug?.promptPack?.cacheablePrefixEstimatedTokens ?? 0) > 0);
+  assert.match(modelEnd?.cacheDebug?.promptPack?.segments?.[0]?.providerHints?.internalStateHash ?? "", /^[a-f0-9]{64}$/u);
   assert.ok((modelEnd?.cacheDebug?.providerBody?.toolCount ?? 0) > 0);
   assert.ok((modelEnd?.cacheDebug?.providerBody?.toolsEstimatedTokens ?? 0) > 0);
+  assert.match(modelEnd?.cacheDebug?.providerBody?.fingerprints?.bodyHash ?? "", /^[a-f0-9]{64}$/u);
+  assert.match(modelEnd?.cacheDebug?.providerBody?.fingerprints?.toolsHash ?? "", /^[a-f0-9]{64}$/u);
   const turnResult = rows.find((row) => row.event === "turn_result");
   assert.equal(turnResult?.core?.usage?.inputTokens, 44);
   assert.equal(turnResult?.core?.usage?.outputTokens, 7);

@@ -125,3 +125,13 @@ Raxode declares `agent.raxode.tui.sidecar` at `raxode-cli/backend/agents/tuiSide
 The live TUI helper path now uses `agent.raxode.tui` at `raxode-cli/backend/agents/tuiAgent/praxis.agent.ts`, not the earlier sidecar foothold. This agent is intentionally tool-free and structured-output-only: it uses `gpt-5.4-mini` with low reasoning by default, denies tool execution, and currently supports only `tui.pending-composer-summary` and `tui.tool-summary.websearch`.
 
 `application.invokeAuxiliaryTask` routes these helper tasks through the application layer with a separate auxiliary session and leaves the primary `agent.raxode.coding` view untouched. The legacy helper file `raxode-cli/frontend/legacy-src/agent_core/tui-mini-summary.ts` is preserved, but its active implementation now delegates to the application command instead of the old direct model/TAP inference path.
+
+## 2026-05-14 Prompt Cache And BaseTool Exposure Correction
+
+Raxode/Praxis no longer treats BaseTool context folding as PromptPack text-only optimization. `BaseToolContextFolding` still owns model-readable family/group/tool documentation, but `toolSchemaCompatibilityLayer.lowerPraxisToolsForProvider` now accepts `visibleToolIds` so provider-native function schemas can be narrowed to the tools currently expanded, selected, or retained by session context.
+
+Runtime decision tools such as `praxis_expand_tool_context` remain exposed even when concrete BaseTools are folded. This preserves the intended workflow: the model first sees stable family summaries, asks to expand a likely family/group/tool, and only then receives concrete provider-callable schemas for those tools.
+
+`applicationLayer` now carries BaseTool context selection and tool usage across same-session Raxode turns. A tool expanded or used in one turn can stay visible in the next turn without exposing the full 175-tool schema set again. This is the intended cache-friendly middle ground: stable indexes stay small, hot tools remain reachable, and cold tools do not churn provider tool declarations.
+
+PromptPack segment hashes now represent provider-visible prompt text rather than internal runtime heat metadata. The internal metadata hash is still emitted under segment provider hints for diagnostics. `raxode:cache-xray` also prints provider body fingerprints so future cache investigations can distinguish tool-schema changes, PromptPack text changes, previous provider output items, and tool result blocks.

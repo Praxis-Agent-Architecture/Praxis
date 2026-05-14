@@ -83,6 +83,23 @@ test("toolSchemaCompatibilityLayer keeps colliding provider names reversible", (
   assert.equal(calls[0]?.toolId, "code_read");
 });
 
+test("toolSchemaCompatibilityLayer can expose only expanded tools while keeping runtime decision tools", () => {
+  const mappings = createProviderToolMappings(fixtureTools);
+  const filtered = lowerPraxisToolsForProvider({
+    providerFamily: "openaiResponses",
+    tools: fixtureTools,
+    mappings,
+    visibleToolIds: ["shell.commandExecution"],
+  });
+
+  assert.deepEqual(filtered.mappings, mappings);
+  assert.equal(filtered.tools.some((item) => item.name === "praxis_tool_shell_commandExecution"), true);
+  assert.equal(filtered.tools.some((item) => item.name === "praxis_tool_code_read"), false);
+  assert.equal(filtered.tools.some((item) => item.name === "praxis_expand_tool_context"), true);
+  assert.equal(filtered.cacheHintPlan.providerHints.exposedConcreteToolCount, 1);
+  assert.equal(filtered.cacheHintPlan.providerHints.foldedConcreteToolCount, 2);
+});
+
 test("toolSchemaCompatibilityLayer normalizes loose schemas and raises provider fixtures", () => {
   assert.deepEqual(normalizeProviderInputSchema(true), { type: "object", properties: {} });
   assert.deepEqual(normalizeProviderInputSchema("raw"), {

@@ -128,6 +128,89 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.ok(secondContext.promptTokens > 0);
 });
 
+test("raxode application runtime carries expanded BaseTool context across same-session turns", async () => {
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+  let calls = 0;
+  const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+    applicationId: "application.raxode.coding",
+    mode: "live",
+    model: "gpt-5.5",
+    reasoningEffort: "low",
+    permissionProfile: "bapr",
+    now: () => "2026-05-10T00:00:00.000Z",
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+        calls += 1;
+        providerBodies.push(envelope.body);
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "praxis_expand_tool_context",
+              call_id: "expand-code-read",
+              arguments: JSON.stringify({
+                targetKind: "tool",
+                toolId: "code.read",
+                reason: "need code read manual",
+              }),
+            }],
+          };
+        }
+        return { output_text: calls === 2 ? "code.read context expanded" : "same-session tool context retained" };
+      },
+    }),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const transport = createLocalApplicationTransport(created.runtime);
+  const sessionId = "session.raxode.tool-context-retention.test";
+  const start = await transport.dispatch({
+    type: "application.start",
+    sessionId,
+    cwd: process.cwd(),
+    mode: "live",
+  });
+  assert.equal(start.ok, true);
+
+  const first = await transport.dispatch({
+    type: "application.submitTurn",
+    sessionId,
+    mode: "live",
+    input: {
+      type: "application.input",
+      text: "展开 code.read 工具上下文",
+      cwd: process.cwd(),
+    },
+  });
+  assert.equal(first.ok, true);
+  const second = await transport.dispatch({
+    type: "application.submitTurn",
+    sessionId,
+    mode: "live",
+    input: {
+      type: "application.input",
+      text: "下一轮应该保留 code.read",
+      cwd: process.cwd(),
+    },
+  });
+  assert.equal(second.ok, true);
+
+  const firstProviderTools = (providerBodies[0] as { tools?: readonly { name?: string }[] }).tools ?? [];
+  const retainedProviderTools = (providerBodies[2] as { tools?: readonly { name?: string }[] }).tools ?? [];
+  assert.equal(firstProviderTools.some((item) => item.name === "praxis_tool_code_read"), false);
+  assert.equal(firstProviderTools.some((item) => item.name === "praxis_expand_tool_context"), true);
+  assert.equal(retainedProviderTools.some((item) => item.name === "praxis_tool_code_read"), true);
+  assert.ok(retainedProviderTools.length < 20);
+});
+
 test("raxode application runtime pre-compacts session history when previous provider context is near the limit", async () => {
   const providerBodies: unknown[] = [];
   const fakeAuth: AuthEnvelope = {

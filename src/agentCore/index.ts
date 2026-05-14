@@ -509,6 +509,11 @@ export {
 } from "./agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 
 export {
+  type BaseToolContextSelection,
+  type BaseToolContextUsageRecord,
+} from "./agent_runtimeImplementation/runtime.execEngine/baseToolContextFolding.js";
+
+export {
   createProviderToolMappings,
   createPraxisToolDeclarations,
   lowerPraxisToolsForProvider,

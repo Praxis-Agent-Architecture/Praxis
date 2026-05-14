@@ -283,7 +283,22 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
-function hashPromptSegment(segmentKind: PromptPackSegmentKind, materials: readonly AssembledPromptMaterial[]): string {
+function hashPromptSegmentProviderVisible(segmentKind: PromptPackSegmentKind, materials: readonly AssembledPromptMaterial[]): string {
+  const input = stableStringify({
+    segmentKind,
+    materials: materials.map((material) => ({
+      id: material.id,
+      kind: material.kind,
+      text: material.text,
+      source: material.source,
+      sourceCategory: material.sourceCategory,
+      internalOnly: material.internalOnly,
+    })),
+  });
+  return createHash("sha256").update(input).digest("hex");
+}
+
+function hashPromptSegmentInternalState(segmentKind: PromptPackSegmentKind, materials: readonly AssembledPromptMaterial[]): string {
   const input = stableStringify({
     segmentKind,
     materials: materials.map((material) => ({
@@ -293,6 +308,7 @@ function hashPromptSegment(segmentKind: PromptPackSegmentKind, materials: readon
       source: material.source,
       sourceCategory: material.sourceCategory,
       metadata: material.metadata,
+      internalOnly: material.internalOnly,
     })),
   });
   return createHash("sha256").update(input).digest("hex");
@@ -351,11 +367,13 @@ function buildPromptPackCachePlan(materials: readonly AssembledPromptMaterial[])
       segmentKind,
       stability: segmentStability(segmentKind),
       cachePolicy: segmentCachePolicy(segmentKind),
-      segmentHash: hashPromptSegment(segmentKind, segmentMaterials),
+      segmentHash: hashPromptSegmentProviderVisible(segmentKind, segmentMaterials),
       estimatedTokens: segmentMaterials.reduce((sum, material) => sum + material.estimatedTokens, 0),
       materialRefs: segmentMaterials.map((material) => material.id),
       sourceRefs: [...new Set(segmentMaterials.map((material) => material.source))],
-      providerHints: {},
+      providerHints: {
+        internalStateHash: hashPromptSegmentInternalState(segmentKind, segmentMaterials),
+      },
     };
   });
 

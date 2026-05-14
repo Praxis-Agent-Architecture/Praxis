@@ -20,6 +20,8 @@ import {
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
+  type BaseToolContextSelection,
+  type BaseToolContextUsageRecord,
 } from "../agentCore/index.js";
 import type { OpenAIV1ResponsesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import { invokeChatGPTCodexResponses } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
@@ -100,6 +102,8 @@ type RuntimeState = {
   cancelledAuxiliaryTasks: Set<string>;
   conversationHistory: Map<string, ApplicationConversationMessage[]>;
   conversationSummaries: Map<string, ApplicationConversationSummary>;
+  toolContextSelections: Map<string, BaseToolContextSelection>;
+  toolContextUsage: Map<string, BaseToolContextUsageRecord[]>;
   alwaysApprovedApprovalKeys: Set<string>;
 };
 
@@ -2055,6 +2059,94 @@ async function loadAgentExport(project: PraxisApplicationProject, input: {
   return module.default ?? Object.values(module)[0];
 }
 
+function uniqueSorted(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
+}
+
+function normalizeToolContextSelection(selection: BaseToolContextSelection | undefined): BaseToolContextSelection {
+  return {
+    families: uniqueSorted(selection?.families),
+    groups: uniqueSorted(selection?.groups),
+    toolIds: uniqueSorted(selection?.toolIds),
+  };
+}
+
+function mergeToolContextSelections(
+  left: BaseToolContextSelection | undefined,
+  right: BaseToolContextSelection | undefined,
+): BaseToolContextSelection {
+  return {
+    families: uniqueSorted([...(left?.families ?? []), ...(right?.families ?? [])]),
+    groups: uniqueSorted([...(left?.groups ?? []), ...(right?.groups ?? [])]),
+    toolIds: uniqueSorted([...(left?.toolIds ?? []), ...(right?.toolIds ?? [])]),
+  };
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => stringValue(item)).filter((item): item is string => item !== undefined)
+    : [];
+}
+
+function readToolContextSelection(value: unknown): BaseToolContextSelection | undefined {
+  const record = objectValue(value);
+  if (record === undefined) return undefined;
+  return normalizeToolContextSelection({
+    families: stringList(record.families),
+    groups: stringList(record.groups),
+    toolIds: stringList(record.toolIds),
+  });
+}
+
+function latestToolContextSelectionFromSteps(result: AgentRunResult): BaseToolContextSelection | undefined {
+  let latest: BaseToolContextSelection | undefined;
+  for (const step of result.mainLoopSteps ?? []) {
+    if (step.metadata.runtimeDecision !== "expandToolContext") continue;
+    const selection = readToolContextSelection(step.metadata.selection);
+    if (selection !== undefined) latest = selection;
+  }
+  return latest;
+}
+
+function mergeToolContextUsage(
+  current: readonly BaseToolContextUsageRecord[] | undefined,
+  toolCalls: readonly AgentToolCallRecord[],
+): BaseToolContextUsageRecord[] {
+  const counts = new Map<string, number>();
+  for (const record of current ?? []) {
+    const toolId = record.toolId.trim();
+    if (toolId.length === 0) continue;
+    counts.set(toolId, (counts.get(toolId) ?? 0) + Math.max(1, Math.floor(record.count ?? 1)));
+  }
+  for (const call of toolCalls) {
+    const toolId = call.toolId.trim();
+    if (toolId.length === 0) continue;
+    counts.set(toolId, (counts.get(toolId) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([toolId, count]) => ({ toolId, count }));
+}
+
+function rememberToolContextFromRun(state: RuntimeState, result: AgentRunResult): void {
+  const sessionId = result.sessionId ?? state.sessionId;
+  const expandedSelection = latestToolContextSelectionFromSteps(result);
+  const toolCallSelection: BaseToolContextSelection | undefined = result.ok
+    ? { toolIds: result.toolCalls.map((call) => call.toolId) }
+    : undefined;
+  const nextSelection = mergeToolContextSelections(
+    mergeToolContextSelections(state.toolContextSelections.get(sessionId), expandedSelection),
+    toolCallSelection,
+  );
+  if ((nextSelection.families?.length ?? 0) > 0 || (nextSelection.groups?.length ?? 0) > 0 || (nextSelection.toolIds?.length ?? 0) > 0) {
+    state.toolContextSelections.set(sessionId, nextSelection);
+  }
+
+  if (result.ok && result.toolCalls.length > 0) {
+    state.toolContextUsage.set(sessionId, mergeToolContextUsage(state.toolContextUsage.get(sessionId), result.toolCalls));
+  }
+}
+
 function applyRunResult(state: RuntimeState, result: AgentRunResult): void {
   state.modelCalls = result.ok ? result.modelCalls.length : 0;
   state.toolCalls = result.ok ? result.toolCalls.length : 0;
@@ -2159,6 +2251,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     cancelledAuxiliaryTasks: new Set(),
     conversationHistory: new Map(),
     conversationSummaries: new Map(),
+    toolContextSelections: new Map(),
+    toolContextUsage: new Map(),
     alwaysApprovedApprovalKeys: new Set(),
   };
 
@@ -2695,6 +2789,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       auth: liveProvider?.auth,
       providerCaller: liveProvider?.providerCaller,
       exposeProviderTools: true,
+      toolContextSelection: state.toolContextSelections.get(state.sessionId),
+      toolContextUsage: state.toolContextUsage.get(state.sessionId),
       approvalResolver: approvalResolverForRun(),
       storage: {
         cwd: state.cwd,
@@ -2742,6 +2838,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       now,
     });
     applyRunResult(state, result);
+    rememberToolContextFromRun(state, result);
     const compactedHistory = compactConversationHistory({
       messages: [
       ...preparedHistory.history,

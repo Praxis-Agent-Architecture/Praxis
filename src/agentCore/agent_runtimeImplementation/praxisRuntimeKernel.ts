@@ -151,6 +151,8 @@ export type PraxisRuntimeKernelOptions = {
   allowProviderCall?: boolean;
   allowToolExecution?: boolean;
   exposeProviderTools?: boolean;
+  toolContextSelection?: BaseToolContextSelection;
+  toolContextUsage?: readonly BaseToolContextUsageRecord[];
   dryRun?: boolean;
   approvalResolver?: RuntimeApprovalResolver;
   baseToolDependencyRuntime?: {
@@ -311,6 +313,7 @@ export type AgentModelCacheDebugRecord = {
       segmentHash: string;
       materialCount: number;
       materialRefs: readonly string[];
+      providerHints: Readonly<Record<string, unknown>>;
     }[];
     cacheRiskWarnings: readonly string[];
   };
@@ -319,6 +322,7 @@ export type AgentModelCacheDebugRecord = {
     inputEstimatedTokens: number;
     toolsEstimatedTokens: number;
     toolCount: number;
+    fingerprints: Readonly<Record<string, string>>;
     previousProviderOutputItems: number;
     toolResultInputs: number;
   };
@@ -1155,6 +1159,59 @@ function recordArrayLength(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function stableJsonForHash(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJsonForHash(item)).join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${stableJsonForHash(record[key])}`)
+    .join(",")}}`;
+}
+
+function hashDebugValue(value: unknown): string {
+  return createHash("sha256").update(stableJsonForHash(value)).digest("hex");
+}
+
+function providerBodyFingerprints(input: {
+  providerBody: Readonly<Record<string, unknown>>;
+  previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
+  toolResultInputs: readonly unknown[];
+}): Readonly<Record<string, string>> {
+  const providerInput = Array.isArray(input.providerBody.input) ? input.providerBody.input : [];
+  return {
+    bodyHash: hashDebugValue(input.providerBody),
+    toolsHash: hashDebugValue(input.providerBody.tools),
+    inputHash: hashDebugValue(input.providerBody.input),
+    developerHash: hashDebugValue(providerInput[0]),
+    promptPackUserHash: hashDebugValue(providerInput[1]),
+    previousItemsHash: hashDebugValue(input.previousProviderOutputItems),
+    toolResultsHash: hashDebugValue(input.toolResultInputs),
+  };
+}
+
+function visibleProviderToolIdsForPromptPack(promptPack: StandardPromptPack): readonly string[] {
+  return [...new Set(promptPack.toolPack.declarations
+    .map((declaration) => declaration.metadata.toolId)
+    .filter((toolId): toolId is string => typeof toolId === "string" && toolId.trim().length > 0)
+    .map((toolId) => toolId.trim()))].sort();
+}
+
+function normalizedSelection(values: readonly string[] | undefined): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
+}
+
+function addSelectedTool(selection: { toolIds: string[] }, toolId: string): void {
+  const normalized = toolId.trim();
+  if (normalized.length === 0 || selection.toolIds.includes(normalized)) return;
+  selection.toolIds.push(normalized);
+  selection.toolIds.sort();
+}
+
 function buildPromptPackCacheDebug(input: {
   promptPack: StandardPromptPack;
   providerBody: Readonly<Record<string, unknown>>;
@@ -1170,6 +1227,7 @@ function buildPromptPackCacheDebug(input: {
     segmentHash: segment.segmentHash,
     materialCount: segment.materialRefs.length,
     materialRefs: segment.materialRefs,
+    providerHints: segment.providerHints,
   }));
   const cacheablePrefixEstimatedTokens = input.promptPack.cachePlan.cacheablePrefixSegmentKinds
     .reduce((sum, segmentKind) => sum + (input.promptPack.cachePlan.segments.find((segment) => segment.segmentKind === segmentKind)?.estimatedTokens ?? 0), 0);
@@ -1193,6 +1251,7 @@ function buildPromptPackCacheDebug(input: {
       inputEstimatedTokens: estimateSerializedTokens(input.providerBody.input),
       toolsEstimatedTokens: estimateSerializedTokens(input.providerBody.tools),
       toolCount: recordArrayLength(input.providerBody.tools),
+      fingerprints: providerBodyFingerprints(input),
       previousProviderOutputItems: input.previousProviderOutputItems.length,
       toolResultInputs: input.toolResultInputs.length,
     },
@@ -1244,6 +1303,7 @@ function buildCodexResponsesBodyFromPromptPack(
       manifest,
       mappings,
       includeRuntimeDecisionTools: true,
+      visibleToolIds: visibleProviderToolIdsForPromptPack(promptPack),
     });
     body.tools = bundle.tools;
   }
@@ -1646,6 +1706,7 @@ async function buildPromptPackAndLower(input: {
     manifest: input.manifest,
     mappings: input.toolMappings,
     includeRuntimeDecisionTools: true,
+    visibleToolIds: visibleProviderToolIdsForPromptPack(preparedTurn.promptPack),
   });
 
   const lowered = lowerPromptForModelAdapter({
@@ -2477,11 +2538,16 @@ export class PraxisRuntimeKernel {
       families: string[];
       groups: string[];
       toolIds: string[];
-    } = { families: [], groups: [], toolIds: [] };
+    } = {
+      families: normalizedSelection(options.toolContextSelection?.families),
+      groups: normalizedSelection(options.toolContextSelection?.groups),
+      toolIds: normalizedSelection(options.toolContextSelection?.toolIds),
+    };
     const providerResponseOutputItems: Readonly<Record<string, unknown>>[] = [];
     let toolContextHeatState: BaseToolContextHeatState = createBaseToolContextHeatState({
       agentId: manifest.identity.id,
       sessionId,
+      usage: options.toolContextUsage,
       updatedAt: createdAt,
     });
 
@@ -3131,6 +3197,7 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(executed.record);
           observations.push(executed.observation);
+          addSelectedTool(toolContextSelection, executed.record.toolId);
           toolContextHeatState = applyBaseToolContextUsage(
             toolContextHeatState,
             [{ toolId: executed.record.toolId }],
@@ -3286,6 +3353,9 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(...procedureResult.records);
           observations.push(...procedureResult.observations);
+          for (const record of procedureResult.records) {
+            addSelectedTool(toolContextSelection, record.toolId);
+          }
           const providerCallId = typeof decision.metadata.callId === "string" && decision.metadata.callId.trim().length > 0
             ? decision.metadata.callId.trim()
             : undefined;

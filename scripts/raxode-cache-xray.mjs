@@ -45,11 +45,18 @@ for (const [index, row] of modelRows.entries()) {
   console.log(`\n# model call ${index + 1}`);
   console.log(`usage: input=${inputTokens} cached=${cachedInputTokens} hit=${hitRate}% output=${usage.outputTokens ?? "?"} thinking=${usage.thinkingTokens ?? "?"}`);
   console.log(`provider body: total~${providerBody.estimatedTokens ?? "?"} input~${providerBody.inputEstimatedTokens ?? "?"} tools~${providerBody.toolsEstimatedTokens ?? "?"} toolCount=${providerBody.toolCount ?? "?"} previousItems=${providerBody.previousProviderOutputItems ?? "?"} toolResults=${providerBody.toolResultInputs ?? "?"}`);
+  const fingerprints = providerBody.fingerprints && typeof providerBody.fingerprints === "object" ? providerBody.fingerprints : {};
+  if (Object.keys(fingerprints).length > 0) {
+    console.log(`provider hashes: body=${String(fingerprints.bodyHash ?? "").slice(0, 12)} tools=${String(fingerprints.toolsHash ?? "").slice(0, 12)} input=${String(fingerprints.inputHash ?? "").slice(0, 12)} developer=${String(fingerprints.developerHash ?? "").slice(0, 12)} promptPack=${String(fingerprints.promptPackUserHash ?? "").slice(0, 12)} previous=${String(fingerprints.previousItemsHash ?? "").slice(0, 12)} toolResults=${String(fingerprints.toolResultsHash ?? "").slice(0, 12)}`);
+  }
   console.log(`promptPack: total~${promptPack.totalEstimatedTokens ?? "?"} rendered~${promptPack.renderedTextEstimatedTokens ?? "?"} prefix~${promptPack.cacheablePrefixEstimatedTokens ?? "?"} dynamic~${promptPack.dynamicEstimatedTokens ?? "?"}`);
   const segments = Array.isArray(promptPack.segments) ? promptPack.segments : [];
   for (const segment of segments) {
     if (!segment || typeof segment !== "object") continue;
-    console.log(`  - ${segment.segmentKind}: ${segment.estimatedTokens ?? "?"} tokens ${segment.cachePolicy ?? "?"} hash=${String(segment.segmentHash ?? "").slice(0, 12)} materials=${segment.materialCount ?? "?"}`);
+    const internalHash = segment.providerHints && typeof segment.providerHints === "object"
+      ? segment.providerHints.internalStateHash
+      : undefined;
+    console.log(`  - ${segment.segmentKind}: ${segment.estimatedTokens ?? "?"} tokens ${segment.cachePolicy ?? "?"} hash=${String(segment.segmentHash ?? "").slice(0, 12)} internal=${String(internalHash ?? "").slice(0, 12)} materials=${segment.materialCount ?? "?"}`);
   }
   const warnings = Array.isArray(promptPack.cacheRiskWarnings) ? promptPack.cacheRiskWarnings : [];
   if (warnings.length > 0) {
