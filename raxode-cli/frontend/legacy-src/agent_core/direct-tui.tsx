@@ -7285,14 +7285,17 @@ function buildShimmerSegments(text: string, frame: number): Array<{ text: string
     return [{ text: "", color: TUI_THEME.text }];
   }
   const highlightIndex = frame % activeUnits.length;
-  const shadowIndices = new Set([
-    (highlightIndex - 1 + activeUnits.length) % activeUnits.length,
-    highlightIndex,
-  ]);
+  const shimmerColors = ["white", "gray", "blackBright", "blackBright", "gray", "white"] as const;
+  const shimmerColorByIndex = new Map(
+    shimmerColors.map((color, offset) => [
+      (highlightIndex - offset + activeUnits.length) % activeUnits.length,
+      color,
+    ]),
+  );
 
   const shimmered = activeUnits.map((unit, index) => ({
     text: unit,
-    color: shadowIndices.has(index) ? TUI_THEME.textMuted : TUI_THEME.text,
+    color: shimmerColorByIndex.get(index) ?? TUI_THEME.text,
   }));
   const trailingSpaces = text.slice(activeText.length);
   return trailingSpaces.length > 0
