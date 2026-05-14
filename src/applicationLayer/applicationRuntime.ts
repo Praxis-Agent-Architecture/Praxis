@@ -1366,6 +1366,7 @@ function createModelProgressEvent(input: {
       carrierId: input.progress.carrierId,
       model: input.progress.model,
       usage,
+      cacheDebug: input.progress.phase === "started" ? undefined : input.progress.cacheDebug,
       context: contextInputTokens === undefined
         ? undefined
         : {

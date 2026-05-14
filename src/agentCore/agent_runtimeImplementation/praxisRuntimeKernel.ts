@@ -50,6 +50,7 @@ import {
 import type { StandardPromptPack } from "../agent_executionEngine/promptPack/promptAssembler.js";
 import {
   type PromptPackMaterialDraft,
+  type PromptPackSegmentKind,
 } from "../agent_executionEngine/promptPack/promptDefiner.js";
 import {
   createRuntimeBaseToolExecutorPort,
@@ -288,8 +289,40 @@ export type AgentModelCallProgressEvent =
       model?: string;
       ok: boolean;
       usage?: AgentModelUsageRecord;
+      cacheDebug?: AgentModelCacheDebugRecord;
       error?: PraxisRuntimeKernelError;
     };
+
+export type AgentModelCacheDebugRecord = {
+  kind: "praxis.modelCall.cacheDebug";
+  strategy: "prompt-pack-cache-xray";
+  promptCacheKey?: string;
+  promptPack: {
+    totalEstimatedTokens: number;
+    renderedTextEstimatedTokens: number;
+    cacheablePrefixEstimatedTokens: number;
+    dynamicEstimatedTokens: number;
+    segmentCount: number;
+    segments: readonly {
+      segmentKind: PromptPackSegmentKind;
+      cachePolicy: string;
+      stability: string;
+      estimatedTokens: number;
+      segmentHash: string;
+      materialCount: number;
+      materialRefs: readonly string[];
+    }[];
+    cacheRiskWarnings: readonly string[];
+  };
+  providerBody: {
+    estimatedTokens: number;
+    inputEstimatedTokens: number;
+    toolsEstimatedTokens: number;
+    toolCount: number;
+    previousProviderOutputItems: number;
+    toolResultInputs: number;
+  };
+};
 
 export type AgentRunResult =
   | {
@@ -1111,6 +1144,59 @@ function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Recor
     })
     .map(normalizeOpenAIResponseOutputItemForInput)
     .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
+}
+
+function estimateSerializedTokens(value: unknown): number {
+  const serialized = typeof value === "string" ? value : JSON.stringify(value);
+  return Math.max(0, Math.ceil((serialized?.length ?? 0) / 4));
+}
+
+function recordArrayLength(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
+}
+
+function buildPromptPackCacheDebug(input: {
+  promptPack: StandardPromptPack;
+  providerBody: Readonly<Record<string, unknown>>;
+  promptCacheKey?: string;
+  previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
+  toolResultInputs: readonly unknown[];
+}): AgentModelCacheDebugRecord {
+  const segments = input.promptPack.cachePlan.segments.map((segment) => ({
+    segmentKind: segment.segmentKind,
+    cachePolicy: segment.cachePolicy,
+    stability: segment.stability,
+    estimatedTokens: segment.estimatedTokens,
+    segmentHash: segment.segmentHash,
+    materialCount: segment.materialRefs.length,
+    materialRefs: segment.materialRefs,
+  }));
+  const cacheablePrefixEstimatedTokens = input.promptPack.cachePlan.cacheablePrefixSegmentKinds
+    .reduce((sum, segmentKind) => sum + (input.promptPack.cachePlan.segments.find((segment) => segment.segmentKind === segmentKind)?.estimatedTokens ?? 0), 0);
+  const dynamicEstimatedTokens = input.promptPack.cachePlan.dynamicSegmentKinds
+    .reduce((sum, segmentKind) => sum + (input.promptPack.cachePlan.segments.find((segment) => segment.segmentKind === segmentKind)?.estimatedTokens ?? 0), 0);
+  return {
+    kind: "praxis.modelCall.cacheDebug",
+    strategy: "prompt-pack-cache-xray",
+    promptCacheKey: input.promptCacheKey,
+    promptPack: {
+      totalEstimatedTokens: input.promptPack.totalEstimatedTokens,
+      renderedTextEstimatedTokens: estimateSerializedTokens(input.promptPack.renderedText),
+      cacheablePrefixEstimatedTokens,
+      dynamicEstimatedTokens,
+      segmentCount: segments.length,
+      segments,
+      cacheRiskWarnings: input.promptPack.cachePlan.cacheRiskWarnings,
+    },
+    providerBody: {
+      estimatedTokens: estimateSerializedTokens(input.providerBody),
+      inputEstimatedTokens: estimateSerializedTokens(input.providerBody.input),
+      toolsEstimatedTokens: estimateSerializedTokens(input.providerBody.tools),
+      toolCount: recordArrayLength(input.providerBody.tools),
+      previousProviderOutputItems: input.previousProviderOutputItems.length,
+      toolResultInputs: input.toolResultInputs.length,
+    },
+  };
 }
 
 function buildCodexResponsesBodyFromPromptPack(
@@ -2498,6 +2584,22 @@ export class PraxisRuntimeKernel {
       invokeModel: async (turn, prompt) => {
       const stepBase = turn * 20 + 2;
       const modelInvocationId = `${sessionId}:model:${turn + 1}`;
+      const promptCacheKey = stablePromptCacheKey(manifest, sessionId);
+      const toolResultInputs = providerToolResultsFromObservations(observations)
+        .map((result) => lowerProviderToolResult({ providerFamily: "openaiResponses", result }));
+      const providerBody = buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
+        exposeProviderTools: options.exposeProviderTools,
+        observations,
+        previousProviderOutputItems: providerResponseOutputItems,
+        promptCacheKey,
+      });
+      const cacheDebug = buildPromptPackCacheDebug({
+        promptPack: prompt.promptPack,
+        providerBody,
+        promptCacheKey,
+        previousProviderOutputItems: providerResponseOutputItems,
+        toolResultInputs,
+      });
       await options.onModelCallProgress?.({
         phase: "started",
         invocationId: modelInvocationId,
@@ -2518,12 +2620,7 @@ export class PraxisRuntimeKernel {
         allowProviderCall: options.allowProviderCall ?? manifest.harness.policy.allowProviderCall ?? !dryRun,
         auth: options.auth,
         providerCaller: options.providerCaller,
-        providerBody: buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
-          exposeProviderTools: options.exposeProviderTools,
-          observations,
-          previousProviderOutputItems: providerResponseOutputItems,
-          promptCacheKey: stablePromptCacheKey(manifest, sessionId),
-        }),
+        providerBody,
         governance: { accepted: true },
         contract: { accepted: true },
         clientName: manifest.model.clientName,
@@ -2549,6 +2646,7 @@ export class PraxisRuntimeKernel {
         model: manifest.model.model,
         ok: modelResult.ok,
         usage: modelUsage,
+        cacheDebug,
         error: modelResult.ok
           ? undefined
           : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model"),

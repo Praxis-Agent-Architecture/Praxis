@@ -431,6 +431,20 @@ test("legacy direct application backend writes live codex usage from framework t
         lastRequestInputTokens?: number;
         lastRequestTotalTokens?: number;
       };
+      cacheDebug?: {
+        kind?: string;
+        promptPack?: {
+          cacheablePrefixEstimatedTokens?: number;
+          dynamicEstimatedTokens?: number;
+          segments?: Array<{ segmentKind?: string; segmentHash?: string; estimatedTokens?: number }>;
+        };
+        providerBody?: {
+          estimatedTokens?: number;
+          inputEstimatedTokens?: number;
+          toolsEstimatedTokens?: number;
+          toolCount?: number;
+        };
+      };
     });
   const modelEnd = rows.find((row) => row.event === "stage_end" && row.stage === "core/model.infer");
   assert.equal(modelEnd?.usage?.inputTokens, 44);
@@ -438,6 +452,11 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(modelEnd?.context?.contextSource, "provider.model-call.usage");
   assert.equal(modelEnd?.context?.lastRequestInputTokens, 44);
   assert.equal(modelEnd?.context?.lastRequestTotalTokens, 54);
+  assert.equal(modelEnd?.cacheDebug?.kind, "praxis.modelCall.cacheDebug");
+  assert.ok((modelEnd?.cacheDebug?.promptPack?.segments?.length ?? 0) > 0);
+  assert.ok((modelEnd?.cacheDebug?.promptPack?.cacheablePrefixEstimatedTokens ?? 0) > 0);
+  assert.ok((modelEnd?.cacheDebug?.providerBody?.toolCount ?? 0) > 0);
+  assert.ok((modelEnd?.cacheDebug?.providerBody?.toolsEstimatedTokens ?? 0) > 0);
   const turnResult = rows.find((row) => row.event === "turn_result");
   assert.equal(turnResult?.core?.usage?.inputTokens, 44);
   assert.equal(turnResult?.core?.usage?.outputTokens, 7);

@@ -6623,6 +6623,7 @@ function normalizeContextSnapshot(
   maxInputTokens?: number;
   inputBudgetThreshold?: number;
   usableInputTokens?: number;
+  usageSource?: string;
 } | null {
   if (!input || typeof input !== "object") {
     return null;
@@ -6682,6 +6683,41 @@ function normalizeContextSnapshot(
     usableInputTokens: typeof input.usableInputTokens === "number" && Number.isFinite(input.usableInputTokens)
       ? input.usableInputTokens
       : undefined,
+    usageSource: typeof input.usageSource === "string" ? input.usageSource : undefined,
+  };
+}
+
+function augmentContextSnapshotFromUsageLedger(
+  snapshot: ReturnType<typeof normalizeContextSnapshot>,
+  usageLedger: readonly DirectTuiSessionUsageEntry[],
+): ReturnType<typeof normalizeContextSnapshot> {
+  if (!snapshot || snapshot.lastRequestInputTokens !== undefined) {
+    return snapshot;
+  }
+  const latestUsage = [...usageLedger].reverse().find((entry) =>
+    entry.status === "success" &&
+    typeof entry.inputTokens === "number" &&
+    Number.isFinite(entry.inputTokens));
+  if (!latestUsage?.inputTokens) {
+    return snapshot;
+  }
+  const lastRequestTotalTokens = [
+    latestUsage.inputTokens,
+    latestUsage.outputTokens,
+    latestUsage.thinkingTokens,
+  ].reduce<number | undefined>((sum, value) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      return sum;
+    }
+    return (sum ?? 0) + value;
+  }, undefined);
+  return {
+    ...snapshot,
+    provider: latestUsage.provider ?? snapshot.provider,
+    model: latestUsage.model ?? snapshot.model,
+    lastRequestInputTokens: latestUsage.inputTokens,
+    lastRequestTotalTokens,
+    usageSource: "session.usageLedger",
   };
 }
 
@@ -15131,16 +15167,20 @@ function PraxisDirectTuiApp(): JSX.Element {
     }
     return `Last turn: ${compactRuntimeText(latestAssistant.text)}`;
   }, [transcriptMessages]);
-  const contextWindowSize = backendContextSnapshot?.usableInputTokens
-    ?? backendContextSnapshot?.maxInputTokens
-    ?? backendContextSnapshot?.windowTokens
+  const displayContextSnapshot = useMemo(
+    () => augmentContextSnapshotFromUsageLedger(backendContextSnapshot, sessionUsageLedgerRef.current),
+    [backendContextSnapshot, sessionUsageRevision],
+  );
+  const contextWindowSize = displayContextSnapshot?.usableInputTokens
+    ?? displayContextSnapshot?.maxInputTokens
+    ?? displayContextSnapshot?.windowTokens
     ?? DEFAULT_CONTEXT_WINDOW;
   const statusContextUsed = useMemo(
     () => resolveDirectTuiContextUsedTokens({
-      snapshot: backendContextSnapshot,
+      snapshot: displayContextSnapshot,
       draftContextTokens: 0,
     }),
-    [backendContextSnapshot?.lastRequestTotalTokens, backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens],
+    [displayContextSnapshot?.lastRequestTotalTokens, displayContextSnapshot?.lastRequestInputTokens, displayContextSnapshot?.promptTokens],
   );
   const statusContextUsageLine = useMemo(
     () => formatStatusContextUsageLine(statusContextUsed, contextWindowSize),
@@ -15149,10 +15189,10 @@ function PraxisDirectTuiApp(): JSX.Element {
   const draftContextTokens = estimateContextUnits(composerState.value);
   const estimatedContextUsed = useMemo(
     () => resolveDirectTuiContextUsedTokens({
-      snapshot: backendContextSnapshot,
+      snapshot: displayContextSnapshot,
       draftContextTokens,
     }),
-    [backendContextSnapshot?.lastRequestTotalTokens, backendContextSnapshot?.lastRequestInputTokens, backendContextSnapshot?.promptTokens, draftContextTokens],
+    [displayContextSnapshot?.lastRequestTotalTokens, displayContextSnapshot?.lastRequestInputTokens, displayContextSnapshot?.promptTokens, draftContextTokens],
   );
   const contextPercent = `${formatDirectTuiContextUsedPercent(estimatedContextUsed, contextWindowSize)} used`;
   const contextBar = useMemo(
@@ -15187,7 +15227,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     tapSummaryLines,
     logPath,
     lastTurnSummary,
-    backendContextSnapshot,
+    backendContextSnapshot: displayContextSnapshot,
     contextWindowSize,
     contextWindowLabel,
     statusContextUsageLine,
