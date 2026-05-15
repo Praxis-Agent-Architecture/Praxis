@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import test from "node:test";
+import { promisify } from "node:util";
 
 import { startLegacyDirectApplicationBackend } from "../legacyDirectApplicationBackend.js";
+
+const execFileAsync = promisify(execFile);
 
 test("legacy direct application backend speaks direct ready and writes ordered legacy log events", async () => {
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-legacy-direct-"));
@@ -448,11 +452,34 @@ test("legacy direct application backend writes live codex usage from framework t
           inputEstimatedTokens?: number;
           toolsEstimatedTokens?: number;
           toolCount?: number;
+          toolResultBudget?: {
+            budgetBytes?: number;
+            originalToolResultBytes?: number;
+            replayedToolResultBytes?: number;
+            fullToolResults?: number;
+            compactedToolResults?: number;
+          };
           fingerprints?: {
             bodyHash?: string;
             toolsHash?: string;
             inputHash?: string;
           };
+          cacheShape?: {
+            providerStablePrefixEstimatedTokens?: number;
+            providerDynamicInputEstimatedTokens?: number;
+            stablePrefixShare?: number;
+            dynamicInputShare?: number;
+            stablePrefixHash?: string;
+            dynamicPayloadHash?: string;
+          };
+        };
+        observedUsage?: {
+          inputTokens?: number;
+          cachedInputTokens?: number;
+          nonCachedInputTokens?: number;
+          cacheHitRate?: number;
+          diagnosis?: string;
+          reasons?: readonly string[];
         };
       };
     });
@@ -470,6 +497,19 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.ok((modelEnd?.cacheDebug?.providerBody?.toolsEstimatedTokens ?? 0) > 0);
   assert.match(modelEnd?.cacheDebug?.providerBody?.fingerprints?.bodyHash ?? "", /^[a-f0-9]{64}$/u);
   assert.match(modelEnd?.cacheDebug?.providerBody?.fingerprints?.toolsHash ?? "", /^[a-f0-9]{64}$/u);
+  assert.equal(modelEnd?.cacheDebug?.providerBody?.toolResultBudget?.budgetBytes, 128 * 1024);
+  assert.ok((modelEnd?.cacheDebug?.providerBody?.toolResultBudget?.fullToolResults ?? 0) >= 0);
+  assert.ok((modelEnd?.cacheDebug?.providerBody?.toolResultBudget?.compactedToolResults ?? 0) >= 0);
+  assert.ok((modelEnd?.cacheDebug?.providerBody?.cacheShape?.providerStablePrefixEstimatedTokens ?? 0) > 0);
+  assert.ok((modelEnd?.cacheDebug?.providerBody?.cacheShape?.providerDynamicInputEstimatedTokens ?? 0) > 0);
+  assert.match(modelEnd?.cacheDebug?.providerBody?.cacheShape?.stablePrefixHash ?? "", /^[a-f0-9]{64}$/u);
+  assert.match(modelEnd?.cacheDebug?.providerBody?.cacheShape?.dynamicPayloadHash ?? "", /^[a-f0-9]{64}$/u);
+  assert.equal(modelEnd?.cacheDebug?.observedUsage?.inputTokens, 44);
+  assert.equal(modelEnd?.cacheDebug?.observedUsage?.cachedInputTokens, 40);
+  assert.equal(modelEnd?.cacheDebug?.observedUsage?.nonCachedInputTokens, 4);
+  assert.equal(modelEnd?.cacheDebug?.observedUsage?.cacheHitRate, 0.9091);
+  assert.equal(modelEnd?.cacheDebug?.observedUsage?.diagnosis, "warm-stable-prefix");
+  assert.ok((modelEnd?.cacheDebug?.observedUsage?.reasons?.length ?? 0) > 0);
   const turnResult = rows.find((row) => row.event === "turn_result");
   assert.equal(turnResult?.core?.usage?.inputTokens, 44);
   assert.equal(turnResult?.core?.usage?.outputTokens, 7);
@@ -486,6 +526,15 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(turnResult?.core?.context?.lastRequestInputTokens, 44);
   assert.equal(turnResult?.core?.context?.lastRequestTotalTokens, 54);
   assert.ok((turnResult?.core?.context?.transcriptTokens ?? 0) > 0);
+  const xray = await execFileAsync(process.execPath, [
+    path.resolve("scripts/raxode-cache-xray.mjs"),
+    logPath,
+    "--require-new-telemetry",
+  ], {
+    cwd: process.cwd(),
+  });
+  assert.match(xray.stdout, /diagnosis: warm-stable-prefix/u);
+  assert.match(xray.stdout, /telemetry coverage: observedUsage=1\/1 cacheShape=1\/1 toolResultBudget=1\/1/u);
   if (previousStreamFps === undefined) {
     delete process.env.RAXODE_STREAM_FPS;
   } else {

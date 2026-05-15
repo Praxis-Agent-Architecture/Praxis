@@ -7542,12 +7542,7 @@ function buildRunStatusLine(
     segments: [
       { text: dotFrame, color: TUI_THEME.violet },
       { text: " " },
-      ...buildShimmerSegments({
-        text: thinkingLabel,
-        frame: Math.floor(frame / 20),
-        baseColor: "white",
-        shimmerColors: ["blackBright", "gray", "white", "white", "gray", "blackBright"],
-      }),
+      { text: thinkingLabel, color: "orange" },
       { text: " " },
       { text: visibleTaskText, color: TUI_THEME.text },
       { text: suffixText, color: TUI_THEME.textMuted },

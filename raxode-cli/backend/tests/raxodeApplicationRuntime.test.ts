@@ -40,6 +40,7 @@ test("raxode backend runs through applicationLayer", async () => {
 
 test("raxode application runtime includes prior same-session turns in the next provider prompt", async () => {
   const providerBodies: unknown[] = [];
+  const events: unknown[] = [];
   const fakeAuth: AuthEnvelope = {
     kind: "none",
     present: true,
@@ -59,6 +60,7 @@ test("raxode application runtime includes prior same-session turns in the next p
       providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
         providerBodies.push(envelope.body);
         return {
+          id: providerBodies.length === 1 ? "resp-history-1" : "resp-history-2",
           output_text: providerBodies.length === 1
             ? "已记住暗号 BLUE-ORBIT。"
             : "刚才的暗号是 BLUE-ORBIT。",
@@ -69,63 +71,99 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.equal(created.ok, true);
   if (!created.ok) return;
   const transport = createLocalApplicationTransport(created.runtime);
+  const unsubscribe = transport.subscribe((event) => events.push(event));
   const sessionId = "session.raxode.history.test";
-  const start = await transport.dispatch({
-    type: "application.start",
-    sessionId,
-    cwd: process.cwd(),
-    mode: "live",
-  });
-  assert.equal(start.ok, true);
-  const first = await transport.dispatch({
-    type: "application.submitTurn",
-    sessionId,
-    mode: "live",
-    input: {
-      type: "application.input",
-      text: "请记住暗号 BLUE-ORBIT。",
+  let firstPromptCacheKey = "";
+  let secondContext: { source?: string; activeTokens?: number; promptTokens?: number } | undefined;
+  try {
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
       cwd: process.cwd(),
-    },
-  });
-  assert.equal(first.ok, true);
-  const firstBody = JSON.stringify(providerBodies[0]);
-  assert.match(firstBody, /You are the Raxode coding agent/u);
-  assert.match(firstBody, /choose the file tool before the command tool/u);
-  assert.match(firstBody, /Do not pack project source into a Shell heredoc/u);
-  assert.match(firstBody, /Implementation\/build requests must be executed in the workspace with tools/u);
-  assert.match(firstBody, /The current workspace is the default target when the user does not name a path/u);
-  assert.match(firstBody, /A missing or empty project structure is a reason to create files/u);
-  assert.match(firstBody, /make Code tools the first write path after the workspace scan/u);
-  assert.match(firstBody, /shell steps must never create or modify workspace files/u);
-  assert.match(firstBody, /file creation and edits must be expressed as code\.\* tool inputs/u);
-  assert.match(firstBody, /Do not tell the user.*save this as/u);
-  const firstBodyRecord = providerBodies[0] as { prompt_cache_key?: string };
-  assert.match(firstBodyRecord.prompt_cache_key ?? "", /^praxis-[a-f0-9]{32}$/u);
-  const second = await transport.dispatch({
-    type: "application.submitTurn",
-    sessionId,
-    mode: "live",
-    input: {
-      type: "application.input",
-      text: "刚才的暗号是什么？",
-      cwd: process.cwd(),
-    },
-  });
-  assert.equal(second.ok, true);
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    const first = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "请记住暗号 BLUE-ORBIT。",
+        cwd: process.cwd(),
+      },
+    });
+    assert.equal(first.ok, true);
+    const firstBody = JSON.stringify(providerBodies[0]);
+    assert.match(firstBody, /You are the Raxode coding agent/u);
+    assert.match(firstBody, /choose the file tool before the command tool/u);
+    assert.match(firstBody, /Do not pack project source into a Shell heredoc/u);
+    assert.match(firstBody, /Implementation\/build requests must be executed in the workspace with tools/u);
+    assert.match(firstBody, /The current workspace is the default target when the user does not name a path/u);
+    assert.match(firstBody, /A missing or empty project structure is a reason to create files/u);
+    assert.match(firstBody, /make Code tools the first write path after the workspace scan/u);
+    assert.match(firstBody, /shell steps must never create or modify workspace files/u);
+    assert.match(firstBody, /file creation and edits must be expressed as code\.\* tool inputs/u);
+    assert.match(firstBody, /Do not tell the user.*save this as/u);
+    const firstBodyRecord = providerBodies[0] as { prompt_cache_key?: string };
+    assert.match(firstBodyRecord.prompt_cache_key ?? "", /^praxis-[a-f0-9]{32}$/u);
+    firstPromptCacheKey = firstBodyRecord.prompt_cache_key ?? "";
+    const second = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "刚才的暗号是什么？",
+        cwd: process.cwd(),
+      },
+    });
+    assert.equal(second.ok, true);
+    secondContext = second.view.context;
+  } finally {
+    unsubscribe();
+  }
   assert.equal(providerBodies.length, 2);
   const secondBodyRecord = providerBodies[1] as { prompt_cache_key?: string };
-  assert.equal(secondBodyRecord.prompt_cache_key, firstBodyRecord.prompt_cache_key);
+  assert.equal(secondBodyRecord.prompt_cache_key, firstPromptCacheKey);
+  assert.equal((providerBodies[0] as { previous_response_id?: string }).previous_response_id, undefined);
+  assert.equal((providerBodies[1] as { previous_response_id?: string }).previous_response_id, undefined);
   const secondBody = JSON.stringify(providerBodies[1]);
   assert.match(secondBody, /Previous conversation in this Raxode application session/u);
   assert.match(secondBody, /请记住暗号 BLUE-ORBIT/u);
   assert.match(secondBody, /已记住暗号 BLUE-ORBIT/u);
   assert.match(secondBody, /Current user request/u);
   assert.match(secondBody, /刚才的暗号是什么/u);
-  const secondContext = second.view.context;
   assert.ok(secondContext);
   assert.equal(secondContext.source, "application.history.estimate");
-  assert.ok(secondContext.activeTokens > 0);
-  assert.ok(secondContext.promptTokens > 0);
+  assert.ok((secondContext.activeTokens ?? 0) > 0);
+  assert.ok((secondContext.promptTokens ?? 0) > 0);
+  const completedModelEvents = events
+    .map((event) => event as {
+      kind?: string;
+      metadata?: {
+        modelPhase?: string;
+        providerResponseId?: string;
+        previousProviderResponseId?: string;
+        cacheDebug?: {
+          comparisonToPrevious?: {
+            stablePrefixChanged?: boolean;
+            dynamicPayloadChanged?: boolean;
+            changedFingerprintKeys?: readonly string[];
+          };
+        };
+      };
+    })
+    .filter((event) => event.kind === "model" && event.metadata?.modelPhase === "completed");
+  assert.equal(completedModelEvents.length, 2);
+  assert.equal(completedModelEvents[0]?.metadata?.providerResponseId, "resp-history-1");
+  assert.equal(completedModelEvents[0]?.metadata?.previousProviderResponseId, undefined);
+  assert.equal(completedModelEvents[1]?.metadata?.providerResponseId, "resp-history-2");
+  assert.equal(completedModelEvents[1]?.metadata?.previousProviderResponseId, undefined);
+  assert.equal(completedModelEvents[0]?.metadata?.cacheDebug?.comparisonToPrevious, undefined);
+  assert.equal(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.stablePrefixChanged, false);
+  assert.equal(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.dynamicPayloadChanged, true);
+  assert.ok(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.changedFingerprintKeys?.includes("inputHash"));
 });
 
 test("raxode application runtime injects expanded BaseTool manuals for one model turn", async () => {

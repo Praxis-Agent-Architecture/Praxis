@@ -97,6 +97,69 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);
 });
 
+test("PraxisRuntimeKernel.run annotates cache debug with stable-prefix and observed-hit analysis", async () => {
+  let completedCacheDebug: {
+    providerBody?: {
+      cacheShape?: {
+        providerStablePrefixEstimatedTokens?: number;
+        providerDynamicInputEstimatedTokens?: number;
+        stablePrefixShare?: number;
+        dynamicInputShare?: number;
+        stablePrefixHash?: string;
+        dynamicPayloadHash?: string;
+      };
+    };
+    observedUsage?: {
+      inputTokens?: number;
+      cachedInputTokens?: number;
+      nonCachedInputTokens?: number;
+      cacheHitRate?: number;
+      stablePrefixWarmthEstimate?: number;
+      diagnosis?: string;
+      reasons?: readonly string[];
+    };
+  } | undefined;
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-cache-analysis" }).run(
+    new PlainAgent(),
+    "say hello and keep the cache explanation visible",
+    {
+      sessionId: "session-cache-analysis",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      providerCaller: async () => ({
+        output_text: "hello with cache telemetry",
+        usage: {
+          input_tokens: 100,
+          output_tokens: 5,
+          input_tokens_details: { cached_tokens: 60 },
+        },
+      }),
+      onModelCallProgress: async (progress) => {
+        if (progress.phase === "completed") {
+          completedCacheDebug = progress.cacheDebug;
+        }
+      },
+      now: () => "2026-05-15T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.ok((completedCacheDebug?.providerBody?.cacheShape?.providerStablePrefixEstimatedTokens ?? 0) > 0);
+  assert.ok((completedCacheDebug?.providerBody?.cacheShape?.providerDynamicInputEstimatedTokens ?? 0) > 0);
+  assert.ok((completedCacheDebug?.providerBody?.cacheShape?.stablePrefixShare ?? 0) > 0);
+  assert.ok((completedCacheDebug?.providerBody?.cacheShape?.dynamicInputShare ?? 0) > 0);
+  assert.match(completedCacheDebug?.providerBody?.cacheShape?.stablePrefixHash ?? "", /^[a-f0-9]{64}$/u);
+  assert.match(completedCacheDebug?.providerBody?.cacheShape?.dynamicPayloadHash ?? "", /^[a-f0-9]{64}$/u);
+  assert.equal(completedCacheDebug?.observedUsage?.inputTokens, 100);
+  assert.equal(completedCacheDebug?.observedUsage?.cachedInputTokens, 60);
+  assert.equal(completedCacheDebug?.observedUsage?.nonCachedInputTokens, 40);
+  assert.equal(completedCacheDebug?.observedUsage?.cacheHitRate, 0.6);
+  assert.ok((completedCacheDebug?.observedUsage?.stablePrefixWarmthEstimate ?? 0) > 0);
+  assert.ok((completedCacheDebug?.observedUsage?.reasons?.length ?? 0) > 0);
+});
+
 test("PraxisRuntimeKernel.runManifest uses .rax_workspace SQLite storage by default", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-storage-"));
 
@@ -1521,6 +1584,240 @@ test("PraxisRuntimeKernel.runManifest executes EphemeralProcedure through mounte
   assert.equal(result.state.invocations.some((record) => record.summary.procedureId === "procedure-read"), true);
   assert.match(JSON.stringify(providerBodies[1]), /procedure-call-1/);
   assert.match(JSON.stringify(providerBodies[1]), /function_call_output/);
+});
+
+test("PraxisRuntimeKernel.runManifest compacts large function call arguments before provider history replay", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-compact-call-"));
+  const marker = "RAXODE_LARGE_FUNCTION_CALL_ARGUMENT_";
+  const largeContent = `${marker}${"markdown line\n".repeat(900)}`;
+
+  class LargeProcedureAgent extends PraxisAgent {
+    identity = "agent.large-procedure-args";
+    model = model("gpt-5.4", { carrierId: "carrier.large-procedure-args" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.overwrite")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 2 }),
+    });
+  }
+
+  let calls = 0;
+  const providerBodies: unknown[] = [];
+  const cacheDebugs: Array<{
+    comparisonToPrevious?: {
+      stablePrefixChanged?: boolean;
+      dynamicPayloadChanged?: boolean;
+      changedFingerprintKeys?: readonly string[];
+    };
+  }> = [];
+  const providerResponseIds: Array<{
+    providerResponseId?: string;
+    previousProviderResponseId?: string;
+  }> = [];
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-compact-call",
+    sessionId: "session-compact-call",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+    },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-compact-call" }).run(
+    new LargeProcedureAgent(),
+    "write a large markdown file",
+    {
+      sessionId: "session-compact-call",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      allowPreviousResponseId: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async (envelope) => {
+        calls += 1;
+        providerBodies.push(envelope.body);
+        if (calls === 1) {
+          return {
+            id: "resp-compact-call-1",
+            output: [{
+              type: "function_call",
+              name: "praxis_ephemeral_procedure",
+              call_id: "procedure-large-args",
+              arguments: JSON.stringify({
+                procedureId: "write-large-note",
+                purpose: "write a large markdown file",
+                executionMode: "serial",
+                steps: [{
+                  stepId: "write-large",
+                  baseToolId: "code.overwrite",
+                  input: {
+                    targetPath: "large.md",
+                    content: largeContent,
+                    maxBytes: 50_000,
+                    context: {
+                      workspaceRoot: workspace,
+                      guard: { accepted: true, allowed: true, reason: "test write" },
+                    },
+                  },
+                  riskLevel: "medium",
+                }],
+              }),
+            }],
+          };
+        }
+        return { id: "resp-compact-call-2", output_text: "large markdown file was written" };
+      },
+      onModelCallProgress: async (progress) => {
+        if (progress.phase === "completed" && progress.cacheDebug !== undefined) {
+          cacheDebugs.push(progress.cacheDebug);
+          providerResponseIds.push({
+            providerResponseId: progress.providerResponseId,
+            previousProviderResponseId: progress.previousProviderResponseId,
+          });
+        }
+      },
+      now: () => "2026-05-15T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "large markdown file was written");
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.toolId, "code.overwrite");
+
+  const secondProviderBody = providerBodies[1] as {
+    previous_response_id?: string;
+    input?: readonly { type?: string; call_id?: string; arguments?: string; output?: string }[];
+  };
+  assert.equal((providerBodies[0] as { previous_response_id?: string }).previous_response_id, undefined);
+  assert.equal(secondProviderBody.previous_response_id, "resp-compact-call-1");
+  const replayedFunctionCall = secondProviderBody.input?.find((item) =>
+    item.type === "function_call" && item.call_id === "procedure-large-args"
+  );
+  assert.notEqual(replayedFunctionCall, undefined);
+  const replayedArgumentsText = replayedFunctionCall?.arguments ?? "";
+  const replayedArguments = JSON.parse(replayedArgumentsText) as {
+    kind?: string;
+    originalArgumentsBytes?: number;
+    arguments?: Record<string, unknown>;
+  };
+  assert.equal(replayedArguments.kind, "praxis.compactedFunctionCallArguments");
+  assert.ok((replayedArguments.originalArgumentsBytes ?? 0) > 4 * 1024);
+  assert.equal(replayedArgumentsText.includes(marker), false);
+  assert.match(replayedArgumentsText, /large\.md/u);
+  assert.match(replayedArgumentsText, /praxis\.compactedLargeString/u);
+  assert.match(JSON.stringify(secondProviderBody.input), /function_call_output/u);
+  assert.equal(cacheDebugs.length, 2);
+  assert.equal(cacheDebugs[0]?.comparisonToPrevious, undefined);
+  assert.equal(cacheDebugs[1]?.comparisonToPrevious?.stablePrefixChanged, false);
+  assert.equal(cacheDebugs[1]?.comparisonToPrevious?.dynamicPayloadChanged, true);
+  assert.ok(cacheDebugs[1]?.comparisonToPrevious?.changedFingerprintKeys?.includes("inputHash"));
+  assert.deepEqual(providerResponseIds, [
+    { providerResponseId: "resp-compact-call-1", previousProviderResponseId: undefined },
+    { providerResponseId: "resp-compact-call-2", previousProviderResponseId: "resp-compact-call-1" },
+  ]);
+});
+
+test("PraxisRuntimeKernel.runManifest budgets accumulated tool result history before provider replay", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-tool-result-budget-"));
+  const files = await Promise.all(Array.from({ length: 8 }, async (_, index) => {
+    const fileName = `budget-${index}.txt`;
+    const marker = `RAXODE_BUDGET_FILE_${index}_`;
+    await writeFile(path.join(workspace, fileName), `${marker}${"payload line\n".repeat(900)}`, "utf8");
+    return { fileName, marker };
+  }));
+
+  class ToolResultBudgetAgent extends PraxisAgent {
+    identity = "agent.tool-result-budget";
+    model = model("gpt-5.4", { carrierId: "carrier.tool-result-budget" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 8 }),
+    });
+  }
+
+  let calls = 0;
+  const providerBodies: unknown[] = [];
+  const cacheDebugs: Array<{
+    providerBody?: {
+      toolResultBudget?: {
+        budgetBytes?: number;
+        originalToolResultBytes?: number;
+        replayedToolResultBytes?: number;
+        fullToolResults?: number;
+        compactedToolResults?: number;
+      };
+    };
+  }> = [];
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-tool-result-budget",
+    sessionId: "session-tool-result-budget",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-tool-result-budget" }).run(
+    new ToolResultBudgetAgent(),
+    "read several medium files",
+    {
+      sessionId: "session-tool-result-budget",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async (envelope) => {
+        calls += 1;
+        providerBodies.push(envelope.body);
+        if (calls === 1) {
+          return {
+            output: files.map((file, index) => ({
+              type: "function_call",
+              name: "praxis_tool_code_read",
+              call_id: `read-budget-${index}`,
+              arguments: JSON.stringify({
+                workspaceRoot: workspace,
+                targetPath: file.fileName,
+                dryRun: false,
+                context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+              }),
+            })),
+          };
+        }
+        return { output_text: "medium files were read" };
+      },
+      onModelCallProgress: async (progress) => {
+        if (progress.phase === "completed" && progress.cacheDebug !== undefined) {
+          cacheDebugs.push(progress.cacheDebug);
+        }
+      },
+      now: () => "2026-05-15T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "medium files were read");
+  assert.equal(result.toolCalls.length, files.length);
+  const secondProviderBody = providerBodies[1] as { input?: unknown };
+  const replayedInput = JSON.stringify(secondProviderBody.input);
+  assert.match(replayedInput, /praxis\.compactedToolResultHistoryPayload/u);
+  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.originalToolResultBytes ?? 0) > 128 * 1024);
+  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.replayedToolResultBytes ?? 0) <= 128 * 1024 + 16 * 1024);
+  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.fullToolResults ?? 0) > 0);
+  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.compactedToolResults ?? 0) > 0);
 });
 
 test("PraxisRuntimeKernel.runManifest feeds EphemeralProcedure failures back for replanning", async () => {

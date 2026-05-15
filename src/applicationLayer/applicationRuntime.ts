@@ -102,6 +102,8 @@ type RuntimeState = {
   cancelledAuxiliaryTasks: Set<string>;
   conversationHistory: Map<string, ApplicationConversationMessage[]>;
   conversationSummaries: Map<string, ApplicationConversationSummary>;
+  modelCacheDebugBySession: Map<string, ApplicationModelCacheDebug>;
+  lastProviderResponseBySession: Map<string, ApplicationProviderResponsePointer>;
   toolContextSelections: Map<string, BaseToolContextSelection>;
   toolContextUsage: Map<string, BaseToolContextUsageRecord[]>;
   alwaysApprovedApprovalKeys: Set<string>;
@@ -1371,6 +1373,8 @@ function createModelProgressEvent(input: {
       model: input.progress.model,
       usage,
       cacheDebug: input.progress.phase === "started" ? undefined : input.progress.cacheDebug,
+      providerResponseId: input.progress.phase === "started" ? undefined : input.progress.providerResponseId,
+      previousProviderResponseId: input.progress.phase === "started" ? undefined : input.progress.previousProviderResponseId,
       context: contextInputTokens === undefined
         ? undefined
         : {
@@ -1397,6 +1401,69 @@ function createModelProgressEvent(input: {
       errorMessage: input.progress.phase === "failed" ? input.progress.error?.message : undefined,
     },
   };
+}
+
+type ApplicationModelCompletedProgress = Extract<AgentModelCallProgressEvent, { phase: "completed" | "failed" }>;
+type ApplicationModelCacheDebug = NonNullable<ApplicationModelCompletedProgress["cacheDebug"]>;
+type ApplicationProviderResponsePointer = {
+  responseId: string;
+  stablePrefixHash: string;
+};
+
+function compareApplicationModelCacheDebug(
+  cacheDebug: ApplicationModelCacheDebug,
+  previous: ApplicationModelCacheDebug | undefined,
+): ApplicationModelCacheDebug {
+  if (previous === undefined || cacheDebug.comparisonToPrevious !== undefined) return cacheDebug;
+  const currentFingerprints = cacheDebug.providerBody.fingerprints;
+  const previousFingerprints = previous.providerBody.fingerprints;
+  const fingerprintKeys = [...new Set([
+    ...Object.keys(previousFingerprints),
+    ...Object.keys(currentFingerprints),
+  ])].sort();
+  const changedFingerprintKeys = fingerprintKeys.filter((key) => previousFingerprints[key] !== currentFingerprints[key]);
+  return {
+    ...cacheDebug,
+    comparisonToPrevious: {
+      previousStablePrefixHash: previous.providerBody.cacheShape.stablePrefixHash,
+      previousDynamicPayloadHash: previous.providerBody.cacheShape.dynamicPayloadHash,
+      stablePrefixChanged: previous.providerBody.cacheShape.stablePrefixHash !== cacheDebug.providerBody.cacheShape.stablePrefixHash,
+      dynamicPayloadChanged: previous.providerBody.cacheShape.dynamicPayloadHash !== cacheDebug.providerBody.cacheShape.dynamicPayloadHash,
+      instructionsChanged: previousFingerprints.instructionsHash !== currentFingerprints.instructionsHash,
+      toolsChanged: previousFingerprints.toolsHash !== currentFingerprints.toolsHash,
+      changedFingerprintKeys,
+    },
+  };
+}
+
+function progressWithSessionCacheComparison(
+  state: RuntimeState,
+  progress: AgentModelCallProgressEvent,
+): AgentModelCallProgressEvent {
+  if (progress.phase === "started" || progress.cacheDebug === undefined) return progress;
+  const compared = compareApplicationModelCacheDebug(
+    progress.cacheDebug,
+    state.modelCacheDebugBySession.get(state.sessionId),
+  );
+  state.modelCacheDebugBySession.set(state.sessionId, compared);
+  return { ...progress, cacheDebug: compared };
+}
+
+function rememberProviderResponseForSession(
+  state: RuntimeState,
+  progress: AgentModelCallProgressEvent,
+): void {
+  if (
+    progress.phase === "started" ||
+    progress.providerResponseId === undefined ||
+    progress.cacheDebug === undefined
+  ) {
+    return;
+  }
+  state.lastProviderResponseBySession.set(state.sessionId, {
+    responseId: progress.providerResponseId,
+    stablePrefixHash: progress.cacheDebug.providerBody.cacheShape.stablePrefixHash,
+  });
 }
 
 function readResponseText(raw: unknown): string | undefined {
@@ -2192,6 +2259,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     cancelledAuxiliaryTasks: new Set(),
     conversationHistory: new Map(),
     conversationSummaries: new Map(),
+    modelCacheDebugBySession: new Map(),
+    lastProviderResponseBySession: new Map(),
     toolContextSelections: new Map(),
     toolContextUsage: new Map(),
     alwaysApprovedApprovalKeys: new Set(),
@@ -2729,6 +2798,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       allowToolExecution: state.mode === "live",
       auth: liveProvider?.auth,
       providerCaller: liveProvider?.providerCaller,
+      previousProviderResponse: state.lastProviderResponseBySession.get(state.sessionId),
       exposeProviderTools: true,
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
       toolContextUsage: state.toolContextUsage.get(state.sessionId),
@@ -2760,8 +2830,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         }
         : undefined,
       onModelCallProgress: (progress) => {
+        const comparedProgress = progressWithSessionCacheComparison(state, progress);
+        rememberProviderResponseForSession(state, comparedProgress);
         publish(createModelProgressEvent({
-          progress,
+          progress: comparedProgress,
           turnId,
           status: "running",
           model: state.model,

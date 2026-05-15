@@ -45,6 +45,7 @@ import {
 } from "../agent_executionEngine/coreLogic/ephemeralProcedure.js";
 import {
   createObservationMaterial,
+  DEFAULT_OBSERVATION_TURN_INLINE_BUDGET_BYTES,
   type RuntimeObservationMaterial,
 } from "../agent_executionEngine/coreLogic/observationIntegrator.js";
 import type { StandardPromptPack } from "../agent_executionEngine/promptPack/promptAssembler.js";
@@ -143,6 +144,11 @@ export type PraxisRuntimeKernelOptions = {
   sessionId?: string;
   auth?: AuthEnvelope;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
+  allowPreviousResponseId?: boolean;
+  previousProviderResponse?: {
+    responseId: string;
+    stablePrefixHash: string;
+  };
   executor?: BaseToolExecutorPort;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
   baseToolPolicy?: RuntimeBaseToolExecutorPolicy;
@@ -261,6 +267,8 @@ export type AgentModelCallRecord = {
   raw: unknown;
   ok: boolean;
   usage?: AgentModelUsageRecord;
+  providerResponseId?: string;
+  previousProviderResponseId?: string;
 };
 
 export type AgentModelUsageRecord = {
@@ -292,6 +300,8 @@ export type AgentModelCallProgressEvent =
       ok: boolean;
       usage?: AgentModelUsageRecord;
       cacheDebug?: AgentModelCacheDebugRecord;
+      providerResponseId?: string;
+      previousProviderResponseId?: string;
       error?: PraxisRuntimeKernelError;
     };
 
@@ -333,6 +343,44 @@ export type AgentModelCacheDebugRecord = {
     fingerprints: Readonly<Record<string, string>>;
     previousProviderOutputItems: number;
     toolResultInputs: number;
+    toolResultBudget: {
+      budgetBytes: number;
+      originalToolResultBytes: number;
+      replayedToolResultBytes: number;
+      fullToolResults: number;
+      compactedToolResults: number;
+    };
+    cacheShape: {
+      providerStablePrefixEstimatedTokens: number;
+      providerDynamicInputEstimatedTokens: number;
+      stablePrefixShare: number;
+      dynamicInputShare: number;
+      stablePrefixHash: string;
+      dynamicPayloadHash: string;
+    };
+  };
+  observedUsage?: {
+    inputTokens?: number;
+    cachedInputTokens?: number;
+    nonCachedInputTokens?: number;
+    cacheHitRate?: number;
+    stablePrefixWarmthEstimate?: number;
+    diagnosis:
+      | "no-cache-telemetry"
+      | "warm-stable-prefix"
+      | "dynamic-payload-dominates"
+      | "stable-prefix-cache-break"
+      | "partial-cache-hit";
+    reasons: readonly string[];
+  };
+  comparisonToPrevious?: {
+    previousStablePrefixHash: string;
+    previousDynamicPayloadHash: string;
+    stablePrefixChanged: boolean;
+    dynamicPayloadChanged: boolean;
+    instructionsChanged: boolean;
+    toolsChanged: boolean;
+    changedFingerprintKeys: readonly string[];
   };
 };
 
@@ -1062,11 +1110,51 @@ function observationPayloadText(observation: RuntimeObservationMaterial): string
   }
 }
 
-function providerToolResultsFromObservations(
+type ProviderToolResultHistoryBudget = {
+  budgetBytes: number;
+  originalToolResultBytes: number;
+  replayedToolResultBytes: number;
+  fullToolResults: number;
+  compactedToolResults: number;
+};
+
+type ProviderToolResultEnvelopeWithBudget = ProviderToolResultEnvelope & {
+  originalContentBytes: number;
+  replayedContentBytes: number;
+  compactedForHistory: boolean;
+};
+
+function compactToolResultHistoryPayload(input: {
+  observation: RuntimeObservationMaterial;
+  payloadText: string;
+  payloadBytes: number;
+  budgetBytes: number;
+}): string {
+  const summary = input.observation.material.text
+    .split(/\r?\n/u)
+    .filter((line) => !/^\s*payload\s*:/iu.test(line))
+    .slice(0, 3)
+    .join("\n");
+  return JSON.stringify({
+    kind: "praxis.compactedToolResultHistoryPayload",
+    observationId: input.observation.observationId,
+    originalPayloadBytes: input.payloadBytes,
+    originalPayloadSha256: sha256Hex(input.payloadText),
+    budgetBytes: input.budgetBytes,
+    summary,
+    note: "Older tool result payload was compacted before provider history replay to keep dynamic context within the aggregate observation budget. Re-run the tool or inspect an artifact ref if exact content is needed.",
+  });
+}
+
+function providerToolResultHistoryFromObservations(
   observations: readonly RuntimeObservationMaterial[],
-): readonly ProviderToolResultEnvelope[] {
-  return observations
-    .map((observation): ProviderToolResultEnvelope | undefined => {
+  budgetBytes = DEFAULT_OBSERVATION_TURN_INLINE_BUDGET_BYTES,
+): {
+  results: readonly ProviderToolResultEnvelopeWithBudget[];
+  budget: ProviderToolResultHistoryBudget;
+} {
+  const candidates = observations
+    .map((observation, index): (ProviderToolResultEnvelopeWithBudget & { observationIndex: number }) | undefined => {
       const metadata = observation.material.metadata ?? {};
       const toolCallId = typeof metadata.toolCallId === "string" && metadata.toolCallId.trim().length > 0
         ? metadata.toolCallId.trim()
@@ -1080,7 +1168,9 @@ function providerToolResultsFromObservations(
         : providerToolName(toolId);
       const status = typeof metadata.observationStatus === "string" ? metadata.observationStatus : "completed";
       const payloadText = observationPayloadText(observation);
+      const payloadBytes = Buffer.byteLength(payloadText, "utf8");
       return {
+        observationIndex: index,
         callId: toolCallId,
         toolId,
         providerName,
@@ -1093,9 +1183,68 @@ function providerToolResultsFromObservations(
           observationId: observation.observationId,
           observationStatus: status,
         },
+        originalContentBytes: payloadBytes,
+        replayedContentBytes: payloadBytes,
+        compactedForHistory: false,
       };
     })
-    .filter((result): result is ProviderToolResultEnvelope => result !== undefined);
+    .filter((result): result is ProviderToolResultEnvelopeWithBudget & { observationIndex: number } => result !== undefined);
+
+  let remainingBytes = budgetBytes;
+  let fullToolResults = 0;
+  let compactedToolResults = 0;
+  const replayedByIndex = new Map<number, ProviderToolResultEnvelopeWithBudget>();
+  for (const candidate of [...candidates].reverse()) {
+    const canInlineFull = candidate.originalContentBytes <= remainingBytes;
+    if (canInlineFull) {
+      remainingBytes -= candidate.originalContentBytes;
+      fullToolResults += 1;
+      replayedByIndex.set(candidate.observationIndex, candidate);
+      continue;
+    }
+
+    compactedToolResults += 1;
+    const observation = observations[candidate.observationIndex];
+    const fullText = candidate.content.map((part) => part.type === "text" ? part.text : "").join("\n");
+    const compactedText = observation === undefined
+      ? JSON.stringify({
+        kind: "praxis.compactedToolResultHistoryPayload",
+        originalPayloadBytes: candidate.originalContentBytes,
+        budgetBytes,
+      })
+      : compactToolResultHistoryPayload({
+        observation,
+        payloadText: fullText,
+        payloadBytes: candidate.originalContentBytes,
+        budgetBytes,
+      });
+    replayedByIndex.set(candidate.observationIndex, {
+      ...candidate,
+      content: [{ type: "text", text: compactedText }],
+      replayedContentBytes: Buffer.byteLength(compactedText, "utf8"),
+      compactedForHistory: true,
+    });
+  }
+
+  const results = candidates
+    .map((candidate) => replayedByIndex.get(candidate.observationIndex))
+    .filter((result): result is ProviderToolResultEnvelopeWithBudget => result !== undefined);
+  return {
+    results,
+    budget: {
+      budgetBytes,
+      originalToolResultBytes: candidates.reduce((sum, result) => sum + result.originalContentBytes, 0),
+      replayedToolResultBytes: results.reduce((sum, result) => sum + result.replayedContentBytes, 0),
+      fullToolResults,
+      compactedToolResults,
+    },
+  };
+}
+
+function providerToolResultsFromObservations(
+  observations: readonly RuntimeObservationMaterial[],
+): readonly ProviderToolResultEnvelope[] {
+  return providerToolResultHistoryFromObservations(observations).results;
 }
 
 function stablePromptCacheKey(manifest: AgentManifest, sessionId: string): string {
@@ -1133,6 +1282,98 @@ function outputItemKey(item: Readonly<Record<string, unknown>>, index: number): 
   return callId ?? id ?? `${type}:${index}`;
 }
 
+const MAX_PROVIDER_FUNCTION_CALL_ARGUMENT_HISTORY_BYTES = 4 * 1024;
+const MAX_COMPACT_ARGUMENT_STRING_CHARS = 240;
+const MAX_COMPACT_ARGUMENT_ARRAY_ITEMS = 16;
+const MAX_COMPACT_ARGUMENT_OBJECT_KEYS = 48;
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function compactLargeStringForFunctionCallHistory(value: string): Readonly<Record<string, unknown>> {
+  return {
+    kind: "praxis.compactedLargeString",
+    bytes: Buffer.byteLength(value, "utf8"),
+    chars: value.length,
+    lines: value.split(/\r?\n/u).length,
+    sha256: sha256Hex(value),
+  };
+}
+
+function shouldCompactFunctionCallString(key: string | undefined, value: string): boolean {
+  if (Buffer.byteLength(value, "utf8") > MAX_PROVIDER_FUNCTION_CALL_ARGUMENT_HISTORY_BYTES) return true;
+  if (!/content|source|code|html|css|script|body|stdout|stderr|output/iu.test(key ?? "")) return false;
+  return value.length > MAX_COMPACT_ARGUMENT_STRING_CHARS;
+}
+
+function compactFunctionCallArgumentValue(value: unknown, key?: string, depth = 0): unknown {
+  if (typeof value === "string") {
+    return shouldCompactFunctionCallString(key, value) ? compactLargeStringForFunctionCallHistory(value) : value;
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (depth >= 8) {
+    return {
+      kind: "praxis.compactedDeepValue",
+      valueType: Array.isArray(value) ? "array" : "object",
+    };
+  }
+  if (Array.isArray(value)) {
+    const visible = value.slice(0, MAX_COMPACT_ARGUMENT_ARRAY_ITEMS).map((item) =>
+      compactFunctionCallArgumentValue(item, key, depth + 1)
+    );
+    return value.length <= MAX_COMPACT_ARGUMENT_ARRAY_ITEMS
+      ? visible
+      : {
+        kind: "praxis.compactedArray",
+        itemCount: value.length,
+        visibleItems: visible,
+        omittedItems: value.length - MAX_COMPACT_ARGUMENT_ARRAY_ITEMS,
+      };
+  }
+
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  const visibleKeys = keys.slice(0, MAX_COMPACT_ARGUMENT_OBJECT_KEYS);
+  const compacted: Record<string, unknown> = {};
+  for (const childKey of visibleKeys) {
+    compacted[childKey] = compactFunctionCallArgumentValue(record[childKey], childKey, depth + 1);
+  }
+  if (keys.length > MAX_COMPACT_ARGUMENT_OBJECT_KEYS) {
+    compacted.__praxisOmittedKeys = keys.length - MAX_COMPACT_ARGUMENT_OBJECT_KEYS;
+  }
+  return compacted;
+}
+
+function compactProviderFunctionCallArgumentsForHistory(input: {
+  toolName: string;
+  callId: string;
+  argumentsText: string;
+}): string {
+  const argumentBytes = Buffer.byteLength(input.argumentsText, "utf8");
+  if (argumentBytes <= MAX_PROVIDER_FUNCTION_CALL_ARGUMENT_HISTORY_BYTES) {
+    return input.argumentsText;
+  }
+
+  let parsedArguments: unknown;
+  try {
+    parsedArguments = JSON.parse(input.argumentsText);
+  } catch {
+    parsedArguments = input.argumentsText;
+  }
+  return JSON.stringify({
+    kind: "praxis.compactedFunctionCallArguments",
+    toolName: input.toolName,
+    callId: input.callId,
+    originalArgumentsBytes: argumentBytes,
+    originalArgumentsSha256: sha256Hex(input.argumentsText),
+    note: "The runtime executed the original full arguments. This compact form is only replayed to the provider as call history.",
+    arguments: compactFunctionCallArgumentValue(parsedArguments),
+  });
+}
+
 function normalizeOpenAIResponseOutputItemForInput(
   item: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> | undefined {
@@ -1149,13 +1390,44 @@ function normalizeOpenAIResponseOutputItemForInput(
 
   const args = typeof item.arguments === "string" ? item.arguments : "{}";
   const status = typeof item.status === "string" && item.status.trim().length > 0 ? item.status.trim() : "completed";
+  const historyArgs = compactProviderFunctionCallArgumentsForHistory({
+    toolName: name,
+    callId,
+    argumentsText: args,
+  });
   return {
     type: "function_call",
     name,
     call_id: callId,
-    arguments: args,
+    arguments: historyArgs,
     status,
   };
+}
+
+function extractOpenAIResponseId(raw: unknown): string | undefined {
+  if (typeof raw === "string") {
+    let responseId: string | undefined;
+    for (const object of kernelSseDataObjects(raw)) {
+      const candidate = extractOpenAIResponseId(object);
+      if (candidate !== undefined) responseId = candidate;
+    }
+    return responseId;
+  }
+
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return undefined;
+  }
+
+  const record = raw as Readonly<Record<string, unknown>>;
+  const directId = typeof record.id === "string" && record.id.trim().length > 0 ? record.id.trim() : undefined;
+  if (directId !== undefined && (directId.startsWith("resp_") || directId.startsWith("resp-"))) {
+    return directId;
+  }
+  const response = record.response;
+  if (response !== null && typeof response === "object" && !Array.isArray(response)) {
+    return extractOpenAIResponseId(response);
+  }
+  return directId;
 }
 
 function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Record<string, unknown>>[] {
@@ -1261,6 +1533,11 @@ function stableJsonForHash(value: unknown): string {
 
 function hashDebugValue(value: unknown): string {
   return createHash("sha256").update(stableJsonForHash(value)).digest("hex");
+}
+
+function ratioOrZero(numerator: number, denominator: number): number {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
+  return Math.round((numerator / denominator) * 10_000) / 10_000;
 }
 
 function normalizeToolContext(value: unknown): unknown {
@@ -1450,6 +1727,7 @@ function buildPromptPackCacheDebug(input: {
   promptCacheKey?: string;
   previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
   toolResultInputs: readonly unknown[];
+  toolResultBudget: ProviderToolResultHistoryBudget;
   promptSplit: ReturnType<typeof splitPromptPackForProvider>;
 }): AgentModelCacheDebugRecord {
   const segments = input.promptPack.cachePlan.segments.map((segment) => ({
@@ -1466,6 +1744,11 @@ function buildPromptPackCacheDebug(input: {
     .reduce((sum, segmentKind) => sum + (input.promptPack.cachePlan.segments.find((segment) => segment.segmentKind === segmentKind)?.estimatedTokens ?? 0), 0);
   const dynamicEstimatedTokens = input.promptPack.cachePlan.dynamicSegmentKinds
     .reduce((sum, segmentKind) => sum + (input.promptPack.cachePlan.segments.find((segment) => segment.segmentKind === segmentKind)?.estimatedTokens ?? 0), 0);
+  const inputEstimatedTokens = estimateSerializedTokens(input.providerBody.input);
+  const toolsEstimatedTokens = estimateSerializedTokens(input.providerBody.tools);
+  const providerBodyEstimatedTokens = estimateSerializedTokens(input.providerBody);
+  const providerStablePrefixEstimatedTokens = input.promptSplit.instructionEstimatedTokens + toolsEstimatedTokens;
+  const providerDynamicInputEstimatedTokens = inputEstimatedTokens;
   return {
     kind: "praxis.modelCall.cacheDebug",
     strategy: "prompt-pack-cache-xray",
@@ -1488,13 +1771,114 @@ function buildPromptPackCacheDebug(input: {
       },
     },
     providerBody: {
-      estimatedTokens: estimateSerializedTokens(input.providerBody),
-      inputEstimatedTokens: estimateSerializedTokens(input.providerBody.input),
-      toolsEstimatedTokens: estimateSerializedTokens(input.providerBody.tools),
+      estimatedTokens: providerBodyEstimatedTokens,
+      inputEstimatedTokens,
+      toolsEstimatedTokens,
       toolCount: recordArrayLength(input.providerBody.tools),
       fingerprints: providerBodyFingerprints(input),
       previousProviderOutputItems: input.previousProviderOutputItems.length,
       toolResultInputs: input.toolResultInputs.length,
+      toolResultBudget: input.toolResultBudget,
+      cacheShape: {
+        providerStablePrefixEstimatedTokens,
+        providerDynamicInputEstimatedTokens,
+        stablePrefixShare: ratioOrZero(providerStablePrefixEstimatedTokens, providerBodyEstimatedTokens),
+        dynamicInputShare: ratioOrZero(providerDynamicInputEstimatedTokens, providerBodyEstimatedTokens),
+        stablePrefixHash: hashDebugValue({
+          instructions: input.providerBody.instructions,
+          tools: input.providerBody.tools,
+        }),
+        dynamicPayloadHash: hashDebugValue({
+          input: input.providerBody.input,
+          previousProviderOutputItems: input.previousProviderOutputItems,
+          toolResultInputs: input.toolResultInputs,
+        }),
+      },
+    },
+  };
+}
+
+function cacheDebugWithObservedUsage(
+  cacheDebug: AgentModelCacheDebugRecord,
+  usage: AgentModelUsageRecord | undefined,
+): AgentModelCacheDebugRecord {
+  if (usage === undefined) return cacheDebug;
+  const inputTokens = usage.inputTokens;
+  const cachedInputTokens = usage.cachedInputTokens;
+  if (inputTokens === undefined || cachedInputTokens === undefined || inputTokens <= 0) {
+    return {
+      ...cacheDebug,
+      observedUsage: {
+        inputTokens,
+        cachedInputTokens,
+        diagnosis: "no-cache-telemetry",
+        reasons: ["provider usage did not include both inputTokens and cachedInputTokens"],
+      },
+    };
+  }
+
+  const nonCachedInputTokens = Math.max(0, inputTokens - cachedInputTokens);
+  const cacheHitRate = ratioOrZero(cachedInputTokens, inputTokens);
+  const stablePrefixEstimate = cacheDebug.providerBody.cacheShape.providerStablePrefixEstimatedTokens;
+  const stablePrefixWarmthEstimate = ratioOrZero(cachedInputTokens, stablePrefixEstimate);
+  const dynamicInputShare = cacheDebug.providerBody.cacheShape.dynamicInputShare;
+  const reasons: string[] = [
+    `observed cachedInputTokens=${cachedInputTokens} inputTokens=${inputTokens}`,
+    `provider stable prefix estimate=${stablePrefixEstimate} dynamic input estimate=${cacheDebug.providerBody.cacheShape.providerDynamicInputEstimatedTokens}`,
+  ];
+
+  let diagnosis: NonNullable<AgentModelCacheDebugRecord["observedUsage"]>["diagnosis"] = "partial-cache-hit";
+  if (cacheHitRate >= 0.9) {
+    diagnosis = "warm-stable-prefix";
+    reasons.push("overall cache hit rate is already warm");
+  } else if (stablePrefixEstimate > 0 && stablePrefixWarmthEstimate < 0.6) {
+    diagnosis = "stable-prefix-cache-break";
+    reasons.push("cached tokens cover less than 60% of the estimated stable prefix");
+  } else if (dynamicInputShare >= 0.35 || nonCachedInputTokens > cachedInputTokens * 0.5) {
+    diagnosis = "dynamic-payload-dominates";
+    reasons.push("non-cached dynamic payload is large enough to dilute the overall hit rate");
+  } else {
+    reasons.push("cache hit is partial; compare fingerprints across adjacent turns for the changing field");
+  }
+
+  return {
+    ...cacheDebug,
+    observedUsage: {
+      inputTokens,
+      cachedInputTokens,
+      nonCachedInputTokens,
+      cacheHitRate,
+      stablePrefixWarmthEstimate,
+      diagnosis,
+      reasons,
+    },
+  };
+}
+
+function cacheDebugWithPreviousComparison(
+  cacheDebug: AgentModelCacheDebugRecord,
+  previous: AgentModelCacheDebugRecord | undefined,
+): AgentModelCacheDebugRecord {
+  if (previous === undefined) return cacheDebug;
+  const currentFingerprints = cacheDebug.providerBody.fingerprints;
+  const previousFingerprints = previous.providerBody.fingerprints;
+  const fingerprintKeys = [...new Set([
+    ...Object.keys(previousFingerprints),
+    ...Object.keys(currentFingerprints),
+  ])].sort();
+  const changedFingerprintKeys = fingerprintKeys.filter((key) => previousFingerprints[key] !== currentFingerprints[key]);
+  const stablePrefixChanged = previous.providerBody.cacheShape.stablePrefixHash !== cacheDebug.providerBody.cacheShape.stablePrefixHash;
+  const dynamicPayloadChanged = previous.providerBody.cacheShape.dynamicPayloadHash !== cacheDebug.providerBody.cacheShape.dynamicPayloadHash;
+  return {
+    ...cacheDebug,
+    comparisonToPrevious: {
+      previousStablePrefixHash: previous.providerBody.cacheShape.stablePrefixHash,
+      previousDynamicPayloadHash: previous.providerBody.cacheShape.dynamicPayloadHash,
+      stablePrefixChanged,
+      dynamicPayloadChanged,
+      instructionsChanged: previousFingerprints.instructionsHash !== currentFingerprints.instructionsHash,
+      toolsChanged: previousFingerprints.toolsHash !== currentFingerprints.toolsHash,
+      changedFingerprintKeys,
     },
   };
 }
@@ -1507,6 +1891,7 @@ function buildCodexResponsesBodyFromPromptPack(
     exposeProviderTools?: boolean;
     observations?: readonly RuntimeObservationMaterial[];
     previousProviderOutputItems?: readonly Readonly<Record<string, unknown>>[];
+    previousProviderResponseId?: string;
     promptCacheKey?: string;
   } = {},
 ): Readonly<Record<string, unknown>> {
@@ -1529,6 +1914,7 @@ function buildCodexResponsesBodyFromPromptPack(
   const body: Record<string, unknown> = {
     model: manifest.model.model,
     ...(options.promptCacheKey === undefined ? {} : { prompt_cache_key: options.promptCacheKey }),
+    ...(options.previousProviderResponseId === undefined ? {} : { previous_response_id: options.previousProviderResponseId }),
     instructions: stableInstructionText,
     input: composeOpenAIResponsesInput({
       dynamicInputText,
@@ -2789,12 +3175,14 @@ export class PraxisRuntimeKernel {
       toolIds: normalizedSelection(options.toolContextSelection?.toolIds),
     };
     const providerResponseOutputItems: Readonly<Record<string, unknown>>[] = [];
+    let previousProviderResponse = options.previousProviderResponse;
     let toolContextHeatState: BaseToolContextHeatState = createBaseToolContextHeatState({
       agentId: manifest.identity.id,
       sessionId,
       usage: options.toolContextUsage,
       updatedAt: createdAt,
     });
+    let previousModelCacheDebug: AgentModelCacheDebugRecord | undefined;
 
     type KernelPromptPackage = Extract<Awaited<ReturnType<typeof buildPromptPackAndLower>>, { ok: true }>;
     let runnerError: PraxisRuntimeKernelError | undefined;
@@ -2898,22 +3286,49 @@ export class PraxisRuntimeKernel {
       const modelInvocationId = `${sessionId}:model:${turn + 1}`;
       const promptCacheKey = stablePromptCacheKey(manifest, sessionId);
       const promptSplit = splitPromptPackForProvider(prompt.promptPack);
-      const toolResultInputs = providerToolResultsFromObservations(observations)
+      const providerToolResultHistory = providerToolResultHistoryFromObservations(observations);
+      const toolResultInputs = providerToolResultHistory.results
         .map((result) => lowerProviderToolResult({ providerFamily: "openaiResponses", result }));
-      const providerBody = buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
+      const providerBodyCandidate = buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
         exposeProviderTools: options.exposeProviderTools,
         observations,
         previousProviderOutputItems: providerResponseOutputItems,
         promptCacheKey,
       });
-      const cacheDebug = buildPromptPackCacheDebug({
+      const candidateCacheDebug = buildPromptPackCacheDebug({
         promptPack: prompt.promptPack,
-        providerBody,
+        providerBody: providerBodyCandidate,
         promptCacheKey,
         previousProviderOutputItems: providerResponseOutputItems,
         toolResultInputs,
+        toolResultBudget: providerToolResultHistory.budget,
         promptSplit,
       });
+      const previousProviderResponseId = options.allowPreviousResponseId === true &&
+        previousProviderResponse !== undefined &&
+        previousProviderResponse.stablePrefixHash === candidateCacheDebug.providerBody.cacheShape.stablePrefixHash
+        ? previousProviderResponse.responseId
+        : undefined;
+      const providerBody = previousProviderResponseId === undefined
+        ? providerBodyCandidate
+        : buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
+          exposeProviderTools: options.exposeProviderTools,
+          observations,
+          previousProviderOutputItems: providerResponseOutputItems,
+          previousProviderResponseId,
+          promptCacheKey,
+        });
+      const cacheDebug = previousProviderResponseId === undefined
+        ? candidateCacheDebug
+        : buildPromptPackCacheDebug({
+          promptPack: prompt.promptPack,
+          providerBody,
+          promptCacheKey,
+          previousProviderOutputItems: providerResponseOutputItems,
+          toolResultInputs,
+          toolResultBudget: providerToolResultHistory.budget,
+          promptSplit,
+        });
       await options.onModelCallProgress?.({
         phase: "started",
         invocationId: modelInvocationId,
@@ -2951,6 +3366,12 @@ export class PraxisRuntimeKernel {
           estimated: modelResult.usage.estimated,
         }
         : undefined;
+      const providerResponseId = modelResult.ok ? extractOpenAIResponseId(modelResult.raw) : undefined;
+      const observedCacheDebug = cacheDebugWithPreviousComparison(
+        cacheDebugWithObservedUsage(cacheDebug, modelUsage),
+        previousModelCacheDebug,
+      );
+      previousModelCacheDebug = observedCacheDebug;
       await options.onModelCallProgress?.({
         phase: modelResult.ok ? "completed" : "failed",
         invocationId: modelInvocationId,
@@ -2960,7 +3381,9 @@ export class PraxisRuntimeKernel {
         model: manifest.model.model,
         ok: modelResult.ok,
         usage: modelUsage,
-        cacheDebug,
+        cacheDebug: observedCacheDebug,
+        providerResponseId,
+        previousProviderResponseId,
         error: modelResult.ok
           ? undefined
           : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model"),
@@ -2971,6 +3394,8 @@ export class PraxisRuntimeKernel {
         raw: modelResult.ok ? modelResult.raw : null,
         ok: modelResult.ok,
         usage: modelUsage,
+        providerResponseId,
+        previousProviderResponseId,
       });
       await store.appendInvocation(invocation(sessionId, modelInvocationId, "model", manifest.model.carrierId, modelResult.ok, now(), {
         turn,
@@ -3038,6 +3463,12 @@ export class PraxisRuntimeKernel {
       }
 
       providerResponseOutputItems.push(...extractOpenAIResponseOutputItems(modelResult.raw));
+      if (providerResponseId !== undefined) {
+        previousProviderResponse = {
+          responseId: providerResponseId,
+          stablePrefixHash: observedCacheDebug.providerBody.cacheShape.stablePrefixHash,
+        };
+      }
 
       return {
         ok: true,
