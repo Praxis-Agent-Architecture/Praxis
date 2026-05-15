@@ -128,7 +128,7 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.ok(secondContext.promptTokens > 0);
 });
 
-test("raxode application runtime carries expanded BaseTool context across same-session turns", async () => {
+test("raxode application runtime injects expanded BaseTool manuals for one model turn", async () => {
   const providerBodies: unknown[] = [];
   const fakeAuth: AuthEnvelope = {
     kind: "none",
@@ -164,7 +164,7 @@ test("raxode application runtime carries expanded BaseTool context across same-s
             }],
           };
         }
-        return { output_text: calls === 2 ? "code.read context expanded" : "same-session tool context retained" };
+        return { output_text: calls === 2 ? "code.read context expanded" : "same-session tool summary retained" };
       },
     }),
   });
@@ -204,11 +204,15 @@ test("raxode application runtime carries expanded BaseTool context across same-s
   assert.equal(second.ok, true);
 
   const firstProviderTools = (providerBodies[0] as { tools?: readonly { name?: string }[] }).tools ?? [];
+  const secondProviderTools = (providerBodies[1] as { tools?: readonly { name?: string }[] }).tools ?? [];
   const retainedProviderTools = (providerBodies[2] as { tools?: readonly { name?: string }[] }).tools ?? [];
-  assert.equal(firstProviderTools.some((item) => item.name === "praxis_tool_code_read"), false);
+  assert.equal(firstProviderTools.some((item) => item.name === "praxis_tool_code_read"), true);
   assert.equal(firstProviderTools.some((item) => item.name === "praxis_expand_tool_context"), true);
+  assert.equal(secondProviderTools.some((item) => item.name === "praxis_tool_code_read"), true);
   assert.equal(retainedProviderTools.some((item) => item.name === "praxis_tool_code_read"), true);
-  assert.ok(retainedProviderTools.length < 20);
+  assert.match(JSON.stringify(providerBodies[1]), /baseTool:manual:tool:code\.read/u);
+  assert.doesNotMatch(JSON.stringify(providerBodies[2]), /baseTool:manual:tool:code\.read/u);
+  assert.match(JSON.stringify(providerBodies[2]), /baseTool:summary:tool:code\.read/u);
 });
 
 test("raxode application runtime pre-compacts session history when previous provider context is near the limit", async () => {

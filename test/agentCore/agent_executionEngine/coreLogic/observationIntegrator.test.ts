@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import {
+  DEFAULT_OBSERVATION_TURN_INLINE_BUDGET_BYTES,
   DEFAULT_OBSERVATION_SUMMARY_DELEGATION_POLICY,
   DEFAULT_OBSERVATION_COMPRESSION_POLICY,
   DEFAULT_SUMMARY_AGENT_REF,
@@ -59,7 +63,8 @@ test("createObservationMaterial keeps runtime observations provider-neutral", ()
 });
 
 test("createObservationMaterial stores large payloads as artifact refs instead of inline prompt text", () => {
-  assert.equal(DEFAULT_TOOL_RESULT_SIZE_POLICY.maxInlineBytes, 20 * 1024 * 1024);
+  assert.equal(DEFAULT_TOOL_RESULT_SIZE_POLICY.maxInlineBytes, 32 * 1024);
+  assert.equal(DEFAULT_OBSERVATION_TURN_INLINE_BUDGET_BYTES, 128 * 1024);
   const observation = createObservationMaterial({
     observationId: "observation-large",
     source: "baseTool",
@@ -76,8 +81,39 @@ test("createObservationMaterial stores large payloads as artifact refs instead o
   assert.equal(observation.selectionFlow?.kind, "largeObservationSelection");
   assert.equal(observation.selectionFlow?.publicSafe, true);
   assert.match(observation.material.text, /payloadArtifact: artifact:\/\/search-result/u);
+  assert.match(observation.material.text, /summaryAgent: summaryAgent\.default/u);
+  assert.match(observation.material.text, /selectionBudgetBytes: 64/u);
   assert.doesNotMatch(observation.material.text, /xxxxxxxxxxxxxxxxxxxxxxxx/u);
   assert.equal(observation.material.metadata?.largeObservationSelection, true);
+});
+
+test("createObservationMaterial can persist oversized tool payloads for later lookup", () => {
+  const workspace = mkdtempSync(join(tmpdir(), "praxis-observation-artifact-"));
+  const marker = "RAXODE_LARGE_TOOL_PAYLOAD_";
+
+  try {
+    const observation = createObservationMaterial({
+      observationId: "session:turn:tool/read",
+      source: "baseTool",
+      status: "completed",
+      title: "BaseTool code.search",
+      summary: "large search result",
+      payload: { stdout: marker.repeat(2000) },
+      artifactStore: {
+        workspaceRoot: workspace,
+        sessionId: "session-artifact",
+      },
+    });
+
+    assert.ok(observation.artifactRef?.path);
+    assert.equal(observation.artifactRef?.uri.startsWith("file://"), true);
+    assert.equal(existsSync(observation.artifactRef.path), true);
+    assert.match(readFileSync(observation.artifactRef.path, "utf8"), /RAXODE_LARGE_TOOL_PAYLOAD_/u);
+    assert.equal(observation.material.text.includes(marker.repeat(10)), false);
+    assert.equal(observation.material.metadata?.artifactPath, observation.artifactRef.path);
+  } finally {
+    rmSync(workspace, { recursive: true, force: true });
+  }
 });
 
 test("createObservationMaterial allows explicit trust levels for external and cached observations", () => {

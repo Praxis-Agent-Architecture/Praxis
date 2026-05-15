@@ -430,7 +430,6 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
     dryRun: false,
     allowProviderCall: true,
     auth: authEnvelope(),
-    toolContextSelection: { toolIds: ["code.read", "code_read"] },
     providerCaller: async (envelope) => {
       capturedBody = envelope.body;
       return { output_text: "tools listed" };
@@ -451,8 +450,8 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
   assert.match(providerBodyText, /Praxis BaseTool calling protocol/);
   assert.match(providerBodyText, /declared function calls/);
   assert.match(providerBodyText, /runtime mounted BaseTools=code\.read, code_read/);
-  assert.match(providerBodyText, /baseTool context mode=autoFolded/);
-  assert.match(providerBodyText, /Praxis BaseTools are runtime-governed tools grouped by family, group, and toolId/);
+  assert.match(providerBodyText, /baseTool context mode=intelligent/);
+  assert.match(providerBodyText, /stable manual index and compact tool summary layer/);
   assert.match(providerBodyText, /BaseTool family: codeBase/);
   assert.deepEqual(body.tools?.map((item) => item.name), [
     "praxis_tool_code_read",
@@ -507,10 +506,9 @@ test("PraxisRuntimeKernel.runManifest lets the model expand folded BaseTool cont
               name: "praxis_expand_tool_context",
               call_id: "expand-shell-execution",
               arguments: JSON.stringify({
-                targetKind: "group",
-                family: "shellBase",
-                group: "shellExecution",
-                reason: "need concrete shell execution manual",
+                targetKind: "tool",
+                toolId: "shell.commandExecution",
+                reason: "need the concrete shell execution manual",
               }),
             }],
           };
@@ -526,10 +524,10 @@ test("PraxisRuntimeKernel.runManifest lets the model expand folded BaseTool cont
   const firstBody = bodies[0] as { tools?: readonly { name?: string }[] };
   const secondBody = bodies[1] as { tools?: readonly { name?: string }[] };
   assert.equal(firstBody.tools?.some((item) => item.name === "praxis_expand_tool_context"), true);
-  assert.equal(firstBody.tools?.some((item) => item.name === "praxis_tool_shell_commandExecution"), false);
+  assert.equal(firstBody.tools?.some((item) => item.name === "praxis_tool_shell_commandExecution"), true);
   assert.equal(secondBody.tools?.some((item) => item.name === "praxis_tool_shell_commandExecution"), true);
   const secondBodyText = JSON.stringify(bodies[1]);
-  assert.match(secondBodyText, /BaseTool group: shellBase\/shellExecution/);
+  assert.match(secondBodyText, /baseTool:manual:tool:shell\.commandExecution/);
   assert.match(secondBodyText, /shell\.commandExecution/);
   assert.match(secondBodyText, /function_call_output/);
   assert.match(secondBodyText, /expand-shell-execution/);
@@ -843,6 +841,28 @@ test("PraxisRuntimeKernel.runManifest defaults omni provider permissions for per
   }
 
   let calls = 0;
+  const executor = {
+    ...createRuntimeBaseToolExecutorPort({
+      runtimeId: "runtime-omni-generate",
+      sessionId: "session-omni-generate",
+      policy: {
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      },
+    }),
+    omni: {
+      async transformMedia() {
+        return {
+          ok: false as const,
+          error: {
+            code: "PROVIDER_REJECTED",
+            message: "test provider rejected image generation",
+            publicSafe: true as const,
+          },
+        };
+      },
+    },
+  };
   const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-omni-generate" }).run(
     new OmniGenerateAgent(),
     "generate a test image",
@@ -852,6 +872,7 @@ test("PraxisRuntimeKernel.runManifest defaults omni provider permissions for per
       allowProviderCall: true,
       allowToolExecution: true,
       auth: authEnvelope(),
+      executor,
       providerCaller: async () => {
         calls += 1;
         if (calls === 1) {

@@ -405,6 +405,17 @@ interface LiveLogRecord {
   };
   output?: unknown;
   error?: unknown;
+  usage?: {
+    inputTokens?: number;
+    outputTokens?: number;
+    thinkingTokens?: number;
+    totalTokens?: number;
+    cachedInputTokens?: number;
+    lastInputTokens?: number;
+    lastTotalTokens?: number;
+    source?: string;
+    estimated?: boolean;
+  };
   core?: {
     answer?: string | {
       text?: string;
@@ -910,6 +921,8 @@ const QUESTION_COMPOSER_PLACEHOLDER =
 const QUESTION_WAITING_DOT_FRAMES = ["●○○", "○●○", "○○●", "○●○"] as const;
 const LOG_TAIL_READ_CHUNK_BYTES = 32 * 1024;
 const LOG_TAIL_PROCESS_BATCH_SIZE = 40;
+const DIFF_ADDED_BACKGROUND = "#10351f";
+const DIFF_REMOVED_BACKGROUND = "#3a1717";
 const TOOL_PREVIEW_DELTA_RENDER_INTERVAL_MS = Math.max(
   250,
   Number.isFinite(Number.parseFloat(process.env.RAXODE_TOOL_PREVIEW_DELTA_FPS ?? "1"))
@@ -5245,8 +5258,8 @@ function buildCodeDiffPreviewSegments(input: {
     return undefined;
   }
   const isAdded = diffLine.marker === "+";
-  const backgroundColor = isAdded ? "green" : "red";
-  const markerColor = isAdded ? "greenBright" : "redBright";
+  const markerColor = isAdded ? "green" : "red";
+  const backgroundColor = isAdded ? DIFF_ADDED_BACKGROUND : DIFF_REMOVED_BACKGROUND;
   return [
     { text: input.prefix, color: TUI_THEME.textMuted, backgroundColor },
     { text: diffLine.lineNumber.padStart(4, " "), color: TUI_THEME.textMuted, backgroundColor },
@@ -5278,13 +5291,13 @@ function toolSummaryChunkSegments(input: {
   if (chunk.startsWith("+") && !chunk.startsWith("+++")) {
     return [
       ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
-      { text: chunk, color: "greenBright" },
+      { text: chunk, color: "green" },
     ];
   }
   if (chunk.startsWith("-") && !chunk.startsWith("---")) {
     return [
       ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
-      { text: chunk, color: TUI_THEME.red },
+      { text: chunk, color: "red" },
     ];
   }
   if (chunk.startsWith("@@")) {
@@ -5357,7 +5370,7 @@ function toolSummaryTitleSegments(input: {
     const token = match[1] ?? "";
     segments.push({
       text: token,
-      color: token.startsWith("+") ? "greenBright" : TUI_THEME.red,
+      color: token.startsWith("+") ? "green" : "red",
     });
     cursor = index + token.length;
   }
@@ -5478,7 +5491,7 @@ function flattenTranscriptBlocks(messages: SurfaceMessage[], toolSummaryAnimatio
             ? TUI_THEME.text
             : undefined,
           fillBackgroundColor: diffPreviewLine !== undefined
-            ? (diffPreviewLine.marker === "+" ? "green" : "red")
+            ? (diffPreviewLine.marker === "+" ? DIFF_ADDED_BACKGROUND : DIFF_REMOVED_BACKGROUND)
             : undefined,
         });
       });
@@ -12025,8 +12038,41 @@ function PraxisDirectTuiApp(): JSX.Element {
             }
             if (record.stage === "core/model.infer") {
               const modelCallContext = normalizeContextSnapshot(record.context);
+              const modelUsage = record.usage;
+              const hasModelUsage = typeof modelUsage?.inputTokens === "number"
+                || typeof modelUsage?.outputTokens === "number"
+                || typeof modelUsage?.thinkingTokens === "number"
+                || typeof modelUsage?.totalTokens === "number"
+                || typeof modelUsage?.cachedInputTokens === "number";
+              if (record.event === "stage_end" && hasModelUsage) {
+                recordSessionUsage({
+                  requestId: [
+                    "model",
+                    sessionIdRef.current,
+                    turnId,
+                    record.ts ?? at,
+                    sessionUsageLedgerRef.current.length + 1,
+                  ].join(":"),
+                  turnId,
+                  kind: "core_model",
+                  provider: modelCallContext?.provider,
+                  model: modelCallContext?.model,
+                  status: record.status === "failed" ? "failed" : "success",
+                  inputTokens: modelUsage?.inputTokens,
+                  cachedInputTokens: modelUsage?.cachedInputTokens,
+                  outputTokens: modelUsage?.outputTokens,
+                  thinkingTokens: modelUsage?.thinkingTokens,
+                  estimated: modelUsage?.estimated === true,
+                  startedAt: at,
+                  endedAt: at,
+                  errorCode: typeof record.resultMetadata?.errorCode === "string" ? record.resultMetadata.errorCode : undefined,
+                });
+              }
               if (modelCallContext) {
-                setBackendContextSnapshot(modelCallContext);
+                setBackendContextSnapshot(augmentContextSnapshotFromUsageLedger(
+                  modelCallContext,
+                  sessionUsageLedgerRef.current,
+                ));
               }
               setRunIndicator((previous) =>
                 previous

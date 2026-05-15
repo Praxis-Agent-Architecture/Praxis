@@ -2059,55 +2059,6 @@ async function loadAgentExport(project: PraxisApplicationProject, input: {
   return module.default ?? Object.values(module)[0];
 }
 
-function uniqueSorted(values: readonly string[] | undefined): string[] {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
-}
-
-function normalizeToolContextSelection(selection: BaseToolContextSelection | undefined): BaseToolContextSelection {
-  return {
-    families: uniqueSorted(selection?.families),
-    groups: uniqueSorted(selection?.groups),
-    toolIds: uniqueSorted(selection?.toolIds),
-  };
-}
-
-function mergeToolContextSelections(
-  left: BaseToolContextSelection | undefined,
-  right: BaseToolContextSelection | undefined,
-): BaseToolContextSelection {
-  return {
-    families: uniqueSorted([...(left?.families ?? []), ...(right?.families ?? [])]),
-    groups: uniqueSorted([...(left?.groups ?? []), ...(right?.groups ?? [])]),
-    toolIds: uniqueSorted([...(left?.toolIds ?? []), ...(right?.toolIds ?? [])]),
-  };
-}
-
-function stringList(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.map((item) => stringValue(item)).filter((item): item is string => item !== undefined)
-    : [];
-}
-
-function readToolContextSelection(value: unknown): BaseToolContextSelection | undefined {
-  const record = objectValue(value);
-  if (record === undefined) return undefined;
-  return normalizeToolContextSelection({
-    families: stringList(record.families),
-    groups: stringList(record.groups),
-    toolIds: stringList(record.toolIds),
-  });
-}
-
-function latestToolContextSelectionFromSteps(result: AgentRunResult): BaseToolContextSelection | undefined {
-  let latest: BaseToolContextSelection | undefined;
-  for (const step of result.mainLoopSteps ?? []) {
-    if (step.metadata.runtimeDecision !== "expandToolContext") continue;
-    const selection = readToolContextSelection(step.metadata.selection);
-    if (selection !== undefined) latest = selection;
-  }
-  return latest;
-}
-
 function mergeToolContextUsage(
   current: readonly BaseToolContextUsageRecord[] | undefined,
   toolCalls: readonly AgentToolCallRecord[],
@@ -2130,17 +2081,7 @@ function mergeToolContextUsage(
 
 function rememberToolContextFromRun(state: RuntimeState, result: AgentRunResult): void {
   const sessionId = result.sessionId ?? state.sessionId;
-  const expandedSelection = latestToolContextSelectionFromSteps(result);
-  const toolCallSelection: BaseToolContextSelection | undefined = result.ok
-    ? { toolIds: result.toolCalls.map((call) => call.toolId) }
-    : undefined;
-  const nextSelection = mergeToolContextSelections(
-    mergeToolContextSelections(state.toolContextSelections.get(sessionId), expandedSelection),
-    toolCallSelection,
-  );
-  if ((nextSelection.families?.length ?? 0) > 0 || (nextSelection.groups?.length ?? 0) > 0 || (nextSelection.toolIds?.length ?? 0) > 0) {
-    state.toolContextSelections.set(sessionId, nextSelection);
-  }
+  state.toolContextSelections.delete(sessionId);
 
   if (result.ok && result.toolCalls.length > 0) {
     state.toolContextUsage.set(sessionId, mergeToolContextUsage(state.toolContextUsage.get(sessionId), result.toolCalls));

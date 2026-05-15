@@ -58,6 +58,9 @@ test("toolSchemaCompatibilityLayer lowers Praxis tools to OpenAI, Claude, and Ge
   assert.equal(geminiPayload.config?.tools?.[0]?.functionDeclarations?.length, 6);
   assert.equal((geminiPayload.config?.tools?.[0]?.functionDeclarations?.[0] as { name?: string }).name, "praxis_tool_code_read");
   assert.equal(openai.tools.some((item) => item.name === "praxis_expand_tool_context"), true);
+  const expandTool = openai.tools.find((item) => item.name === "praxis_expand_tool_context") as { parameters?: { required?: string[]; properties?: { targetKind?: { enum?: string[] } } } } | undefined;
+  assert.deepEqual(expandTool?.parameters?.required, ["targetKind", "toolId"]);
+  assert.deepEqual(expandTool?.parameters?.properties?.targetKind?.enum, ["tool"]);
 });
 
 test("toolSchemaCompatibilityLayer keeps colliding provider names reversible", () => {
@@ -98,6 +101,42 @@ test("toolSchemaCompatibilityLayer can expose only expanded tools while keeping 
   assert.equal(filtered.tools.some((item) => item.name === "praxis_expand_tool_context"), true);
   assert.equal(filtered.cacheHintPlan.providerHints.exposedConcreteToolCount, 1);
   assert.equal(filtered.cacheHintPlan.providerHints.foldedConcreteToolCount, 2);
+});
+
+test("toolSchemaCompatibilityLayer keeps provider schemas compact and deterministically ordered", () => {
+  const noisyTools = [
+    tool("mcp.listTools", {
+      family: "mcpBase",
+      group: "catalog",
+      description: "List MCP tools. ".repeat(80),
+    }),
+    tool("shell.commandExecution", {
+      family: "shellBase",
+      group: "shellExecution",
+      description: "Execute shell commands.",
+    }),
+    tool("code.read", {
+      family: "codeBase",
+      group: "explore",
+      description: "Read files.",
+    }),
+  ];
+
+  const first = lowerPraxisToolsForProvider({ providerFamily: "openaiResponses", tools: noisyTools });
+  const second = lowerPraxisToolsForProvider({ providerFamily: "openaiResponses", tools: [...noisyTools].reverse() });
+
+  assert.deepEqual(first.tools.map((item) => item.name), [
+    "praxis_tool_code_read",
+    "praxis_tool_shell_commandExecution",
+    "praxis_tool_mcp_listTools",
+    "praxis_ephemeral_procedure",
+    "praxis_request_approval",
+    "praxis_expand_tool_context",
+  ]);
+  assert.equal(first.declarationHash, second.declarationHash);
+  const mcpDeclaration = first.tools.find((item) => item.name === "praxis_tool_mcp_listTools") as { description?: string } | undefined;
+  assert.ok((mcpDeclaration?.description?.length ?? 0) <= 320);
+  assert.match(mcpDeclaration?.description ?? "", /^toolId=mcp\.listTools; family=mcpBase; group=catalog;/u);
 });
 
 test("toolSchemaCompatibilityLayer normalizes loose schemas and raises provider fixtures", () => {

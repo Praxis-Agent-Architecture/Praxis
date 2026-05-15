@@ -130,6 +130,17 @@ function providerKindSortWeight(kind: PraxisToolProviderKind): number {
   return 3;
 }
 
+const PROVIDER_TOOL_DESCRIPTION_MAX_CHARS = 320;
+
+function compareProviderTools(
+  left: AgentManifest["harness"]["tools"][number],
+  right: AgentManifest["harness"]["tools"][number],
+): number {
+  const kindDelta = providerKindSortWeight(providerKindFor(left)) - providerKindSortWeight(providerKindFor(right));
+  if (kindDelta !== 0) return kindDelta;
+  return left.toolId < right.toolId ? -1 : left.toolId > right.toolId ? 1 : 0;
+}
+
 export function providerToolName(toolId: string): string {
   const normalized = toolId.replace(/[^a-zA-Z0-9_-]/gu, "_").replace(/^_+/u, "");
   return `praxis_tool_${normalized || "tool"}`.slice(0, 64);
@@ -151,6 +162,19 @@ export function createProviderToolMappings(
     usedProviderNames.add(providerName);
     return { providerName, toolId: tool.toolId };
   });
+}
+
+function compactProviderToolDescription(tool: AgentManifest["harness"]["tools"][number]): string {
+  const base = tool.description?.trim().replace(/\s+/gu, " ")
+    ?? `Praxis BaseTool ${tool.toolId}. Use this mounted runtime tool only when its family/group/toolId matches the evidence or action needed.`;
+  const prefix = [
+    `toolId=${tool.toolId}`,
+    tool.family === undefined ? "" : `family=${tool.family}`,
+    tool.group === undefined ? "" : `group=${tool.group}`,
+  ].filter(Boolean).join("; ");
+  const text = `${prefix}; ${base}`;
+  if (text.length <= PROVIDER_TOOL_DESCRIPTION_MAX_CHARS) return text;
+  return `${text.slice(0, PROVIDER_TOOL_DESCRIPTION_MAX_CHARS - 3).trimEnd()}...`;
 }
 
 function sanitizeNestedSchema(schema: unknown): unknown {
@@ -230,19 +254,16 @@ export function createPraxisToolDeclarations(input: {
 }): readonly PraxisToolDeclaration[] {
   const mappings = input.mappings ?? createProviderToolMappings(input.tools);
   return [...input.tools]
-    .sort((left, right) => {
-      return providerKindSortWeight(providerKindFor(left)) - providerKindSortWeight(providerKindFor(right));
-    })
+    .sort(compareProviderTools)
     .map((tool): PraxisToolDeclaration => {
       const mapping = mappings.find((item) => item.toolId === tool.toolId);
-      const description = tool.description ?? `Praxis BaseTool ${tool.toolId}. Use this mounted runtime tool only when its family/group/toolId matches the evidence or action needed.`;
       return {
         toolId: tool.toolId,
         family: tool.family,
         group: tool.group,
         providerName: mapping?.providerName ?? providerToolName(tool.toolId),
         providerKind: providerKindFor(tool),
-        description,
+        description: compactProviderToolDescription(tool),
         inputSchema: normalizeProviderInputSchema(tool.inputSchema),
         metadata: tool.metadata ?? {},
       };
@@ -316,15 +337,13 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
       toolId: "praxis.runtime.expandToolContext",
       providerName: "praxis_expand_tool_context",
       providerKind: "baseTool",
-      description: "Ask Praxis to expand folded BaseTool documentation for a family, group, or concrete tool in the next PromptPack turn. This only changes context; it does not execute host actions.",
+      description: "Ask Praxis to inject one concrete BaseTool manual into the next PromptPack turn. Use only when the compact summary/schema is not enough or repeated calls fail. This only changes context; it does not execute host actions.",
       inputSchema: normalizeProviderInputSchema({
         type: "object",
         additionalProperties: false,
-        required: ["targetKind"],
+        required: ["targetKind", "toolId"],
         properties: {
-          targetKind: { type: "string", enum: ["family", "group", "tool"] },
-          family: { type: "string" },
-          group: { type: "string" },
+          targetKind: { type: "string", enum: ["tool"] },
           toolId: { type: "string" },
           reason: { type: "string" },
         },
@@ -402,7 +421,7 @@ function cachePlanFor(
 
 export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProviderRequest): ProviderToolDeclarationBundle {
   const allTools = request.tools ?? request.manifest?.harness.tools ?? [];
-  const mappings = request.mappings ?? createProviderToolMappings(allTools);
+  const mappings = request.mappings ?? createProviderToolMappings([...allTools].sort(compareProviderTools));
   const visibleToolIds = request.visibleToolIds === undefined
     ? undefined
     : new Set(request.visibleToolIds.map((toolId) => toolId.trim()).filter(Boolean));

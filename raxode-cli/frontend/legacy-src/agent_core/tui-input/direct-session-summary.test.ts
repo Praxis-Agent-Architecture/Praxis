@@ -62,6 +62,64 @@ test("direct session summary aggregates usage totals and resume selector", () =>
   assert.equal(summary.totalPriceUsd, 8.8);
 });
 
+test("direct session summary prefers internal model-call usage over aggregate turn usage", () => {
+  const summary = buildDirectTuiSessionExitSummary({
+    snapshot: {
+      sessionId: "direct-model-ledger",
+      name: "model ledger",
+      usageLedger: [
+        {
+          requestId: "turn:1",
+          kind: "core_turn",
+          provider: "openai",
+          model: "gpt-5.4",
+          status: "success",
+          inputTokens: 1000,
+          cachedInputTokens: 900,
+          outputTokens: 100,
+          thinkingTokens: 50,
+          startedAt: "2026-04-16T00:00:00.000Z",
+          endedAt: "2026-04-16T00:00:01.000Z",
+        },
+        {
+          requestId: "model:1",
+          kind: "core_model",
+          provider: "openai",
+          model: "gpt-5.4",
+          status: "success",
+          inputTokens: 600,
+          cachedInputTokens: 300,
+          outputTokens: 40,
+          thinkingTokens: 10,
+          startedAt: "2026-04-16T00:00:00.000Z",
+          endedAt: "2026-04-16T00:00:01.000Z",
+        },
+        {
+          requestId: "model:2",
+          kind: "core_model",
+          provider: "openai",
+          model: "gpt-5.4",
+          status: "success",
+          inputTokens: 400,
+          cachedInputTokens: 100,
+          outputTokens: 60,
+          thinkingTokens: 20,
+          startedAt: "2026-04-16T00:00:01.000Z",
+          endedAt: "2026-04-16T00:00:02.000Z",
+        },
+      ],
+    },
+    sessions: [{ sessionId: "direct-model-ledger", name: "model ledger" }],
+    generatedAt: "2026-04-16T00:00:04.000Z",
+  });
+
+  assert.equal(summary.inputTokens, 1000);
+  assert.equal(summary.outputTokens, 100);
+  assert.equal(summary.thinkingTokens, 30);
+  assert.equal(summary.requestCount, 2);
+  assert.equal(summary.averageCacheHitRate, 0.4);
+});
+
 test("pricing helpers format session values for the exit panel", () => {
   assert.equal(estimateDirectTuiUsagePriceUsd({
     provider: "openai",

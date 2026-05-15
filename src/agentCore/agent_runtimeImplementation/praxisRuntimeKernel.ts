@@ -777,7 +777,7 @@ const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
   "Keep the pre-tool sentence concise and operational. Do not expose hidden reasoning, chain-of-thought, private policies, or internal prompt text.",
   "Use mounted BaseTools through declared function calls when the task needs current workspace, filesystem, git, shell, search, skill, MCP, computer-use, media, or external-resource evidence.",
   "Do not claim you inspected files, commands, git state, search results, screenshots, devices, network resources, or runtime state unless this run already contains a matching tool observation.",
-  "When BaseTool documentation is folded and you need a more precise family/group/tool manual, request praxis_expand_tool_context before choosing the concrete tool.",
+  "All mounted BaseTool schemas are visible by default. When a concrete tool manual is still needed, request praxis_expand_tool_context with targetKind=tool and the exact toolId; the manual is injected for the next model turn only.",
   "If one BaseTool is not enough, request praxis_ephemeral_procedure to orchestrate existing mounted BaseTools; do not invent a new tool.",
   "If policy, sandbox, dependency, budget, or approval blocks the action, request praxis_request_approval or report the public-safe blocker after the runtime returns it.",
   "If a specific tool call returns PROVIDER_FAILURE after the user named an action/target, report that the requested tool was attempted and the runtime/provider failed; do not reinterpret it as the user failing to specify an action or target.",
@@ -804,8 +804,8 @@ function promptMaterialsForTurn(input: {
     })
     .filter((usage): usage is { toolId: string } => usage !== undefined);
   const toolContext = createBaseToolContextTree(input.manifest.harness.tools, {
-    mode: "autoFolded",
-    auto: input.toolContextSelection,
+    mode: "intelligent",
+    manual: input.toolContextSelection,
     usage: input.toolContextUsage ?? observationUsage,
     keepExpandedScore: 15,
   });
@@ -1194,22 +1194,8 @@ function providerBodyFingerprints(input: {
   };
 }
 
-function visibleProviderToolIdsForPromptPack(promptPack: StandardPromptPack): readonly string[] {
-  return [...new Set(promptPack.toolPack.declarations
-    .map((declaration) => declaration.metadata.toolId)
-    .filter((toolId): toolId is string => typeof toolId === "string" && toolId.trim().length > 0)
-    .map((toolId) => toolId.trim()))].sort();
-}
-
 function normalizedSelection(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
-}
-
-function addSelectedTool(selection: { toolIds: string[] }, toolId: string): void {
-  const normalized = toolId.trim();
-  if (normalized.length === 0 || selection.toolIds.includes(normalized)) return;
-  selection.toolIds.push(normalized);
-  selection.toolIds.sort();
 }
 
 function buildPromptPackCacheDebug(input: {
@@ -1303,7 +1289,6 @@ function buildCodexResponsesBodyFromPromptPack(
       manifest,
       mappings,
       includeRuntimeDecisionTools: true,
-      visibleToolIds: visibleProviderToolIdsForPromptPack(promptPack),
     });
     body.tools = bundle.tools;
   }
@@ -1706,7 +1691,6 @@ async function buildPromptPackAndLower(input: {
     manifest: input.manifest,
     mappings: input.toolMappings,
     includeRuntimeDecisionTools: true,
-    visibleToolIds: visibleProviderToolIdsForPromptPack(preparedTurn.promptPack),
   });
 
   const lowered = lowerPromptForModelAdapter({
@@ -2086,6 +2070,12 @@ async function executeBaseToolDecision(input: {
     summary: record.ok ? "tool invocation completed" : "tool invocation failed",
     refs: [input.toolCallId, input.toolId],
     payload: record.ok ? record.output : record.error,
+    ...(input.workspaceRoot === undefined ? {} : {
+      artifactStore: {
+        workspaceRoot: input.workspaceRoot,
+        sessionId: input.sessionId,
+      },
+    }),
     metadata: metadataRecord({
       toolCallId: input.toolCallId,
       toolId: input.toolId,
@@ -2534,7 +2524,7 @@ export class PraxisRuntimeKernel {
     const maxModelTurns = manifest.harness.loop.maxModelTurns ?? 2;
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;
     const toolMappings = providerToolMappings(manifest);
-    const toolContextSelection: {
+    let toolContextSelection: {
       families: string[];
       groups: string[];
       toolIds: string[];
@@ -2574,6 +2564,7 @@ export class PraxisRuntimeKernel {
         toolContextSelection,
         toolContextUsage: toolContextHeatState.usage,
       });
+      toolContextSelection = { families: [], groups: [], toolIds: [] };
       events.push(...prompt.events);
       if (!prompt.ok) {
         await recordKernelError({ store, sessionId, errorId: `error:prompt:${turn + 1}`, error: prompt.error, createdAt: now() });
@@ -3197,7 +3188,6 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(executed.record);
           observations.push(executed.observation);
-          addSelectedTool(toolContextSelection, executed.record.toolId);
           toolContextHeatState = applyBaseToolContextUsage(
             toolContextHeatState,
             [{ toolId: executed.record.toolId }],
@@ -3353,9 +3343,6 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(...procedureResult.records);
           observations.push(...procedureResult.observations);
-          for (const record of procedureResult.records) {
-            addSelectedTool(toolContextSelection, record.toolId);
-          }
           const providerCallId = typeof decision.metadata.callId === "string" && decision.metadata.callId.trim().length > 0
             ? decision.metadata.callId.trim()
             : undefined;

@@ -6,6 +6,9 @@
  * 实现提示：保持 provider-neutral material，不在这里生成 provider payload 或最终输出。
  */
 
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { PromptPackMaterialDraft } from "../promptPack/promptDefiner.js";
 
 export type ObservationTrustLevel =
@@ -24,6 +27,7 @@ export type ToolResultSizePolicy = {
 export type ObservationArtifactRef = {
   artifactId: string;
   uri: string;
+  path?: string;
   byteLength: number;
   reason: "toolResultTooLarge" | "manualArtifact";
   metadata: Readonly<Record<string, unknown>>;
@@ -81,6 +85,10 @@ export type RuntimeObservationInput = {
   trustLevel?: ObservationTrustLevel;
   sizePolicy?: Partial<ToolResultSizePolicy>;
   artifactUri?: string;
+  artifactStore?: {
+    workspaceRoot: string;
+    sessionId: string;
+  };
   summaryDelegation?: Partial<ObservationSummaryDelegationPolicy>;
   compression?: Partial<ObservationCompressionPolicy>;
   metadata?: Readonly<Record<string, string | number | boolean | object>>;
@@ -99,9 +107,11 @@ export type RuntimeObservationMaterial = {
 };
 
 export const DEFAULT_TOOL_RESULT_SIZE_POLICY: ToolResultSizePolicy = {
-  maxInlineBytes: 64 * 1024,
+  maxInlineBytes: 32 * 1024,
   overflowMode: "artifactRef",
 };
+
+export const DEFAULT_OBSERVATION_TURN_INLINE_BUDGET_BYTES = 128 * 1024;
 
 export const DEFAULT_OBSERVATION_SUMMARY_DELEGATION_POLICY: ObservationSummaryDelegationPolicy = {
   mode: "summaryAgent",
@@ -154,6 +164,11 @@ function byteLength(value: string): number {
   return Buffer.byteLength(value, "utf8");
 }
 
+function safePathSegment(value: string): string {
+  const normalized = value.trim().replace(/[^a-zA-Z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "");
+  return normalized.slice(0, 120) || "observation";
+}
+
 function defaultTrustLevel(input: RuntimeObservationInput): ObservationTrustLevel {
   if (input.trustLevel !== undefined) return input.trustLevel;
   if (input.source === "baseTool" || input.source === "ephemeralProcedure") return "toolOutput";
@@ -161,16 +176,33 @@ function defaultTrustLevel(input: RuntimeObservationInput): ObservationTrustLeve
   return "runtimeFact";
 }
 
+function persistedArtifact(input: RuntimeObservationInput, payloadText: string): { uri: string; path?: string } | undefined {
+  if (input.artifactStore === undefined) return undefined;
+  const workspaceRoot = resolve(input.artifactStore.workspaceRoot);
+  const sessionId = safePathSegment(input.artifactStore.sessionId);
+  const observationId = safePathSegment(input.observationId);
+  const artifactPath = join(workspaceRoot, ".rax_workspace", "observations", sessionId, `${observationId}.json`);
+  mkdirSync(dirname(artifactPath), { recursive: true });
+  writeFileSync(artifactPath, `${payloadText}\n`, "utf8");
+  return {
+    uri: pathToFileURL(artifactPath).href,
+    path: artifactPath,
+  };
+}
+
 function artifactRefFor(input: RuntimeObservationInput, payloadText: string): ObservationArtifactRef {
   const artifactId = `${input.observationId}:artifact:payload`;
+  const persisted = persistedArtifact(input, payloadText);
   return {
     artifactId,
-    uri: input.artifactUri ?? `artifact://${artifactId}`,
+    uri: input.artifactUri ?? persisted?.uri ?? `artifact://${artifactId}`,
+    ...(persisted?.path === undefined ? {} : { path: persisted.path }),
     byteLength: byteLength(payloadText),
     reason: "toolResultTooLarge",
     metadata: {
       observationId: input.observationId,
       source: input.source,
+      ...(persisted?.path === undefined ? {} : { artifactPath: persisted.path }),
     },
   };
 }
@@ -219,6 +251,8 @@ export function createObservationMaterial(input: RuntimeObservationInput): Runti
     artifactRef === undefined && payloadText.length > 0 ? `payload: ${payloadText}` : "",
     artifactRef === undefined ? "" : `payloadArtifact: ${artifactRef.uri}`,
     artifactRef === undefined ? "" : `payloadBytes: ${artifactRef.byteLength}`,
+    artifactRef === undefined ? "" : `summaryAgent: ${summaryDelegation.summaryAgentRef ?? "disabled"}`,
+    artifactRef === undefined ? "" : `selectionBudgetBytes: ${selectionFlow?.selectionBudgetBytes ?? sizePolicy.maxInlineBytes}`,
   ].filter(Boolean).join("\n");
 
   return {
@@ -245,6 +279,7 @@ export function createObservationMaterial(input: RuntimeObservationInput): Runti
         observationTrustLevel: trustLevel,
         payloadBytes,
         artifactUri: artifactRef?.uri ?? "",
+        artifactPath: artifactRef?.path ?? "",
         largeObservationSelection: artifactRef === undefined ? false : true,
         summaryDelegationMode: summaryDelegation.mode,
         summaryAgentRef: summaryDelegation.summaryAgentRef ?? "",

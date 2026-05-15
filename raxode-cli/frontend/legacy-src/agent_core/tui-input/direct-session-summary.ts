@@ -52,7 +52,11 @@ export function buildDirectTuiSessionExitSummary(input: {
   sessions: readonly Pick<DirectTuiSessionIndexRecord, "sessionId" | "name">[];
   generatedAt?: string;
 }): DirectTuiSessionExitSummary {
-  const usageEntries = input.snapshot.usageLedger ?? [];
+  const rawUsageEntries = input.snapshot.usageLedger ?? [];
+  const modelUsageEntries = rawUsageEntries.filter((entry) => entry.kind === "core_model");
+  const usageEntries = modelUsageEntries.length > 0
+    ? modelUsageEntries
+    : rawUsageEntries.filter((entry) => entry.kind !== "core_model");
   const totals = usageEntries.reduce((accumulator, entry) => {
     const inputTokens = typeof entry.inputTokens === "number" ? entry.inputTokens : 0;
     const cachedInputTokens = typeof entry.cachedInputTokens === "number" ? entry.cachedInputTokens : undefined;

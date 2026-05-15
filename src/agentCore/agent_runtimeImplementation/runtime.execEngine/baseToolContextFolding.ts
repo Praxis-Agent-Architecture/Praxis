@@ -16,6 +16,7 @@ export type BaseToolContextExposureMode =
   | "manualCoarse"
   | "manualFine"
   | "semiAuto"
+  | "intelligent"
   | "none";
 
 export type BaseToolContextNodeKind = "root" | "family" | "group" | "tool";
@@ -136,7 +137,7 @@ function familySummary(family: string, tools: readonly ToolSpec[]): string {
     `BaseTool family: ${family}`,
     `Mounted tools: ${tools.length}`,
     `Groups: ${groups.join(", ") || "(flat)"}`,
-    "Use praxis_expand_tool_context to expand this family when the task likely needs these tools.",
+    "This is a stable family index. Read subgroup and tool summary cards, then request one concrete tool manual if needed.",
   ].join("\n");
 }
 
@@ -145,8 +146,52 @@ function groupSummary(family: string, group: string, tools: readonly ToolSpec[])
     `BaseTool group: ${family}/${group}`,
     `Mounted tools: ${tools.length}`,
     `Tool IDs: ${tools.map((tool) => tool.toolId).sort().join(", ")}`,
-    "Expand this group when one of these concrete tools appears appropriate.",
+    "This is a subgroup index. If the summary is not enough, request the concrete tool manual rather than the whole family.",
   ].join("\n");
+}
+
+function riskSummary(tool: ToolSpec, riskLevel: string | undefined): "safe" | "risky" | "dangerous" {
+  const explicit = tool.metadata?.riskLevel;
+  const raw = typeof explicit === "string" ? explicit : riskLevel;
+  if (raw === "dangerous") return "dangerous";
+  if (raw === "risky") return "risky";
+  return "safe";
+}
+
+function inputHint(tool: ToolSpec): string {
+  const schema = tool.inputSchema;
+  if (schema === undefined || typeof schema !== "object" || schema === null || Array.isArray(schema)) {
+    return "object";
+  }
+  const properties = (schema as { properties?: unknown }).properties;
+  const keys = properties !== null && typeof properties === "object" && !Array.isArray(properties)
+    ? Object.keys(properties).sort()
+    : [];
+  const required = Array.isArray((schema as { required?: unknown }).required)
+    ? ((schema as { required?: unknown[] }).required ?? []).map(String).filter((key) => keys.includes(key)).sort()
+    : [];
+  if (keys.length === 0) return "object";
+  const keyText = keys.slice(0, 6).join(",");
+  return required.length === 0 ? keyText : `${keyText}; required=${required.join(",")}`;
+}
+
+function toolPurpose(tool: ToolSpec): string {
+  return (tool.description?.trim() || `Use ${tool.toolId} when the task needs this mounted runtime tool.`)
+    .replace(/\s+/gu, " ")
+    .replace(/;$/u, ".");
+}
+
+function toolSummaryCard(tool: ToolSpec, riskLevel: string | undefined): string {
+  const family = tool.family ?? "custom";
+  const group = tool.group ?? "(flat)";
+  return [
+    `toolId=${tool.toolId}`,
+    `purpose=${toolPurpose(tool)}`,
+    `input=${inputHint(tool)}`,
+    `risk=${riskSummary(tool, riskLevel)}`,
+    `useWhen=${family}/${group} matches the current evidence or action`,
+    `manual=praxis_expand_tool_context targetKind=tool toolId=${tool.toolId}`,
+  ].join("; ");
 }
 
 function usageScores(
@@ -231,7 +276,6 @@ function shouldExpand(input: {
   if (input.kind === "root") return true;
   if (input.mode === "none") return false;
   if (input.mode === "allOpen") return true;
-  if (input.score >= input.keepExpandedScore) return true;
 
   const groupId = input.family !== undefined && input.group !== undefined ? `${input.family}/${input.group}` : undefined;
   const manualFamily = input.family !== undefined && input.manual.families.includes(input.family);
@@ -241,6 +285,8 @@ function shouldExpand(input: {
   const autoGroup = groupId !== undefined && input.auto.groups.includes(groupId);
   const autoTool = input.toolId !== undefined && input.auto.toolIds.includes(input.toolId);
 
+  if (input.mode === "intelligent") return input.kind === "tool" && (manualTool || autoTool);
+  if (input.score >= input.keepExpandedScore) return true;
   if (input.mode === "manualCoarse") return input.kind !== "tool" && (manualFamily || manualGroup);
   if (input.mode === "manualFine") return manualTool;
   if (input.mode === "semiAuto") return manualFamily || manualGroup || manualTool || autoFamily || autoGroup || autoTool;
@@ -254,8 +300,11 @@ function material(input: {
   priority: number;
   node: BaseToolContextTreeNode;
   materialType: "index" | "family" | "group" | "tool";
+  toolMaterialType?: "policy" | "declaration";
   inputSchema?: ToolSpec["inputSchema"];
 }): PromptPackMaterialDraft {
+  const toolMaterialType = input.toolMaterialType
+    ?? (input.materialType === "tool" ? "declaration" : "policy");
   return {
     id: input.id,
     kind: input.materialType === "index" ? "tool-summary" : "tool",
@@ -268,7 +317,7 @@ function material(input: {
     promptSegmentKind: "toolDeclarations",
     metadata: {
       promptSegmentKind: "toolDeclarations",
-      toolMaterialType: input.materialType === "tool" ? "declaration" : "policy",
+      toolMaterialType,
       baseToolContextNodeKind: input.node.kind,
       baseToolContextNodeId: input.node.nodeId,
       baseToolContextExpanded: input.node.expanded,
@@ -285,7 +334,7 @@ export function createBaseToolContextTree(
   tools: readonly ToolSpec[],
   options: BaseToolContextFoldingOptions = {},
 ): BaseToolContextTree {
-  const mode = options.mode ?? "autoFolded";
+  const mode = options.mode ?? "intelligent";
   const manual = {
     families: normalizeList(options.manual?.families),
     groups: normalizeList(options.manual?.groups),
@@ -299,7 +348,9 @@ export function createBaseToolContextTree(
   const weights = { ...DEFAULT_HEAT_WEIGHTS, ...(options.heatWeights ?? {}) };
   const keepExpandedScore = options.keepExpandedScore ?? 15;
   const scores = usageScores(tools, options.usage ?? [], weights);
-  const ledgerDocs = new Map(createBaseToolRealityLedger().map((entry) => [entry.toolId, entry.storageDocPath]));
+  const ledger = createBaseToolRealityLedger();
+  const ledgerDocs = new Map(ledger.map((entry) => [entry.toolId, entry.storageDocPath]));
+  const ledgerRisk = new Map(ledger.map((entry) => [entry.toolId, entry.riskLevel]));
 
   const byFamily = new Map<string, ToolSpec[]>();
   for (const tool of tools) {
@@ -316,11 +367,18 @@ export function createBaseToolContextTree(
     kind: "root",
     label: "baseTool_index.md",
     title: "Praxis BaseTool index",
-    summary: [
-      "Praxis BaseTools are runtime-governed tools grouped by family, group, and toolId.",
-      "Start from family summaries, expand likely families, then expand groups and concrete tools.",
-      "Use concrete tools through provider function calls after the matching tool declaration is visible.",
-    ].join("\n"),
+    summary: mode === "intelligent"
+      ? [
+          "Praxis BaseTools are runtime-governed tools grouped by family, subgroup, and concrete toolId.",
+          "All mounted provider tool schemas are available separately; this PromptPack section is the stable manual index and compact tool summary layer.",
+          "Read tool summary cards first. If a concrete tool remains unclear or repeated calls fail, request praxis_expand_tool_context with targetKind=tool and the exact toolId.",
+          "Expanded concrete manuals are one-turn material and should be treated as read-once guidance.",
+        ].join("\n")
+      : [
+          "Praxis BaseTools are runtime-governed tools grouped by family, group, and toolId.",
+          "Start from family summaries, expand likely families, then expand groups and concrete tools.",
+          "Use concrete tools through provider function calls after the matching tool declaration is visible.",
+        ].join("\n"),
     score: 0,
     expanded: mode !== "none",
     children: [],
@@ -368,6 +426,7 @@ export function createBaseToolContextTree(
     for (const [group, groupTools] of [...byGroup.entries()].sort((left, right) => left[0].localeCompare(right[0]))) {
       const groupId = `${family}/${group}`;
       const groupScore = scores.group.get(groupId) ?? 0;
+      const groupShouldExpand = shouldExpand({ mode, kind: "group", family, group, manual, auto, score: groupScore, keepExpandedScore });
       const groupNode: BaseToolContextTreeNode = {
         nodeId: `group:${groupId}`,
         kind: "group",
@@ -377,11 +436,11 @@ export function createBaseToolContextTree(
         title: `${family}/${group}`,
         summary: groupSummary(family, group, groupTools),
         score: groupScore,
-        expanded: familyNode.expanded || shouldExpand({ mode, kind: "group", family, group, manual, auto, score: groupScore, keepExpandedScore }),
+        expanded: mode === "intelligent" ? groupShouldExpand : familyNode.expanded || groupShouldExpand,
         children: [],
       };
       (groupNode.expanded ? expandedNodeIds : foldedNodeIds).push(groupNode.nodeId);
-      if (groupNode.expanded) {
+      if (groupNode.expanded || mode === "intelligent") {
         materials.push(material({
           id: `baseTool:context:group:${family}:${group}`,
           text: groupNode.summary,
@@ -393,9 +452,11 @@ export function createBaseToolContextTree(
 
       const toolNodes = [...groupTools].sort((left, right) => left.toolId.localeCompare(right.toolId)).map((toolSpec): BaseToolContextTreeNode => {
         const toolScore = scores.tool.get(toolSpec.toolId) ?? 0;
-        const expanded = groupNode.expanded || shouldExpand({ mode, kind: "tool", family, group, toolId: toolSpec.toolId, manual, auto, score: toolScore, keepExpandedScore });
+        const toolShouldExpand = shouldExpand({ mode, kind: "tool", family, group, toolId: toolSpec.toolId, manual, auto, score: toolScore, keepExpandedScore });
+        const expanded = mode === "intelligent" ? toolShouldExpand : groupNode.expanded || toolShouldExpand;
         const docText = options.includeToolMarkdown === false ? undefined : readMarkdown(ledgerDocs.get(toolSpec.toolId));
-        const summary = docText ?? fallbackToolText(toolSpec);
+        const compactSummary = toolSummaryCard(toolSpec, ledgerRisk.get(toolSpec.toolId));
+        const summary = mode === "intelligent" ? compactSummary : docText ?? fallbackToolText(toolSpec);
         const node: BaseToolContextTreeNode = {
           nodeId: `tool:${toolSpec.toolId}`,
           kind: "tool",
@@ -410,13 +471,25 @@ export function createBaseToolContextTree(
           children: [],
         };
         (expanded ? expandedNodeIds : foldedNodeIds).push(node.nodeId);
+        if (mode === "intelligent") {
+          materials.push(material({
+            id: `baseTool:summary:tool:${toolSpec.toolId}`,
+            text: compactSummary,
+            priority: 65 - materials.length / 1000,
+            node,
+            materialType: "group",
+            toolMaterialType: "policy",
+            inputSchema: toolSpec.inputSchema,
+          }));
+        }
         if (expanded) {
           materials.push(material({
-            id: `tool:${toolSpec.toolId}`,
-            text: summary,
+            id: mode === "intelligent" ? `baseTool:manual:tool:${toolSpec.toolId}` : `tool:${toolSpec.toolId}`,
+            text: mode === "intelligent" ? docText ?? fallbackToolText(toolSpec) : summary,
             priority: 60 - materials.length / 1000,
             node,
             materialType: "tool",
+            toolMaterialType: mode === "intelligent" ? "policy" : "declaration",
             inputSchema: toolSpec.inputSchema,
           }));
         }
@@ -455,7 +528,7 @@ export function createBaseToolContextPromptMaterials(input: {
 export const baseToolContextFoldingDescriptor = {
   surface: "runtime.execEngine.baseToolContextFolding",
   contextShape: "baseTool_index/family/group/tool",
-  defaultMode: "autoFolded",
+  defaultMode: "intelligent",
   mutatesHost: false,
   executesTools: false,
   promptSegmentKind: "toolDeclarations",
