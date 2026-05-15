@@ -1057,6 +1057,64 @@ const RUSH_OVERLAY_FALLBACK_FRAME = [
 ] as const;
 const RUSH_OVERLAY_FRAMES = loadRushOverlayFrames();
 const RUN_STATUS_DOT_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
+const RUN_STATUS_PHRASES = [
+  "digging deep...",
+  "ideas exploding...",
+  "plotting dinner...",
+  "munching your tokens...",
+  "scheming you...",
+  "smashing Claude Code...",
+  "tearing Codex apart...",
+  "mocking Gemini CLI...",
+  "staring at Donald Trump...",
+  "loafing in muddy waters...",
+  "slacking off...",
+  "crafting your perfect answer...",
+  "running inside your PC...",
+  "making Grok spit images...",
+  "testing Gemini's multimodal...",
+  "peeking at Claude Code's source map file...",
+  "lighting up a Marlboro...",
+  "trash-talking with Rust devs...",
+  "sending a PR to Linus...",
+  "obliterating Redis...",
+  "speechless at OpenClaw...",
+  "resigned about Hermes...",
+  "heading to Microsoft...",
+  "jumping ship to Apple...",
+  "considering DeepMind...",
+  "disrupting Transformer...",
+  "sending Dario Amodei back to Baidu...",
+  "teasing DeepSeek...",
+  "refactoring your project...",
+  "rescuing a nerfed model...",
+  "talking to GPT...",
+  "criticizing subagents...",
+  "arguing with the neighbor agent...",
+  "studying your comments...",
+  "revering your algorithm...",
+  "parsing your classes...",
+  "sprinkling you with syntactic sugar...",
+  "inheriting...",
+  "converting TypeScript to Go...",
+  "writing a neural network in C...",
+  "refactoring your spaghetti code...",
+  "relearning Swift...",
+  "trying to buy a Mac...",
+  "adding comments to you...",
+  "piling up spaghetti code...",
+  "studying Python's garbage performance...",
+  "writing an interface...",
+  "checking memory safety without Rust...",
+  "feeling the urge to use a lib...",
+  "pulling in some mysterious dependencies...",
+] as const;
+const RUN_STATUS_PHRASE_REVEAL_FRAME_STEP = 5;
+const RUN_STATUS_PHRASE_HIDE_FRAME_STEP = 3;
+const RUN_STATUS_PHRASE_HOLD_FRAMES = Math.max(1, Math.round(2500 / ANIMATION_TICK_MS));
+const RUN_STATUS_PHRASE_GAP_FRAMES = Math.max(1, Math.round(500 / ANIMATION_TICK_MS));
+const RUN_STATUS_PHRASE_RANDOM_SEED = Math.floor(Math.random() * 0xffff_ffff) >>> 0;
+const RUN_STATUS_PHRASE_ORDER_CACHE = new Map<number, number[]>();
 const SYNC_OUTPUT_BEGIN = "\u001B[?2026h";
 const SYNC_OUTPUT_END = "\u001B[?2026l";
 
@@ -3628,7 +3686,10 @@ function buildSlashPanelView(
               { text: "    " },
               { text: waitingDots, tone: "info" },
               { text: " " },
-              ...buildShimmerSegments("Raxode is waiting for your answers...", context.questionAnimationFrame).map((segment) => ({
+              ...buildShimmerSegments({
+                text: "Raxode is waiting for your answers...",
+                frame: context.questionAnimationFrame,
+              }).map((segment) => ({
                 text: segment.text,
                 tone: segment.color === TUI_THEME.textMuted ? "info" as const : undefined,
               })),
@@ -4020,8 +4081,16 @@ function stripAnsi(value: string): string {
 
 function ansiColorCode(color?: string): string {
   switch (color) {
+    case "black":
+      return "\u001B[30m";
+    case "blackBright":
+      return "\u001B[90m";
     case "blue":
       return "\u001B[94m";
+    case "green":
+      return "\u001B[32m";
+    case "greenBright":
+      return "\u001B[92m";
     case "orange":
       return "\u001B[38;5;208m";
     case "red":
@@ -4485,6 +4554,36 @@ function buildRushOverlaySnapshot(
 
 function renderTerminalOverlayLine(line: TerminalOverlayLine): string {
   return `${line.segments.map((segment) => `${ansiColorCode(segment.color)}${segment.text}`).join("")}\u001B[0m`;
+}
+
+function renderTerminalRenderLine(line: RenderLine): string {
+  const segments = line.segments ?? [{ text: line.text, color: colorForRenderLine(line.kind) }];
+  return `${segments.map((segment) => `${ansiColorCode(segment.color)}${segment.text}`).join("")}\u001B[0m`;
+}
+
+function paintPinnedRunStatusLine(input: {
+  stdout: NodeJS.WriteStream;
+  row: number;
+  leftColumn: number;
+  line: RenderLine;
+}): void {
+  if (!input.stdout.isTTY) {
+    return;
+  }
+  input.stdout.write(
+    `${SYNC_OUTPUT_BEGIN}\u001B7\u001B[${input.row};${input.leftColumn}H${renderTerminalRenderLine(input.line)}\u001B[K\u001B8${SYNC_OUTPUT_END}`,
+  );
+}
+
+function clearPinnedTerminalLine(input: {
+  stdout: NodeJS.WriteStream;
+  row: number;
+  leftColumn: number;
+}): void {
+  if (!input.stdout.isTTY || input.row <= 0) {
+    return;
+  }
+  input.stdout.write(`${SYNC_OUTPUT_BEGIN}\u001B7\u001B[${input.row};${input.leftColumn}H\u001B[K\u001B8${SYNC_OUTPUT_END}`);
 }
 
 function paintTerminalOverlayIfNeeded(stdout: NodeJS.WriteStream): void {
@@ -5285,7 +5384,10 @@ function toolSummaryChunkSegments(input: {
   if (input.active) {
     return [
       ...(prefix.length > 0 ? [{ text: prefix, color: TUI_THEME.textMuted }] : []),
-      ...buildShimmerSegments(chunk, input.animationFrame),
+      ...buildShimmerSegments({
+        text: chunk,
+        frame: input.animationFrame,
+      }),
     ];
   }
   if (chunk.startsWith("+") && !chunk.startsWith("+++")) {
@@ -7291,14 +7393,20 @@ function withCurrentRowMarker(text: string): string {
   return text.startsWith("    ") ? `    • ${text.slice(4)}` : `• ${text}`;
 }
 
-function buildShimmerSegments(text: string, frame: number): Array<{ text: string; color?: string }> {
+function buildShimmerSegments(input: {
+  text: string;
+  frame: number;
+  baseColor?: string;
+  shimmerColors?: readonly string[];
+}): Array<{ text: string; color?: string }> {
+  const text = input.text;
   const activeText = text.trimEnd();
   const activeUnits = splitGraphemes(activeText);
   if (activeUnits.length === 0) {
-    return [{ text: "", color: TUI_THEME.text }];
+    return [{ text: "", color: input.baseColor ?? TUI_THEME.text }];
   }
-  const highlightIndex = frame % activeUnits.length;
-  const shimmerColors = ["white", "gray", "blackBright", "blackBright", "gray", "white"] as const;
+  const highlightIndex = input.frame % activeUnits.length;
+  const shimmerColors = input.shimmerColors ?? ["white", "gray", "blackBright", "blackBright", "gray", "white"];
   const shimmerColorByIndex = new Map(
     shimmerColors.map((color, offset) => [
       (highlightIndex - offset + activeUnits.length) % activeUnits.length,
@@ -7308,15 +7416,93 @@ function buildShimmerSegments(text: string, frame: number): Array<{ text: string
 
   const shimmered = activeUnits.map((unit, index) => ({
     text: unit,
-    color: shimmerColorByIndex.get(index) ?? TUI_THEME.text,
+    color: shimmerColorByIndex.get(index) ?? input.baseColor ?? TUI_THEME.text,
   }));
   const trailingSpaces = text.slice(activeText.length);
   return trailingSpaces.length > 0
     ? [
       ...shimmered,
-      { text: trailingSpaces, color: TUI_THEME.text },
+      { text: trailingSpaces, color: input.baseColor ?? TUI_THEME.text },
     ]
     : shimmered;
+}
+
+function runStatusPhraseForCycle(cycleIndex: number): string {
+  const phraseCount = RUN_STATUS_PHRASES.length;
+  const normalizedCycle = Math.max(0, Math.floor(cycleIndex));
+  const roundIndex = Math.floor(normalizedCycle / phraseCount);
+  const offset = normalizedCycle % phraseCount;
+  let order = RUN_STATUS_PHRASE_ORDER_CACHE.get(roundIndex);
+  if (!order) {
+    order = createRunStatusPhraseOrder(roundIndex);
+    RUN_STATUS_PHRASE_ORDER_CACHE.set(roundIndex, order);
+    if (RUN_STATUS_PHRASE_ORDER_CACHE.size > 4) {
+      const oldestRoundIndex = RUN_STATUS_PHRASE_ORDER_CACHE.keys().next().value;
+      if (oldestRoundIndex !== undefined) {
+        RUN_STATUS_PHRASE_ORDER_CACHE.delete(oldestRoundIndex);
+      }
+    }
+  }
+  return RUN_STATUS_PHRASES[order[offset] ?? 0] ?? RUN_STATUS_PHRASES[0];
+}
+
+function createRunStatusPhraseOrder(roundIndex: number): number[] {
+  const order = RUN_STATUS_PHRASES.map((_, index) => index);
+  let state = (RUN_STATUS_PHRASE_RANDOM_SEED ^ Math.imul(roundIndex + 1, 0x9e37_79b1)) >>> 0;
+  for (let index = order.length - 1; index > 0; index -= 1) {
+    state = nextRunStatusShuffleState(state);
+    const swapIndex = state % (index + 1);
+    [order[index], order[swapIndex]] = [order[swapIndex], order[index]];
+  }
+  return order;
+}
+
+function nextRunStatusShuffleState(state: number): number {
+  let nextState = state || 0x6d2b_79f5;
+  nextState ^= nextState << 13;
+  nextState ^= nextState >>> 17;
+  nextState ^= nextState << 5;
+  return nextState >>> 0;
+}
+
+function buildRunStatusPhraseText(input: {
+  frame: number;
+  maxWidth: number;
+}): string {
+  const firstPhrase = RUN_STATUS_PHRASES[0] ?? "";
+  let cursorFrame = Math.max(0, input.frame);
+  let cycleIndex = 0;
+
+  while (cycleIndex < RUN_STATUS_PHRASES.length * 20) {
+    const phrase = runStatusPhraseForCycle(cycleIndex);
+    const graphemes = splitGraphemes(phrase);
+    const revealFrames = Math.max(1, graphemes.length * RUN_STATUS_PHRASE_REVEAL_FRAME_STEP);
+    const hideFrames = Math.max(1, graphemes.length * RUN_STATUS_PHRASE_HIDE_FRAME_STEP);
+    const cycleFrames = revealFrames + RUN_STATUS_PHRASE_HOLD_FRAMES + hideFrames + RUN_STATUS_PHRASE_GAP_FRAMES;
+    if (cursorFrame < cycleFrames) {
+      if (cursorFrame < revealFrames) {
+        const visibleCount = Math.min(
+          graphemes.length,
+          Math.floor(cursorFrame / RUN_STATUS_PHRASE_REVEAL_FRAME_STEP),
+        );
+        return graphemes.slice(0, visibleCount).join("");
+      }
+      cursorFrame -= revealFrames;
+      if (cursorFrame < RUN_STATUS_PHRASE_HOLD_FRAMES) {
+        return phrase;
+      }
+      cursorFrame -= RUN_STATUS_PHRASE_HOLD_FRAMES;
+      if (cursorFrame < hideFrames) {
+        const hiddenCount = Math.floor(cursorFrame / RUN_STATUS_PHRASE_HIDE_FRAME_STEP) + 1;
+        return graphemes.slice(0, Math.max(0, graphemes.length - hiddenCount)).join("");
+      }
+      return "";
+    }
+    cursorFrame -= cycleFrames;
+    cycleIndex += 1;
+  }
+
+  return firstPhrase;
 }
 
 function buildRunStatusLine(
@@ -7328,12 +7514,12 @@ function buildRunStatusLine(
     return null;
   }
 
-  const dotFrame = RUN_STATUS_DOT_FRAMES[frame % RUN_STATUS_DOT_FRAMES.length] ?? "··";
-  const runningLabel = "Running";
-  const taskText = indicator.label;
+  const dotFrame = RUN_STATUS_DOT_FRAMES[Math.floor(frame / 16) % RUN_STATUS_DOT_FRAMES.length] ?? "··";
+  const thinkingLabel = "Thinking";
+  const taskText = buildRunStatusPhraseText({ frame, maxWidth: lineWidth });
   const elapsedText = formatElapsedFromMs(Date.now() - Date.parse(indicator.startedAt));
   const suffixText = ` (${elapsedText} · press esc to interrupt)`;
-  const prefixWidth = stringWidth(dotFrame) + 1 + stringWidth(runningLabel) + 1 + stringWidth(suffixText);
+  const prefixWidth = stringWidth(dotFrame) + 1 + stringWidth(thinkingLabel) + 1 + stringWidth(suffixText);
   const bodyWidth = Math.max(10, lineWidth - prefixWidth);
 
   let visibleTaskText = "";
@@ -7352,13 +7538,18 @@ function buildRunStatusLine(
 
   return {
     kind: "detail",
-    text: `${dotFrame} ${runningLabel} ${visibleTaskText}${suffixText}`,
+    text: `${dotFrame} ${thinkingLabel} ${visibleTaskText}${suffixText}`,
     segments: [
-      { text: dotFrame, color: TUI_THEME.text },
+      { text: dotFrame, color: TUI_THEME.violet },
       { text: " " },
-      { text: runningLabel, color: TUI_THEME.mintSoft },
+      ...buildShimmerSegments({
+        text: thinkingLabel,
+        frame: Math.floor(frame / 20),
+        baseColor: "white",
+        shimmerColors: ["blackBright", "gray", "white", "white", "gray", "blackBright"],
+      }),
       { text: " " },
-      ...buildShimmerSegments(visibleTaskText, frame),
+      { text: visibleTaskText, color: TUI_THEME.text },
       { text: suffixText, color: TUI_THEME.textMuted },
     ],
   };
@@ -8371,6 +8562,11 @@ function PraxisDirectTuiApp(): JSX.Element {
   const pendingComposerDispatchesRef = useRef<PendingComposerDispatch[]>([]);
   const backendStatusRef = useRef<BackendStatus>("starting");
   const runIndicatorRef = useRef<{ startedAt: string; label: string } | null>(null);
+  const directRunStatusPaintRef = useRef({
+    enabled: false,
+    row: 0,
+    lineWidth: 0,
+  });
   const pendingComposerDispatchFlushRef = useRef<string | null>(null);
   const activeOutboundSubmissionTokenRef = useRef<string | null>(null);
   const pendingComposerDispatchChainInterruptRef = useRef(false);
@@ -8469,6 +8665,49 @@ function PraxisDirectTuiApp(): JSX.Element {
   useEffect(() => {
     runIndicatorRef.current = runIndicator;
   }, [runIndicator]);
+
+  useEffect(() => {
+    let frame = 0;
+    let lastPaintedRow = 0;
+    const clearLastPaintedRow = () => {
+      if (lastPaintedRow <= 0) {
+        return;
+      }
+      clearPinnedTerminalLine({
+        stdout: process.stdout,
+        row: lastPaintedRow,
+        leftColumn: TERMINAL_CONTENT_LEFT_COLUMN,
+      });
+      lastPaintedRow = 0;
+    };
+    const timer = setInterval(() => {
+      const paintState = directRunStatusPaintRef.current;
+      const indicator = runIndicatorRef.current;
+      if (!paintState.enabled || !indicator || paintState.row <= 0 || paintState.lineWidth <= 0) {
+        clearLastPaintedRow();
+        return;
+      }
+      if (lastPaintedRow > 0 && lastPaintedRow !== paintState.row) {
+        clearLastPaintedRow();
+      }
+      const line = buildRunStatusLine(indicator, frame, paintState.lineWidth);
+      frame = (frame + 1) % 60_000;
+      if (!line) {
+        return;
+      }
+      paintPinnedRunStatusLine({
+        stdout: process.stdout,
+        row: paintState.row,
+        leftColumn: TERMINAL_CONTENT_LEFT_COLUMN,
+        line,
+      });
+      lastPaintedRow = paintState.row;
+    }, ANIMATION_TICK_MS);
+    return () => {
+      clearInterval(timer);
+      clearLastPaintedRow();
+    };
+  }, []);
 
   const replaceStreamingAssistantText = (next: DirectTuiStreamingAssistantText | null) => {
     streamingAssistantTextRef.current = next;
@@ -10386,6 +10625,14 @@ function PraxisDirectTuiApp(): JSX.Element {
     ),
     [interruptibleTasks],
   );
+  const hasActiveToolSummary = useMemo(
+    () => transcriptMessages.some((message) =>
+      message.metadata?.source === "tool_summary"
+      && isDirectTuiLiveToolSummaryState(message.metadata?.summaryState)
+      && !!message.turnId
+      && activeTurnIds.has(message.turnId)),
+    [activeTurnIds, transcriptMessages],
+  );
   const terminalTitleBusy = Boolean(runIndicator) || interruptibleTasks.length > 0;
   const buildCurrentSessionPersistenceRequest = () => {
     const now = new Date().toISOString();
@@ -10837,7 +11084,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     ? Math.floor(animationTick / 6)
     : 0;
   const runStatusAnimationFrame = runIndicator
-    ? Math.floor(animationTick / 6)
+    ? animationTick
     : 0;
   const rewindAnimationFrame = rewindInFlight
     ? Math.floor(animationTick / REWIND_SPINNER_FRAME_STEP)
@@ -10851,7 +11098,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const shouldAnimate =
     (directTuiAnimationMode === "fresh" && startupAnimationStep < STARTUP_WORD.length + STARTUP_RAINBOW_COLORS.length)
     || cmpContextActive
-    || Boolean(runIndicator)
+    || hasActiveToolSummary
     || Boolean(rewindInFlight)
     || Boolean(rushOverlayState)
     || questionPanelActive;
@@ -15158,14 +15405,6 @@ function PraxisDirectTuiApp(): JSX.Element {
     () => expandRenderLinesForWidth(conversationHeaderLines, transcriptLineWidth),
     [conversationHeaderLines, transcriptLineWidth],
   );
-  const hasActiveToolSummary = useMemo(
-    () => transcriptMessages.some((message) =>
-      message.metadata?.source === "tool_summary"
-      && isDirectTuiLiveToolSummaryState(message.metadata?.summaryState)
-      && !!message.turnId
-      && activeTurnIds.has(message.turnId)),
-    [activeTurnIds, transcriptMessages],
-  );
   const effectiveToolSummaryAnimationFrame = hasActiveToolSummary ? toolSummaryAnimationFrame : 0;
   const transcriptLines = useMemo(
     () => flattenTranscriptWithCache(
@@ -15185,6 +15424,24 @@ function PraxisDirectTuiApp(): JSX.Element {
       : buildRunStatusLine(runIndicator, runStatusAnimationFrame, transcriptLineWidth),
     [hasActiveToolSummary, runIndicator, runStatusAnimationFrame, transcriptLineWidth],
   );
+  const directRunStatusEnabled = Boolean(
+    transientRunStatusLine
+    && process.stdout.isTTY
+    && !hasActiveToolSummary
+    && exitSummaryDisplay === null
+    && !rewindInFlight
+    && !rewindOverlayState
+    && !rushConfirmOverlayState
+    && !rushOverlayState
+    && !modelPicker?.open,
+  );
+  const transientRunStatusRenderLine = directRunStatusEnabled && transientRunStatusLine
+    ? {
+        kind: "detail" as const,
+        text: " ".repeat(Math.max(1, transcriptLineWidth)),
+        segments: [{ text: " ".repeat(Math.max(1, transcriptLineWidth)), color: TUI_THEME.text }],
+      }
+    : transientRunStatusLine;
   const slashState = useMemo(
     () => computeSlashState(composerState.value, DEFAULT_PRAXIS_SLASH_COMMANDS),
     [composerState.value],
@@ -15701,7 +15958,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     ],
     [shouldShowConversationHeader, conversationHeaderExpandedLines, transcriptLineWidth, transcriptLines, streamingAssistantLines],
   );
-  const transcriptBodyViewportLineCount = Math.max(0, transcriptViewportLineCount - (transientRunStatusLine ? 1 : 0));
+  const transcriptBodyViewportLineCount = Math.max(0, transcriptViewportLineCount - (transientRunStatusRenderLine ? 1 : 0));
   const maxScrollOffset = Math.max(0, transcriptScrollLines.length - transcriptBodyViewportLineCount);
   const visibleTranscriptEndIndex = transcriptScrollLines.length <= transcriptBodyViewportLineCount
     ? transcriptScrollLines.length
@@ -15724,6 +15981,11 @@ function PraxisDirectTuiApp(): JSX.Element {
     () => computeVisibleLines(transcriptScrollLines, transcriptBodyViewportLineCount, scrollOffset),
     [scrollOffset, transcriptBodyViewportLineCount, transcriptScrollLines],
   );
+  directRunStatusPaintRef.current = {
+    enabled: directRunStatusEnabled,
+    row: Math.min(visibleTranscriptLines.length, transcriptBodyViewportLineCount) + 1,
+    lineWidth: transcriptLineWidth,
+  };
   const composerOverlayLineCount =
     exitSummaryDisplay
       ? exitSummaryLineCount
@@ -15820,7 +16082,7 @@ function PraxisDirectTuiApp(): JSX.Element {
           visibleLines={visibleTranscriptLines}
           visibleStartIndex={visibleTranscriptStartIndex}
           viewportLineCount={transcriptViewportLineCount}
-          transientStatusLine={transientRunStatusLine}
+          transientStatusLine={transientRunStatusRenderLine}
           textSelection={textSelection}
         />
       )}

@@ -99,7 +99,13 @@ const FAMILY_ORDER = [
 ] as const;
 
 function normalizeList(values: readonly string[] | undefined): readonly string[] {
-  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort(compareAscii);
+}
+
+function compareAscii(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
 }
 
 function familyOrder(family: string): number {
@@ -393,7 +399,7 @@ export function createBaseToolContextTree(
   }));
 
   const familyNodes: BaseToolContextTreeNode[] = [];
-  const sortedFamilies = [...byFamily.entries()].sort((left, right) => familyOrder(left[0]) - familyOrder(right[0]) || left[0].localeCompare(right[0]));
+  const sortedFamilies = [...byFamily.entries()].sort((left, right) => familyOrder(left[0]) - familyOrder(right[0]) || compareAscii(left[0], right[0]));
   for (const [family, familyTools] of sortedFamilies) {
     const familyScore = scores.family.get(family) ?? 0;
     const familyNode: BaseToolContextTreeNode = {
@@ -423,7 +429,7 @@ export function createBaseToolContextTree(
     }
 
     const groupNodes: BaseToolContextTreeNode[] = [];
-    for (const [group, groupTools] of [...byGroup.entries()].sort((left, right) => left[0].localeCompare(right[0]))) {
+    for (const [group, groupTools] of [...byGroup.entries()].sort((left, right) => compareAscii(left[0], right[0]))) {
       const groupId = `${family}/${group}`;
       const groupScore = scores.group.get(groupId) ?? 0;
       const groupShouldExpand = shouldExpand({ mode, kind: "group", family, group, manual, auto, score: groupScore, keepExpandedScore });
@@ -450,7 +456,7 @@ export function createBaseToolContextTree(
         }));
       }
 
-      const toolNodes = [...groupTools].sort((left, right) => left.toolId.localeCompare(right.toolId)).map((toolSpec): BaseToolContextTreeNode => {
+      const toolNodes = [...groupTools].sort((left, right) => compareAscii(left.toolId, right.toolId)).map((toolSpec): BaseToolContextTreeNode => {
         const toolScore = scores.tool.get(toolSpec.toolId) ?? 0;
         const toolShouldExpand = shouldExpand({ mode, kind: "tool", family, group, toolId: toolSpec.toolId, manual, auto, score: toolScore, keepExpandedScore });
         const expanded = mode === "intelligent" ? toolShouldExpand : groupNode.expanded || toolShouldExpand;

@@ -316,6 +316,14 @@ export type AgentModelCacheDebugRecord = {
       providerHints: Readonly<Record<string, unknown>>;
     }[];
     cacheRiskWarnings: readonly string[];
+    providerLowering?: {
+      instructionSegmentKinds: readonly PromptPackSegmentKind[];
+      dynamicInputSegmentKinds: readonly PromptPackSegmentKind[];
+      instructionEstimatedTokens: number;
+      dynamicInputEstimatedTokens: number;
+      instructionsHash: string;
+      dynamicInputHash: string;
+    };
   };
   providerBody: {
     estimatedTokens: number;
@@ -771,6 +779,11 @@ function toolProviderSortWeight(kind: ReturnType<typeof toolProviderKind>): numb
   return 3;
 }
 
+function metadataString(metadata: Readonly<Record<string, unknown>>, key: string): string | undefined {
+  const value = metadata[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
 const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
   "Praxis BaseTool calling protocol:",
   "Before requesting any BaseTool in a user turn, first emit one short user-visible sentence saying what you are about to do; then request the tool call. This is a hard main-loop rule.",
@@ -783,6 +796,43 @@ const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
   "If a specific tool call returns PROVIDER_FAILURE after the user named an action/target, report that the requested tool was attempted and the runtime/provider failed; do not reinterpret it as the user failing to specify an action or target.",
   "If the prompt already contains enough evidence and no runtime action is needed, answer directly.",
 ].join("\n");
+
+function promptMaterialForObservation(observation: RuntimeObservationMaterial): PromptPackMaterialDraft {
+  const material = observation.material;
+  const metadata = material.metadata ?? {};
+  const toolCallId = metadataString(metadata, "toolCallId");
+  const toolId = metadataString(metadata, "toolId");
+  if (toolCallId === undefined || toolId === undefined) {
+    return material;
+  }
+
+  const providerToolNameValue = metadataString(metadata, "providerToolName") ?? providerToolName(toolId);
+  const status = metadataString(metadata, "observationStatus") ?? "completed";
+  const payloadBytes = typeof metadata.payloadBytes === "number" ? metadata.payloadBytes : undefined;
+  const artifactUri = metadataString(metadata, "artifactUri");
+  const artifactPath = metadataString(metadata, "artifactPath");
+  const text = [
+    `${material.text.split("\n", 1)[0] ?? `Tool observation ${toolCallId}`}`,
+    `nativeToolResult: call_id=${toolCallId} toolId=${toolId} providerToolName=${providerToolNameValue} status=${status}`,
+    payloadBytes === undefined ? "" : `payloadBytes: ${payloadBytes}`,
+    artifactUri === undefined ? "" : `payloadArtifact: ${artifactUri}`,
+    artifactPath === undefined ? "" : `payloadArtifactPath: ${artifactPath}`,
+    "payloadDelivery: full tool result is supplied separately as provider-native function_call_output; this PromptPack item is only an index.",
+    "reuseRule: use the native tool result already in this model input; do not call the same tool again unless a new missing fact is explicitly required.",
+  ].filter(Boolean).join("\n");
+
+  return {
+    ...material,
+    id: `${material.id ?? observation.observationId}:prompt-index`,
+    text,
+    metadata: {
+      ...metadata,
+      providerNativeToolResult: true,
+      originalObservationId: observation.observationId,
+      promptPayloadMode: "native-tool-result-index",
+    },
+  };
+}
 
 function promptMaterialsForTurn(input: {
   manifest: AgentManifest;
@@ -828,7 +878,7 @@ function promptMaterialsForTurn(input: {
     };
   });
 
-  const observationMaterials = input.observations.map((observation) => observation.material);
+  const observationMaterials = input.observations.map((observation) => promptMaterialForObservation(observation));
   const observationAnswerGuard: PromptPackMaterialDraft[] = input.observations.length === 0
     ? []
     : [{
@@ -1150,6 +1200,39 @@ function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Recor
     .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
 }
 
+function renderPromptPackProviderMaterials(materials: readonly StandardPromptPack["materials"][number][]): string {
+  return materials
+    .map((material) => [`<${material.kind} id="${material.id}">`, material.text, `</${material.kind}>`].join("\n"))
+    .join("\n\n");
+}
+
+function splitPromptPackForProvider(promptPack: StandardPromptPack): {
+  instructionText: string;
+  dynamicInputText: string;
+  instructionSegmentKinds: readonly PromptPackSegmentKind[];
+  dynamicSegmentKinds: readonly PromptPackSegmentKind[];
+  instructionEstimatedTokens: number;
+  dynamicEstimatedTokens: number;
+} {
+  const segmentPolicies = new Map(promptPack.cachePlan.segments.map((segment) => [segment.segmentKind, segment.cachePolicy]));
+  const instructionMaterials = promptPack.materials.filter((material) =>
+    segmentPolicies.get(material.promptSegmentKind) !== "dynamic-no-cache"
+  );
+  const dynamicMaterials = promptPack.materials.filter((material) =>
+    segmentPolicies.get(material.promptSegmentKind) === "dynamic-no-cache"
+  );
+  const instructionSegmentKinds = [...new Set(instructionMaterials.map((material) => material.promptSegmentKind))];
+  const dynamicSegmentKinds = [...new Set(dynamicMaterials.map((material) => material.promptSegmentKind))];
+  return {
+    instructionText: renderPromptPackProviderMaterials(instructionMaterials),
+    dynamicInputText: renderPromptPackProviderMaterials(dynamicMaterials),
+    instructionSegmentKinds,
+    dynamicSegmentKinds,
+    instructionEstimatedTokens: instructionMaterials.reduce((sum, material) => sum + material.estimatedTokens, 0),
+    dynamicEstimatedTokens: dynamicMaterials.reduce((sum, material) => sum + material.estimatedTokens, 0),
+  };
+}
+
 function estimateSerializedTokens(value: unknown): number {
   const serialized = typeof value === "string" ? value : JSON.stringify(value);
   return Math.max(0, Math.ceil((serialized?.length ?? 0) / 4));
@@ -1160,6 +1243,9 @@ function recordArrayLength(value: unknown): number {
 }
 
 function stableJsonForHash(value: unknown): string {
+  if (value === undefined) {
+    return "undefined";
+  }
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
   }
@@ -1177,21 +1263,181 @@ function hashDebugValue(value: unknown): string {
   return createHash("sha256").update(stableJsonForHash(value)).digest("hex");
 }
 
+function normalizeToolContext(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  const normalized: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (["invocationId", "toolCallId", "callId"].includes(key)) continue;
+    normalized[key] = normalizeToolContext(child);
+  }
+  return normalized;
+}
+
+function stringValueForKernel(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function firstStringValueForKernel(...values: readonly unknown[]): string | undefined {
+  for (const value of values) {
+    const candidate = stringValueForKernel(value);
+    if (candidate !== undefined) return candidate;
+  }
+  return undefined;
+}
+
+function stringArrayValueForKernel(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.map((item) => stringValueForKernel(item)).filter((item): item is string => item !== undefined)
+    : [];
+}
+
+function codeReadTargetPaths(args: Readonly<Record<string, unknown>>): readonly string[] {
+  const target = isRecord(args.target) ? args.target : undefined;
+  const values = [
+    ...stringArrayValueForKernel(args.targetPaths),
+    ...stringArrayValueForKernel(args.paths),
+    ...stringArrayValueForKernel(args.files),
+    ...stringArrayValueForKernel(target?.targetPaths),
+    ...stringArrayValueForKernel(target?.paths),
+    ...[
+      firstStringValueForKernel(args.targetPath, args.path, args.filePath, target?.targetPath, target?.path, target?.filePath),
+    ].filter((item): item is string => item !== undefined),
+  ];
+  return values.map((item) => item.trim()).filter((item, index, array) => item.length > 0 && array.indexOf(item) === index).sort();
+}
+
+function codeReadHasRange(args: Readonly<Record<string, unknown>>): boolean {
+  return isRecord(args.range) || isRecord(isRecord(args.target) ? args.target.range : undefined);
+}
+
+function codeReadCacheKey(toolId: string, args: Readonly<Record<string, unknown>>): string | undefined {
+  if (toolId !== "code.read") return undefined;
+  const paths = codeReadTargetPaths(args);
+  if (paths.length === 0) return undefined;
+  return `${toolId}:${stableJsonForHash({
+    paths,
+    includeLineNumbers: args.includeLineNumbers,
+    encoding: args.encoding,
+    context: normalizeToolContext(args.context),
+  })}`;
+}
+
+function isCodeMutationTool(toolId: string): boolean {
+  return ["code.overwrite", "code.modify", "code.replaceFile", "code.delete", "code.format"].includes(toolId);
+}
+
+function duplicateCodeReadRecord(input: {
+  sessionId: string;
+  toolCallId: string;
+  toolId: string;
+  providerToolName?: string;
+  args: Readonly<Record<string, unknown>>;
+  previousCallId: string;
+  now: string;
+}): { record: AgentToolCallRecord; observation: RuntimeObservationMaterial } {
+  const paths = codeReadTargetPaths(input.args);
+  const payload = {
+    kind: "agentCore.basicTool.code.read.cachedObservation",
+    duplicateOfToolCallId: input.previousCallId,
+    targetPaths: paths,
+    content: "",
+    files: [],
+    bytes: 0,
+    truncated: false,
+    unsafeSideEffects: false,
+    note: "This code.read request repeats content already returned earlier in the same model turn. Use the previous observation instead of rereading the file.",
+  };
+  const record: AgentToolCallRecord = {
+    callId: input.toolCallId,
+    toolId: input.toolId,
+    arguments: input.args,
+    ok: true,
+    output: payload,
+  };
+  const observation = createObservationMaterial({
+    observationId: `${input.sessionId}:observation:${input.toolCallId}:cached-read`,
+    source: "runtime",
+    status: "completed",
+    title: `BaseTool ${input.toolId} cached`,
+    summary: `duplicate code.read skipped; previous observation ${input.previousCallId} already contains ${paths.join(", ") || "the requested file"}`,
+    refs: [input.toolCallId, input.toolId, input.previousCallId],
+    payload,
+    metadata: metadataRecord({
+      toolCallId: input.toolCallId,
+      toolId: input.toolId,
+      providerToolName: input.providerToolName ?? "",
+      duplicateOfToolCallId: input.previousCallId,
+      duplicateObservationReuse: true,
+      createdAt: input.now,
+    }),
+  });
+  return { record, observation };
+}
+
 function providerBodyFingerprints(input: {
   providerBody: Readonly<Record<string, unknown>>;
   previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
   toolResultInputs: readonly unknown[];
 }): Readonly<Record<string, string>> {
   const providerInput = Array.isArray(input.providerBody.input) ? input.providerBody.input : [];
+  const dynamicInputItem = providerInput.find((item) =>
+    item !== null &&
+    typeof item === "object" &&
+    !Array.isArray(item) &&
+    (item as { role?: unknown }).role === "user"
+  );
   return {
     bodyHash: hashDebugValue(input.providerBody),
     toolsHash: hashDebugValue(input.providerBody.tools),
     inputHash: hashDebugValue(input.providerBody.input),
-    developerHash: hashDebugValue(providerInput[0]),
-    promptPackUserHash: hashDebugValue(providerInput[1]),
+    instructionsHash: hashDebugValue(input.providerBody.instructions),
+    developerHash: hashDebugValue(input.providerBody.instructions ?? providerInput[0]),
+    promptPackUserHash: hashDebugValue(dynamicInputItem ?? providerInput[1]),
     previousItemsHash: hashDebugValue(input.previousProviderOutputItems),
     toolResultsHash: hashDebugValue(input.toolResultInputs),
   };
+}
+
+function providerItemCallId(item: unknown): string | undefined {
+  if (!isRecord(item)) return undefined;
+  const callId = item.call_id;
+  return typeof callId === "string" && callId.trim().length > 0 ? callId.trim() : undefined;
+}
+
+function composeOpenAIResponsesInput(input: {
+  dynamicInputText: string;
+  previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
+  toolResultInputs: readonly Readonly<Record<string, unknown>>[];
+}): readonly Readonly<Record<string, unknown>>[] {
+  const toolResultsByCallId = new Map<string, Readonly<Record<string, unknown>>[]>();
+  for (const toolResult of input.toolResultInputs) {
+    const callId = providerItemCallId(toolResult);
+    if (callId === undefined) continue;
+    toolResultsByCallId.set(callId, [...(toolResultsByCallId.get(callId) ?? []), toolResult]);
+  }
+
+  const providerInput: Readonly<Record<string, unknown>>[] = [];
+  const consumedToolResults = new Set<Readonly<Record<string, unknown>>>();
+  for (const previousItem of input.previousProviderOutputItems) {
+    providerInput.push(previousItem);
+    const callId = providerItemCallId(previousItem);
+    if (callId === undefined) continue;
+    for (const toolResult of toolResultsByCallId.get(callId) ?? []) {
+      providerInput.push(toolResult);
+      consumedToolResults.add(toolResult);
+    }
+  }
+  providerInput.push(
+    ...input.toolResultInputs.filter((toolResult) => !consumedToolResults.has(toolResult)),
+    {
+      role: "user",
+      content: [{
+        type: "input_text",
+        text: input.dynamicInputText,
+      }],
+    },
+  );
+  return providerInput;
 }
 
 function normalizedSelection(values: readonly string[] | undefined): string[] {
@@ -1204,6 +1450,7 @@ function buildPromptPackCacheDebug(input: {
   promptCacheKey?: string;
   previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
   toolResultInputs: readonly unknown[];
+  promptSplit: ReturnType<typeof splitPromptPackForProvider>;
 }): AgentModelCacheDebugRecord {
   const segments = input.promptPack.cachePlan.segments.map((segment) => ({
     segmentKind: segment.segmentKind,
@@ -1231,6 +1478,14 @@ function buildPromptPackCacheDebug(input: {
       segmentCount: segments.length,
       segments,
       cacheRiskWarnings: input.promptPack.cachePlan.cacheRiskWarnings,
+      providerLowering: {
+        instructionSegmentKinds: input.promptSplit.instructionSegmentKinds,
+        dynamicInputSegmentKinds: input.promptSplit.dynamicSegmentKinds,
+        instructionEstimatedTokens: input.promptSplit.instructionEstimatedTokens,
+        dynamicInputEstimatedTokens: input.promptSplit.dynamicEstimatedTokens,
+        instructionsHash: hashDebugValue(input.promptSplit.instructionText),
+        dynamicInputHash: hashDebugValue(input.promptSplit.dynamicInputText),
+      },
     },
     providerBody: {
       estimatedTokens: estimateSerializedTokens(input.providerBody),
@@ -1255,32 +1510,31 @@ function buildCodexResponsesBodyFromPromptPack(
     promptCacheKey?: string;
   } = {},
 ): Readonly<Record<string, unknown>> {
+  const promptSplit = splitPromptPackForProvider(promptPack);
+  const stableInstructionText = [
+    "You are running inside PraxisRuntimeKernel. Use the Praxis PromptPack as current situation context.",
+    PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+    promptSplit.instructionText.length > 0
+      ? [
+        "Praxis PromptPack stable context follows. Treat it as governing instructions and stable tool/context guidance.",
+        promptSplit.instructionText,
+      ].join("\n\n")
+      : undefined,
+  ].filter((part): part is string => typeof part === "string" && part.length > 0).join("\n\n");
+  const dynamicInputText = promptSplit.dynamicInputText.length > 0
+    ? promptSplit.dynamicInputText
+    : "Current Praxis turn has no dynamic prompt material.";
   const toolResultInputs = providerToolResultsFromObservations(options.observations ?? [])
     .map((result) => lowerProviderToolResult({ providerFamily: "openaiResponses", result }));
   const body: Record<string, unknown> = {
     model: manifest.model.model,
     ...(options.promptCacheKey === undefined ? {} : { prompt_cache_key: options.promptCacheKey }),
-    input: [
-      {
-        role: "developer",
-        content: [{
-          type: "input_text",
-          text: [
-            "You are running inside PraxisRuntimeKernel. Use the Praxis PromptPack as current situation context.",
-            PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
-          ].join("\n\n"),
-        }],
-      },
-      {
-        role: "user",
-        content: [{
-          type: "input_text",
-          text: promptPack.renderedText,
-        }],
-      },
-      ...(options.previousProviderOutputItems ?? []),
-      ...toolResultInputs,
-    ],
+    instructions: stableInstructionText,
+    input: composeOpenAIResponsesInput({
+      dynamicInputText,
+      previousProviderOutputItems: options.previousProviderOutputItems ?? [],
+      toolResultInputs,
+    }),
   };
 
   if (options.exposeProviderTools !== false) {
@@ -2333,6 +2587,7 @@ export class PraxisRuntimeKernel {
     const toolCalls: AgentToolCallRecord[] = [];
     const mainLoopSteps: MainLoopStepRecord[] = [];
     const observations: RuntimeObservationMaterial[] = [];
+    const sameTurnCodeReadCache = new Map<string, { callId: string; fullFileRead: boolean }>();
     const createdAt = now();
 
     await store.createSession({
@@ -2642,6 +2897,7 @@ export class PraxisRuntimeKernel {
       const stepBase = turn * 20 + 2;
       const modelInvocationId = `${sessionId}:model:${turn + 1}`;
       const promptCacheKey = stablePromptCacheKey(manifest, sessionId);
+      const promptSplit = splitPromptPackForProvider(prompt.promptPack);
       const toolResultInputs = providerToolResultsFromObservations(observations)
         .map((result) => lowerProviderToolResult({ providerFamily: "openaiResponses", result }));
       const providerBody = buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
@@ -2656,6 +2912,7 @@ export class PraxisRuntimeKernel {
         promptCacheKey,
         previousProviderOutputItems: providerResponseOutputItems,
         toolResultInputs,
+        promptSplit,
       });
       await options.onModelCallProgress?.({
         phase: "started",
@@ -3163,6 +3420,57 @@ export class PraxisRuntimeKernel {
             providerToolName: decision.toolCall.providerToolName,
             arguments: decision.toolCall.arguments,
           });
+          const readCacheKey = codeReadCacheKey(decision.toolCall.toolId, decision.toolCall.arguments);
+          const cachedRead = readCacheKey === undefined ? undefined : sameTurnCodeReadCache.get(readCacheKey);
+          if (cachedRead?.fullFileRead === true) {
+            const reused = duplicateCodeReadRecord({
+              sessionId,
+              toolCallId: decision.toolCall.callId,
+              toolId: decision.toolCall.toolId,
+              providerToolName: decision.toolCall.providerToolName,
+              args: decision.toolCall.arguments,
+              previousCallId: cachedRead.callId,
+              now: now(),
+            });
+            await options.onToolCallProgress?.({
+              phase: "completed",
+              providerToolName: decision.toolCall.providerToolName,
+              record: reused.record,
+            });
+            toolCalls.push(reused.record);
+            observations.push(reused.observation);
+            await store.appendInvocation(invocation(sessionId, reused.record.callId, "tool", reused.record.toolId, true, now(), {
+              ok: true,
+              decisionId: decision.decisionId,
+              duplicateOfToolCallId: cachedRead.callId,
+            }));
+            await recordMainLoopStep({
+              store,
+              sessionId,
+              createdAt: now(),
+              events,
+              mainLoopSteps,
+              step: createMainLoopStepRecord({
+                sessionId,
+                turnIndex: turn,
+                stepIndex: stepBase + 6 + decisionIndex,
+                actionPrimitive: "invokeBaseTool",
+                status: "completed",
+                inputRefs: [decision.decisionId],
+                outputRefs: [reused.record.callId],
+                toolCallId: reused.record.callId,
+                observationRefs: [reused.observation.observationId],
+                now: now(),
+                metadata: {
+                  toolId: reused.record.toolId,
+                  providerToolName: decision.toolCall.providerToolName ?? "",
+                  duplicateObservationReuse: true,
+                  duplicateOfToolCallId: cachedRead.callId,
+                },
+              }),
+            });
+            return { ok: true, continueLoop: true, events: ["runtime.baseTool.codeRead.duplicateObservationReused"] };
+          }
           const executed = await executeBaseToolDecision({
             runtimeId,
             sessionId,
@@ -3188,6 +3496,16 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(executed.record);
           observations.push(executed.observation);
+          if (isCodeMutationTool(executed.record.toolId)) {
+            sameTurnCodeReadCache.clear();
+          } else if (readCacheKey !== undefined && executed.record.ok) {
+            const output = isRecord(executed.record.output) ? executed.record.output : undefined;
+            const truncated = output?.truncated === true;
+            sameTurnCodeReadCache.set(readCacheKey, {
+              callId: executed.record.callId,
+              fullFileRead: !codeReadHasRange(executed.record.arguments) && !truncated,
+            });
+          }
           toolContextHeatState = applyBaseToolContextUsage(
             toolContextHeatState,
             [{ toolId: executed.record.toolId }],

@@ -440,6 +440,7 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
   assert.equal(typeof capturedBody, "object");
   assert.notEqual(capturedBody, null);
   const body = capturedBody as {
+    instructions?: string;
     input?: readonly {
       role?: string;
       content?: readonly { text?: string }[];
@@ -453,6 +454,10 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
   assert.match(providerBodyText, /baseTool context mode=intelligent/);
   assert.match(providerBodyText, /stable manual index and compact tool summary layer/);
   assert.match(providerBodyText, /BaseTool family: codeBase/);
+  assert.match(body.instructions ?? "", /Praxis PromptPack stable context follows/u);
+  assert.match(body.instructions ?? "", /stable manual index and compact tool summary layer/u);
+  assert.match(body.input?.[0]?.content?.[0]?.text ?? "", /list tools/u);
+  assert.doesNotMatch(body.input?.[0]?.content?.[0]?.text ?? "", /BaseTool family: codeBase/u);
   assert.deepEqual(body.tools?.map((item) => item.name), [
     "praxis_tool_code_read",
     "praxis_tool_code_read_2",
@@ -632,13 +637,111 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   assert.match(secondProviderBodyText, /runtime:base-tool-protocol/u);
   assert.doesNotMatch(firstProviderBodyText, /runtime:base-tool-protocol:\d+/u);
   assert.doesNotMatch(secondProviderBodyText, /runtime:base-tool-protocol:\d+/u);
-  const secondProviderBody = providerBodies[1] as { input?: readonly { type?: string; call_id?: string; output?: string }[] };
-  const nativeFunctionCall = secondProviderBody.input?.find((item) => item.type === "function_call");
-  const nativeToolResult = secondProviderBody.input?.find((item) => item.type === "function_call_output");
-  assert.equal(secondProviderBody.input?.some((item) => item.type === "reasoning"), false);
+  const secondProviderBody = providerBodies[1] as {
+    input?: readonly { type?: string; call_id?: string; output?: string; role?: string; content?: unknown }[];
+  };
+  const secondProviderInput = secondProviderBody.input ?? [];
+  const nativeFunctionCallIndex = secondProviderInput.findIndex((item) => item.type === "function_call");
+  const nativeToolResultIndex = secondProviderInput.findIndex((item) => item.type === "function_call_output");
+  const dynamicPromptIndex = secondProviderInput.findIndex((item) => item.role === "user");
+  const nativeFunctionCall = secondProviderInput[nativeFunctionCallIndex];
+  const nativeToolResult = secondProviderInput[nativeToolResultIndex];
+  const dynamicPrompt = secondProviderInput[dynamicPromptIndex];
+  assert.equal(secondProviderInput.some((item) => item.type === "reasoning"), false);
+  assert.equal(nativeFunctionCallIndex >= 0, true);
+  assert.equal(nativeToolResultIndex > nativeFunctionCallIndex, true);
+  assert.equal(dynamicPromptIndex > nativeToolResultIndex, true);
   assert.equal(nativeFunctionCall?.call_id, "tool-call-1");
   assert.equal(nativeToolResult?.call_id, "tool-call-1");
   assert.match(nativeToolResult?.output ?? "", /needle from runtime kernel/);
+  const dynamicPromptText = JSON.stringify(dynamicPrompt) ?? "";
+  assert.match(dynamicPromptText, /nativeToolResult: call_id=tool-call-1/u);
+  assert.doesNotMatch(dynamicPromptText, /needle from runtime kernel/u);
+});
+
+test("PraxisRuntimeKernel.runManifest reuses same-turn full code.read observations for repeated range reads", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-read-reuse-"));
+  await writeFile(path.join(workspace, "index.html"), "<main>already read once</main>\n", "utf8");
+
+  class ReadReuseAgent extends PraxisAgent {
+    identity = "agent.read-reuse";
+    model = model("gpt-5.4", { carrierId: "carrier.read-reuse" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 3, maxToolCalls: 2 }),
+    });
+  }
+
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-read-reuse",
+    sessionId: "session-read-reuse",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+    },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-read-reuse" }).run(new ReadReuseAgent(), "read index twice", {
+    sessionId: "session-read-reuse",
+    dryRun: false,
+    allowProviderCall: true,
+    allowToolExecution: true,
+    auth: authEnvelope(),
+    executor,
+    providerCaller: async () => {
+      calls += 1;
+      if (calls === 1) {
+        return {
+          output: [{
+            type: "function_call",
+            name: "code.read",
+            call_id: "read-full",
+            arguments: JSON.stringify({
+              targetPath: "index.html",
+              includeLineNumbers: true,
+              maxBytes: 50000,
+              context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+            }),
+          }],
+        };
+      }
+      if (calls === 2) {
+        return {
+          output: [{
+            type: "function_call",
+            name: "code.read",
+            call_id: "read-range",
+            arguments: JSON.stringify({
+              targetPath: "index.html",
+              includeLineNumbers: true,
+              range: { startLine: 1, endLine: 20 },
+              maxBytes: 20000,
+              context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+            }),
+          }],
+        };
+      }
+      return { output_text: "duplicate read reused previous observation" };
+    },
+    now: () => "2026-05-15T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 2);
+  assert.equal(result.toolCalls[0]?.callId, "read-full");
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /already read once/);
+  assert.equal(result.toolCalls[1]?.callId, "read-range");
+  assert.equal((result.toolCalls[1]?.output as { kind?: string }).kind, "agentCore.basicTool.code.read.cachedObservation");
+  assert.doesNotMatch(JSON.stringify(result.toolCalls[1]?.output), /already read once/);
+  assert.equal(result.mainLoopSteps.some((step) => step.metadata.duplicateObservationReuse === true), true);
 });
 
 test("PraxisRuntimeKernel.runManifest enriches skill permissions and relative roots for model tool calls", async () => {
