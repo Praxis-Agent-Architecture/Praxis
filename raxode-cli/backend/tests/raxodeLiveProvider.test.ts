@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { extractAndPublishSseDeltas, readSseTextDelta } from "../authentication/liveProvider.js";
+import {
+  createCodexRoutingTransport,
+  extractAndPublishSseDeltas,
+  readSseTextDelta,
+} from "../authentication/liveProvider.js";
 
 test("raxode live provider extracts output text deltas from SSE payloads", () => {
   assert.equal(readSseTextDelta(JSON.stringify({
@@ -83,4 +87,70 @@ test("raxode live provider keeps tool preview identity across split SSE reads", 
   assert.deepEqual(events.map((event) => event.phase), ["started", "delta"]);
   assert.equal(events[1]?.callId, "call_code_1");
   assert.equal(events[1]?.providerToolName, "praxis_tool_code_scan");
+});
+
+test("raxode live provider replays Codex turn-state within one transport", async () => {
+  const requests: Array<{
+    headers?: Readonly<Record<string, string>>;
+    body?: unknown;
+  }> = [];
+  const transport = createCodexRoutingTransport(async (request) => {
+    requests.push({ headers: request.headers, body: request.body });
+    const headers: Record<string, string> = requests.length === 1 ? { "x-codex-turn-state": "turn-state-1" } : {};
+    return {
+      status: 200,
+      headers,
+      body: "",
+    };
+  }, {
+    sessionId: "session-test",
+    runtimeId: "runtime-test",
+    turnId: "turn.1",
+    installationId: "install-test",
+  });
+
+  await transport({
+    method: "POST",
+    url: "https://example.invalid/responses",
+    headers: { "content-type": "application/json" },
+    body: { client_metadata: { client_name: "praxis-raxode" } },
+  });
+  await transport({
+    method: "POST",
+    url: "https://example.invalid/responses",
+    headers: { "content-type": "application/json" },
+    body: { client_metadata: { client_name: "praxis-raxode" } },
+  });
+
+  assert.equal(requests[0]?.headers?.["x-codex-turn-state"], undefined);
+  assert.equal(requests[1]?.headers?.["x-codex-turn-state"], "turn-state-1");
+  assert.equal(requests[1]?.headers?.session_id, "session-test");
+  assert.equal(requests[1]?.headers?.["x-client-request-id"], "session-test");
+  assert.match(String(requests[1]?.headers?.["x-codex-turn-metadata"]), /"turn_id":"turn\.1"/u);
+  assert.equal(
+    (requests[1]?.body as { client_metadata?: Record<string, string> }).client_metadata?.["x-codex-installation-id"],
+    "install-test",
+  );
+  assert.equal(
+    (requests[1]?.body as { client_metadata?: Record<string, string> }).client_metadata?.["x-codex-window-id"],
+    "runtime-test",
+  );
+});
+
+test("raxode live provider turn-state is reset by a new transport instance", async () => {
+  const headers: Array<Readonly<Record<string, string>> | undefined> = [];
+  const first = createCodexRoutingTransport(async (request) => {
+    headers.push(request.headers);
+    return { status: 200, headers: { "x-codex-turn-state": "turn-state-1" }, body: "" };
+  });
+  const second = createCodexRoutingTransport(async (request) => {
+    headers.push(request.headers);
+    return { status: 200, headers: {}, body: "" };
+  });
+
+  await first({ method: "POST", url: "https://example.invalid/responses" });
+  await second({ method: "POST", url: "https://example.invalid/responses" });
+
+  assert.equal(headers[0]?.["x-codex-turn-state"], undefined);
+  assert.equal(headers[1]?.["x-codex-turn-state"], undefined);
 });

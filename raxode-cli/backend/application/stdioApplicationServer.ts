@@ -59,6 +59,9 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     permissionProfile: "standard",
     now: options.now,
     liveProviderResolver: async (manifest, context) => createRaxodeLiveProvider(manifest, {
+      sessionId: context?.sessionId,
+      runtimeId: context?.runtimeId,
+      turnId: context?.turnId,
       onTextDelta: context?.onTextDelta,
       onProviderStreamEvent: context?.onProviderStreamEvent,
     }),

@@ -98,7 +98,7 @@ test("context footer uses provider input tokens for real input-window occupancy"
   });
 
   assert.equal(usedTokens, 147_374);
-  assert.equal(formatDirectTuiContextRemainingPercent(usedTokens, 258_400), "43%");
+  assert.equal(formatDirectTuiContextRemainingPercent(usedTokens, 258_400), "45%");
 });
 
 test("context footer falls back to prompt estimate when provider input tokens are missing", () => {
@@ -108,13 +108,13 @@ test("context footer falls back to prompt estimate when provider input tokens ar
   }), 1_000);
 });
 
-test("context footer reports remaining context directly against the usable input window", () => {
-  assert.equal(formatDirectTuiContextRemainingPercent(27_199, 258_400), "89%");
+test("context footer reports remaining context against the user-controllable input window", () => {
+  assert.equal(formatDirectTuiContextRemainingPercent(27_199, 258_400), "94%");
   assert.equal(formatDirectTuiContextRemainingPercent(0, 258_400), "100%");
 });
 
-test("context footer reports used context directly against the usable input window", () => {
-  assert.equal(formatDirectTuiContextUsedPercent(27_199, 258_400), "11%");
+test("context footer reports used context against the user-controllable input window", () => {
+  assert.equal(formatDirectTuiContextUsedPercent(27_199, 258_400), "6%");
   assert.equal(formatDirectTuiContextUsedPercent(0, 258_400), "0%");
 });
 

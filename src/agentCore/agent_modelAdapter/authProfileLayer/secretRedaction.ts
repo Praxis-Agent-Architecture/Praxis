@@ -9,7 +9,7 @@
  * 实现提示：保持纯函数和无副作用，优先返回可序列化 public-safe 数据。
  */
 
-const SECRET_KEY_PATTERN = /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|chatgpt[-_]?account[-_]?id|account[-_]?id|user[-_]?id|secret|credential)/iu;
+const SECRET_KEY_PATTERN = /(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|id[-_]?token|chatgpt[-_]?account[-_]?id|account[-_]?id|user[-_]?id|codex[-_]?turn[-_]?state|secret|credential)/iu;
 const BEARER_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+/giu;
 const LONG_SECRET_PATTERN = /\b(?:sk-[A-Za-z0-9_-]{12,}|rt_[A-Za-z0-9._~+/=-]{12,}|eyJ[A-Za-z0-9._~+/=-]{20,})\b/gu;
 

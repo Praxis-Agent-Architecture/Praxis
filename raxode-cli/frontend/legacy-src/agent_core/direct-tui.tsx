@@ -7516,7 +7516,10 @@ function buildRunStatusLine(
 
   const dotFrame = RUN_STATUS_DOT_FRAMES[Math.floor(frame / 16) % RUN_STATUS_DOT_FRAMES.length] ?? "··";
   const thinkingLabel = "Thinking";
-  const taskText = buildRunStatusPhraseText({ frame, maxWidth: lineWidth });
+  const indicatorLabel = indicator.label.trim();
+  const taskText = indicatorLabel.length > 0
+    ? indicatorLabel
+    : buildRunStatusPhraseText({ frame, maxWidth: lineWidth });
   const elapsedText = formatElapsedFromMs(Date.now() - Date.parse(indicator.startedAt));
   const suffixText = ` (${elapsedText} · press esc to interrupt)`;
   const prefixWidth = stringWidth(dotFrame) + 1 + stringWidth(thinkingLabel) + 1 + stringWidth(suffixText);
@@ -7540,7 +7543,7 @@ function buildRunStatusLine(
     kind: "detail",
     text: `${dotFrame} ${thinkingLabel} ${visibleTaskText}${suffixText}`,
     segments: [
-      { text: dotFrame, color: TUI_THEME.violet },
+      { text: dotFrame, color: "orange" },
       { text: " " },
       { text: thinkingLabel, color: "orange" },
       { text: " " },

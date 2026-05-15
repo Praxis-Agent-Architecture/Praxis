@@ -519,10 +519,10 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(turnResult?.core?.usage?.lastTotalTokens, 54);
   assert.equal(turnResult?.core?.usage?.estimated, false);
   assert.equal(turnResult?.core?.usage?.source, "openai.responses.usage");
-  assert.equal(turnResult?.core?.context?.contextSource, "application.history.estimate");
+  assert.equal(turnResult?.core?.context?.contextSource, "provider.model-call.usage");
   assert.equal(turnResult?.core?.context?.usageSource, "openai.responses.usage");
   assert.equal(turnResult?.core?.context?.activeTokens, turnResult?.core?.context?.promptTokens);
-  assert.notEqual(turnResult?.core?.context?.promptTokens, 44);
+  assert.equal(turnResult?.core?.context?.promptTokens, 44);
   assert.equal(turnResult?.core?.context?.lastRequestInputTokens, 44);
   assert.equal(turnResult?.core?.context?.lastRequestTotalTokens, 54);
   assert.ok((turnResult?.core?.context?.transcriptTokens ?? 0) > 0);

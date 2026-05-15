@@ -328,8 +328,13 @@ test("credentialStore and authProbe expose only redacted credential state", () =
 
 test("secret redaction covers nested records and authorization headers", () => {
   assert.equal(redactSecretText("Authorization: Bearer sk-test-secret-1234567890"), "Authorization: Bearer [redacted]");
-  assert.deepEqual(redactHeaders({ authorization: "Bearer sk-test-secret-1234567890", "x-safe": "ok" }), {
+  assert.deepEqual(redactHeaders({
+    authorization: "Bearer sk-test-secret-1234567890",
+    "x-codex-turn-state": "route-token",
+    "x-safe": "ok",
+  }), {
     authorization: "[redacted:32]",
+    "x-codex-turn-state": "[redacted:11]",
     "x-safe": "ok",
   });
   const redacted = redactSecretRecord({

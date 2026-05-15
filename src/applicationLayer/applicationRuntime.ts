@@ -635,6 +635,7 @@ function formatConversationHistory(
 function estimateConversationContext(input: {
   messages: readonly ApplicationConversationMessage[];
   summary?: ApplicationConversationSummary;
+  usage?: PraxisApplicationUsageTelemetry;
 }): PraxisApplicationContextTelemetry {
   const historyText = formatConversationHistory(input.messages, input.summary) ?? "";
   const summaryTokens = estimateContextTokens(input.summary?.text ?? "");
@@ -643,16 +644,29 @@ function estimateConversationContext(input: {
       .map((message) => `${message.role}: ${message.text}`)
       .join("\n\n"),
   );
-  const activeTokens = estimateContextTokens(historyText);
+  const historyEstimatedTokens = estimateContextTokens(historyText);
+  const lastRequestInputTokens = input.usage?.lastInputTokens ?? input.usage?.inputTokens;
+  const lastRequestTotalTokens = input.usage?.lastTotalTokens ?? (
+    input.usage === undefined
+      ? undefined
+      : usageContextTotalTokens(input.usage)
+  );
+  const hasProviderUsage = typeof lastRequestInputTokens === "number" && Number.isFinite(lastRequestInputTokens);
+  const activeTokens = hasProviderUsage ? lastRequestInputTokens : historyEstimatedTokens;
   return {
     activeTokens,
     promptTokens: activeTokens,
     transcriptTokens,
     summaryTokens,
     historyMessages: input.messages.length,
-    estimated: true,
+    lastRequestInputTokens: hasProviderUsage ? lastRequestInputTokens : undefined,
+    lastRequestTotalTokens,
+    historyEstimatedTokens,
+    contextSource: hasProviderUsage ? "provider.model-call.usage" : "application.history.estimate",
+    usageSource: input.usage?.source,
+    estimated: !hasProviderUsage,
     compacted: input.summary !== undefined,
-    source: "application.history.estimate",
+    source: hasProviderUsage ? "provider.model-call.usage" : "application.history.estimate",
   };
 }
 
@@ -1372,6 +1386,7 @@ function createModelProgressEvent(input: {
       carrierId: input.progress.carrierId,
       model: input.progress.model,
       usage,
+      providerRouting: input.progress.phase === "started" ? undefined : input.progress.providerRouting,
       cacheDebug: input.progress.phase === "started" ? undefined : input.progress.cacheDebug,
       providerResponseId: input.progress.phase === "started" ? undefined : input.progress.providerResponseId,
       previousProviderResponseId: input.progress.phase === "started" ? undefined : input.progress.previousProviderResponseId,
@@ -1422,15 +1437,36 @@ function compareApplicationModelCacheDebug(
     ...Object.keys(currentFingerprints),
   ])].sort();
   const changedFingerprintKeys = fingerprintKeys.filter((key) => previousFingerprints[key] !== currentFingerprints[key]);
+  const stablePrefixChanged = previous.providerBody.cacheShape.stablePrefixHash !== cacheDebug.providerBody.cacheShape.stablePrefixHash;
+  const dynamicPayloadChanged = previous.providerBody.cacheShape.dynamicPayloadHash !== cacheDebug.providerBody.cacheShape.dynamicPayloadHash;
+  const instructionsChanged = previousFingerprints.instructionsHash !== currentFingerprints.instructionsHash;
+  const toolsChanged = previousFingerprints.toolsHash !== currentFingerprints.toolsHash;
+  const observedUsage = cacheDebug.observedUsage;
+  const stablePrefixMissWithStableBody =
+    observedUsage?.diagnosis === "stable-prefix-cache-break"
+    && observedUsage.cachedInputTokens === 0
+    && !stablePrefixChanged
+    && !instructionsChanged
+    && !toolsChanged;
   return {
     ...cacheDebug,
+    observedUsage: stablePrefixMissWithStableBody
+      ? {
+        ...observedUsage,
+        diagnosis: "provider-cache-miss-with-stable-prefix",
+        reasons: [
+          ...observedUsage.reasons,
+          "stable prefix and provider tool fingerprints match the previous application model call; this looks like provider cache routing/reuse miss, not PromptPack prefix drift",
+        ],
+      }
+      : observedUsage,
     comparisonToPrevious: {
       previousStablePrefixHash: previous.providerBody.cacheShape.stablePrefixHash,
       previousDynamicPayloadHash: previous.providerBody.cacheShape.dynamicPayloadHash,
-      stablePrefixChanged: previous.providerBody.cacheShape.stablePrefixHash !== cacheDebug.providerBody.cacheShape.stablePrefixHash,
-      dynamicPayloadChanged: previous.providerBody.cacheShape.dynamicPayloadHash !== cacheDebug.providerBody.cacheShape.dynamicPayloadHash,
-      instructionsChanged: previousFingerprints.instructionsHash !== currentFingerprints.instructionsHash,
-      toolsChanged: previousFingerprints.toolsHash !== currentFingerprints.toolsHash,
+      stablePrefixChanged,
+      dynamicPayloadChanged,
+      instructionsChanged,
+      toolsChanged,
       changedFingerprintKeys,
     },
   };
@@ -2182,7 +2218,11 @@ function addOptionalNumber(left: number | undefined, right: number | undefined):
   return (left ?? 0) + (right ?? 0);
 }
 
-function usageContextTotalTokens(usage: NonNullable<AgentModelCallRecord["usage"]>): number | undefined {
+function usageContextTotalTokens(usage: {
+  totalTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}): number | undefined {
   if (typeof usage.totalTokens === "number" && Number.isFinite(usage.totalTokens)) {
     return usage.totalTokens;
   }
@@ -2354,6 +2394,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     const context = estimateConversationContext({
       messages: state.conversationHistory.get(state.sessionId) ?? [],
       summary: state.conversationSummaries.get(state.sessionId),
+      usage: state.usage,
     });
     const lines = [
       `application: ${applicationId}`,

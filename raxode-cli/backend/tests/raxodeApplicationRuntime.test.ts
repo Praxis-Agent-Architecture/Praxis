@@ -166,6 +166,127 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.ok(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.changedFingerprintKeys?.includes("inputHash"));
 });
 
+test("raxode application runtime separates provider cache miss from stable PromptPack drift", async () => {
+  const events: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+  let calls = 0;
+  const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+    applicationId: "application.raxode.coding",
+    mode: "live",
+    model: "gpt-5.5",
+    reasoningEffort: "low",
+    permissionProfile: "bapr",
+    now: () => "2026-05-10T00:00:00.000Z",
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      providerCaller: async () => {
+        calls += 1;
+        const cachedTokens = calls === 1 ? 40 : 0;
+        return {
+          status: 200,
+          headers: {
+            "x-codex-turn-state": `turn-state-${calls}`,
+            "x-oai-request-id": `req-cache-${calls}`,
+          },
+          body: [
+            `data: {"type":"response.output_text.delta","delta":"cache check ${calls}"}`,
+            "",
+            `data: {"type":"response.completed","response":{"id":"resp-cache-${calls}","usage":{"input_tokens":44,"output_tokens":7,"total_tokens":51,"input_tokens_details":{"cached_tokens":${cachedTokens}}}}}`,
+            "",
+            "data: [DONE]",
+            "",
+          ].join("\n"),
+          providerRawShapePromoted: false,
+          publicSafe: true,
+        };
+      },
+    }),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const transport = createLocalApplicationTransport(created.runtime);
+  const unsubscribe = transport.subscribe((event) => events.push(event));
+  const sessionId = "session.raxode.cache-diagnosis.test";
+  try {
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: process.cwd(),
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    assert.equal((await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "cache first",
+        cwd: process.cwd(),
+      },
+    })).ok, true);
+    assert.equal((await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "cache second",
+        cwd: process.cwd(),
+      },
+    })).ok, true);
+  } finally {
+    unsubscribe();
+  }
+
+  const completedModelEvents = events
+    .map((event) => event as {
+      kind?: string;
+      metadata?: {
+        modelPhase?: string;
+        providerRouting?: {
+          responseCodexTurnState?: string;
+          responseHeaderNames?: readonly string[];
+          responseRequestId?: string;
+        };
+        cacheDebug?: {
+          comparisonToPrevious?: {
+            stablePrefixChanged?: boolean;
+            toolsChanged?: boolean;
+          };
+          observedUsage?: {
+            diagnosis?: string;
+            cachedInputTokens?: number;
+            reasons?: readonly string[];
+          };
+        };
+      };
+    })
+    .filter((event) => event.kind === "model" && event.metadata?.modelPhase === "completed");
+
+  assert.equal(completedModelEvents.length, 2);
+  assert.equal(completedModelEvents[0]?.metadata?.providerRouting?.responseCodexTurnState, "present");
+  assert.equal(completedModelEvents[0]?.metadata?.providerRouting?.responseRequestId, "req-cache-1");
+  assert.ok(completedModelEvents[0]?.metadata?.providerRouting?.responseHeaderNames?.includes("x-codex-turn-state"));
+  assert.equal(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.stablePrefixChanged, false);
+  assert.equal(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.toolsChanged, false);
+  assert.equal(completedModelEvents[1]?.metadata?.cacheDebug?.observedUsage?.cachedInputTokens, 0);
+  assert.equal(
+    completedModelEvents[1]?.metadata?.cacheDebug?.observedUsage?.diagnosis,
+    "provider-cache-miss-with-stable-prefix",
+  );
+  assert.ok(
+    completedModelEvents[1]?.metadata?.cacheDebug?.observedUsage?.reasons?.some((reason) =>
+      reason.includes("provider cache routing/reuse miss")),
+  );
+});
+
 test("raxode application runtime injects expanded BaseTool manuals for one model turn", async () => {
   const providerBodies: unknown[] = [];
   const fakeAuth: AuthEnvelope = {

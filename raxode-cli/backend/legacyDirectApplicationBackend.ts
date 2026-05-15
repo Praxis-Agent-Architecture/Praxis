@@ -739,6 +739,9 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     permissionProfile,
     now: options.now,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
+      sessionId: context?.sessionId,
+      runtimeId: context?.runtimeId,
+      turnId: context?.turnId,
       onTextDelta: context?.onTextDelta,
       onProviderStreamEvent: context?.onProviderStreamEvent,
     })),

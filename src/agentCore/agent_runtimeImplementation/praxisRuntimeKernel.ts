@@ -267,6 +267,7 @@ export type AgentModelCallRecord = {
   raw: unknown;
   ok: boolean;
   usage?: AgentModelUsageRecord;
+  providerRouting?: AgentModelProviderRoutingDebug;
   providerResponseId?: string;
   previousProviderResponseId?: string;
 };
@@ -279,6 +280,14 @@ export type AgentModelUsageRecord = {
   cachedInputTokens?: number;
   source?: string;
   estimated: boolean;
+};
+
+export type AgentModelProviderRoutingDebug = {
+  publicSafe: true;
+  responseHeaderNames: readonly string[];
+  responseCodexTurnState: "present" | "absent";
+  responseRequestId?: string;
+  responseOpenAIModel?: string;
 };
 
 export type AgentModelCallProgressEvent =
@@ -299,6 +308,7 @@ export type AgentModelCallProgressEvent =
       model?: string;
       ok: boolean;
       usage?: AgentModelUsageRecord;
+      providerRouting?: AgentModelProviderRoutingDebug;
       cacheDebug?: AgentModelCacheDebugRecord;
       providerResponseId?: string;
       previousProviderResponseId?: string;
@@ -370,6 +380,7 @@ export type AgentModelCacheDebugRecord = {
       | "warm-stable-prefix"
       | "dynamic-payload-dominates"
       | "stable-prefix-cache-break"
+      | "provider-cache-miss-with-stable-prefix"
       | "partial-cache-hit";
     reasons: readonly string[];
   };
@@ -1540,6 +1551,27 @@ function ratioOrZero(numerator: number, denominator: number): number {
   return Math.round((numerator / denominator) * 10_000) / 10_000;
 }
 
+function headerValueForKernel(headers: Readonly<Record<string, string>> | undefined, name: string): string | undefined {
+  const lowerName = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers ?? {})) {
+    if (key.toLowerCase() === lowerName && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function providerRoutingDebug(headers: Readonly<Record<string, string>> | undefined): AgentModelProviderRoutingDebug | undefined {
+  if (headers === undefined) return undefined;
+  return {
+    publicSafe: true,
+    responseHeaderNames: Object.keys(headers).map((key) => key.toLowerCase()).sort(),
+    responseCodexTurnState: headerValueForKernel(headers, "x-codex-turn-state") === undefined ? "absent" : "present",
+    responseRequestId: headerValueForKernel(headers, "x-request-id") ?? headerValueForKernel(headers, "x-oai-request-id"),
+    responseOpenAIModel: headerValueForKernel(headers, "openai-model"),
+  };
+}
+
 function normalizeToolContext(value: unknown): unknown {
   if (!isRecord(value)) return value;
   const normalized: Record<string, unknown> = {};
@@ -1869,8 +1901,25 @@ function cacheDebugWithPreviousComparison(
   const changedFingerprintKeys = fingerprintKeys.filter((key) => previousFingerprints[key] !== currentFingerprints[key]);
   const stablePrefixChanged = previous.providerBody.cacheShape.stablePrefixHash !== cacheDebug.providerBody.cacheShape.stablePrefixHash;
   const dynamicPayloadChanged = previous.providerBody.cacheShape.dynamicPayloadHash !== cacheDebug.providerBody.cacheShape.dynamicPayloadHash;
+  const observedUsage = cacheDebug.observedUsage;
+  const stablePrefixMissWithStableBody =
+    observedUsage?.diagnosis === "stable-prefix-cache-break"
+    && observedUsage.cachedInputTokens === 0
+    && !stablePrefixChanged
+    && previousFingerprints.instructionsHash === currentFingerprints.instructionsHash
+    && previousFingerprints.toolsHash === currentFingerprints.toolsHash;
   return {
     ...cacheDebug,
+    observedUsage: stablePrefixMissWithStableBody
+      ? {
+        ...observedUsage,
+        diagnosis: "provider-cache-miss-with-stable-prefix",
+        reasons: [
+          ...observedUsage.reasons,
+          "stable prefix and provider tool fingerprints match the previous model call; this looks like provider cache routing/reuse miss, not PromptPack prefix drift",
+        ],
+      }
+      : observedUsage,
     comparisonToPrevious: {
       previousStablePrefixHash: previous.providerBody.cacheShape.stablePrefixHash,
       previousDynamicPayloadHash: previous.providerBody.cacheShape.dynamicPayloadHash,
@@ -3366,6 +3415,9 @@ export class PraxisRuntimeKernel {
           estimated: modelResult.usage.estimated,
         }
         : undefined;
+      const providerRouting = modelResult.ok
+        ? providerRoutingDebug(modelResult.providerResult?.ok === true ? modelResult.providerResult.response.headers : undefined)
+        : undefined;
       const providerResponseId = modelResult.ok ? extractOpenAIResponseId(modelResult.raw) : undefined;
       const observedCacheDebug = cacheDebugWithPreviousComparison(
         cacheDebugWithObservedUsage(cacheDebug, modelUsage),
@@ -3381,6 +3433,7 @@ export class PraxisRuntimeKernel {
         model: manifest.model.model,
         ok: modelResult.ok,
         usage: modelUsage,
+        providerRouting,
         cacheDebug: observedCacheDebug,
         providerResponseId,
         previousProviderResponseId,
@@ -3394,6 +3447,7 @@ export class PraxisRuntimeKernel {
         raw: modelResult.ok ? modelResult.raw : null,
         ok: modelResult.ok,
         usage: modelUsage,
+        providerRouting,
         providerResponseId,
         previousProviderResponseId,
       });

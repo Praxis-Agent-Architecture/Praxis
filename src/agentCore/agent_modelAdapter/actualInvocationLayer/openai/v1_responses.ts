@@ -108,6 +108,7 @@ export type OpenAIV1ResponsesResponseEnvelope = {
   provider: "openai";
   endpoint: string;
   mode: "dry-run" | "mock" | "caller";
+  headers?: Readonly<Record<string, string>>;
   raw: unknown;
   usage?: OpenAIV1ResponsesUsage;
   providerFieldsOpaque: true;
@@ -355,6 +356,20 @@ export function extractOpenAIV1ResponsesUsage(raw: unknown): OpenAIV1ResponsesUs
   return usageFromRecord(raw);
 }
 
+function responseHeaders(raw: unknown): Readonly<Record<string, string>> | undefined {
+  if (raw !== null && typeof raw === "object" && !Array.isArray(raw) && "headers" in raw) {
+    const headers = (raw as { headers?: unknown }).headers;
+    if (headers !== null && typeof headers === "object" && !Array.isArray(headers)) {
+      return Object.fromEntries(
+        Object.entries(headers)
+          .filter((entry): entry is [string, string] =>
+            typeof entry[0] === "string" && typeof entry[1] === "string"),
+      );
+    }
+  }
+  return undefined;
+}
+
 export function classifyOpenAIV1ResponsesProviderError(error: unknown): OpenAIV1ResponsesErrorCode {
   const status = providerStatus(error);
   const code = providerCode(error);
@@ -511,8 +526,10 @@ export async function invokeOpenAIV1Responses(
   }
 
   try {
-    const raw = unwrapProviderCallerBody(await input.caller(request));
+    const providerEnvelope = await input.caller(request);
+    const raw = unwrapProviderCallerBody(providerEnvelope);
     const usage = extractOpenAIV1ResponsesUsage(raw);
+    const headers = responseHeaders(providerEnvelope);
     if (input.expectResponseObject === true && !isRecord(raw)) {
       return failure(
         "RESPONSE_FORMAT_DRIFT",
@@ -530,6 +547,7 @@ export async function invokeOpenAIV1Responses(
         provider: "openai",
         endpoint: request.endpoint,
         mode: "caller",
+        headers,
         raw,
         usage,
         providerFieldsOpaque: true,

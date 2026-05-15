@@ -92,9 +92,14 @@ export type PraxisApplicationContextTelemetry = {
   transcriptTokens: number;
   summaryTokens: number;
   historyMessages: number;
+  lastRequestInputTokens?: number;
+  lastRequestTotalTokens?: number;
+  historyEstimatedTokens?: number;
+  contextSource?: "application.history.estimate" | "provider.model-call.usage";
+  usageSource?: string;
   estimated: boolean;
   compacted: boolean;
-  source: "application.history.estimate";
+  source: "application.history.estimate" | "provider.model-call.usage";
 };
 
 export type PraxisApplicationManifestView = {

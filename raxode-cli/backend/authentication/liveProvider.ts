@@ -26,6 +26,14 @@ export type RaxodeLiveProvider = {
   authSource: string;
 };
 
+export type RaxodeCodexRoutingOptions = {
+  sessionId?: string;
+  runtimeId?: string;
+  turnId?: string;
+  installationId?: string;
+  windowId?: string;
+};
+
 export type RaxodeProviderStreamEvent = {
   channel: "tool_call_preview";
   phase: "started" | "delta" | "done";
@@ -57,6 +65,93 @@ function appendQuery(url: string, query: Readonly<Record<string, string>> | unde
     target.searchParams.set(key, value);
   }
   return target.toString();
+}
+
+function cleanHeaderValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && /^[\x20-\x7e]+$/u.test(trimmed) ? trimmed : undefined;
+}
+
+function headerValue(headers: Readonly<Record<string, string>>, name: string): string | undefined {
+  const lowerName = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === lowerName) {
+      return cleanHeaderValue(value);
+    }
+  }
+  return undefined;
+}
+
+function readCodexInstallationId(codexAuthPath: string): string | undefined {
+  const installationPath = path.join(path.dirname(codexAuthPath), "installation_id");
+  try {
+    return cleanHeaderValue(readFileSync(installationPath, "utf8"));
+  } catch {
+    return undefined;
+  }
+}
+
+function codexTurnMetadata(options: RaxodeCodexRoutingOptions): string | undefined {
+  const turnId = cleanHeaderValue(options.turnId);
+  const sessionId = cleanHeaderValue(options.sessionId);
+  const runtimeId = cleanHeaderValue(options.runtimeId);
+  if (turnId === undefined && sessionId === undefined && runtimeId === undefined) return undefined;
+  return JSON.stringify({
+    ...(sessionId ? { session_id: sessionId } : {}),
+    ...(turnId ? { turn_id: turnId } : {}),
+    ...(runtimeId ? { runtime_id: runtimeId } : {}),
+    source: "raxode",
+  });
+}
+
+function withCodexClientMetadata(body: unknown, options: RaxodeCodexRoutingOptions): unknown {
+  if (body === null || typeof body !== "object" || Array.isArray(body) || body instanceof FormData) {
+    return body;
+  }
+  const record = body as Record<string, unknown>;
+  const currentMetadata =
+    record.client_metadata !== null && typeof record.client_metadata === "object" && !Array.isArray(record.client_metadata)
+      ? record.client_metadata as Record<string, unknown>
+      : {};
+  const installationId = cleanHeaderValue(options.installationId);
+  const windowId = cleanHeaderValue(options.windowId ?? options.runtimeId);
+  return {
+    ...record,
+    client_metadata: {
+      ...currentMetadata,
+      ...(installationId ? { "x-codex-installation-id": installationId } : {}),
+      ...(windowId ? { "x-codex-window-id": windowId } : {}),
+    },
+  };
+}
+
+export function createCodexRoutingTransport(
+  baseTransport: ProviderTransport,
+  options: RaxodeCodexRoutingOptions = {},
+): ProviderTransport {
+  let turnState: string | undefined;
+  return async (request: ProviderTransportRequest): Promise<ProviderTransportResponse> => {
+    const sessionId = cleanHeaderValue(options.sessionId);
+    const requestId = sessionId;
+    const metadata = codexTurnMetadata(options);
+    const installationId = cleanHeaderValue(options.installationId);
+    const windowId = cleanHeaderValue(options.windowId ?? options.runtimeId);
+    const headers: Record<string, string> = {
+      ...(request.headers ?? {}),
+      ...(requestId ? { "x-client-request-id": requestId, session_id: requestId } : {}),
+      ...(metadata ? { "x-codex-turn-metadata": metadata } : {}),
+      ...(turnState ? { "x-codex-turn-state": turnState } : {}),
+      ...(installationId ? { "x-codex-installation-id": installationId } : {}),
+      ...(windowId ? { "x-codex-window-id": windowId } : {}),
+    };
+    const response = await baseTransport({
+      ...request,
+      headers,
+      body: withCodexClientMetadata(request.body, { ...options, installationId, windowId }),
+    });
+    turnState = headerValue(response.headers, "x-codex-turn-state") ?? turnState;
+    return response;
+  };
 }
 
 export function readSseTextDelta(payload: string): string {
@@ -311,10 +406,14 @@ function createStreamingProviderTransport(
 export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   codexAuthPath?: string;
   timeoutMs?: number;
+  sessionId?: string;
+  runtimeId?: string;
+  turnId?: string;
   onTextDelta?: (delta: string) => void;
   onProviderStreamEvent?: (event: RaxodeProviderStreamEvent) => void;
 } = {}): RaxodeLiveProvider {
   const codexAuthPath = options.codexAuthPath ?? path.join(process.env.HOME ?? "", ".codex", "auth.json");
+  const installationId = readCodexInstallationId(codexAuthPath);
   const credentialRef = createCredentialRef({
     id: `raxode:${manifest.identity.id}:chatgpt-codex`,
     provider: "openai",
@@ -348,7 +447,16 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   return {
     auth: auth.resolved.envelope,
     providerCaller: createProviderCaller({
-      transport: createStreamingProviderTransport(options.onTextDelta, options.onProviderStreamEvent),
+      transport: createCodexRoutingTransport(
+        createStreamingProviderTransport(options.onTextDelta, options.onProviderStreamEvent),
+        {
+          sessionId: options.sessionId,
+          runtimeId: options.runtimeId,
+          turnId: options.turnId,
+          installationId,
+          windowId: options.runtimeId,
+        },
+      ),
       authMaterial: auth.resolved.privateMaterial,
       timeoutMs: options.timeoutMs ?? 600_000,
     }),
