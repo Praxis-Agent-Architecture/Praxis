@@ -16,9 +16,6 @@ export interface DirectTuiContextUsageSnapshot {
   lastRequestTotalTokens?: number;
 }
 
-// Matches Codex's fixed prompt/tool baseline when showing user-controllable context.
-const DIRECT_TUI_CONTEXT_BASELINE_TOKENS = 12_000;
-
 function finiteNonNegativeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, value)
@@ -37,13 +34,11 @@ export function resolveDirectTuiContextUsedTokens(input: {
 }
 
 export function resolveDirectTuiContextRemainingPercent(used: number, total: number): number {
-  if (total <= DIRECT_TUI_CONTEXT_BASELINE_TOKENS) {
+  if (total <= 0) {
     return 0;
   }
-  const effectiveWindow = total - DIRECT_TUI_CONTEXT_BASELINE_TOKENS;
-  const baselineAdjustedUsed = Math.max(0, Math.max(0, used) - DIRECT_TUI_CONTEXT_BASELINE_TOKENS);
-  const remaining = Math.max(0, effectiveWindow - baselineAdjustedUsed);
-  return Math.round(Math.max(0, Math.min(100, (remaining / effectiveWindow) * 100)));
+  const usedRatio = Math.max(0, Math.min(1, Math.max(0, used) / total));
+  return Math.round((1 - usedRatio) * 100);
 }
 
 export function formatDirectTuiContextRemainingPercent(used: number, total: number): string {

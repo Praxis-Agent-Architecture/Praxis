@@ -5107,7 +5107,7 @@ function toolPreviewDeltaHasVisibleSignal(delta: unknown): boolean {
   if (typeof delta !== "string" || delta.length === 0) {
     return false;
   }
-  return /"(?:providerToolName|baseToolId|stepId|targetPath|targetPaths|path|filePath|command|script|content|newContent|replacementText|searchText|purpose)"\s*:/u.test(delta);
+  return /"(?:providerToolName|procedureId|executionMode|steps|input|baseToolId|stepId|targetPath|targetPaths|path|filePath|command|script|content|newContent|replacementText|searchText|purpose)"\s*:/u.test(delta);
 }
 
 function renderMarkdownSegments(line: string, baseColor: string): Array<{ text: string; color?: string }> {
@@ -5780,6 +5780,21 @@ function toolCallPreviewIdentity(record: LiveLogRecord): string | null {
   return typeof record.outputIndex === "number" && Number.isFinite(record.outputIndex)
     ? `output-${record.outputIndex}`
     : null;
+}
+
+function buildToolPreviewRunIndicatorLabel(input: {
+  capabilityKey?: string | null;
+  providerToolName?: string | null;
+}): string {
+  const capabilityKey = input.capabilityKey?.trim();
+  if (capabilityKey) {
+    return `model composing ${capabilityKey}`;
+  }
+  const providerToolName = input.providerToolName?.trim();
+  if (providerToolName) {
+    return `model composing ${providerToolName}`;
+  }
+  return "model composing tool call";
 }
 
 function pickFirstSentence(text: string): string {
@@ -7465,6 +7480,17 @@ function nextRunStatusShuffleState(state: number): number {
   return nextState >>> 0;
 }
 
+function shouldUseAnimatedRunStatusPhrase(label: string): boolean {
+  const normalized = label.trim().toLowerCase();
+  return normalized.length === 0
+    || normalized === "core thinking"
+    || normalized === "waiting for model decision"
+    || (
+      normalized.startsWith("requesting ")
+      && normalized.includes("waiting for model decision")
+    );
+}
+
 function buildRunStatusPhraseText(input: {
   frame: number;
   maxWidth: number;
@@ -7517,9 +7543,9 @@ function buildRunStatusLine(
   const dotFrame = RUN_STATUS_DOT_FRAMES[Math.floor(frame / 16) % RUN_STATUS_DOT_FRAMES.length] ?? "··";
   const thinkingLabel = "Thinking";
   const indicatorLabel = indicator.label.trim();
-  const taskText = indicatorLabel.length > 0
-    ? indicatorLabel
-    : buildRunStatusPhraseText({ frame, maxWidth: lineWidth });
+  const taskText = shouldUseAnimatedRunStatusPhrase(indicatorLabel)
+    ? buildRunStatusPhraseText({ frame, maxWidth: lineWidth })
+    : indicatorLabel;
   const elapsedText = formatElapsedFromMs(Date.now() - Date.parse(indicator.startedAt));
   const suffixText = ` (${elapsedText} · press esc to interrupt)`;
   const prefixWidth = stringWidth(dotFrame) + 1 + stringWidth(thinkingLabel) + 1 + stringWidth(suffixText);
@@ -11709,11 +11735,22 @@ function PraxisDirectTuiApp(): JSX.Element {
           if (record.event === "tool_call_preview") {
             const previewIdentity = toolCallPreviewIdentity(record);
             if (!previewIdentity) {
+              const capabilityKey = record.capabilityKey?.trim()
+                || capabilityKeyFromProviderToolName(record.providerToolName);
+              setRunIndicator((previous) => ({
+                startedAt: previous?.startedAt ?? at,
+                label: buildToolPreviewRunIndicatorLabel({
+                  capabilityKey,
+                  providerToolName: record.providerToolName,
+                }),
+              }));
               continue;
             }
             const previousIdentityMetadata = toolPreviewIdentityMetadataRef.current.get(previewIdentity);
             const providerToolName = record.providerToolName ?? previousIdentityMetadata?.providerToolName;
-            const capabilityKey = capabilityKeyFromProviderToolName(providerToolName) ?? previousIdentityMetadata?.capabilityKey;
+            const capabilityKey = record.capabilityKey?.trim()
+              || capabilityKeyFromProviderToolName(providerToolName)
+              || previousIdentityMetadata?.capabilityKey;
             toolPreviewIdentityMetadataRef.current.set(previewIdentity, {
               providerToolName,
               capabilityKey,
@@ -11747,6 +11784,13 @@ function PraxisDirectTuiApp(): JSX.Element {
               || previousPreview?.lastRenderedAt === undefined
               || nowMs - previousPreview.lastRenderedAt >= TOOL_PREVIEW_DELTA_RENDER_INTERVAL_MS
               || toolPreviewDeltaHasVisibleSignal(record.argumentsDelta);
+            setRunIndicator((previous) => ({
+              startedAt: previous?.startedAt ?? at,
+              label: buildToolPreviewRunIndicatorLabel({
+                capabilityKey: nextPreview.capabilityKey,
+                providerToolName: nextPreview.providerToolName,
+              }),
+            }));
             if (!shouldRenderPreview) {
               toolPreviewStateRef.current.set(stateKey, nextPreview);
               continue;
@@ -11838,14 +11882,6 @@ function PraxisDirectTuiApp(): JSX.Element {
                 }),
               });
             }
-            setRunIndicator((previous) => ({
-              startedAt: previous?.startedAt ?? at,
-              label: nextPreview.capabilityKey
-                ? `model composing ${nextPreview.capabilityKey}`
-                : nextPreview.providerToolName
-                ? `model composing ${nextPreview.providerToolName}`
-                : "model composing tool call",
-            }));
             continue;
           }
 
