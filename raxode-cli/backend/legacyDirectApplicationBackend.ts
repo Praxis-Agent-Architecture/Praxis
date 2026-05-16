@@ -375,7 +375,9 @@ function hasContextNumber(context: PraxisApplicationContextTelemetry | undefined
   );
 }
 
-function contextFor(result?: PraxisApplicationCommandResult) {
+type LegacyDirectContextSnapshot = ReturnType<typeof buildContextSnapshot>;
+
+function buildContextSnapshot(result?: PraxisApplicationCommandResult) {
   const model = result?.view.model;
   const context = hasContextNumber(result?.view.context) ? result.view.context : undefined;
   const usage = hasUsageNumber(result?.view.usage) ? result.view.usage : undefined;
@@ -390,9 +392,11 @@ function contextFor(result?: PraxisApplicationCommandResult) {
       ? usage.totalTokens
       : undefined;
   const estimatedActiveTokens = context?.activeTokens ?? context?.promptTokens ?? 0;
-  const activeTokens = estimatedActiveTokens;
+  const activeTokens = observedInputTokens ?? estimatedActiveTokens;
   const transcriptTokens = context?.transcriptTokens ?? 0;
-  const source = context?.source ?? "application.history.estimate";
+  const source = observedInputTokens === undefined
+    ? context?.source ?? "application.history.estimate"
+    : context?.source ?? "provider.model-call.usage";
   return {
     provider: model?.provider ?? "openai",
     model: model?.model ?? "gpt-5.5",
@@ -411,9 +415,52 @@ function contextFor(result?: PraxisApplicationCommandResult) {
     transcriptTokens,
     summaryTokens: context?.summaryTokens ?? 0,
     historyMessages: context?.historyMessages ?? 0,
-    estimated: context?.estimated ?? true,
+    estimated: observedInputTokens === undefined ? context?.estimated ?? true : false,
     compacted: context?.compacted ?? false,
   };
+}
+
+function isProviderBackedContext(context: LegacyDirectContextSnapshot | undefined): boolean {
+  if (!context) {
+    return false;
+  }
+  return context.contextSource === "provider.model-call.usage"
+    || context.usageSource === "provider.model-call.usage"
+    || typeof context.lastRequestInputTokens === "number"
+    || typeof context.lastRequestTotalTokens === "number";
+}
+
+function contextFor(
+  result?: PraxisApplicationCommandResult,
+  options: { lastProviderContext?: LegacyDirectContextSnapshot } = {},
+) {
+  const nextContext = buildContextSnapshot(result);
+  const previousProviderContext = options.lastProviderContext;
+  if (
+    result?.ok === false
+    && !isProviderBackedContext(nextContext)
+    && previousProviderContext !== undefined
+    && isProviderBackedContext(previousProviderContext)
+  ) {
+    return {
+      ...previousProviderContext,
+      transcriptTokens: Math.max(
+        previousProviderContext.transcriptTokens,
+        nextContext.transcriptTokens,
+      ),
+      summaryTokens: Math.max(
+        previousProviderContext.summaryTokens,
+        nextContext.summaryTokens,
+      ),
+      historyMessages: Math.max(
+        previousProviderContext.historyMessages,
+        nextContext.historyMessages,
+      ),
+      retainedAfterFailure: true,
+      failureContextSource: nextContext.contextSource,
+    };
+  }
+  return nextContext;
 }
 
 function usageFor(result: PraxisApplicationCommandResult) {
@@ -432,6 +479,23 @@ function usageFor(result: PraxisApplicationCommandResult) {
     source: usage.source,
     estimated: usage.estimated,
   };
+}
+
+function legacyResultErrorCode(error: { code: string; message: string }): string {
+  if (error.code !== "MODEL_INVOCATION_FAILED") {
+    return error.code;
+  }
+  const normalizedMessage = error.message.toLowerCase();
+  if (
+    normalizedMessage.includes("provider_http_error")
+    || normalizedMessage.includes("provider_unavailable")
+    || normalizedMessage.includes("status 503")
+    || normalizedMessage.includes("upstream connect error")
+    || normalizedMessage.includes("connection timeout")
+  ) {
+    return "PROVIDER_UNAVAILABLE";
+  }
+  return error.code;
 }
 
 function parseApplicationTurnIndex(turnId: string | undefined, fallback: number): number {
@@ -769,6 +833,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
   );
   let turnIndex = initialTurnIndex;
   let activeLegacyTurnIndex: number | undefined;
+  let lastProviderContext: LegacyDirectContextSnapshot | undefined;
   transport.subscribe((applicationEvent) => {
     const legacyTurnIndex = (() => {
       const applicationTurnId = applicationEvent.turnId;
@@ -790,6 +855,10 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
       turnIndex: legacyTurnIndex,
     });
     if (modelStageRecord) {
+      const modelContext = recordMetadata(modelStageRecord, "context") as LegacyDirectContextSnapshot | undefined;
+      if (isProviderBackedContext(modelContext)) {
+        lastProviderContext = modelContext;
+      }
       void enqueueRuntimeEventLog(modelStageRecord);
       return;
     }
@@ -836,7 +905,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     event: "session_start",
     sessionId,
     initialTurnIndex,
-    context: contextFor(start),
+    context: contextFor(start, { lastProviderContext }),
   });
 
   const handlePayload = async (rawPayload: string) => {
@@ -878,7 +947,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
       turnIndex,
       userMessage: normalized.text,
       inputSource: normalized.inputSource,
-      context: contextFor(start),
+      context: contextFor(start, { lastProviderContext }),
     });
     await writeLog(logPath, {
       ts: turnStartedAt,
@@ -936,6 +1005,16 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
       status: result.ok ? "completed" : "failed",
       text: result.ok ? "Raxode application backend completed." : result.view.error?.message ?? "Raxode application backend failed.",
     });
+    const finalContext = contextFor(result, { lastProviderContext });
+    if (isProviderBackedContext(finalContext)) {
+      lastProviderContext = finalContext;
+    }
+    const resultMetadata = result.ok
+      ? undefined
+      : {
+          errorCode: legacyResultErrorCode(result.view.error ?? result.error),
+          errorMessage: result.view.error?.message ?? result.error.message,
+        };
     await writeLog(logPath, {
       ts: completedAt,
       event: "turn_result",
@@ -946,11 +1025,12 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
         answer: finalText,
         dispatchStatus: result.ok ? "completed" : "failed",
         taskStatus: result.ok ? "completed" : "failed",
-        context: contextFor(result),
+        context: finalContext,
         usage: usageFor(result),
         elapsedMs: dispatchElapsedMs,
       },
-      context: contextFor(result),
+      context: finalContext,
+      resultMetadata,
     });
   };
   handlePayloadImpl = handlePayload;

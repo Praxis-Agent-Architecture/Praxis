@@ -57,19 +57,37 @@ export function buildDirectTuiSessionExitSummary(input: {
   const usageEntries = modelUsageEntries.length > 0
     ? modelUsageEntries
     : rawUsageEntries.filter((entry) => entry.kind !== "core_model");
+  const turnUsageEntries = rawUsageEntries.filter((entry) => entry.kind === "core_turn");
+  const outcomeEntries = turnUsageEntries.length > 0 ? turnUsageEntries : usageEntries;
+  const outcomeTotals = outcomeEntries.reduce((accumulator, entry) => {
+    accumulator.requestCount += 1;
+    if (entry.status === "success") {
+      accumulator.successCount += 1;
+    }
+    return accumulator;
+  }, {
+    requestCount: 0,
+    successCount: 0,
+  });
+  const modelOutcomeTotals = modelUsageEntries.reduce((accumulator, entry) => {
+    accumulator.requestCount += 1;
+    if (entry.status === "success") {
+      accumulator.successCount += 1;
+    }
+    return accumulator;
+  }, {
+    requestCount: 0,
+    successCount: 0,
+  });
   const totals = usageEntries.reduce((accumulator, entry) => {
     const inputTokens = typeof entry.inputTokens === "number" ? entry.inputTokens : 0;
     const cachedInputTokens = typeof entry.cachedInputTokens === "number" ? entry.cachedInputTokens : undefined;
     accumulator.inputTokens += inputTokens;
     accumulator.outputTokens += typeof entry.outputTokens === "number" ? entry.outputTokens : 0;
     accumulator.thinkingTokens += typeof entry.thinkingTokens === "number" ? entry.thinkingTokens : 0;
-    accumulator.requestCount += 1;
     if (cachedInputTokens !== undefined && inputTokens > 0) {
       accumulator.cacheHitInputTokens += inputTokens;
       accumulator.cachedInputTokens += Math.max(0, Math.min(inputTokens, cachedInputTokens));
-    }
-    if (entry.status === "success") {
-      accumulator.successCount += 1;
     }
     const price = estimateDirectTuiUsagePriceUsd(entry);
     if (typeof price === "number") {
@@ -85,8 +103,6 @@ export function buildDirectTuiSessionExitSummary(input: {
     inputTokens: 0,
     outputTokens: 0,
     thinkingTokens: 0,
-    requestCount: 0,
-    successCount: 0,
     cacheHitInputTokens: 0,
     cachedInputTokens: 0,
     totalPriceUsd: 0,
@@ -100,13 +116,18 @@ export function buildDirectTuiSessionExitSummary(input: {
     inputTokens: totals.inputTokens,
     outputTokens: totals.outputTokens,
     thinkingTokens: totals.thinkingTokens,
-    requestCount: totals.requestCount,
-    successCount: totals.successCount,
-    successRate: totals.requestCount > 0 ? totals.successCount / totals.requestCount : 1,
+    requestCount: outcomeTotals.requestCount,
+    successCount: outcomeTotals.successCount,
+    successRate: outcomeTotals.requestCount > 0 ? outcomeTotals.successCount / outcomeTotals.requestCount : 1,
+    modelRequestCount: modelOutcomeTotals.requestCount > 0 ? modelOutcomeTotals.requestCount : undefined,
+    modelSuccessCount: modelOutcomeTotals.requestCount > 0 ? modelOutcomeTotals.successCount : undefined,
+    modelSuccessRate: modelOutcomeTotals.requestCount > 0
+      ? modelOutcomeTotals.successCount / modelOutcomeTotals.requestCount
+      : undefined,
     averageCacheHitRate: totals.cacheHitInputTokens > 0
       ? totals.cachedInputTokens / totals.cacheHitInputTokens
       : undefined,
-    totalPriceUsd: totals.requestCount > 0 ? totals.totalPriceUsd : undefined,
+    totalPriceUsd: usageEntries.length > 0 ? totals.totalPriceUsd : undefined,
     estimatedPrice: totals.estimatedPrice,
     resumeSelector,
     generatedAt: input.generatedAt ?? new Date().toISOString(),

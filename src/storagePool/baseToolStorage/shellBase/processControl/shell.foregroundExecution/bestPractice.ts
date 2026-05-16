@@ -198,6 +198,13 @@ function normalizeProviderResult(
   return { resultEnvelope, metadata: safeMetadata(resultRecord.metadata) };
 }
 
+function providerFailureCode(error: unknown): string | undefined {
+  if (!(error instanceof Error) || error.name === "Error") {
+    return undefined;
+  }
+  return error.name;
+}
+
 export async function executeShellForegroundExecution(
   request: unknown = {},
 ): Promise<ShellToolResult<ShellForegroundExecutionOutput, string>> {
@@ -248,6 +255,14 @@ export async function executeShellForegroundExecution(
       events: ["basicTool.shell.foregroundExecution.providerCalled"],
     };
   } catch (error) {
+    if (providerFailureCode(error) === "EXECUTION_TIMEOUT") {
+      return failure(
+        "EXECUTION_TIMEOUT",
+        "shell.foregroundExecution runtime process execution timed out",
+        "provider",
+        context,
+      );
+    }
     return failure("PROVIDER_REJECTED", "shell.foregroundExecution provider rejected the invocation", "provider", context);
   }
 }

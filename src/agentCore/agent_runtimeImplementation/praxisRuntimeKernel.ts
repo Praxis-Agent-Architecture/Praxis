@@ -565,6 +565,43 @@ function runtimeTapApprovalCanDefault(profile: BaseToolPolicyProfile): boolean {
   return profile === "bapr" || profile === "yolo" || profile === "permissive";
 }
 
+const shellRuntimeBasePermissions = ["shell:execute", "shell:observe", "shell:validate"] as const;
+
+const shellRuntimePermissionHintsByToolId: Record<string, readonly string[]> = {
+  "shell.argumentAssembly": ["shell:generate"],
+  "shell.backgroundExecution": ["shell:process:background"],
+  "shell.capabilityDetection": ["shell:detect"],
+  "shell.commandGeneration": ["shell:generate"],
+  "shell.detachedExecution": ["shell:process:detached"],
+  "shell.environmentInspection": ["shell:environment:inspect"],
+  "shell.executionGuard": ["shell:generate"],
+  "shell.executionMonitoring": ["shell:execution:monitor"],
+  "shell.interactiveControl": ["shell:interactive:control"],
+  "shell.invocationConstruction": ["shell:generate"],
+  "shell.outputCapture": ["shell:output:capture"],
+  "shell.processTermination": ["shell:process:terminate"],
+  "shell.promptHandling": ["shell:prompt:handle"],
+  "shell.sandboxEnforcement": ["shell:sandbox"],
+  "shell.scriptGeneration": ["shell:script:generate"],
+  "shell.sessionDetection": ["shell:session:detect", "shell:process:read"],
+  "shell.shellLifecycleManagement": ["shell:lifecycle:manage"],
+  "shell.shellProcessManagement": ["shell:process:manage"],
+  "shell.shellResourceManagement": [
+    "shell:resource:inspect",
+    "shell:resource:reserve",
+    "shell:resource:release",
+    "shell:resource:limit",
+  ],
+  "shell.shellSessionManagement": [
+    "shell:session:inspect",
+    "shell:session:create",
+    "shell:session:attach",
+    "shell:session:close",
+  ],
+  "shell.stdinFeeding": ["shell:stdin:feed"],
+  "shell.typeDetection": ["shell:detect"],
+};
+
 function approvedRuntimeTapApproval(input: {
   rawApproval: unknown;
   profile: BaseToolPolicyProfile;
@@ -586,7 +623,7 @@ function runtimeGrantedPermissionsForTool(toolId: string, profile: BaseToolPolic
   if (toolId.startsWith("code.")) return ["filesystem:read", "filesystem:write"];
   if (toolId.startsWith("skill.")) return ["skill:read", "skill:write", "filesystem:read", "filesystem:write"];
   if (toolId.startsWith("search.")) return ["network:read", "search:fetch", "network:egress", "network:search", "search:native"];
-  if (toolId.startsWith("shell.")) return ["shell:execute", "shell:observe", "shell:validate"];
+  if (toolId.startsWith("shell.")) return mergeStringLists(shellRuntimeBasePermissions, shellRuntimePermissionHintsByToolId[toolId]);
   if (toolId.startsWith("mcp.")) {
     return [
       "mcp:connect",

@@ -415,6 +415,7 @@ test("legacy direct application backend writes live codex usage from framework t
           usageSource?: string;
           lastRequestInputTokens?: number;
           lastRequestTotalTokens?: number;
+          estimated?: boolean;
         };
       };
       usage?: {
@@ -434,6 +435,7 @@ test("legacy direct application backend writes live codex usage from framework t
         usageSource?: string;
         lastRequestInputTokens?: number;
         lastRequestTotalTokens?: number;
+        estimated?: boolean;
       };
       cacheDebug?: {
         kind?: string;
@@ -521,6 +523,7 @@ test("legacy direct application backend writes live codex usage from framework t
   assert.equal(turnResult?.core?.usage?.source, "openai.responses.usage");
   assert.equal(turnResult?.core?.context?.contextSource, "provider.model-call.usage");
   assert.equal(turnResult?.core?.context?.usageSource, "openai.responses.usage");
+  assert.equal(turnResult?.core?.context?.estimated, false);
   assert.equal(turnResult?.core?.context?.activeTokens, turnResult?.core?.context?.promptTokens);
   assert.equal(turnResult?.core?.context?.promptTokens, 44);
   assert.equal(turnResult?.core?.context?.lastRequestInputTokens, 44);
@@ -535,6 +538,125 @@ test("legacy direct application backend writes live codex usage from framework t
   });
   assert.match(xray.stdout, /diagnosis: warm-stable-prefix/u);
   assert.match(xray.stdout, /telemetry coverage: observedUsage=1\/1 cacheShape=1\/1 toolResultBudget=1\/1/u);
+  if (previousStreamFps === undefined) {
+    delete process.env.RAXODE_STREAM_FPS;
+  } else {
+    process.env.RAXODE_STREAM_FPS = previousStreamFps;
+  }
+  await rm(stateRoot, { recursive: true, force: true });
+});
+
+test("legacy direct application backend retains provider context after provider failure", async () => {
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-legacy-direct-provider-failure-context-"));
+  const previousStreamFps = process.env.RAXODE_STREAM_FPS;
+  process.env.RAXODE_STREAM_FPS = "1000";
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const errorOutput = new PassThrough();
+  let stdout = "";
+  let stderr = "";
+  output.on("data", (chunk: Buffer | string) => {
+    stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  errorOutput.on("data", (chunk: Buffer | string) => {
+    stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+
+  let providerCallCount = 0;
+  const done = startLegacyDirectApplicationBackend({
+    input,
+    output,
+    errorOutput,
+    cwd: process.cwd(),
+    sessionId: "direct-provider-failure-context-test",
+    stateRoot,
+    mode: "live",
+    liveProviderResolver: async () => ({
+      auth: {
+        kind: "oauth",
+        present: true,
+        headerPlan: [],
+        queryPlan: [],
+        publicSafe: true,
+      },
+      providerCaller: async () => {
+        providerCallCount += 1;
+        if (providerCallCount === 1) {
+          return {
+            status: 200,
+            headers: {},
+            body: [
+              'data: {"type":"response.output_text.delta","delta":"first turn ok"}',
+              "",
+              'data: {"type":"response.completed","response":{"usage":{"input_tokens":98765,"output_tokens":7,"total_tokens":98772}}}',
+              "",
+              "data: [DONE]",
+              "",
+            ].join("\n"),
+            providerRawShapePromoted: false,
+            publicSafe: true,
+          };
+        }
+        throw {
+          status: 503,
+          code: "provider_http_error",
+          providerMessage: "upstream connect error or disconnect/reset before headers, connection timeout",
+        };
+      },
+    }),
+  });
+
+  input.write(`${JSON.stringify({
+    type: "direct_user_input",
+    text: "capture first usage",
+  })}\u0000${JSON.stringify({
+    type: "direct_user_input",
+    text: "hit provider failure",
+  })}\u0000/exit\u0000`);
+  input.end();
+  await done;
+
+  assert.equal(stderr, "");
+  const logPath = stdout.match(/log file: (.+)/u)?.[1]?.trim();
+  assert.ok(logPath);
+  const rows = (await readFile(logPath, "utf8"))
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as {
+      event?: string;
+      turnIndex?: number;
+      core?: {
+        taskStatus?: string;
+        usage?: {
+          estimated?: boolean;
+          inputTokens?: number;
+        };
+        context?: {
+          contextSource?: string;
+          usageSource?: string;
+          lastRequestInputTokens?: number;
+          retainedAfterFailure?: boolean;
+          failureContextSource?: string;
+        };
+      };
+      resultMetadata?: {
+        errorCode?: string;
+        errorMessage?: string;
+      };
+    });
+  const turnResults = rows.filter((row) => row.event === "turn_result");
+  assert.equal(turnResults.length, 2);
+  assert.equal(turnResults[0]?.core?.context?.lastRequestInputTokens, 98765);
+  assert.equal(turnResults[1]?.core?.taskStatus, "failed");
+  assert.equal(turnResults[1]?.core?.usage?.estimated, true);
+  assert.equal(turnResults[1]?.core?.usage?.inputTokens, undefined);
+  assert.equal(turnResults[1]?.core?.context?.contextSource, "provider.model-call.usage");
+  assert.equal(turnResults[1]?.core?.context?.lastRequestInputTokens, 98765);
+  assert.equal(turnResults[1]?.core?.context?.retainedAfterFailure, true);
+  assert.equal(turnResults[1]?.core?.context?.failureContextSource, "application.history.estimate");
+  assert.equal(turnResults[1]?.resultMetadata?.errorCode, "PROVIDER_UNAVAILABLE");
+  assert.match(turnResults[1]?.resultMetadata?.errorMessage ?? "", /connection timeout/u);
+
   if (previousStreamFps === undefined) {
     delete process.env.RAXODE_STREAM_FPS;
   } else {

@@ -109,6 +109,64 @@ test("shell command execution allows verification output redirection to temporar
   assert.equal(result.ok, true);
 });
 
+test("shell command execution rejects foreground long-running service commands before provider dispatch", async () => {
+  let providerCalled = false;
+  const result = await executeShellCommand({
+    context: {
+      ...runtimeContext,
+      dryRun: false,
+      guard: {
+        accepted: true,
+        allowed: true,
+      },
+    },
+    command: "node",
+    args: ["server.js"],
+    provider: () => {
+      providerCalled = true;
+      return {
+        exitCode: 0,
+        stdout: "",
+        stderr: "",
+      };
+    },
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "LONG_RUNNING_FOREGROUND_COMMAND");
+  assert.equal(providerCalled, false);
+  assert.match(result.error.message, /backgroundExecution|detachedExecution/u);
+  assert.match(result.error.message, /3000-3020/u);
+});
+
+test("shell command execution allows explicitly bounded service probes", async () => {
+  let providerCalled = false;
+  const result = await executeShellCommand({
+    context: {
+      ...runtimeContext,
+      dryRun: false,
+      guard: {
+        accepted: true,
+        allowed: true,
+      },
+    },
+    command: "timeout",
+    args: ["5s", "node", "server.js"],
+    provider: () => {
+      providerCalled = true;
+      return {
+        exitCode: 124,
+        stdout: "started on 3001\n",
+        stderr: "",
+      };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(providerCalled, true);
+  assert.equal(result.output.exitCode, 124);
+});
+
 test("shell script execution allows programmatic temporary verification artifacts", async () => {
   const result = await executeShellScript({
     context: runtimeContext,

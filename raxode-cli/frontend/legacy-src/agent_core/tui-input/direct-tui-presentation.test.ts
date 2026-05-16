@@ -15,6 +15,9 @@ import {
   hasDirectTuiFormalConversation,
   isDirectTuiLiveToolSummaryState,
   isDirectTuiCmpActivityStage,
+  mapDirectTuiCoreTaskStatusToCompletedTaskStatus,
+  mapDirectTuiCoreTaskStatusToRunPanelStatus,
+  mapDirectTuiCoreTaskStatusToSurfaceTurnStatus,
   mergeDirectTuiStreamingAssistantLine,
   resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
@@ -25,7 +28,9 @@ import {
   resolveDirectTuiToolSummaryResultLineLimit,
   resolveDirectTuiToolPreviewSummaryLines,
   resolveDirectTuiToolSummaryKey,
+  settleDirectTuiLiveToolSummaryText,
   stabilizeDirectTuiProcedurePlannedToolPreviewLines,
+  shouldApplyDirectTuiTurnResultContext,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
 } from "./direct-tui-presentation.js";
@@ -563,6 +568,56 @@ test("tool summary live-state detection includes composing previews", () => {
   assert.equal(isDirectTuiLiveToolSummaryState("composing"), true);
   assert.equal(isDirectTuiLiveToolSummaryState("ready"), false);
   assert.equal(isDirectTuiLiveToolSummaryState(undefined), false);
+});
+
+test("failed turn results map to failed TUI turn, task, and run states", () => {
+  assert.equal(mapDirectTuiCoreTaskStatusToSurfaceTurnStatus("failed"), "failed");
+  assert.equal(mapDirectTuiCoreTaskStatusToSurfaceTurnStatus("PROVIDER_UNAVAILABLE"), "failed");
+  assert.equal(mapDirectTuiCoreTaskStatusToRunPanelStatus("failed"), "failed");
+  assert.equal(mapDirectTuiCoreTaskStatusToCompletedTaskStatus("failed"), "failed");
+
+  assert.equal(mapDirectTuiCoreTaskStatusToSurfaceTurnStatus("blocked"), "blocked");
+  assert.equal(mapDirectTuiCoreTaskStatusToRunPanelStatus("blocked"), "paused");
+  assert.equal(mapDirectTuiCoreTaskStatusToCompletedTaskStatus("blocked"), "blocked");
+
+  assert.equal(mapDirectTuiCoreTaskStatusToSurfaceTurnStatus("completed"), "completed");
+  assert.equal(mapDirectTuiCoreTaskStatusToRunPanelStatus("completed"), "completed");
+  assert.equal(mapDirectTuiCoreTaskStatusToCompletedTaskStatus("completed"), "completed");
+});
+
+test("failed turn results settle unfinished tool previews instead of leaving composing copy live", () => {
+  assert.equal(settleDirectTuiLiveToolSummaryText({
+    text: "Code composing\nReading package.json, tsconfig.json",
+    finalStatus: "failed",
+  }), [
+    "Code stopped",
+    "Reading package.json, tsconfig.json",
+    "Stopped before execution because the turn failed.",
+  ].join("\n"));
+
+  assert.equal(settleDirectTuiLiveToolSummaryText({
+    text: "Shell composing\nRunning npm run dev",
+    finalStatus: "completed",
+  }), "Shell ready\nRunning npm run dev");
+});
+
+test("failed history-estimate turn context does not replace provider-backed context", () => {
+  assert.equal(shouldApplyDirectTuiTurnResultContext({
+    taskStatus: "failed",
+    context: {
+      estimated: true,
+      contextSource: "application.history.estimate",
+    },
+  }), false);
+
+  assert.equal(shouldApplyDirectTuiTurnResultContext({
+    taskStatus: "failed",
+    context: {
+      estimated: false,
+      contextSource: "provider.model-call.usage",
+      lastRequestInputTokens: 44,
+    },
+  }), true);
 });
 
 test("cmp activity stage detection excludes infra bootstrap", () => {

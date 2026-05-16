@@ -163,8 +163,8 @@ export const shellCommandExecutionBaseToolDefinition = createShellBaseToolDefini
 >({
   toolId: "shell.commandExecution",
   title: "Shell Command Execution",
-  description: "Execute a short-lived shell command through the governed runtime shell executor. Do not use this for long-lived GUI/browser launches such as Chrome, Firefox, Edge, or xdg-open; use a background, detached, or process-control primitive instead. Never create or edit workspace files with shell redirection, heredocs, cat, tee, or ad-hoc scripts; use code.overwrite, code.modify, or code.replaceFile for workspace file changes.",
-  summary: "Use shell.commandExecution only for one-shot commands that are expected to exit promptly; use Code tools for workspace file edits.",
+  description: "Execute a short-lived shell command through the governed runtime shell executor. Do not use this for long-lived GUI/browser launches or dev servers such as Chrome, Firefox, Edge, xdg-open, node server.js, npm run dev, or npm start; use shell.backgroundExecution, shell.detachedExecution, or a timeout-wrapped probe instead. When verifying local web apps, read the actual port from stdout or scan localhost ports 3000-3020 instead of assuming 3000. Never create or edit workspace files with shell redirection, heredocs, cat, tee, or ad-hoc scripts; use code.overwrite, code.modify, or code.replaceFile for workspace file changes.",
+  summary: "Use shell.commandExecution only for one-shot commands that exit promptly; use background/detached tools for services and Code tools for workspace file edits.",
   storageGroup: "shellExecution",
   riskLevel: "risky",
   permissionHints: ["shell:execute"],

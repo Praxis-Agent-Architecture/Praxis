@@ -1074,6 +1074,93 @@ test("PraxisRuntimeKernel.runManifest defaults omni provider permissions for per
   assert.notEqual(toolError?.code, "PERMISSION_DENIED");
 });
 
+test("PraxisRuntimeKernel.runManifest grants shell executionMonitoring runtime permission", async () => {
+  class ShellMonitorAgent extends PraxisAgent {
+    identity = "agent.shell-monitor";
+    model = model("gpt-5.4", { carrierId: "carrier.shell-monitor" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("shell.executionMonitoring")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const baseExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-shell-monitor",
+    sessionId: "session-shell-monitor",
+  });
+  const executor = {
+    ...baseExecutor,
+    shell: {
+      ...baseExecutor.shell,
+      async monitorExecution(request: {
+        target: Readonly<Record<string, unknown>>;
+        observation?: Readonly<Record<string, unknown>>;
+      }) {
+        return {
+          ok: true as const,
+          output: {
+            target: request.target,
+            observation: request.observation ?? { state: "running", observedAtMs: 1 },
+            health: "healthy",
+            realProcessReadBlocked: false,
+          },
+        };
+      },
+    },
+  };
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-monitor" }).run(
+    new ShellMonitorAgent(),
+    "monitor shell session",
+    {
+      sessionId: "session-shell-monitor",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "shell.executionMonitoring",
+              call_id: "shell-monitor-call",
+              arguments: JSON.stringify({
+                target: { sessionId: "shell-session-1" },
+                observation: { state: "running", observedAtMs: 1 },
+                context: {
+                  grantedPermissions: ["tool.execute"],
+                  allowedSessionIds: ["shell-session-1"],
+                },
+              }),
+            }],
+          };
+        }
+        return { output_text: "shell session is healthy" };
+      },
+      now: () => "2026-05-15T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /healthy/u);
+  const grantedPermissions = (result.toolCalls[0]?.arguments as { context?: { grantedPermissions?: readonly string[] } } | undefined)
+    ?.context
+    ?.grantedPermissions;
+  assert.equal(grantedPermissions?.includes("shell:execution:monitor"), true);
+});
+
 test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for replanning", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-tool-failure-"));
 

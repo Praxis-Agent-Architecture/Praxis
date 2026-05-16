@@ -739,6 +739,148 @@ export function isDirectTuiLiveToolSummaryState(summaryState: unknown): boolean 
   return summaryState === "active" || summaryState === "composing";
 }
 
+export type DirectTuiSurfaceTurnStatus = "running" | "blocked" | "completed" | "failed";
+
+export function mapDirectTuiCoreTaskStatusToSurfaceTurnStatus(taskStatus?: string | null): DirectTuiSurfaceTurnStatus {
+  const normalized = taskStatus?.trim().toLowerCase();
+  if (normalized === "blocked" || normalized === "exhausted") {
+    return "blocked";
+  }
+  if (
+    normalized === "failed"
+    || normalized === "error"
+    || normalized === "rejected"
+    || normalized === "provider_rejected"
+    || normalized === "provider_unavailable"
+    || normalized === "provider_timeout"
+  ) {
+    return "failed";
+  }
+  if (
+    normalized === "completed"
+    || normalized === "incomplete"
+    || normalized === "success"
+    || normalized === "succeeded"
+  ) {
+    return "completed";
+  }
+  return "running";
+}
+
+export type DirectTuiRunPanelStatus = "acting" | "completed" | "paused" | "failed";
+
+export function mapDirectTuiCoreTaskStatusToRunPanelStatus(taskStatus?: string | null): DirectTuiRunPanelStatus {
+  const turnStatus = mapDirectTuiCoreTaskStatusToSurfaceTurnStatus(taskStatus);
+  if (turnStatus === "failed") {
+    return "failed";
+  }
+  if (turnStatus === "completed") {
+    return "completed";
+  }
+  if (turnStatus === "blocked") {
+    return "paused";
+  }
+  return "acting";
+}
+
+export type DirectTuiCompletedTaskStatus = "blocked" | "completed" | "failed";
+
+export function mapDirectTuiCoreTaskStatusToCompletedTaskStatus(
+  taskStatus?: string | null,
+): DirectTuiCompletedTaskStatus {
+  const turnStatus = mapDirectTuiCoreTaskStatusToSurfaceTurnStatus(taskStatus);
+  if (turnStatus === "failed") {
+    return "failed";
+  }
+  if (turnStatus === "blocked") {
+    return "blocked";
+  }
+  return "completed";
+}
+
+export function shouldApplyDirectTuiTurnResultContext(input: {
+  taskStatus?: string | null;
+  context?: {
+    estimated?: boolean;
+    contextSource?: string;
+    usageSource?: string;
+    lastRequestInputTokens?: number;
+  } | null;
+}): boolean {
+  if (!input.context) {
+    return false;
+  }
+  if (mapDirectTuiCoreTaskStatusToSurfaceTurnStatus(input.taskStatus) !== "failed") {
+    return true;
+  }
+  const source = input.context.contextSource ?? input.context.usageSource;
+  const isHistoryEstimate = input.context.estimated === true && source === "application.history.estimate";
+  return !isHistoryEstimate || typeof input.context.lastRequestInputTokens === "number";
+}
+
+function compactToolSummarySettlementReason(reason?: string | null): string | undefined {
+  const normalized = reason?.replace(/\s+/gu, " ").trim();
+  if (!normalized) {
+    return undefined;
+  }
+  return normalized.length > 140 ? `${normalized.slice(0, 137)}...` : normalized;
+}
+
+function settleToolSummaryTitle(title: string, status: "blocked" | "failed" | "ready" | "stopped"): string {
+  const statusWord = status;
+  if (/\b(failed|stopped|blocked)\b/iu.test(title)) {
+    return title;
+  }
+  if (/\b(composing|running|active|ready|started)\b/iu.test(title)) {
+    return title.replace(/\b(composing|running|active|ready|started)\b/iu, statusWord);
+  }
+  return `${title} ${statusWord}`;
+}
+
+export function settleDirectTuiLiveToolSummaryText(input: {
+  text?: string | null;
+  status?: "failed" | "stopped";
+  finalStatus?: string | null;
+  reason?: string | null;
+}): string {
+  const lines = (input.text ?? "")
+    .split(/\r?\n/u)
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+      return trimmed.length > 0
+        && !trimmed.startsWith("Stopped before completion")
+        && !trimmed.startsWith("Stopped before execution because");
+    });
+  const finalStatus = input.finalStatus === undefined && input.status
+    ? "failed"
+    : mapDirectTuiCoreTaskStatusToSurfaceTurnStatus(input.finalStatus);
+  if (finalStatus === "completed") {
+    return [
+      settleToolSummaryTitle(lines[0] ?? "Tool", "ready"),
+      ...lines.slice(1, 4),
+    ].join("\n");
+  }
+  const reason = compactToolSummarySettlementReason(input.reason);
+  if (finalStatus === "blocked") {
+    return [
+      settleToolSummaryTitle(lines[0] ?? "Tool", "blocked"),
+      ...lines.slice(1, 4),
+      reason
+        ? `Stopped before execution because the turn was blocked: ${reason}`
+        : "Stopped before execution because the turn was blocked.",
+    ].join("\n");
+  }
+  const title = settleToolSummaryTitle(lines[0] ?? "Tool", input.status ?? "stopped");
+  return [
+    title,
+    ...lines.slice(1, 4),
+    reason
+      ? `Stopped before execution because the turn failed: ${reason}`
+      : "Stopped before execution because the turn failed.",
+  ].join("\n");
+}
+
 export function isDirectTuiCmpActivityStage(stage?: string | null): boolean {
   const normalizedStage = stage?.trim();
   if (!normalizedStage || !normalizedStage.startsWith("cmp/")) {

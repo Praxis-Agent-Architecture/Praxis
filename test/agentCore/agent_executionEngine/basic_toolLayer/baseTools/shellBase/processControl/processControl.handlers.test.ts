@@ -131,6 +131,33 @@ test("processControl provider failures are mapped to public-safe provider errors
   assert.equal(result.error.message.includes("internal secret"), false);
 });
 
+test("foreground execution preserves runtime timeout failures for caller cleanup", async () => {
+  const result = await executeShellForegroundExecution({
+    target: { command: "npm run dev", timeoutMs: 1 },
+    context: { runtimeId: "runtime-1", dryRun: false, guard: { allowed: true } },
+    executor: {
+      shell: {
+        async run() {
+          return {
+            ok: false as const,
+            error: {
+              code: "EXECUTION_TIMEOUT",
+              message: "runtime process execution timed out",
+              publicSafe: true as const,
+            },
+          };
+        },
+      },
+    },
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) throw new Error("foreground timeout should fail");
+  assert.equal(result.error.code, "EXECUTION_TIMEOUT");
+  assert.equal(result.error.safeForRuntimeInspection, true);
+  assert.equal(result.error.message.includes("timed out"), true);
+});
+
 test("processControl direct bestPractice APIs reject non-record requests without raw TypeError", async () => {
   const apis = [
     { name: "background", expectedCode: "MISSING_COMMAND", run: executeShellBackgroundExecution },

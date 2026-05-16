@@ -200,6 +200,9 @@ import {
   formatDirectTuiContextUsedPercent,
   isDirectTuiCmpActivityStage,
   isDirectTuiLiveToolSummaryState,
+  mapDirectTuiCoreTaskStatusToCompletedTaskStatus,
+  mapDirectTuiCoreTaskStatusToRunPanelStatus,
+  mapDirectTuiCoreTaskStatusToSurfaceTurnStatus,
   resolveDirectTuiContextRemainingPercent,
   resolveDirectTuiAssistantDeltaAction,
   resolveDirectTuiAssistantTurnResultAction,
@@ -209,7 +212,9 @@ import {
   resolveDirectTuiToolPreviewSummaryLines,
   resolveDirectTuiToolSummaryResultLineLimit,
   resolveDirectTuiToolSummaryKey,
+  settleDirectTuiLiveToolSummaryText,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
+  shouldApplyDirectTuiTurnResultContext,
   shouldRenderDirectTuiConversationHeader,
   stabilizeDirectTuiProcedurePlannedToolPreviewLines,
 } from "./tui-input/direct-tui-presentation.js";
@@ -843,7 +848,8 @@ function buildExitSummaryPanelLines(
     `Output Tokens:`,
     `Thinking Budget:`,
     `Average Cache Hit Rate:`,
-    `Success Rate:`,
+    `Turn Success Rate:`,
+    ...(summary.modelSuccessRate === undefined ? [] : [`Model Request Success:`]),
     resumeCommand,
   ];
   const statsValues = [
@@ -852,17 +858,19 @@ function buildExitSummaryPanelLines(
     formatDirectTuiTokenCount(summary.thinkingTokens),
     summary.averageCacheHitRate === undefined ? "N/A" : formatDirectTuiPercent(summary.averageCacheHitRate),
     formatDirectTuiPercent(summary.successRate),
+    ...(summary.modelSuccessRate === undefined ? [] : [formatDirectTuiPercent(summary.modelSuccessRate)]),
     "",
   ];
+  const statsValueRowCount = Math.max(0, statsValues.length - 1);
   const availableInnerWidth = Math.max(88, Math.min(terminalWidth - 2, 118));
   const maxArtWidth = EXIT_SUMMARY_ART_LINES.reduce((max, line) => Math.max(max, stringWidth(line)), 0);
   const statsLabelWidth = Math.max(
-    ...statsLines.slice(0, 5).map((line) => stringWidth(line)),
+    ...statsLines.slice(0, statsValueRowCount).map((line) => stringWidth(line)),
     stringWidth(resumeCommand),
   );
   const statsValueWidth = Math.max(
     12,
-    ...statsValues.slice(0, 5).map((line) => stringWidth(line)),
+    ...statsValues.slice(0, statsValueRowCount).map((line) => stringWidth(line)),
   );
   const gapWidth = 2;
   const minStatsWidth = statsLabelWidth + 2 + statsValueWidth;
@@ -873,10 +881,10 @@ function buildExitSummaryPanelLines(
   );
   const innerWidth = artWidth + gapWidth + statsWidth;
   const visibleArtWidth = Math.max(0, animationStep * EXIT_SUMMARY_REVEAL_WIDTH_PER_STEP);
-  const totalRows = EXIT_SUMMARY_ART_LINES.length;
+  const totalRows = Math.max(EXIT_SUMMARY_ART_LINES.length, statsLines.length);
   const rows = Array.from({ length: totalRows }, (_, index) => {
     const art = EXIT_SUMMARY_ART_LINES[index] ?? "";
-    const stats = index < 5
+    const stats = index < statsValueRowCount
       ? `${padTextToWidth(statsLines[index] ?? "", statsLabelWidth)}  ${padTextToWidth(statsValues[index] ?? "", statsValueWidth)}`
       : padTextToWidth(statsLines[index] ?? "", statsWidth);
     const revealedArt = index < EXIT_SUMMARY_ART_LINES.length ? revealTextFromLeft(art, visibleArtWidth) : "";
@@ -5797,6 +5805,24 @@ function buildToolPreviewRunIndicatorLabel(input: {
   return "model composing tool call";
 }
 
+function inferAssistantIntentRunIndicatorLabel(text: string): string | null {
+  const compacted = compactRuntimeText(text);
+  if (!compacted) {
+    return null;
+  }
+  const recentText = compacted.slice(-260);
+  if (/(创建|生成|写入|写|修改|编辑|保存|文件|代码|create|generate|write|modify|edit|overwrite|file|code)/iu.test(recentText)) {
+    return "preparing code changes";
+  }
+  if (/(查看|读取|扫描|目录|结构|环境|inspect|scan|read|list|workspace|directory)/iu.test(recentText)) {
+    return "preparing workspace inspection";
+  }
+  if (/(检查|验证|运行|启动|测试|诊断|端口|服务|check|verify|run|start|launch|test|diagnose|server|port)/iu.test(recentText)) {
+    return "preparing verification";
+  }
+  return null;
+}
+
 function pickFirstSentence(text: string): string {
   const compacted = compactRuntimeText(text);
   const match = compacted.match(/^(.+?[。！？.!?])(?:\s|$)/u);
@@ -6614,28 +6640,6 @@ function buildTapPanelSummary(record: LiveLogRecord, phase: "start" | "end"): st
   return phase === "start"
     ? (record.capabilityKey ? `capability running: ${record.capabilityKey}` : "capability bridge running")
     : (record.capabilityKey ? `capability done: ${record.capabilityKey}` : "capability bridge completed");
-}
-
-function mapCoreTaskStatusToSurfaceTurnStatus(taskStatus?: string | null): "running" | "blocked" | "completed" {
-  const normalized = taskStatus?.trim().toLowerCase();
-  if (normalized === "blocked" || normalized === "exhausted") {
-    return "blocked";
-  }
-  if (normalized === "completed" || normalized === "incomplete") {
-    return "completed";
-  }
-  return "running";
-}
-
-function mapCoreTaskStatusToRunPanelStatus(taskStatus?: string | null): "acting" | "completed" | "paused" {
-  const normalized = taskStatus?.trim().toLowerCase();
-  if (normalized === "completed" || normalized === "incomplete") {
-    return "completed";
-  }
-  if (normalized === "blocked" || normalized === "exhausted") {
-    return "paused";
-  }
-  return "acting";
 }
 
 function summarizeCapabilityOutputLines(output: unknown, error: unknown): string[] {
@@ -10391,11 +10395,28 @@ function PraxisDirectTuiApp(): JSX.Element {
     return messageId;
   };
 
+  const applyAssistantIntentRunIndicator = (text: string) => {
+    const inferredLabel = inferAssistantIntentRunIndicatorLabel(text);
+    if (!inferredLabel) {
+      return;
+    }
+    setRunIndicator((previous) => {
+      if (!previous || !shouldUseAnimatedRunStatusPhrase(previous.label)) {
+        return previous;
+      }
+      return {
+        startedAt: previous.startedAt,
+        label: inferredLabel,
+      };
+    });
+  };
+
   const emitAssistantDeltaUpdate = (input: {
     turnId: string;
     at: string;
     decodedText: string;
   }) => {
+    applyAssistantIntentRunIndicator(input.decodedText);
     const previousDisplayedText = emittedAssistantTextRef.current.get(input.turnId) ?? "";
     const activeAssistantMessageId = activeAssistantMessageIdRef.current.get(input.turnId);
     const assistantDeltaAction = resolveDirectTuiAssistantDeltaAction({
@@ -10458,6 +10479,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       });
       emittedAssistantTextRef.current.set(turnId, text);
       rawAssistantDeltaTextRef.current.set(turnId, text);
+      applyAssistantIntentRunIndicator(text);
     }
     replaceStreamingAssistantText(null);
   };
@@ -12355,13 +12377,45 @@ function PraxisDirectTuiApp(): JSX.Element {
                   sessionUsageLedgerRef.current,
                 ));
               }
-              setRunIndicator((previous) =>
-                previous
-                  ? {
-                    startedAt: previous.startedAt,
-                    label: record.status === "failed" ? "model request failed" : "core thinking",
+              if (record.status === "failed") {
+                for (const message of selectTranscriptMessages(surfaceStateRef.current)) {
+                  if (
+                    message.metadata?.source !== "tool_summary"
+                    || !isDirectTuiLiveToolSummaryState(message.metadata?.summaryState)
+                    || message.turnId !== turnId
+                  ) {
+                    continue;
                   }
-                  : null);
+                  dispatchSurfaceEvent({
+                    type: "message.appended",
+                    at,
+                    message: createSurfaceMessage({
+                      ...message,
+                      text: settleDirectTuiLiveToolSummaryText({
+                        text: message.text,
+                        finalStatus: "failed",
+                        reason: record.text ?? "model request failed",
+                      }),
+                      updatedAt: at,
+                      metadata: {
+                        ...(message.metadata ?? {}),
+                        summaryState: "idle",
+                        settledByModelFailure: true,
+                        settlementStatus: "failed",
+                      },
+                    }),
+                  });
+                }
+                setRunIndicator(null);
+              } else {
+                setRunIndicator((previous) =>
+                  previous
+                    ? {
+                      startedAt: previous.startedAt,
+                      label: "core thinking",
+                    }
+                    : null);
+              }
             }
             if (record.stage === "core/capability_bridge") {
               promoteSteerDispatchAfterToolCall();
@@ -12372,7 +12426,13 @@ function PraxisDirectTuiApp(): JSX.Element {
           if (record.event === "turn_result") {
             assistantDeltaRenderCoalescerRef.current.flushTurn(turnId);
             const turnContext = normalizeContextSnapshot(record.core?.context);
-            if (turnContext) {
+            const turnSurfaceStatus = mapDirectTuiCoreTaskStatusToSurfaceTurnStatus(record.core?.taskStatus);
+            const turnRunPanelStatus = mapDirectTuiCoreTaskStatusToRunPanelStatus(record.core?.taskStatus);
+            const completedTaskStatus = mapDirectTuiCoreTaskStatusToCompletedTaskStatus(record.core?.taskStatus);
+            if (shouldApplyDirectTuiTurnResultContext({
+              taskStatus: record.core?.taskStatus,
+              context: turnContext,
+            })) {
               setBackendContextSnapshot(turnContext);
             }
             const answer = extractTurnResultAnswer(record);
@@ -12483,12 +12543,44 @@ function PraxisDirectTuiApp(): JSX.Element {
                 }),
               });
             }
+            if (turnSurfaceStatus !== "running") {
+              for (const message of selectTranscriptMessages(surfaceStateRef.current)) {
+                if (
+                  message.metadata?.source !== "tool_summary"
+                  || !isDirectTuiLiveToolSummaryState(message.metadata?.summaryState)
+                  || message.turnId !== turnId
+                ) {
+                  continue;
+                }
+                dispatchSurfaceEvent({
+                  type: "message.appended",
+                  at,
+                  message: createSurfaceMessage({
+                    ...message,
+                    text: settleDirectTuiLiveToolSummaryText({
+                      text: message.text,
+                      finalStatus: turnSurfaceStatus,
+                      reason: turnSurfaceStatus === "failed"
+                        ? answer
+                        : undefined,
+                    }),
+                    updatedAt: at,
+                    metadata: {
+                      ...(message.metadata ?? {}),
+                      summaryState: "idle",
+                      settledByTurnResult: true,
+                      settlementStatus: turnSurfaceStatus,
+                    },
+                  }),
+                });
+              }
+            }
             dispatchSurfaceEvent({
               type: "turn.completed",
               at,
               turn: createSurfaceTurn({
                 turnId,
-                status: mapCoreTaskStatusToSurfaceTurnStatus(record.core?.taskStatus),
+                status: turnSurfaceStatus,
                 updatedAt: at,
                 completedAt: at,
               }),
@@ -12498,7 +12590,7 @@ function PraxisDirectTuiApp(): JSX.Element {
                 type: "task.completed",
                 at,
                 taskId: task.taskId,
-                status: mapCoreTaskStatusToSurfaceTurnStatus(record.core?.taskStatus) === "blocked" ? "blocked" : "completed",
+                status: completedTaskStatus,
                 summary: task.summary,
               });
             }
@@ -12508,7 +12600,7 @@ function PraxisDirectTuiApp(): JSX.Element {
               panel: "core",
               snapshot: {
                 runId: turnId,
-                runStatus: mapCoreTaskStatusToRunPanelStatus(record.core?.taskStatus),
+                runStatus: turnRunPanelStatus,
                 dispatchStatus: record.core?.dispatchStatus,
                 taskStatus: record.core?.taskStatus ?? "unknown",
                 capabilityKey: record.core?.capabilityKey,
@@ -13907,10 +13999,10 @@ function PraxisDirectTuiApp(): JSX.Element {
         }),
       });
     }
-    for (const message of selectTranscriptMessages(surfaceState)) {
+    for (const message of selectTranscriptMessages(surfaceStateRef.current)) {
       if (
         message.metadata?.source !== "tool_summary"
-        || message.metadata?.summaryState !== "active"
+        || !isDirectTuiLiveToolSummaryState(message.metadata?.summaryState)
         || !message.turnId
         || !activeTurnIdsRef.current.has(message.turnId)
       ) {
@@ -13924,12 +14016,17 @@ function PraxisDirectTuiApp(): JSX.Element {
           sessionId: message.sessionId,
           turnId: message.turnId,
           kind: message.kind,
-          text: message.text,
+          text: settleDirectTuiLiveToolSummaryText({
+            text: message.text,
+            finalStatus: "blocked",
+          }),
           createdAt: message.createdAt,
+          updatedAt: at,
           metadata: {
             ...(message.metadata ?? {}),
             summaryState: "idle",
             interrupted: true,
+            settlementStatus: "blocked",
           },
         }),
       });

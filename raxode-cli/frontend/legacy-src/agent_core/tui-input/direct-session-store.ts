@@ -50,6 +50,9 @@ export interface DirectTuiSessionExitSummary {
   requestCount: number;
   successCount: number;
   successRate: number;
+  modelRequestCount?: number;
+  modelSuccessCount?: number;
+  modelSuccessRate?: number;
   averageCacheHitRate?: number;
   totalPriceUsd?: number;
   estimatedPrice: boolean;
@@ -113,7 +116,14 @@ export interface DirectTuiSessionIndexRecord {
   messageCount: number;
   exitSummaryPreview?: Pick<
     DirectTuiSessionExitSummary,
-    "successRate" | "requestCount" | "averageCacheHitRate" | "totalPriceUsd" | "resumeSelector" | "generatedAt"
+    | "successRate"
+    | "requestCount"
+    | "modelSuccessRate"
+    | "modelRequestCount"
+    | "averageCacheHitRate"
+    | "totalPriceUsd"
+    | "resumeSelector"
+    | "generatedAt"
   >;
 }
 
@@ -508,6 +518,9 @@ export function loadDirectTuiSessionSnapshot(
           requestCount: summary.requestCount,
           successCount: summary.successCount,
           successRate: summary.successRate,
+          modelRequestCount: typeof summary.modelRequestCount === "number" ? summary.modelRequestCount : undefined,
+          modelSuccessCount: typeof summary.modelSuccessCount === "number" ? summary.modelSuccessCount : undefined,
+          modelSuccessRate: typeof summary.modelSuccessRate === "number" ? summary.modelSuccessRate : undefined,
           averageCacheHitRate: typeof summary.averageCacheHitRate === "number" ? summary.averageCacheHitRate : undefined,
           totalPriceUsd: typeof summary.totalPriceUsd === "number" ? summary.totalPriceUsd : undefined,
           estimatedPrice: summary.estimatedPrice,
@@ -583,6 +596,8 @@ export function saveDirectTuiSessionSnapshot(
       ? {
         successRate: snapshot.exitSummary.successRate,
         requestCount: snapshot.exitSummary.requestCount,
+        modelSuccessRate: snapshot.exitSummary.modelSuccessRate,
+        modelRequestCount: snapshot.exitSummary.modelRequestCount,
         averageCacheHitRate: snapshot.exitSummary.averageCacheHitRate,
         totalPriceUsd: snapshot.exitSummary.totalPriceUsd,
         resumeSelector: snapshot.exitSummary.resumeSelector,

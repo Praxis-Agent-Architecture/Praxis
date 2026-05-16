@@ -116,8 +116,82 @@ test("direct session summary prefers internal model-call usage over aggregate tu
   assert.equal(summary.inputTokens, 1000);
   assert.equal(summary.outputTokens, 100);
   assert.equal(summary.thinkingTokens, 30);
-  assert.equal(summary.requestCount, 2);
+  assert.equal(summary.requestCount, 1);
+  assert.equal(summary.successCount, 1);
+  assert.equal(summary.successRate, 1);
+  assert.equal(summary.modelRequestCount, 2);
+  assert.equal(summary.modelSuccessCount, 2);
+  assert.equal(summary.modelSuccessRate, 1);
   assert.equal(summary.averageCacheHitRate, 0.4);
+});
+
+test("direct session summary separates turn success from model request success", () => {
+  const summary = buildDirectTuiSessionExitSummary({
+    snapshot: {
+      sessionId: "direct-failed-final-turn",
+      name: "failed final turn",
+      usageLedger: [
+        {
+          requestId: "turn:1",
+          kind: "core_turn",
+          provider: "openai",
+          model: "gpt-5.4",
+          status: "success",
+          inputTokens: 1200,
+          outputTokens: 120,
+          startedAt: "2026-05-16T00:00:00.000Z",
+          endedAt: "2026-05-16T00:00:01.000Z",
+        },
+        {
+          requestId: "model:1",
+          kind: "core_model",
+          provider: "openai",
+          model: "gpt-5.4",
+          status: "success",
+          inputTokens: 900,
+          cachedInputTokens: 720,
+          outputTokens: 80,
+          startedAt: "2026-05-16T00:00:00.000Z",
+          endedAt: "2026-05-16T00:00:01.000Z",
+        },
+        {
+          requestId: "model:2",
+          kind: "core_model",
+          provider: "openai",
+          model: "gpt-5.4",
+          status: "success",
+          inputTokens: 1100,
+          cachedInputTokens: 990,
+          outputTokens: 70,
+          startedAt: "2026-05-16T00:00:02.000Z",
+          endedAt: "2026-05-16T00:00:03.000Z",
+        },
+        {
+          requestId: "turn:2",
+          kind: "core_turn",
+          provider: "openai",
+          model: "gpt-5.4",
+          status: "failed",
+          estimated: true,
+          errorCode: "PROVIDER_UNAVAILABLE",
+          startedAt: "2026-05-16T00:00:02.000Z",
+          endedAt: "2026-05-16T00:00:03.000Z",
+        },
+      ],
+    },
+    sessions: [{ sessionId: "direct-failed-final-turn", name: "failed final turn" }],
+    generatedAt: "2026-05-16T00:00:04.000Z",
+  });
+
+  assert.equal(summary.inputTokens, 2000);
+  assert.equal(summary.outputTokens, 150);
+  assert.equal(summary.requestCount, 2);
+  assert.equal(summary.successCount, 1);
+  assert.equal(summary.successRate, 0.5);
+  assert.equal(summary.modelRequestCount, 2);
+  assert.equal(summary.modelSuccessCount, 2);
+  assert.equal(summary.modelSuccessRate, 1);
+  assert.equal(summary.averageCacheHitRate, 1710 / 2000);
 });
 
 test("pricing helpers format session values for the exit panel", () => {

@@ -83,6 +83,7 @@ export type ShellCommandExecutionErrorCode =
   | "GOVERNANCE_REJECTED"
   | "SCOPE_DENIED"
   | "WORKSPACE_WRITE_REQUIRES_CODE_TOOL"
+  | "LONG_RUNNING_FOREGROUND_COMMAND"
   | "SANDBOX_PROVIDER_UNSUPPORTED"
   | "SANDBOX_UNAVAILABLE"
   | "REAL_COMMAND_EXECUTION_NOT_ALLOWED"
@@ -397,6 +398,37 @@ function normalizeTimeout(value: unknown): number | ShellCommandExecutionFailure
   return timeoutMs;
 }
 
+function quoteShellCommandPart(part: string): string {
+  return /\s/u.test(part) ? JSON.stringify(part) : part;
+}
+
+function compactShellCommand(command: string, args: readonly string[]): string {
+  return [command, ...args].map(quoteShellCommandPart).join(" ");
+}
+
+function hasBoundedLifetime(commandLine: string): boolean {
+  return /\btimeout\s+(?:--foreground\s+)?\d+(?:\.\d+)?[smhd]?\b/u.test(commandLine)
+    || /\b(--help|-h|--version|-v)\b/u.test(commandLine);
+}
+
+function longRunningForegroundReason(command: string, args: readonly string[]): string | undefined {
+  const commandLine = compactShellCommand(command, args);
+  if (hasBoundedLifetime(commandLine)) {
+    return undefined;
+  }
+  const normalized = commandLine.replace(/\s+/gu, " ").trim();
+  if (/\bnode\s+(?:\.\/)?(?:server|app|index)\.[cm]?js\b/u.test(normalized)) {
+    return "node server-style commands normally keep a web service running";
+  }
+  if (/\bnpm\s+(?:run\s+)?(?:dev|start|serve)\b/u.test(normalized)) {
+    return "npm dev/start/serve scripts normally keep a web service running";
+  }
+  if (/\b(?:vite|next\s+dev|webpack-dev-server|python3?\s+-m\s+http\.server)\b/u.test(normalized)) {
+    return "development server commands normally keep a web service running";
+  }
+  return undefined;
+}
+
 function normalizeShellCommandExecution(
   request: ShellCommandExecutionRequest,
   options: { allowRealExecution: boolean },
@@ -442,6 +474,19 @@ function normalizeShellCommandExecution(
     return failure(
       "WORKSPACE_WRITE_REQUIRES_CODE_TOOL",
       shellWorkspaceWriteGuardMessage(workspaceWriteReason),
+      "governance",
+    );
+  }
+
+  const foregroundLongRunningReason = longRunningForegroundReason(command, args);
+  if (foregroundLongRunningReason !== undefined) {
+    return failure(
+      "LONG_RUNNING_FOREGROUND_COMMAND",
+      [
+        `shell.commandExecution refused foreground launch because ${foregroundLongRunningReason}.`,
+        "Use shell.backgroundExecution or shell.detachedExecution for the service, or wrap a probe in timeout.",
+        "When verifying a web app, read the actual listening port from stdout or scan localhost ports 3000-3020 instead of assuming 3000.",
+      ].join(" "),
       "governance",
     );
   }

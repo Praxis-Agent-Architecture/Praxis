@@ -832,6 +832,25 @@ test("raxode application runtime emits semantic summaries for capability familie
               },
               {
                 type: "function_call",
+                name: "shell.executionMonitoring",
+                call_id: "shell-monitor-summary-call",
+                arguments: JSON.stringify({
+                  target: {
+                    sessionId: "dev-server-1",
+                  },
+                  observation: {
+                    state: "running",
+                    observedAtMs: 2000,
+                    lastActivityAtMs: 1500,
+                  },
+                  context: {
+                    dryRun: true,
+                    allowedSessionIds: ["dev-server-1"],
+                  },
+                }),
+              },
+              {
+                type: "function_call",
                 name: "git.getRepositoryStatus",
                 call_id: "git-summary-call",
                 arguments: JSON.stringify({
@@ -922,6 +941,16 @@ test("raxode application runtime emits semantic summaries for capability familie
       && event.metadata?.toolId === "shell.commandExecution"
       && event.metadata?.toolStatus === "running"
     );
+    const shellMonitorCompleted = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "shell.executionMonitoring"
+      && event.metadata?.toolStatus === "completed"
+    );
+    const shellMonitorFailed = toolEvents.find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "shell.executionMonitoring"
+      && event.metadata?.toolStatus === "failed"
+    );
     const gitStarted = toolEvents.find((event) =>
       event.kind === "tool"
       && event.metadata?.toolId === "git.getRepositoryStatus"
@@ -948,6 +977,9 @@ test("raxode application runtime emits semantic summaries for capability familie
     assert.equal((modifyFinished?.metadata?.resultMetadata as Record<string, unknown> | undefined)?.codeAdditions, 3);
     assert.equal((modifyFinished?.metadata?.resultMetadata as Record<string, unknown> | undefined)?.codeDeletions, 2);
     assert.equal(shellStarted?.metadata?.inputSummary, `Running pwd in ${workspace}`);
+    assert.equal(shellMonitorFailed, undefined);
+    assert.equal(shellMonitorCompleted?.metadata?.familyKey, "shell");
+    assert.doesNotMatch(JSON.stringify(shellMonitorCompleted?.metadata ?? {}), /PERMISSION_DENIED/u);
     assert.equal(gitStarted?.metadata?.inputSummary, `Checking repository status in ${workspace}`);
     assert.equal(gitCompleted?.metadata?.familyKey, "git");
     assert.match(JSON.stringify(gitCompleted?.metadata?.humanResultSummary), /Repository status read/u);
