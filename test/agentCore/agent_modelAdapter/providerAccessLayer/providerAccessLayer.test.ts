@@ -8,11 +8,16 @@ import { OPENAI_PROVIDER_CAPABILITY_CATALOG } from "../../../../src/agentCore/ag
 import { createProviderCaller } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
 import {
   CHATGPT_CODEX_DEFAULT_BASE_URL,
+  OPENAI_DEFAULT_RESPONSES_BASE_URL,
   createChatGPTCodexResponsesCarrier,
+  createAnthropicV1MessagesCarrier,
+  createOpenAIV1ChatCompletionsCarrier,
+  createOpenAIV1ResponsesCarrier,
   createProviderCarrier,
 } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
 import { registerProviderAccessCarriers } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrierRegistry.js";
 import { classifyProviderAccessError } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerErrorClassifier.js";
+import { resolveProviderModelMetadata } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import { probeProviderCarrier } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerProbe.js";
 
 function ref() {
@@ -102,6 +107,65 @@ test("providerAccessLayer exposes a first-class ChatGPT Codex responses carrier"
   assert.equal(carrier.carrier.credentialRef?.credentialType, "chatgpt_codex_oauth");
   assert.equal(carrier.carrier.capabilities.includes("chatgpt-subscription"), true);
   assert.equal(carrier.carrier.metadata.productChannel, "chatgpt-codex");
+});
+
+test("providerAccessLayer exposes first-class API carriers for responses, chat completions, and messages", () => {
+  const openaiRef = ref();
+  const anthropicRef = createCredentialRef({
+    id: "anthropic",
+    provider: "anthropic",
+    credentialType: "anthropic_api_key",
+    source: { kind: "test", label: "unit" },
+  });
+  assert.equal(anthropicRef.ok, true);
+  if (!anthropicRef.ok) {
+    throw new Error("expected anthropic ref");
+  }
+
+  const responses = createOpenAIV1ResponsesCarrier({
+    carrierId: "openai.responses",
+    credentialRef: openaiRef,
+    model: "gpt-5.5",
+  });
+  const chat = createOpenAIV1ChatCompletionsCarrier({
+    carrierId: "openai.chat",
+    credentialRef: openaiRef,
+    baseURL: "https://gateway.example.com/v1/",
+    model: "compatible-model",
+  });
+  const messages = createAnthropicV1MessagesCarrier({
+    carrierId: "anthropic.messages",
+    credentialRef: anthropicRef.credentialRef,
+    model: "claude-sonnet",
+  });
+
+  assert.equal(responses.ok, true);
+  assert.equal(chat.ok, true);
+  assert.equal(messages.ok, true);
+  if (!responses.ok || !chat.ok || !messages.ok) {
+    throw new Error("expected carriers");
+  }
+
+  assert.equal(responses.carrier.endpointShape, "responses");
+  assert.equal(responses.carrier.baseURL, OPENAI_DEFAULT_RESPONSES_BASE_URL);
+  assert.equal(chat.carrier.endpointShape, "chat_completions");
+  assert.equal(chat.carrier.baseURL, "https://gateway.example.com/v1");
+  assert.equal(messages.carrier.provider, "anthropic");
+  assert.equal(messages.carrier.endpointShape, "messages");
+  assert.equal(messages.carrier.metadata.apiVersion, "2023-06-01");
+  assert.equal(messages.carrier.capabilities.includes("tool-call"), true);
+});
+
+test("providerAccessLayer resolves DeepSeek v4 manual context metadata for both API shapes", () => {
+  for (const provider of ["openai", "anthropic"] as const) {
+    for (const model of ["deepseek-v4-flash", "deepseek-v4-pro"] as const) {
+      const metadata = resolveProviderModelMetadata({ provider, model });
+      assert.equal(metadata?.contextWindowTokens, 1_000_000);
+      assert.equal(metadata?.maxInputTokens, 1_000_000);
+      assert.equal(metadata?.usableInputTokens, 950_000);
+      assert.equal(metadata?.inputBudgetThreshold, 0.95);
+    }
+  }
 });
 
 test("providerCaller uses private auth material for transport but returns only redacted public output", async () => {

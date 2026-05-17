@@ -274,8 +274,23 @@ export type MainLoopRunnerFinalResult =
       events: readonly string[];
     };
 
+export type MainLoopRunnerNoFinalReason =
+  | "model_turn_limit"
+  | "tool_call_limit"
+  | "no_continuation";
+
+export type MainLoopRunnerNoFinalContext = {
+  reason: MainLoopRunnerNoFinalReason;
+  modelTurns: number;
+  toolCalls: number;
+  turnToolCalls: number;
+  maxModelTurns: number;
+  maxToolCalls: number;
+};
+
 export type MainLoopRunnerRequest<TPrompt, TRaw> = {
   maxModelTurns: number;
+  /** Maximum tool calls accepted inside one model turn. */
   maxToolCalls: number;
   prepareTurn: (turnIndex: number) => Promise<MainLoopRunnerTurnPackage<TPrompt> | { ok: false; error: MainLoopRunnerError; events: readonly string[] }>;
   invokeModel: (turnIndex: number, prompt: TPrompt) => Promise<MainLoopRunnerModelResult<TRaw>>;
@@ -287,7 +302,7 @@ export type MainLoopRunnerRequest<TPrompt, TRaw> = {
   handleToolCall: (input: { turnIndex: number; decisionIndex: number; decision: ModelDecision; prompt: TPrompt }) => Promise<MainLoopRunnerActionResult>;
   handleEphemeralProcedure: (input: { turnIndex: number; decisionIndex: number; decision: ModelDecision; prompt: TPrompt }) => Promise<MainLoopRunnerActionResult>;
   onModelDryRun?: (input: { turnIndex: number; prompt: TPrompt; model: Extract<MainLoopRunnerModelResult<TRaw>, { ok: true }> }) => Promise<MainLoopRunnerFinalResult>;
-  onNoFinalOutput?: () => Promise<MainLoopRunnerFinalResult>;
+  onNoFinalOutput?: (input: MainLoopRunnerNoFinalContext) => Promise<MainLoopRunnerFinalResult>;
 };
 
 export type MainLoopRunnerResult =
@@ -1469,11 +1484,16 @@ function runnerFailure(
   return { ok: false, error, modelTurns, toolCalls, events };
 }
 
-function fallbackRunnerFinal(): MainLoopRunnerFinalResult {
+function fallbackRunnerFinal(input: MainLoopRunnerNoFinalContext): MainLoopRunnerFinalResult {
+  const finalOutput = input.reason === "tool_call_limit"
+    ? "PraxisRuntimeKernel reached the tool call limit before a final answer."
+    : input.reason === "no_continuation"
+      ? "PraxisRuntimeKernel stopped without a final answer."
+      : "PraxisRuntimeKernel reached the model turn limit before a final answer.";
   return {
     ok: true,
-    finalOutput: "PraxisRuntimeKernel completed without text output.",
-    events: ["agentCore.execution.mainLoop.runner.fallbackFinal"],
+    finalOutput,
+    events: [`agentCore.execution.mainLoop.runner.fallbackFinal.${input.reason}`],
   };
 }
 
@@ -1482,8 +1502,13 @@ export async function runMainLoopRunner<TPrompt, TRaw>(
 ): Promise<MainLoopRunnerResult> {
   const events: string[] = ["agentCore.execution.mainLoop.runner.started"];
   let toolCalls = 0;
+  let completedModelTurns = 0;
+  let completedTurnToolCalls = 0;
+  let noFinalReason: MainLoopRunnerNoFinalReason = "model_turn_limit";
 
   for (let turnIndex = 0; turnIndex < request.maxModelTurns; turnIndex += 1) {
+    completedModelTurns = turnIndex + 1;
+    let turnToolCalls = 0;
     const prepared = await request.prepareTurn(turnIndex);
     events.push(...prepared.events);
     if ("ok" in prepared && prepared.ok === false) {
@@ -1561,7 +1586,10 @@ export async function runMainLoopRunner<TPrompt, TRaw>(
       }
 
       if (decision.kind === "toolCall") {
-        if (toolCalls >= request.maxToolCalls) {
+        if (turnToolCalls >= request.maxToolCalls) {
+          noFinalReason = "tool_call_limit";
+          events.push("agentCore.execution.mainLoop.runner.toolCallLimit");
+          completedTurnToolCalls = turnToolCalls;
           continueLoop = false;
           break;
         }
@@ -1571,6 +1599,8 @@ export async function runMainLoopRunner<TPrompt, TRaw>(
           return runnerFailure(tool.error, turnIndex + 1, toolCalls, events);
         }
         toolCalls += 1;
+        turnToolCalls += 1;
+        completedTurnToolCalls = turnToolCalls;
         continueLoop = continueLoop || tool.continueLoop;
         continue;
       }
@@ -1586,15 +1616,29 @@ export async function runMainLoopRunner<TPrompt, TRaw>(
     }
 
     if (!continueLoop) {
+      completedTurnToolCalls = turnToolCalls;
+      if (noFinalReason !== "tool_call_limit") {
+        noFinalReason = "no_continuation";
+      }
       break;
     }
   }
 
-  const fallback = request.onNoFinalOutput === undefined ? fallbackRunnerFinal() : await request.onNoFinalOutput();
+  const noFinalContext: MainLoopRunnerNoFinalContext = {
+    reason: noFinalReason,
+    modelTurns: completedModelTurns,
+    toolCalls,
+    turnToolCalls: completedTurnToolCalls,
+    maxModelTurns: request.maxModelTurns,
+    maxToolCalls: request.maxToolCalls,
+  };
+  const fallback = request.onNoFinalOutput === undefined
+    ? fallbackRunnerFinal(noFinalContext)
+    : await request.onNoFinalOutput(noFinalContext);
   events.push(...fallback.events);
   return fallback.ok
-    ? { ok: true, finalOutput: fallback.finalOutput, modelTurns: request.maxModelTurns, toolCalls, events }
-    : runnerFailure(fallback.error, request.maxModelTurns, toolCalls, events);
+    ? { ok: true, finalOutput: fallback.finalOutput, modelTurns: noFinalContext.modelTurns, toolCalls, events }
+    : runnerFailure(fallback.error, noFinalContext.modelTurns, toolCalls, events);
 }
 
 function gateResult(gate: AgentExecutionStateGate | undefined): MainLoopStepGateResult {

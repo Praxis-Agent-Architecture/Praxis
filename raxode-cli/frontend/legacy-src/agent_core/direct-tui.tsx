@@ -162,6 +162,7 @@ import {
   getCachedModelAvailability,
   listAvailableAnthropicModels,
   listAvailableChatModels,
+  probeChatCompletionsModelAvailability,
   probeAnthropicModelAvailability,
   probeChatModelAvailability,
   probeEmbeddingModelAvailability,
@@ -189,7 +190,12 @@ import {
   formatHumanGateDecisionEnvelope,
 } from "./live-agent-chat/human-gate-envelope.js";
 import {
+  formatProviderModelSelectionValue,
+  providerRouteDisplayName,
+  providerRouteReasoningLabelForModel,
+  providerRouteSupportsReasoningForModel,
   resolveProviderRouteKind,
+  type ProviderRouteKind,
 } from "./integrations/model-route-features.js";
 import {
   applyDirectTuiTextSelectionToRenderSegments,
@@ -208,14 +214,17 @@ import {
   resolveDirectTuiAssistantTurnResultAction,
   resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiContextUsedTokens,
+  resolveDirectTuiInkColor,
   resolveDirectTuiProcedurePlannedToolPreviews,
   resolveDirectTuiToolPreviewSummaryLines,
   resolveDirectTuiToolSummaryResultLineLimit,
   resolveDirectTuiToolSummaryKey,
   settleDirectTuiLiveToolSummaryText,
+  shouldAnimateDirectTuiRunStatus,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldApplyDirectTuiTurnResultContext,
   shouldRenderDirectTuiConversationHeader,
+  shouldUseDirectTuiPinnedRunStatus,
   stabilizeDirectTuiProcedurePlannedToolPreviewLines,
 } from "./tui-input/direct-tui-presentation.js";
 import {
@@ -848,7 +857,6 @@ function buildExitSummaryPanelLines(
     `Output Tokens:`,
     `Thinking Budget:`,
     `Average Cache Hit Rate:`,
-    `Turn Success Rate:`,
     ...(summary.modelSuccessRate === undefined ? [] : [`Model Request Success:`]),
     resumeCommand,
   ];
@@ -857,7 +865,6 @@ function buildExitSummaryPanelLines(
     formatDirectTuiTokenCount(summary.outputTokens),
     formatDirectTuiTokenCount(summary.thinkingTokens),
     summary.averageCacheHitRate === undefined ? "N/A" : formatDirectTuiPercent(summary.averageCacheHitRate),
-    formatDirectTuiPercent(summary.successRate),
     ...(summary.modelSuccessRate === undefined ? [] : [formatDirectTuiPercent(summary.modelSuccessRate)]),
     "",
   ];
@@ -913,6 +920,8 @@ function resolvePositiveFps(value: string | undefined, fallback: number): number
 
 const RAXODE_RENDER_FPS = resolvePositiveFps(process.env.RAXODE_RENDER_FPS, 120);
 const ANIMATION_TICK_MS = Math.max(1, 1000 / RAXODE_RENDER_FPS);
+const RUN_STATUS_RENDER_FPS = resolvePositiveFps(process.env.RAXODE_RUN_STATUS_FPS, 120);
+const RUN_STATUS_ANIMATION_TICK_MS = Math.max(1, 1000 / RUN_STATUS_RENDER_FPS);
 const LOG_TAIL_POLL_INTERVAL_MS = Math.max(
   1,
   1000 / Math.max(1, RAXODE_RENDER_FPS),
@@ -1066,61 +1075,26 @@ const RUSH_OVERLAY_FALLBACK_FRAME = [
 const RUSH_OVERLAY_FRAMES = loadRushOverlayFrames();
 const RUN_STATUS_DOT_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 const RUN_STATUS_PHRASES = [
-  "digging deep...",
-  "ideas exploding...",
-  "plotting dinner...",
-  "munching your tokens...",
-  "scheming you...",
-  "smashing Claude Code...",
-  "tearing Codex apart...",
-  "mocking Gemini CLI...",
-  "staring at Donald Trump...",
-  "loafing in muddy waters...",
-  "slacking off...",
-  "crafting your perfect answer...",
-  "running inside your PC...",
-  "making Grok spit images...",
-  "testing Gemini's multimodal...",
-  "peeking at Claude Code's source map file...",
-  "lighting up a Marlboro...",
-  "trash-talking with Rust devs...",
-  "sending a PR to Linus...",
-  "obliterating Redis...",
-  "speechless at OpenClaw...",
-  "resigned about Hermes...",
-  "heading to Microsoft...",
-  "jumping ship to Apple...",
-  "considering DeepMind...",
-  "disrupting Transformer...",
-  "sending Dario Amodei back to Baidu...",
-  "teasing DeepSeek...",
-  "refactoring your project...",
-  "rescuing a nerfed model...",
-  "talking to GPT...",
-  "criticizing subagents...",
-  "arguing with the neighbor agent...",
-  "studying your comments...",
-  "revering your algorithm...",
-  "parsing your classes...",
-  "sprinkling you with syntactic sugar...",
-  "inheriting...",
-  "converting TypeScript to Go...",
-  "writing a neural network in C...",
-  "refactoring your spaghetti code...",
-  "relearning Swift...",
-  "trying to buy a Mac...",
-  "adding comments to you...",
-  "piling up spaghetti code...",
-  "studying Python's garbage performance...",
-  "writing an interface...",
-  "checking memory safety without Rust...",
-  "feeling the urge to use a lib...",
-  "pulling in some mysterious dependencies...",
+  "waiting for model response...",
+  "reading current context...",
+  "planning next step...",
+  "preparing tool call...",
+  "checking workspace state...",
+  "reviewing recent output...",
+  "composing response...",
+  "waiting for provider...",
+  "tracking active turn...",
+  "updating transcript...",
+  "preparing verification...",
+  "collecting tool results...",
+  "settling turn state...",
+  "checking final answer...",
+  "preparing summary...",
 ] as const;
 const RUN_STATUS_PHRASE_REVEAL_FRAME_STEP = 5;
 const RUN_STATUS_PHRASE_HIDE_FRAME_STEP = 3;
-const RUN_STATUS_PHRASE_HOLD_FRAMES = Math.max(1, Math.round(2500 / ANIMATION_TICK_MS));
-const RUN_STATUS_PHRASE_GAP_FRAMES = Math.max(1, Math.round(500 / ANIMATION_TICK_MS));
+const RUN_STATUS_PHRASE_HOLD_FRAMES = Math.max(1, Math.round(2500 / RUN_STATUS_ANIMATION_TICK_MS));
+const RUN_STATUS_PHRASE_GAP_FRAMES = Math.max(1, Math.round(500 / RUN_STATUS_ANIMATION_TICK_MS));
 const RUN_STATUS_PHRASE_RANDOM_SEED = Math.floor(Math.random() * 0xffff_ffff) >>> 0;
 const RUN_STATUS_PHRASE_ORDER_CACHE = new Map<number, number[]>();
 const SYNC_OUTPUT_BEGIN = "\u001B[?2026h";
@@ -1832,6 +1806,7 @@ type ModelPickerSource = "chat" | "embedding";
 interface ModelPickerOverlayState {
   open: boolean;
   source: ModelPickerSource;
+  routeKind?: ProviderRouteKind;
   fieldKey: string;
   fieldLabel: string;
   availabilityScopeKey: string;
@@ -1840,6 +1815,7 @@ interface ModelPickerOverlayState {
   models: AvailableModelCatalogEntry[];
   selectedModelIndex: number;
   selectedReasoningIndex: number;
+  selectedReasoningValue?: string;
   serviceTierFastEnabled: boolean;
   availabilityByModelId: Record<string, ModelAvailabilityRecord | undefined>;
 }
@@ -3129,10 +3105,12 @@ function buildSlashPanelView(
   const currentLanguage = context.configFile?.ui.language ?? context.runtimeConfig?.ui.language ?? "zh-CN";
   const coreProfile = context.configFile ? resolveRoleProfile(context.configFile, "core.main") : undefined;
   const tuiProfile = context.configFile ? resolveRoleProfile(context.configFile, "tui.main") : undefined;
-  const currentCoreModel = coreProfile?.model ?? context.runtimeConfig?.modelPlan.core.main.model ?? "gpt-5.4";
-  const currentCoreReasoning = (coreProfile?.reasoningEffort ?? context.runtimeConfig?.modelPlan.core.main.reasoning ?? "high") as string;
-  const currentTuiModel = tuiProfile?.model ?? context.runtimeConfig?.modelPlan.tui.main.model ?? "gpt-5.4";
-  const currentTuiReasoning = (tuiProfile?.reasoningEffort ?? context.runtimeConfig?.modelPlan.tui.main.reasoning ?? "low") as string;
+  const coreBinding = context.configFile?.roleBindings["core.main"];
+  const tuiBinding = context.configFile?.roleBindings["tui.main"];
+  const currentCoreModel = coreBinding?.overrides?.model ?? context.runtimeConfig?.modelPlan.core.main.model ?? coreProfile?.model ?? "gpt-5.4";
+  const currentCoreReasoning = (coreBinding?.overrides?.reasoning ?? context.runtimeConfig?.modelPlan.core.main.reasoning ?? coreProfile?.reasoningEffort ?? "high") as string;
+  const currentTuiModel = tuiBinding?.overrides?.model ?? context.runtimeConfig?.modelPlan.tui.main.model ?? tuiProfile?.model ?? "gpt-5.4";
+  const currentTuiReasoning = (tuiBinding?.overrides?.reasoning ?? context.runtimeConfig?.modelPlan.tui.main.reasoning ?? tuiProfile?.reasoningEffort ?? "low") as string;
   const currentWorkspaceDefault = context.configFile?.workspace.defaultPath ?? context.currentCwd;
   const requestedMode = context.configFile?.permissions.requestedMode ?? context.runtimeConfig?.permissions.requestedMode ?? "bapr";
   const modeChoice = resolvePanelDraftValue(draft, "requestedMode", requestedMode);
@@ -3162,7 +3140,7 @@ function buildSlashPanelView(
   const modelEffortOptions = buildModelEffortOptions();
   const visibleSessions = context.sessions.slice(0, 12);
   const visibleAgents = context.agents.slice(0, 12);
-  const resolveRoleDisplayValue = (
+  const resolveRolePickerValue = (
     draftKey: string,
     roleId:
       | "core.main"
@@ -3191,6 +3169,70 @@ function buildSlashPanelView(
       resolveFastEnabledForRole(context.configFile, context.runtimeConfig, roleId),
     ),
   );
+  const resolveRoleRouteKind = (
+    roleId:
+      | "core.main"
+      | "tui.main"
+      | "mp.icma"
+      | "mp.dbagent"
+      | "mp.iterator"
+      | "mp.checker"
+      | "mp.dispatcher"
+      | "cmp.icma"
+      | "cmp.dbagent"
+      | "cmp.iterator"
+      | "cmp.checker"
+      | "cmp.dispatcher"
+      | "tap.reviewer"
+      | "tap.toolReviewer"
+      | "tap.provisioner",
+  ): ProviderRouteKind | null => {
+    const profileId = context.configFile?.roleBindings[roleId]?.profileId;
+    const profile = context.configFile?.profiles.find((entry) => entry.id === profileId);
+    if (!profile) {
+      return null;
+    }
+    return resolveProviderRouteKind({
+      provider: profile.provider,
+      baseURL: profile.route.baseURL,
+      apiStyle: profile.route.apiStyle,
+    });
+  };
+  const resolveRolePanelDisplayValue = (
+    roleId:
+      | "core.main"
+      | "tui.main"
+      | "mp.icma"
+      | "mp.dbagent"
+      | "mp.iterator"
+      | "mp.checker"
+      | "mp.dispatcher"
+      | "cmp.icma"
+      | "cmp.dbagent"
+      | "cmp.iterator"
+      | "cmp.checker"
+      | "cmp.dispatcher"
+      | "tap.reviewer"
+      | "tap.toolReviewer"
+      | "tap.provisioner",
+    fallbackModel: string,
+    fallbackReasoning: string,
+  ): string => {
+    const routeKind = resolveRoleRouteKind(roleId);
+    if (!routeKind) {
+      return formatModelEffortDisplayLine(
+        fallbackModel,
+        fallbackReasoning,
+        resolveFastEnabledForRole(context.configFile, context.runtimeConfig, roleId),
+      );
+    }
+    return formatProviderModelSelectionValue({
+      routeKind,
+      model: fallbackModel,
+      reasoning: fallbackReasoning as RaxodeReasoningEffort,
+      serviceTierFastEnabled: resolveFastEnabledForRole(context.configFile, context.runtimeConfig, roleId),
+    });
+  };
 
   switch (id) {
     case "human-gate": {
@@ -3256,12 +3298,12 @@ function buildSlashPanelView(
         bodyLines: [
           createBodyKeyValueLine(
             "Core Model:",
-            resolveRoleDisplayValue("model:core.main", "core.main", currentCoreModel, currentCoreReasoning),
+            resolveRolePanelDisplayValue("core.main", currentCoreModel, currentCoreReasoning),
             { indent: 4, labelWidth: 32, gapWidth: 6, fieldKey: "model:core.main" },
           ),
           createBodyKeyValueLine(
             "TUI miscellaneous tasks Model:",
-            resolveRoleDisplayValue("model:tui.main", "tui.main", currentTuiModel, currentTuiReasoning),
+            resolveRolePanelDisplayValue("tui.main", currentTuiModel, currentTuiReasoning),
             { indent: 4, labelWidth: 32, gapWidth: 6, fieldKey: "model:tui.main" },
           ),
         ],
@@ -3270,14 +3312,14 @@ function buildSlashPanelView(
             kind: "choice",
             key: "model:core.main",
             label: "Core Model",
-            value: resolveRoleDisplayValue("model:core.main", "core.main", currentCoreModel, currentCoreReasoning),
+            value: resolveRolePickerValue("model:core.main", "core.main", currentCoreModel, currentCoreReasoning),
             options: modelEffortOptions,
           },
           {
             kind: "choice",
             key: "model:tui.main",
             label: "TUI miscellaneous tasks Model",
-            value: resolveRoleDisplayValue("model:tui.main", "tui.main", currentTuiModel, currentTuiReasoning),
+            value: resolveRolePickerValue("model:tui.main", "tui.main", currentTuiModel, currentTuiReasoning),
             options: modelEffortOptions,
           },
         ],
@@ -4236,6 +4278,85 @@ function buildRushConfirmOverlaySnapshot(
   };
 }
 
+function buildModelPickerSubtitle(picker: ModelPickerOverlayState): string {
+  if (picker.source === "embedding") {
+    return "API-backed embedding models";
+  }
+  return picker.routeKind
+    ? providerRouteDisplayName(picker.routeKind)
+    : "Available models for current login";
+}
+
+function modelPickerReasoningControlEnabled(
+  picker: ModelPickerOverlayState,
+  selectedModel: AvailableModelCatalogEntry | undefined,
+): boolean {
+  const reasoningLevels = selectedModel?.reasoningLevels ?? [];
+  return picker.source === "chat"
+    && reasoningLevels.length > 0
+    && (!picker.routeKind || providerRouteSupportsReasoningForModel({
+      routeKind: picker.routeKind,
+      model: selectedModel?.id,
+    }));
+}
+
+function buildModelPickerReasoningSummary(
+  picker: ModelPickerOverlayState,
+  selectedModel: AvailableModelCatalogEntry | undefined,
+  selectedReasoning: string | undefined,
+): string {
+  if (picker.source === "embedding") {
+    return "Reasoning: not applicable for embeddings";
+  }
+  const reasoningLevels = selectedModel?.reasoningLevels ?? [];
+  const label = picker.routeKind
+    ? providerRouteReasoningLabelForModel({ routeKind: picker.routeKind, model: selectedModel?.id }) ?? "Reasoning"
+    : "Reasoning";
+  if (modelPickerReasoningControlEnabled(picker, selectedModel)) {
+    return `${label}: ${reasoningLevels
+      .map((level) => level === selectedReasoning ? `[${level}]` : level)
+      .join(" · ")}`;
+  }
+  if (selectedReasoning) {
+    return picker.routeKind && !providerRouteSupportsReasoningForModel({
+      routeKind: picker.routeKind,
+      model: selectedModel?.id,
+    })
+      ? `${label}: ${selectedReasoning} configured (not sent by this route)`
+      : `${label}: ${selectedReasoning} configured`;
+  }
+  return `${label}: not supported`;
+}
+
+function buildModelPickerFastSummary(
+  picker: ModelPickerOverlayState,
+  selectedModel: AvailableModelCatalogEntry | undefined,
+): string {
+  if (picker.source === "embedding") {
+    return "FAST: not applicable for embeddings";
+  }
+  if (selectedModel?.supportsFastServiceTier) {
+    return `FAST: ${picker.serviceTierFastEnabled ? "ON" : "OFF"} (service tier)`;
+  }
+  return picker.routeKind ? "FAST: not available for this route" : "FAST: unavailable";
+}
+
+function buildModelPickerHelpText(
+  picker: ModelPickerOverlayState,
+  selectedModel: AvailableModelCatalogEntry | undefined,
+  reasoningLevels: string[],
+): string {
+  const controls = ["↑↓ select"];
+  if (modelPickerReasoningControlEnabled(picker, selectedModel)) {
+    controls.push("←→ reasoning");
+  }
+  if (picker.source === "chat" && selectedModel?.supportsFastServiceTier) {
+    controls.push("Tab FAST");
+  }
+  controls.push("Enter confirm", "Esc close");
+  return controls.join(" · ");
+}
+
 function buildModelPickerOverlaySnapshot(
   picker: ModelPickerOverlayState,
   terminalRows: number,
@@ -4245,7 +4366,9 @@ function buildModelPickerOverlaySnapshot(
   const innerWidth = width - 2;
   const selectedModel = picker.models[picker.selectedModelIndex];
   const reasoningLevels = selectedModel?.reasoningLevels ?? [];
-  const selectedReasoning = reasoningLevels[picker.selectedReasoningIndex] ?? selectedModel?.defaultReasoningLevel;
+  const selectedReasoning = reasoningLevels[picker.selectedReasoningIndex]
+    ?? picker.selectedReasoningValue
+    ?? selectedModel?.defaultReasoningLevel;
   const visibleStart = Math.max(
     0,
     Math.min(
@@ -4257,14 +4380,11 @@ function buildModelPickerOverlaySnapshot(
   const visibleModels = picker.models.slice(visibleStart, visibleEnd);
   const remainingAbove = visibleStart;
   const remainingBelow = Math.max(0, picker.models.length - visibleEnd);
-  const reasoningSummary = reasoningLevels.length > 0
-    ? `Reasoning: ${reasoningLevels.map((level) => level === selectedReasoning ? `[${level}]` : level).join(" · ")}`
-    : "Reasoning: not supported";
-  const fastSummary = picker.source === "embedding"
-    ? "Embedding models do not support FAST mode."
-    : selectedModel?.supportsFastServiceTier
-      ? `FAST: ${picker.serviceTierFastEnabled ? "ON" : "OFF"} (service tier)`
-      : "FAST: unavailable";
+  const reasoningSummary = buildModelPickerReasoningSummary(picker, selectedModel, selectedReasoning);
+  const fastSummary = buildModelPickerFastSummary(picker, selectedModel);
+  const helpText = buildModelPickerHelpText(picker, selectedModel, reasoningLevels);
+  const reasoningControlEnabled = modelPickerReasoningControlEnabled(picker, selectedModel);
+  const fastControlEnabled = picker.source === "chat" && Boolean(selectedModel?.supportsFastServiceTier);
   const lines: TerminalOverlayLine[] = [];
 
   const pushLine = (content: TerminalOverlaySegment[]) => {
@@ -4276,12 +4396,7 @@ function buildModelPickerOverlaySnapshot(
   });
   pushLine([{ text: padTextToWidth(picker.fieldLabel, innerWidth), color: TUI_THEME.mintSoft }]);
   pushLine([{
-    text: padTextToWidth(
-      picker.source === "embedding"
-        ? "API-backed embedding models"
-        : "Available models for current login",
-      innerWidth,
-    ),
+    text: padTextToWidth(buildModelPickerSubtitle(picker), innerWidth),
     color: TUI_THEME.textMuted,
   }]);
 
@@ -4334,23 +4449,15 @@ function buildModelPickerOverlaySnapshot(
     color: TUI_THEME.textMuted,
   }]);
   pushLine([{
-    text: padTextToWidth(
-      picker.source === "embedding"
-        ? "Reasoning: not supported"
-        : reasoningSummary,
-      innerWidth,
-    ),
-    color: picker.source === "embedding" ? TUI_THEME.textMuted : TUI_THEME.violet,
+    text: padTextToWidth(reasoningSummary, innerWidth),
+    color: reasoningControlEnabled ? TUI_THEME.violet : TUI_THEME.textMuted,
   }]);
   pushLine([{
     text: padTextToWidth(fastSummary, innerWidth),
-    color: picker.source === "embedding" ? TUI_THEME.textMuted : TUI_THEME.violet,
+    color: fastControlEnabled ? TUI_THEME.violet : TUI_THEME.textMuted,
   }]);
   pushLine([{
-    text: padTextToWidth(
-      "↑↓ select · ←→ reasoning · Tab FAST · Enter confirm · Esc close",
-      innerWidth,
-    ),
+    text: padTextToWidth(helpText, innerWidth),
     color: TUI_THEME.textMuted,
   }]);
 
@@ -7868,13 +7975,13 @@ const TranscriptLineView = memo(function TranscriptLineView({
     <Text color={colorForRenderLine(line.kind)}>
       {renderedSegments
         ? renderedSegments.map((segment, segmentIndex) => (
-          <Text
-            key={`line-${row}-${segmentIndex}-${segment.text}`}
-            color={segment.color}
-            backgroundColor={segment.backgroundColor}
-          >
-            {segment.text}
-          </Text>
+            <Text
+              key={`line-${row}-${segmentIndex}-${segment.text}`}
+              color={resolveDirectTuiInkColor(segment.color)}
+              backgroundColor={segment.backgroundColor}
+            >
+              {segment.text}
+            </Text>
         ))
         : line.text}
     </Text>
@@ -8474,6 +8581,7 @@ function PraxisDirectTuiApp(): JSX.Element {
   const [scrollOffset, setScrollOffset] = useState(0);
   const [textSelection, setTextSelection] = useState<TextSelectionState | null>(null);
   const [animationTick, setAnimationTick] = useState(0);
+  const [runStatusAnimationTick, setRunStatusAnimationTick] = useState(0);
   const [footerModeIndex, setFooterModeIndex] = useState(0);
   const [rushModeEnabled, setRushModeEnabled] = useState(false);
   const [rushFooterNotice, setRushFooterNotice] = useState<"closed" | null>(null);
@@ -9517,6 +9625,7 @@ function PraxisDirectTuiApp(): JSX.Element {
 
   type ChatModelCatalogRoleConfig = {
     provider: "openai" | "anthropic";
+    routeKind: ProviderRouteKind;
     cacheKey: string;
     availabilityScopeKey: string;
     loadModels: () => Promise<AvailableModelCatalogEntry[]>;
@@ -9526,7 +9635,8 @@ function PraxisDirectTuiApp(): JSX.Element {
     ) => Promise<ModelAvailabilityRecord>;
   };
 
-  const resolveModelCatalogCacheKey = (authConfig: OpenAILiveConfig) => `${authConfig.authMode}:${authConfig.baseURL}`;
+  const resolveModelCatalogCacheKey = (authConfig: OpenAILiveConfig) =>
+    `${authConfig.authMode}:${authConfig.baseURL}:${authConfig.apiStyle ?? ""}`;
 
   const resolveChatModelCatalogRoleConfig = (
     roleId: RaxcodeRoleId,
@@ -9534,13 +9644,20 @@ function PraxisDirectTuiApp(): JSX.Element {
     const resolved = loadResolvedRoleConfig(roleId);
     if (resolved.profile.provider === "openai") {
       const authConfig = loadOpenAILiveConfig(roleId);
+      const routeKind = resolveProviderRouteKind({
+        provider: "openai",
+        baseURL: authConfig.baseURL,
+        apiStyle: authConfig.apiStyle,
+      });
       return {
         provider: "openai",
+        routeKind,
         cacheKey: resolveModelCatalogCacheKey(authConfig),
         availabilityScopeKey: buildChatModelAvailabilityScopeKey(authConfig),
         loadModels: () => listAvailableChatModels(authConfig),
-        probeModel: (modelId, fallbackReasoning) =>
-          probeChatModelAvailability(modelId, authConfig, fallbackReasoning),
+        probeModel: (modelId, fallbackReasoning) => routeKind === "openai_chat_completions"
+          ? probeChatCompletionsModelAvailability(modelId, authConfig)
+          : probeChatModelAvailability(modelId, authConfig, fallbackReasoning),
       };
     }
     if (resolved.profile.provider === "anthropic") {
@@ -9550,6 +9667,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       };
       return {
         provider: "anthropic",
+        routeKind: "anthropic_messages",
         cacheKey: `anthropic:${resolved.authProfile.id}:${anthropicConfig.baseURL}`,
         availabilityScopeKey: `chat:anthropic:${resolved.authProfile.id}:${anthropicConfig.baseURL}`,
         loadModels: () => listAvailableAnthropicModels(anthropicConfig),
@@ -9617,13 +9735,17 @@ function PraxisDirectTuiApp(): JSX.Element {
   ) => {
     const selectedModelIndex = Math.max(0, models.findIndex((entry) => entry.id === parsed?.model));
     const selectedModel = models[selectedModelIndex];
+    const parsedReasoning = parsed?.reasoning;
     const selectedReasoningIndex = Math.max(
       0,
-      (selectedModel?.reasoningLevels ?? []).findIndex((entry) => entry === parsed?.reasoning),
+      (selectedModel?.reasoningLevels ?? []).findIndex((entry) => entry === parsedReasoning),
     );
     return {
       selectedModelIndex,
       selectedReasoningIndex: selectedReasoningIndex >= 0 ? selectedReasoningIndex : 0,
+      selectedReasoningValue: parsedReasoning
+        ?? selectedModel?.defaultReasoningLevel
+        ?? selectedModel?.reasoningLevels[0],
       serviceTierFastEnabled: Boolean(
         parsed?.serviceTierFastEnabled
         && selectedModel?.supportsFastServiceTier,
@@ -9784,6 +9906,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     setModelPicker({
       open: true,
       source,
+      routeKind: chatRoleConfig?.routeKind,
       fieldKey: field.key,
       fieldLabel: field.label,
       availabilityScopeKey,
@@ -9791,6 +9914,7 @@ function PraxisDirectTuiApp(): JSX.Element {
       models: initialModels,
       selectedModelIndex: cachedSelection.selectedModelIndex,
       selectedReasoningIndex: cachedSelection.selectedReasoningIndex,
+      selectedReasoningValue: "selectedReasoningValue" in cachedSelection ? cachedSelection.selectedReasoningValue : undefined,
       serviceTierFastEnabled: cachedSelection.serviceTierFastEnabled,
       availabilityByModelId: hydrateModelAvailabilityFromCache(availabilityScopeKey, initialModels),
       error: source === "chat" && cachedModels.length === 0 && modelCatalogWarmState.status === "error"
@@ -9812,6 +9936,7 @@ function PraxisDirectTuiApp(): JSX.Element {
         models,
         selectedModelIndex: nextSelection.selectedModelIndex,
         selectedReasoningIndex: nextSelection.selectedReasoningIndex,
+        selectedReasoningValue: nextSelection.selectedReasoningValue,
         serviceTierFastEnabled: nextSelection.serviceTierFastEnabled,
         availabilityByModelId: hydrateModelAvailabilityFromCache(availabilityScopeKey, models),
       } : current);
@@ -11129,8 +11254,12 @@ function PraxisDirectTuiApp(): JSX.Element {
   const cmpContextAnimationFrame = cmpContextActive
     ? Math.floor(animationTick / 6)
     : 0;
-  const runStatusAnimationFrame = runIndicator
-    ? animationTick
+  const runStatusAnimationActive = shouldAnimateDirectTuiRunStatus({
+    hasRunIndicator: Boolean(runIndicator),
+    hasActiveToolSummary,
+  });
+  const runStatusAnimationFrame = runStatusAnimationActive
+    ? runStatusAnimationTick
     : 0;
   const rewindAnimationFrame = rewindInFlight
     ? Math.floor(animationTick / REWIND_SPINNER_FRAME_STEP)
@@ -11160,6 +11289,19 @@ function PraxisDirectTuiApp(): JSX.Element {
       clearInterval(timer);
     };
   }, [shouldAnimate]);
+
+  useEffect(() => {
+    if (!runStatusAnimationActive) {
+      setRunStatusAnimationTick(0);
+      return;
+    }
+    const timer = setInterval(() => {
+      setRunStatusAnimationTick((previous) => previous + 1);
+    }, RUN_STATUS_ANIMATION_TICK_MS);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [runStatusAnimationActive]);
 
   useEffect(() => {
     if (!rushOverlayState) {
@@ -12913,6 +13055,7 @@ function PraxisDirectTuiApp(): JSX.Element {
     const reasoningLevels = selectedModel.reasoningLevels;
     const selectedReasoning = reasoningLevels[modelPicker.selectedReasoningIndex]
       ?? selectedModel.defaultReasoningLevel
+      ?? modelPicker.selectedReasoningValue
       ?? reasoningLevels[0]
       ?? "low";
     const nextValue = formatModelEffortDisplayLine(selectedModel.id, selectedReasoning, modelPicker.serviceTierFastEnabled);
@@ -12947,10 +13090,10 @@ function PraxisDirectTuiApp(): JSX.Element {
       }
       binding.overrides = {
         ...binding.overrides,
+        model: parsed.model,
+        reasoning: parsed.reasoning,
         serviceTier: parsed.serviceTierFastEnabled && selectedModel.supportsFastServiceTier ? "fast" : undefined,
       };
-      profile.model = parsed.model;
-      profile.reasoningEffort = parsed.reasoning;
     });
     if (!nextConfig) {
       return;
@@ -13449,10 +13592,10 @@ function PraxisDirectTuiApp(): JSX.Element {
         }
         binding.overrides = {
           ...binding.overrides,
+          model: parsed.model,
+          reasoning: parsed.reasoning,
           serviceTier: parsed.serviceTierFastEnabled ? "fast" : undefined,
         };
-        profile.model = parsed.model;
-        profile.reasoningEffort = parsed.reasoning;
       });
       if (!nextConfig) {
         return;
@@ -14774,13 +14917,15 @@ function PraxisDirectTuiApp(): JSX.Element {
           }
           const selectedModel = current.models[current.selectedModelIndex];
           const levels = selectedModel?.reasoningLevels ?? [];
-          if (levels.length === 0) {
+          if (!modelPickerReasoningControlEnabled(current, selectedModel)) {
             return current;
           }
           const delta = key.leftArrow ? -1 : 1;
+          const nextReasoningIndex = (current.selectedReasoningIndex + delta + levels.length) % levels.length;
           return {
             ...current,
-            selectedReasoningIndex: (current.selectedReasoningIndex + delta + levels.length) % levels.length,
+            selectedReasoningIndex: nextReasoningIndex,
+            selectedReasoningValue: levels[nextReasoningIndex],
           };
         });
         return;
@@ -15555,17 +15700,18 @@ function PraxisDirectTuiApp(): JSX.Element {
       : buildRunStatusLine(runIndicator, runStatusAnimationFrame, transcriptLineWidth),
     [hasActiveToolSummary, runIndicator, runStatusAnimationFrame, transcriptLineWidth],
   );
-  const directRunStatusEnabled = Boolean(
-    transientRunStatusLine
-    && process.stdout.isTTY
-    && !hasActiveToolSummary
-    && exitSummaryDisplay === null
-    && !rewindInFlight
-    && !rewindOverlayState
-    && !rushConfirmOverlayState
-    && !rushOverlayState
-    && !modelPicker?.open,
-  );
+  const directRunStatusEnabled = shouldUseDirectTuiPinnedRunStatus({
+    enablePinnedRunStatus: false,
+    hasTransientRunStatusLine: Boolean(transientRunStatusLine),
+    isTty: Boolean(process.stdout.isTTY),
+    hasActiveToolSummary,
+    exitSummaryActive: exitSummaryDisplay !== null,
+    rewindInFlight,
+    hasRewindOverlay: Boolean(rewindOverlayState),
+    hasRushConfirmOverlay: Boolean(rushConfirmOverlayState),
+    hasRushOverlay: Boolean(rushOverlayState),
+    modelPickerOpen: Boolean(modelPicker?.open),
+  });
   const transientRunStatusRenderLine = directRunStatusEnabled && transientRunStatusLine
     ? {
         kind: "detail" as const,

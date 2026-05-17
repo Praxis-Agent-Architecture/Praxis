@@ -243,6 +243,119 @@ test("runMainLoopRunner owns model decision and tool loop control through runtim
   ]);
 });
 
+test("runMainLoopRunner applies tool budget per model turn instead of globally", async () => {
+  const toolCalls: string[] = [];
+  const result = await runMainLoopRunner({
+    maxModelTurns: 3,
+    maxToolCalls: 1,
+    prepareTurn: async (turnIndex) => ({
+      prompt: { promptPackId: `prompt-${turnIndex}` },
+      events: [`prepare:${turnIndex}`],
+    }),
+    invokeModel: async (turnIndex) => ({
+      ok: true,
+      modelCallId: `model-${turnIndex}`,
+      raw: { turnIndex },
+      events: [`model:${turnIndex}`],
+    }),
+    interpretDecision: async (turnIndex) => ({
+      ok: true,
+      decisions: turnIndex < 2
+        ? [{
+            decisionId: `decision.tool.${turnIndex}`,
+            kind: "toolCall",
+            toolCall: { callId: `call-${turnIndex}`, toolId: "code.read", arguments: {} },
+            observationRefs: [],
+            metadata: {},
+          }]
+        : [{
+            decisionId: "decision.final",
+            kind: "finalOutput",
+            finalOutput: "done",
+            observationRefs: [],
+            metadata: {},
+          }],
+      events: [`decision:${turnIndex}`],
+    }),
+    acceptFinalOutput: async ({ decision }) => ({ ok: true, finalOutput: decision.finalOutput ?? "", events: ["final"] }),
+    handleContinue: async () => assert.fail("continue handler should not run"),
+    handleFailure: async () => assert.fail("failure handler should not run"),
+    handleApproval: async () => assert.fail("approval handler should not run"),
+    handleToolCall: async ({ decision }) => {
+      toolCalls.push(decision.toolCall?.callId ?? "");
+      return { ok: true, continueLoop: true, events: ["tool"] };
+    },
+    handleEphemeralProcedure: async () => assert.fail("procedure handler should not run"),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "done");
+  assert.equal(result.modelTurns, 3);
+  assert.equal(result.toolCalls, 2);
+  assert.deepEqual(toolCalls, ["call-0", "call-1"]);
+});
+
+test("runMainLoopRunner reports tool call limit when one model turn exhausts its tool budget", async () => {
+  let noFinalReason = "";
+  const result = await runMainLoopRunner({
+    maxModelTurns: 10,
+    maxToolCalls: 1,
+    prepareTurn: async (turnIndex) => ({
+      prompt: { promptPackId: `prompt-${turnIndex}` },
+      events: [`prepare:${turnIndex}`],
+    }),
+    invokeModel: async (turnIndex) => ({
+      ok: true,
+      modelCallId: `model-${turnIndex}`,
+      raw: { turnIndex },
+      events: [`model:${turnIndex}`],
+    }),
+    interpretDecision: async (turnIndex) => ({
+      ok: true,
+      decisions: [
+        {
+          decisionId: `decision.tool.${turnIndex}.first`,
+          kind: "toolCall",
+          toolCall: { callId: "call-first", toolId: "code.read", arguments: {} },
+          observationRefs: [],
+          metadata: {},
+        },
+        {
+          decisionId: `decision.tool.${turnIndex}.second`,
+          kind: "toolCall",
+          toolCall: { callId: "call-second", toolId: "code.scan", arguments: {} },
+          observationRefs: [],
+          metadata: {},
+        },
+      ],
+      events: [`decision:${turnIndex}`],
+    }),
+    acceptFinalOutput: async () => assert.fail("final handler should not run"),
+    handleContinue: async () => assert.fail("continue handler should not run"),
+    handleFailure: async () => assert.fail("failure handler should not run"),
+    handleApproval: async () => assert.fail("approval handler should not run"),
+    handleToolCall: async () => ({ ok: true, continueLoop: true, events: ["tool"] }),
+    handleEphemeralProcedure: async () => assert.fail("procedure handler should not run"),
+    onNoFinalOutput: async (input) => {
+      noFinalReason = input.reason;
+      assert.equal(input.modelTurns, 1);
+      assert.equal(input.toolCalls, 1);
+      assert.equal(input.turnToolCalls, 1);
+      assert.equal(input.maxToolCalls, 1);
+      return { ok: true, finalOutput: "tool-limit", events: ["no-final"] };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "tool-limit");
+  assert.equal(result.modelTurns, 1);
+  assert.equal(result.toolCalls, 1);
+  assert.equal(noFinalReason, "tool_call_limit");
+  assert.equal(result.events.includes("agentCore.execution.mainLoop.runner.toolCallLimit"), true);
+});
+
 test("runMainLoop rejects missing input and denied governance before starting a turn", () => {
   const runtime = {
     runtimeId: "runtime-1",

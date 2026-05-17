@@ -14,6 +14,16 @@ export type ProviderModelMetadata = {
   source: "manual-registry";
 };
 
+export type DeepSeekV4ProviderReasoningEffort = "high" | "max";
+
+export type DeepSeekV4ReasoningPlan = {
+  thinking: { type: "enabled" | "disabled" };
+  reasoningEffort?: DeepSeekV4ProviderReasoningEffort;
+  outputConfig?: { effort: DeepSeekV4ProviderReasoningEffort };
+};
+
+export const DEEPSEEK_V4_REASONING_LEVELS = ["none", "low", "medium", "high", "xhigh"] as const;
+
 const MANUAL_MODEL_METADATA: readonly ProviderModelMetadata[] = [
   {
     provider: "openai",
@@ -24,10 +34,78 @@ const MANUAL_MODEL_METADATA: readonly ProviderModelMetadata[] = [
     usableInputTokens: Math.floor(272_000 * 0.95),
     source: "manual-registry",
   },
+  {
+    provider: "openai",
+    model: "deepseek-v4-flash",
+    contextWindowTokens: 1_000_000,
+    maxInputTokens: 1_000_000,
+    inputBudgetThreshold: 0.95,
+    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    source: "manual-registry",
+  },
+  {
+    provider: "openai",
+    model: "deepseek-v4-pro",
+    contextWindowTokens: 1_000_000,
+    maxInputTokens: 1_000_000,
+    inputBudgetThreshold: 0.95,
+    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    source: "manual-registry",
+  },
+  {
+    provider: "anthropic",
+    model: "deepseek-v4-flash",
+    contextWindowTokens: 1_000_000,
+    maxInputTokens: 1_000_000,
+    inputBudgetThreshold: 0.95,
+    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    source: "manual-registry",
+  },
+  {
+    provider: "anthropic",
+    model: "deepseek-v4-pro",
+    contextWindowTokens: 1_000_000,
+    maxInputTokens: 1_000_000,
+    inputBudgetThreshold: 0.95,
+    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    source: "manual-registry",
+  },
 ] as const;
 
 function normalize(value: string | undefined): string {
   return (value ?? "").trim().toLowerCase();
+}
+
+export function isDeepSeekV4Model(model: string | undefined): boolean {
+  const normalized = normalize(model);
+  return normalized === "deepseek-v4-flash" || normalized === "deepseek-v4-pro";
+}
+
+export function mapDeepSeekV4ReasoningEffort(effort: string | undefined): DeepSeekV4ReasoningPlan | undefined {
+  const normalized = normalize(effort);
+  if (!normalized) {
+    return undefined;
+  }
+  if (normalized === "none" || normalized === "minimal") {
+    return {
+      thinking: { type: "disabled" },
+    };
+  }
+  if (normalized === "low" || normalized === "medium") {
+    return {
+      thinking: { type: "enabled" },
+      reasoningEffort: "high",
+      outputConfig: { effort: "high" },
+    };
+  }
+  if (normalized === "high" || normalized === "xhigh" || normalized === "max") {
+    return {
+      thinking: { type: "enabled" },
+      reasoningEffort: "max",
+      outputConfig: { effort: "max" },
+    };
+  }
+  return undefined;
 }
 
 export function resolveProviderModelMetadata(input: {

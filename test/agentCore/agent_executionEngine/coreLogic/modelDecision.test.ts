@@ -72,6 +72,132 @@ test("interpretModelDecision maps function calls through provider tool mappings"
   assert.deepEqual(result.decisions[0]?.toolCall?.arguments, { targetPath: "notes.txt" });
 });
 
+test("interpretModelDecision reads OpenAI chat completions text and tool calls", () => {
+  const textResult = interpretModelDecision({
+    sessionId: "session-decision-chat-text",
+    turnIndex: 1,
+    providerFamily: "openaiChatCompletions",
+    raw: {
+      choices: [{ message: { role: "assistant", content: "chat final" } }],
+    },
+  });
+
+  assert.equal(textResult.ok, true);
+  if (!textResult.ok) return;
+  assert.equal(textResult.decisions[0]?.kind, "finalOutput");
+  assert.equal(textResult.decisions[0]?.finalOutput, "chat final");
+
+  const toolResult = interpretModelDecision({
+    sessionId: "session-decision-chat-tool",
+    turnIndex: 2,
+    providerFamily: "openaiChatCompletions",
+    providerToolMappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    raw: {
+      choices: [{
+        message: {
+          tool_calls: [{
+            id: "chat-call-1",
+            type: "function",
+            function: { name: "praxis_tool_code_read", arguments: "{\"path\":\"README.md\"}" },
+          }],
+        },
+      }],
+    },
+  });
+
+  assert.equal(toolResult.ok, true);
+  if (!toolResult.ok) return;
+  assert.equal(toolResult.decisions[0]?.kind, "toolCall");
+  assert.equal(toolResult.decisions[0]?.toolCall?.toolId, "code.read");
+  assert.deepEqual(toolResult.decisions[0]?.toolCall?.arguments, { path: "README.md" });
+});
+
+test("interpretModelDecision reads streamed OpenAI chat completions text and fragmented tool calls", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-chat-stream",
+    turnIndex: 3,
+    providerFamily: "openaiChatCompletions",
+    providerToolMappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    raw: [
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "I will inspect. " } }] })}`,
+      "",
+      `data: ${JSON.stringify({
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              id: "chat-stream-call-1",
+              type: "function",
+              function: { name: "praxis_tool_code_read", arguments: "{\"path\":" },
+            }],
+          },
+        }],
+      })}`,
+      "",
+      `data: ${JSON.stringify({
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              function: { arguments: "\"README.md\"}" },
+            }],
+          },
+        }],
+      })}`,
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "toolCall");
+  assert.equal(result.decisions[0]?.preambleText, "I will inspect.");
+  assert.equal(result.decisions[0]?.toolCall?.toolId, "code.read");
+  assert.deepEqual(result.decisions[0]?.toolCall?.arguments, { path: "README.md" });
+});
+
+test("interpretModelDecision joins streamed OpenAI chat completions text without inserting line breaks", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-chat-stream-text",
+    turnIndex: 4,
+    providerFamily: "openaiChatCompletions",
+    raw: [
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "All " } }] })}`,
+      "",
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "project " } }] })}`,
+      "",
+      `data: ${JSON.stringify({ choices: [{ delta: { content: "files are ready." } }] })}`,
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "finalOutput");
+  assert.equal(result.decisions[0]?.finalOutput, "All project files are ready.");
+});
+
+test("interpretModelDecision reads Anthropic messages text content", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-anthropic-text",
+    turnIndex: 1,
+    providerFamily: "anthropicMessages",
+    raw: {
+      id: "msg_1",
+      content: [{ type: "text", text: "anthropic final" }],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "finalOutput");
+  assert.equal(result.decisions[0]?.finalOutput, "anthropic final");
+});
+
 test("interpretModelDecision converts malformed provider tool arguments into fail decision", () => {
   const result = interpretModelDecision({
     sessionId: "session-decision-malformed-tool",
@@ -91,6 +217,39 @@ test("interpretModelDecision converts malformed provider tool arguments into fai
   if (!result.ok) return;
   assert.equal(result.decisions[0]?.kind, "fail");
   assert.equal(result.decisions[0]?.failure?.code, "MALFORMED_PROVIDER_TOOL_ARGUMENTS");
+});
+
+test("interpretModelDecision accepts repaired OpenAI chat completions ephemeral procedure arguments", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-repaired-procedure",
+    turnIndex: 1,
+    providerFamily: "openaiChatCompletions",
+    raw: {
+      choices: [{
+        message: {
+          tool_calls: [{
+            id: "call-procedure",
+            type: "function",
+            function: {
+              name: "praxis_ephemeral_procedure",
+              arguments: [
+                "{\"procedureId\":\"build\",\"purpose\":\"build app\",\"steps\":[",
+                "{\"stepId\":\"write\",\"baseToolId\":\"code.overwrite\",",
+                "\"input\":{\"targetPath\":\"index.html\",\"content\":\"<button data-x=\\\"1\\\">ok</button>\"},",
+                "\"riskLevel\":\"low\"}, \"dependsOn\": []}]}",
+              ].join(""),
+            },
+          }],
+        },
+      }],
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "ephemeralProcedurePlan");
+  assert.equal(result.decisions[0]?.ephemeralProcedurePlan?.steps[0]?.stepId, "write");
+  assert.deepEqual(result.decisions[0]?.ephemeralProcedurePlan?.steps[0]?.dependsOn, []);
 });
 
 test("interpretModelDecision converts provider failures into fail decision", () => {

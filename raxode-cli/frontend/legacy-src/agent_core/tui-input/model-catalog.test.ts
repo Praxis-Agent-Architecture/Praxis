@@ -12,6 +12,7 @@ import {
   getCachedModelAvailability,
   listAvailableAnthropicModels,
   listAvailableChatModels,
+  probeChatCompletionsModelAvailability,
   setCachedFastServiceTierAvailability,
   setCachedModelAvailability,
 } from "./model-catalog.js";
@@ -137,6 +138,30 @@ test("listAvailableChatModels marks tested gmn GPT models as FAST-capable", asyn
   }
 });
 
+test("listAvailableChatModels falls back to the configured model when custom model listing is unsupported", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => {
+    return new Response("not found", { status: 404 });
+  }) as typeof fetch;
+
+  try {
+    const models = await listAvailableChatModels({
+      authMode: "api_key",
+      apiKey: "token",
+      baseURL: "https://api.deepseek.com/v1",
+      apiStyle: "chat_completions",
+      model: "deepseek-v4-pro",
+    });
+
+    assert.deepEqual(models.map((entry) => entry.id), ["deepseek-v4-pro"]);
+    assert.deepEqual(models[0]?.reasoningLevels, ["none", "low", "medium", "high", "xhigh"]);
+    assert.equal(models[0]?.defaultReasoningLevel, "low");
+    assert.equal(models[0]?.supportsFastServiceTier, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("listAvailableAnthropicModels normalizes anthropic /v1/models payloads", async () => {
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";
@@ -173,6 +198,20 @@ test("listAvailableAnthropicModels normalizes anthropic /v1/models payloads", as
   }
 });
 
+test("chat model availability scope separates response and chat-completions probes", () => {
+  const common = {
+    authMode: "api_key" as const,
+    apiKey: "token",
+    baseURL: "https://api.deepseek.com/v1",
+    model: "deepseek-v4-pro",
+  };
+
+  assert.notEqual(
+    buildChatModelAvailabilityScopeKey({ ...common, apiStyle: "responses" }),
+    buildChatModelAvailabilityScopeKey({ ...common, apiStyle: "chat_completions" }),
+  );
+});
+
 test("model availability cache persists records per scope key", () => {
   const sandbox = mkdtempSync(join(tmpdir(), "praxis-model-cache-"));
   const scopeKey = buildChatModelAvailabilityScopeKey({
@@ -197,6 +236,51 @@ test("model availability cache persists records per scope key", () => {
       checkedAt: "2026-04-14T00:00:00.000Z",
     },
   );
+});
+
+test("probeChatCompletionsModelAvailability probes the chat completions endpoint", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  let requestedBody: Record<string, unknown> = {};
+  globalThis.fetch = (async (input, init) => {
+    const request = input instanceof Request ? input : new Request(input, init);
+    requestedUrl = request.url;
+    requestedBody = JSON.parse(await request.text()) as Record<string, unknown>;
+    return new Response(JSON.stringify({
+      id: "chatcmpl-test",
+      object: "chat.completion",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "OK" },
+          finish_reason: "stop",
+        },
+      ],
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const record = await probeChatCompletionsModelAvailability("deepseek-v4-pro", {
+      authMode: "api_key",
+      apiKey: "token",
+      baseURL: "https://api.deepseek.com/v1",
+      apiStyle: "chat_completions",
+      model: "deepseek-v4-pro",
+    });
+
+    assert.equal(record.status, "available");
+    assert.equal(requestedUrl, "https://api.deepseek.com/v1/chat/completions");
+    assert.equal(requestedBody.model, "deepseek-v4-pro");
+    assert.equal(requestedBody.max_tokens, 16);
+    assert.equal(requestedBody.max_completion_tokens, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("fast service tier cache is stored separately but official fast-capable models stay visible without cache gating", () => {

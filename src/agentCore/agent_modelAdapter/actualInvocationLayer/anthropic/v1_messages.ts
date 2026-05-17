@@ -9,6 +9,9 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import type { AuthEnvelope } from "../../authProfileLayer/authEnvelope.js";
+import { unwrapProviderCallerBody } from "../../providerAccessLayer/providerCaller.js";
+
 export const ANTHROPIC_V1_MESSAGES_ENDPOINT = "/v1/messages" as const;
 
 export type AnthropicV1MessagesMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -59,7 +62,7 @@ export type AnthropicV1MessagesInvocationRequest = {
   query?: Readonly<Record<string, string | number | boolean | undefined>>;
   headers?: Readonly<Record<string, string | undefined>>;
   body?: unknown;
-  auth?: AnthropicV1MessagesAuthEnvelope;
+  auth?: AnthropicV1MessagesAuthEnvelope | AuthEnvelope;
   runtime?: AnthropicV1MessagesRuntimeContext;
   requiredScopes?: readonly string[];
   allowedScopes?: readonly string[];
@@ -98,7 +101,17 @@ export type AnthropicV1MessagesProviderResponseEnvelope = {
   endpoint: typeof ANTHROPIC_V1_MESSAGES_ENDPOINT;
   mode: "dry-run" | "mock" | "caller";
   raw: unknown;
+  usage?: AnthropicV1MessagesUsage;
   providerFieldsOpaque: true;
+};
+
+export type AnthropicV1MessagesUsage = {
+  source: "anthropic.messages.usage";
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  estimated: false;
 };
 
 export type AnthropicV1MessagesInvocationResult =
@@ -143,6 +156,11 @@ function cleanHeaders(headers: AnthropicV1MessagesInvocationRequest["headers"]):
   );
 }
 
+function authHeaderPlan(auth: AnthropicV1MessagesInvocationRequest["auth"]): Readonly<Record<string, string>> {
+  if (auth === undefined || !("headerPlan" in auth)) return {};
+  return Object.fromEntries(auth.headerPlan.map((header) => [header.name.trim().toLowerCase(), String(header.value)]));
+}
+
 function buildUrlPath(pathSuffix: string | undefined): string {
   const suffix = pathSuffix?.trim().replace(/^\/+/, "").replace(/\/+$/, "");
   return suffix ? `${ANTHROPIC_V1_MESSAGES_ENDPOINT}/${suffix}` : ANTHROPIC_V1_MESSAGES_ENDPOINT;
@@ -150,6 +168,46 @@ function buildUrlPath(pathSuffix: string | undefined): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readFiniteNumber(record: Readonly<Record<string, unknown>> | undefined, keys: readonly string[]): number | undefined {
+  if (record === undefined) {
+    return undefined;
+  }
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+export function extractAnthropicV1MessagesUsage(raw: unknown): AnthropicV1MessagesUsage | undefined {
+  if (!isRecord(raw) || !isRecord(raw.usage)) {
+    return undefined;
+  }
+  const usage = raw.usage;
+  const inputTokens = readFiniteNumber(usage, ["input_tokens", "inputTokens"]);
+  const outputTokens = readFiniteNumber(usage, ["output_tokens", "outputTokens"]);
+  const totalTokens = readFiniteNumber(usage, ["total_tokens", "totalTokens"]);
+  const cachedInputTokens = readFiniteNumber(usage, ["cache_read_input_tokens", "cached_tokens", "cachedTokens"]);
+  if (
+    inputTokens === undefined &&
+    outputTokens === undefined &&
+    totalTokens === undefined &&
+    cachedInputTokens === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    source: "anthropic.messages.usage",
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cachedInputTokens,
+    estimated: false,
+  };
 }
 
 function providerStatus(error: unknown): number | undefined {
@@ -268,7 +326,10 @@ export async function invokeAnthropicV1Messages(
     method: input.method ?? "POST",
     urlPath: buildUrlPath(input.pathSuffix),
     query: cleanQuery(input.query),
-    headers: cleanHeaders(input.headers),
+    headers: {
+      ...cleanHeaders(input.headers),
+      ...authHeaderPlan(input.auth),
+    },
     body: input.body,
     runtime: {
       runtimeId,
@@ -291,6 +352,7 @@ export async function invokeAnthropicV1Messages(
         endpoint: ANTHROPIC_V1_MESSAGES_ENDPOINT,
         mode: input.mockResponse === undefined ? "dry-run" : "mock",
         raw: input.mockResponse ?? null,
+        usage: extractAnthropicV1MessagesUsage(input.mockResponse),
         providerFieldsOpaque: true,
       },
       events: ["agentCore.modelAdapter.anthropic.v1.messages.dryRun"],
@@ -308,7 +370,7 @@ export async function invokeAnthropicV1Messages(
   }
 
   try {
-    const raw = await input.caller(request);
+    const raw = unwrapProviderCallerBody(await input.caller(request));
     if (input.expectResponseObject === true && !isRecord(raw)) {
       return failure(
         "RESPONSE_FORMAT_DRIFT",
@@ -327,6 +389,7 @@ export async function invokeAnthropicV1Messages(
         endpoint: ANTHROPIC_V1_MESSAGES_ENDPOINT,
         mode: "caller",
         raw,
+        usage: extractAnthropicV1MessagesUsage(raw),
         providerFieldsOpaque: true,
       },
       events: ["agentCore.modelAdapter.anthropic.v1.messages.called"],

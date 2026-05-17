@@ -1,6 +1,6 @@
 # code.overwrite
 
-Use `code.overwrite` for explicit whole-file writes where the caller supplies the complete final content.
+Use `code.overwrite` for explicit whole-file writes where the caller supplies the complete final content. Always include `workspaceRoot` as the absolute current workspace root; it is the scope anchor used to audit whether `targetPath` is allowed.
 
 ## Call Shape
 
@@ -17,7 +17,7 @@ Use `code.overwrite` for explicit whole-file writes where the caller supplies th
 
 ## Required Inputs
 
-- `workspaceRoot`: scope anchor for edit auditing.
+- `workspaceRoot`: absolute current workspace root and scope anchor for edit auditing.
 - `targetPath`: workspace-relative path.
 - `content`: complete file content.
 

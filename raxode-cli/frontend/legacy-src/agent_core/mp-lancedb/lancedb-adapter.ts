@@ -365,7 +365,7 @@ export function createLanceDbMpLanceDbAdapter(): MpLanceDbAdapter {
     if (!cached) {
       cached = (async () => {
         await mkdir(normalizedRoot, { recursive: true });
-        const lancedb = await import("@lancedb/lancedb") as LanceDbDynamicModule;
+        const lancedb = await import("@lancedb/lancedb") as unknown as LanceDbDynamicModule;
         return {
           connect: lancedb.connect,
           connection: await lancedb.connect(normalizedRoot),
@@ -377,7 +377,7 @@ export function createLanceDbMpLanceDbAdapter(): MpLanceDbAdapter {
   }
 
   async function createEmptySchema() {
-    const arrow = await import("apache-arrow") as Record<string, new (...args: unknown[]) => unknown>;
+    const arrow = await import("apache-arrow") as unknown as Record<string, new (...args: unknown[]) => unknown>;
     const {
       Schema,
       Field,

@@ -7,23 +7,66 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { AgentManifest } from "../../../src/agentCore/index.js";
+import type { AnthropicV1MessagesProviderCaller } from "../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import type { OpenAiV1ChatCompletionsProviderCaller } from "../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import type { OpenAIV1ResponsesProviderCaller } from "../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import type { AuthEnvelope } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
+import type { AuthEnvelope, ProviderAuthMaterial } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
 import { resolveAuthEnvelope } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
+import { createCredentialRef, type CredentialType } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller, type ProviderCaller } from "../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
+import {
+  ANTHROPIC_DEFAULT_MESSAGES_BASE_URL,
+  CHATGPT_CODEX_DEFAULT_BASE_URL,
+  createAnthropicV1MessagesCarrier,
+  createChatGPTCodexResponsesCarrier,
+  createOpenAIV1ChatCompletionsCarrier,
+  createOpenAIV1ResponsesCarrier,
+  OPENAI_DEFAULT_CHAT_COMPLETIONS_BASE_URL,
+  OPENAI_DEFAULT_RESPONSES_BASE_URL,
+} from "../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
 import {
   fetchProviderTransport,
   type ProviderTransport,
   type ProviderTransportRequest,
   type ProviderTransportResponse,
 } from "../../../src/agentCore/agent_modelAdapter/providerAccessLayer/transportCaller.js";
+import {
+  loadResolvedRoleConfig,
+  type RaxcodeAuthProfile,
+  type RaxcodeReasoningEffort,
+  type RaxcodeResolvedRoleConfig,
+  type RaxcodeRoleId,
+} from "../../frontend/legacy-src/raxcode-config.js";
 
 export type RaxodeLiveProvider = {
   auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  providerCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
+  anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
   authSource: string;
+  provider?: string;
+  endpointShape?: RaxodeEndpointShape;
+  providerRoute?: RaxodeProviderRoute;
+};
+
+export type RaxodeProviderRoute =
+  | "chatgpt_codex_responses"
+  | "openai_responses"
+  | "openai_chat_completions"
+  | "anthropic_messages";
+
+export type RaxodeEndpointShape = "responses" | "chat_completions" | "messages";
+
+export type RaxodeConfiguredModelOptions = {
+  provider: "openai" | "anthropic";
+  model: string;
+  reasoningEffort: RaxcodeReasoningEffort;
+  endpointShape: RaxodeEndpointShape;
+  baseURL?: string;
+  providerRoute: RaxodeProviderRoute;
+  roleId: RaxcodeRoleId;
+  authSource: "raxcode-config" | "codex-env";
 };
 
 export type RaxodeCodexRoutingOptions = {
@@ -51,6 +94,7 @@ export type RaxodeToolCallPreviewState = Map<string, {
   outputIndex?: number;
   callId?: string;
   providerToolName?: string;
+  argumentsText?: string;
 }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -171,6 +215,17 @@ export function readSseTextDelta(payload: string): string {
     ) {
       return delta;
     }
+    if (isRecord(delta) && typeof delta.text === "string" && type === "content_block_delta") {
+      return delta.text;
+    }
+    const choices = parsed.choices;
+    if (Array.isArray(choices)) {
+      const firstChoice = choices.find(isRecord);
+      const choiceDelta = isRecord(firstChoice?.delta) ? firstChoice.delta : undefined;
+      if (typeof choiceDelta?.content === "string") {
+        return choiceDelta.content;
+      }
+    }
   } catch {
     return "";
   }
@@ -185,18 +240,334 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-export function readSseToolCallPreviewEvent(payload: string): RaxodeProviderStreamEvent | undefined {
-  if (payload.length === 0 || payload === "[DONE]") return undefined;
+function hasText(value: string | undefined): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function cleanText(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
+
+function normalizeBaseURL(value: string | undefined): string | undefined {
+  const trimmed = cleanText(value);
+  return trimmed?.replace(/\/+$/u, "");
+}
+
+function legacyCodexEnvRequested(): boolean {
+  return hasText(process.env.AGENTCORE_CODEX_MODEL) || hasText(process.env.AGENTCORE_CODEX_REASONING_EFFORT);
+}
+
+function shouldUseLegacyCodexEnv(
+  resolved: RaxcodeResolvedRoleConfig,
+  providerRoute: RaxodeProviderRoute,
+  options: { forceCodexLegacy?: boolean },
+): boolean {
+  if (options.forceCodexLegacy === true) {
+    return true;
+  }
+  if (!legacyCodexEnvRequested()) {
+    return false;
+  }
+  if (providerRoute === "chatgpt_codex_responses") {
+    return true;
+  }
+  const envModel = cleanText(process.env.AGENTCORE_CODEX_MODEL);
+  if (envModel === undefined) {
+    return false;
+  }
+  return envModel !== (resolved.binding.overrides?.model ?? resolved.profile.model);
+}
+
+function envReasoningOverrideForResolvedConfig(
+  resolved: RaxcodeResolvedRoleConfig,
+  providerRoute: RaxodeProviderRoute,
+): RaxcodeReasoningEffort | undefined {
+  if (providerRoute === "chatgpt_codex_responses") {
+    return undefined;
+  }
+  const envModel = cleanText(process.env.AGENTCORE_CODEX_MODEL);
+  const resolvedModel = resolved.binding.overrides?.model ?? resolved.profile.model;
+  if (envModel !== undefined && envModel !== resolvedModel) {
+    return undefined;
+  }
+  return cleanText(process.env.AGENTCORE_CODEX_REASONING_EFFORT) as RaxcodeReasoningEffort | undefined;
+}
+
+function roleIdForManifest(manifest: AgentManifest): RaxcodeRoleId {
+  return manifest.identity.id === "agent.raxode.tui" ? "tui.main" : "core.main";
+}
+
+function normalizedApiStyle(value: string | undefined): string {
+  return (value ?? "responses").trim().toLowerCase().replace(/[.-]+/gu, "_");
+}
+
+function providerRouteForResolvedConfig(config: RaxcodeResolvedRoleConfig): RaxodeProviderRoute {
+  const provider = config.profile.provider;
+  const apiStyle = normalizedApiStyle(config.profile.route.apiStyle);
+  if (provider === "anthropic" || apiStyle === "messages") {
+    return "anthropic_messages";
+  }
+  if (
+    apiStyle === "chat_completions" ||
+    apiStyle === "chat_completions_compat" ||
+    apiStyle === "compatible" ||
+    apiStyle === "openai_compatible" ||
+    apiStyle === "completions"
+  ) {
+    return "openai_chat_completions";
+  }
+  if (provider === "openai" && config.authProfile.authMode === "chatgpt_oauth") {
+    return "chatgpt_codex_responses";
+  }
+  return "openai_responses";
+}
+
+function endpointShapeForRoute(route: RaxodeProviderRoute): RaxodeEndpointShape {
+  if (route === "anthropic_messages") return "messages";
+  if (route === "openai_chat_completions") return "chat_completions";
+  return "responses";
+}
+
+function providerForRoute(route: RaxodeProviderRoute): "openai" | "anthropic" {
+  return route === "anthropic_messages" ? "anthropic" : "openai";
+}
+
+function defaultBaseURLForRoute(route: RaxodeProviderRoute): string {
+  switch (route) {
+    case "anthropic_messages":
+      return ANTHROPIC_DEFAULT_MESSAGES_BASE_URL;
+    case "openai_chat_completions":
+      return OPENAI_DEFAULT_CHAT_COMPLETIONS_BASE_URL;
+    case "openai_responses":
+      return OPENAI_DEFAULT_RESPONSES_BASE_URL;
+    case "chatgpt_codex_responses":
+      return CHATGPT_CODEX_DEFAULT_BASE_URL;
+  }
+}
+
+export function resolveRaxodeConfiguredModelOptions(options: {
+  roleId?: RaxcodeRoleId;
+  startDir?: string;
+  forceCodexLegacy?: boolean;
+} = {}): RaxodeConfiguredModelOptions {
+  const roleId = options.roleId ?? "core.main";
+  const resolved = loadResolvedRoleConfig(roleId, options.startDir);
+  const providerRoute = providerRouteForResolvedConfig(resolved);
+  if (shouldUseLegacyCodexEnv(resolved, providerRoute, options)) {
+    return {
+      provider: "openai",
+      model: cleanText(process.env.AGENTCORE_CODEX_MODEL) ?? "gpt-5.5",
+      reasoningEffort: (cleanText(process.env.AGENTCORE_CODEX_REASONING_EFFORT) as RaxcodeReasoningEffort | undefined) ?? "low",
+      endpointShape: "responses",
+      baseURL: CHATGPT_CODEX_DEFAULT_BASE_URL,
+      providerRoute: "chatgpt_codex_responses",
+      roleId,
+      authSource: "codex-env",
+    };
+  }
+
+  const envReasoningOverride = envReasoningOverrideForResolvedConfig(resolved, providerRoute);
+  return {
+    provider: providerForRoute(providerRoute),
+    model: resolved.binding.overrides?.model ?? resolved.profile.model,
+    reasoningEffort: envReasoningOverride ?? resolved.binding.overrides?.reasoning ?? resolved.profile.reasoningEffort ?? "none",
+    endpointShape: endpointShapeForRoute(providerRoute),
+    baseURL: normalizeBaseURL(resolved.profile.route.baseURL) ?? defaultBaseURLForRoute(providerRoute),
+    providerRoute,
+    roleId,
+    authSource: "raxcode-config",
+  };
+}
+
+function metadataString(metadata: Readonly<Record<string, unknown>> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function providerRouteFromManifest(manifest: AgentManifest): RaxodeProviderRoute | undefined {
+  const explicit = metadataString(manifest.model.metadata, "providerRoute");
+  if (
+    explicit === "chatgpt_codex_responses" ||
+    explicit === "openai_responses" ||
+    explicit === "openai_chat_completions" ||
+    explicit === "anthropic_messages"
+  ) {
+    return explicit;
+  }
+  if (manifest.model.provider === "anthropic" || manifest.model.endpointShape === "messages") {
+    return "anthropic_messages";
+  }
+  if (manifest.model.endpointShape === "chat_completions") {
+    return "openai_chat_completions";
+  }
+  return undefined;
+}
+
+function resolvedConfigForRoute(options: {
+  roleId: RaxcodeRoleId;
+  startDir?: string;
+  authSource: RaxodeConfiguredModelOptions["authSource"];
+}): RaxcodeResolvedRoleConfig | undefined {
+  if (options.authSource === "codex-env") return undefined;
+  return loadResolvedRoleConfig(options.roleId, options.startDir);
+}
+
+function credentialTypeForRoute(route: RaxodeProviderRoute): CredentialType {
+  if (route === "anthropic_messages") return "anthropic_api_key";
+  if (route === "chatgpt_codex_responses") return "chatgpt_codex_oauth";
+  return "openai_api_key";
+}
+
+function createCredentialForRoute(input: {
+  manifest: AgentManifest;
+  route: RaxodeProviderRoute;
+  source: { kind: "injected"; label: string } | { kind: "codex-auth-file"; filePath: string };
+}) {
+  const credentialRef = createCredentialRef({
+    id: `raxode:${input.manifest.identity.id}:${input.route}`,
+    provider: providerForRoute(input.route),
+    credentialType: credentialTypeForRoute(input.route),
+    source: input.source,
+  });
+  if (!credentialRef.ok) {
+    throw new Error(`credentialRef failed: ${JSON.stringify(credentialRef.error)}`);
+  }
+  return credentialRef.credentialRef;
+}
+
+function authMaterialForChatGPTProfile(authProfile: RaxcodeAuthProfile | undefined): ProviderAuthMaterial | undefined {
+  const accessToken = cleanText(authProfile?.credentials.accessToken);
+  if (!accessToken) return undefined;
+  const accountId = cleanText(authProfile?.credentials.accountId)
+    ?? cleanText(authProfile?.meta.chatgptAccountId)
+    ?? cleanText(authProfile?.meta.accountId);
+  return {
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      ...(accountId ? { "ChatGPT-Account-ID": accountId } : {}),
+    },
+    expiresAt: cleanText(authProfile?.meta.accessTokenExpiresAt),
+  };
+}
+
+function resolveRouteAuth(input: {
+  manifest: AgentManifest;
+  route: RaxodeProviderRoute;
+  codexAuthPath: string;
+  resolvedConfig?: RaxcodeResolvedRoleConfig;
+}): { auth: AuthEnvelope; material?: ProviderAuthMaterial; source: string } {
+  if (input.route === "chatgpt_codex_responses") {
+    const injected = authMaterialForChatGPTProfile(input.resolvedConfig?.authProfile);
+    if (injected !== undefined) {
+      const credentialRef = createCredentialForRoute({
+        manifest: input.manifest,
+        route: input.route,
+        source: { kind: "injected", label: input.resolvedConfig?.authProfile.id ?? "raxcode-chatgpt-oauth" },
+      });
+      const auth = resolveAuthEnvelope({
+        credentialRef,
+        injectedMaterial: injected,
+      });
+      if (!auth.ok) {
+        throw new Error(`auth failed: ${JSON.stringify(auth.error)}`);
+      }
+      return {
+        auth: auth.resolved.envelope,
+        material: auth.resolved.privateMaterial,
+        source: input.resolvedConfig?.authProfile.id ?? "raxcode-chatgpt-oauth",
+      };
+    }
+
+    const credentialRef = createCredentialForRoute({
+      manifest: input.manifest,
+      route: input.route,
+      source: { kind: "codex-auth-file", filePath: input.codexAuthPath },
+    });
+    const auth = resolveAuthEnvelope({
+      credentialRef,
+      readFile: (filePath) => readFileSync(filePath, "utf8"),
+    });
+    if (!auth.ok) {
+      throw new Error(`auth failed: ${JSON.stringify(auth.error)}`);
+    }
+    return {
+      auth: auth.resolved.envelope,
+      material: auth.resolved.privateMaterial,
+      source: input.codexAuthPath,
+    };
+  }
+
+  const authProfile = input.resolvedConfig?.authProfile;
+  const apiKey = cleanText(authProfile?.credentials.apiKey);
+  const credentialRef = createCredentialForRoute({
+    manifest: input.manifest,
+    route: input.route,
+    source: { kind: "injected", label: authProfile?.id ?? input.route },
+  });
+  const auth = resolveAuthEnvelope({
+    credentialRef,
+    injectedSecret: apiKey,
+  });
+  if (!auth.ok) {
+    throw new Error(`auth failed: ${JSON.stringify(auth.error)}`);
+  }
+  return {
+    auth: auth.resolved.envelope,
+    material: auth.resolved.privateMaterial,
+    source: authProfile?.id ?? input.route,
+  };
+}
+
+function createResponsesCaller(rawCaller: ProviderCaller): OpenAIV1ResponsesProviderCaller {
+  return async (request) => rawCaller({
+    method: request.method,
+    url: request.url,
+    headers: request.headers,
+    query: request.query,
+    body: request.body,
+    provider: "openai",
+    endpoint: request.endpoint,
+  });
+}
+
+function createChatCompletionsCaller(rawCaller: ProviderCaller): OpenAiV1ChatCompletionsProviderCaller {
+  return async (request) => rawCaller({
+    method: request.method,
+    url: request.url,
+    headers: request.headers,
+    body: request.requestBody,
+    provider: "openai",
+    endpoint: request.endpoint,
+  });
+}
+
+function createMessagesCaller(rawCaller: ProviderCaller, baseURL: string): AnthropicV1MessagesProviderCaller {
+  const normalizedBaseURL = normalizeBaseURL(baseURL) ?? ANTHROPIC_DEFAULT_MESSAGES_BASE_URL;
+  return async (request) => rawCaller({
+    method: request.method,
+    url: `${normalizedBaseURL}${request.urlPath}`,
+    headers: request.headers,
+    query: request.query,
+    body: request.body,
+    provider: "anthropic",
+    endpoint: request.endpoint,
+  });
+}
+
+export function readSseToolCallPreviewEvents(payload: string): readonly RaxodeProviderStreamEvent[] {
+  if (payload.length === 0 || payload === "[DONE]") return [];
+  const events: RaxodeProviderStreamEvent[] = [];
   try {
     const parsed = JSON.parse(payload) as unknown;
-    if (!isRecord(parsed)) return undefined;
+    if (!isRecord(parsed)) return [];
     const type = readString(parsed.type);
     const outputIndex = readNumber(parsed.output_index);
     const itemId = readString(parsed.item_id);
     if ((type === "response.output_item.added" || type === "response.output_item.done") && isRecord(parsed.item)) {
       const item = parsed.item;
-      if (item.type !== "function_call") return undefined;
-      return {
+      if (item.type !== "function_call") return [];
+      events.push({
         channel: "tool_call_preview",
         phase: type === "response.output_item.added" ? "started" : "done",
         itemId: readString(item.id) ?? itemId,
@@ -205,23 +576,24 @@ export function readSseToolCallPreviewEvent(payload: string): RaxodeProviderStre
         providerToolName: readString(item.name),
         arguments: readString(item.arguments),
         rawType: type,
-      };
+      });
     }
     if (type === "response.function_call_arguments.delta") {
       const delta = readString(parsed.delta);
-      if (delta === undefined) return undefined;
-      return {
-        channel: "tool_call_preview",
-        phase: "delta",
-        itemId,
-        outputIndex,
-        callId: readString(parsed.call_id),
-        argumentsDelta: delta,
-        rawType: type,
-      };
+      if (delta !== undefined) {
+        events.push({
+          channel: "tool_call_preview",
+          phase: "delta",
+          itemId,
+          outputIndex,
+          callId: readString(parsed.call_id),
+          argumentsDelta: delta,
+          rawType: type,
+        });
+      }
     }
     if (type === "response.function_call_arguments.done") {
-      return {
+      events.push({
         channel: "tool_call_preview",
         phase: "done",
         itemId,
@@ -229,12 +601,47 @@ export function readSseToolCallPreviewEvent(payload: string): RaxodeProviderStre
         callId: readString(parsed.call_id),
         arguments: readString(parsed.arguments),
         rawType: type,
-      };
+      });
     }
+
+    const choices = Array.isArray(parsed.choices) ? parsed.choices : [];
+    for (const choice of choices) {
+      if (!isRecord(choice)) continue;
+      const delta = isRecord(choice.delta) ? choice.delta : undefined;
+      const toolCalls = Array.isArray(delta?.tool_calls) ? delta.tool_calls : [];
+      for (const toolCall of toolCalls) {
+        if (!isRecord(toolCall)) continue;
+        const functionRecord = isRecord(toolCall.function) ? toolCall.function : undefined;
+        const callId = readString(toolCall.id) ?? readString(toolCall.call_id);
+        const index = readNumber(toolCall.index);
+        const providerToolName = readString(functionRecord?.name) ?? readString(toolCall.name);
+        const argumentsDelta = typeof functionRecord?.arguments === "string"
+          ? functionRecord.arguments
+          : typeof toolCall.arguments === "string"
+            ? toolCall.arguments
+            : undefined;
+        if (providerToolName !== undefined || callId !== undefined || argumentsDelta !== undefined) {
+          events.push({
+            channel: "tool_call_preview",
+            phase: argumentsDelta !== undefined ? "delta" : "started",
+            itemId: callId === undefined ? undefined : `chat:${callId}`,
+            outputIndex: index,
+            callId,
+            providerToolName,
+            argumentsDelta,
+            rawType: "chat.completion.tool_call.delta",
+          });
+        }
+      }
+    }
+    return events;
   } catch {
-    return undefined;
+    return [];
   }
-  return undefined;
+}
+
+export function readSseToolCallPreviewEvent(payload: string): RaxodeProviderStreamEvent | undefined {
+  return readSseToolCallPreviewEvents(payload)[0];
 }
 
 function looksLikeSseChunk(value: string): boolean {
@@ -256,12 +663,15 @@ function rememberToolCallPreviewEvent(
   const known = previewStateKeys(event)
     .map((key) => state.get(key))
     .find((entry) => entry !== undefined);
+  const nextArgumentsText = event.arguments
+    ?? (event.argumentsDelta === undefined ? known?.argumentsText : `${known?.argumentsText ?? ""}${event.argumentsDelta}`);
   const enriched: RaxodeProviderStreamEvent = {
     ...event,
     itemId: event.itemId ?? known?.itemId,
     outputIndex: event.outputIndex ?? known?.outputIndex,
     callId: event.callId ?? known?.callId,
     providerToolName: event.providerToolName ?? known?.providerToolName,
+    arguments: event.arguments ?? (event.phase === "done" ? nextArgumentsText : undefined),
   };
   const shouldRemember = enriched.itemId !== undefined
     || enriched.callId !== undefined
@@ -272,6 +682,7 @@ function rememberToolCallPreviewEvent(
       outputIndex: enriched.outputIndex,
       callId: enriched.callId,
       providerToolName: enriched.providerToolName,
+      argumentsText: nextArgumentsText,
     };
     for (const key of previewStateKeys(enriched)) {
       state.set(key, snapshot);
@@ -300,8 +711,7 @@ export function extractAndPublishSseDeltas(
     if (delta) {
       onTextDelta?.(delta);
     }
-    const toolCallPreviewEvent = readSseToolCallPreviewEvent(payload);
-    if (toolCallPreviewEvent) {
+    for (const toolCallPreviewEvent of readSseToolCallPreviewEvents(payload)) {
       onProviderStreamEvent?.(rememberToolCallPreviewEvent(toolCallPreviewState, toolCallPreviewEvent));
     }
   }
@@ -405,6 +815,10 @@ function createStreamingProviderTransport(
 
 export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   codexAuthPath?: string;
+  startDir?: string;
+  roleId?: RaxcodeRoleId;
+  forceCodexLegacy?: boolean;
+  transport?: ProviderTransport;
   timeoutMs?: number;
   sessionId?: string;
   runtimeId?: string;
@@ -413,53 +827,126 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   onProviderStreamEvent?: (event: RaxodeProviderStreamEvent) => void;
 } = {}): RaxodeLiveProvider {
   const codexAuthPath = options.codexAuthPath ?? path.join(process.env.HOME ?? "", ".codex", "auth.json");
-  const installationId = readCodexInstallationId(codexAuthPath);
-  const credentialRef = createCredentialRef({
-    id: `raxode:${manifest.identity.id}:chatgpt-codex`,
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
+  const roleId = options.roleId ?? roleIdForManifest(manifest);
+  const configured = resolveRaxodeConfiguredModelOptions({
+    roleId,
+    startDir: options.startDir,
+    forceCodexLegacy: options.forceCodexLegacy,
   });
-  if (!credentialRef.ok) {
-    throw new Error(`credentialRef failed: ${JSON.stringify(credentialRef.error)}`);
+  const providerRoute = providerRouteFromManifest(manifest) ?? configured.providerRoute;
+  const resolvedConfig = resolvedConfigForRoute({
+    roleId,
+    startDir: options.startDir,
+    authSource: configured.authSource,
+  });
+  const baseURL = normalizeBaseURL(manifest.model.baseURL)
+    ?? configured.baseURL
+    ?? defaultBaseURLForRoute(providerRoute);
+  const routeAuth = resolveRouteAuth({
+    manifest,
+    route: providerRoute,
+    codexAuthPath,
+    resolvedConfig,
+  });
+  const credentialRef = routeAuth.auth.credentialRef;
+  if (credentialRef === undefined) {
+    throw new Error("auth failed: route auth did not include credentialRef");
   }
 
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) {
-    throw new Error(`auth failed: ${JSON.stringify(auth.error)}`);
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: manifest.model.carrierId,
-    model: manifest.model.model,
-    reasoning: { effort: manifest.model.reasoning?.effort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: manifest.model.clientName ?? "praxis-raxode",
-    clientVersion: manifest.model.clientVersion ?? "0.1.0",
-  });
+  const carrier = (() => {
+    switch (providerRoute) {
+      case "chatgpt_codex_responses":
+        return createChatGPTCodexResponsesCarrier({
+          carrierId: manifest.model.carrierId,
+          model: manifest.model.model,
+          reasoning: { effort: manifest.model.reasoning?.effort },
+          baseURL,
+          credentialRef,
+          clientName: manifest.model.clientName ?? "praxis-raxode",
+          clientVersion: manifest.model.clientVersion ?? "0.1.0",
+        });
+      case "openai_responses":
+        return createOpenAIV1ResponsesCarrier({
+          carrierId: manifest.model.carrierId,
+          model: manifest.model.model,
+          reasoning: { effort: manifest.model.reasoning?.effort },
+          baseURL,
+          credentialRef,
+        });
+      case "openai_chat_completions":
+        return createOpenAIV1ChatCompletionsCarrier({
+          carrierId: manifest.model.carrierId,
+          model: manifest.model.model,
+          reasoning: { effort: manifest.model.reasoning?.effort },
+          baseURL,
+          credentialRef,
+        });
+      case "anthropic_messages":
+        return createAnthropicV1MessagesCarrier({
+          carrierId: manifest.model.carrierId,
+          model: manifest.model.model,
+          reasoning: { effort: manifest.model.reasoning?.effort },
+          baseURL,
+          credentialRef,
+        });
+    }
+  })();
   if (!carrier.ok) {
     throw new Error(`carrier failed: ${JSON.stringify(carrier.error)}`);
   }
 
+  const installationId = providerRoute === "chatgpt_codex_responses"
+    ? readCodexInstallationId(codexAuthPath)
+    : undefined;
+  const baseTransport = options.transport
+    ?? createStreamingProviderTransport(options.onTextDelta, options.onProviderStreamEvent);
+  const transport = providerRoute === "chatgpt_codex_responses"
+    ? createCodexRoutingTransport(baseTransport, {
+        sessionId: options.sessionId,
+        runtimeId: options.runtimeId,
+        turnId: options.turnId,
+        installationId,
+        windowId: options.runtimeId,
+      })
+    : baseTransport;
+  const rawCaller = createProviderCaller({
+    transport,
+    authMaterial: routeAuth.material,
+    timeoutMs: options.timeoutMs ?? 600_000,
+  });
+
+  if (providerRoute === "openai_chat_completions") {
+    const openaiChatCompletionsCaller = createChatCompletionsCaller(rawCaller);
+    return {
+      auth: routeAuth.auth,
+      openaiChatCompletionsCaller,
+      authSource: routeAuth.source,
+      provider: "openai",
+      endpointShape: "chat_completions",
+      providerRoute,
+    };
+  }
+
+  if (providerRoute === "anthropic_messages") {
+    const anthropicMessagesCaller = createMessagesCaller(rawCaller, carrier.carrier.baseURL ?? baseURL);
+    return {
+      auth: routeAuth.auth,
+      anthropicMessagesCaller,
+      authSource: routeAuth.source,
+      provider: "anthropic",
+      endpointShape: "messages",
+      providerRoute,
+    };
+  }
+
+  const openaiResponsesCaller = createResponsesCaller(rawCaller);
   return {
-    auth: auth.resolved.envelope,
-    providerCaller: createProviderCaller({
-      transport: createCodexRoutingTransport(
-        createStreamingProviderTransport(options.onTextDelta, options.onProviderStreamEvent),
-        {
-          sessionId: options.sessionId,
-          runtimeId: options.runtimeId,
-          turnId: options.turnId,
-          installationId,
-          windowId: options.runtimeId,
-        },
-      ),
-      authMaterial: auth.resolved.privateMaterial,
-      timeoutMs: options.timeoutMs ?? 600_000,
-    }),
-    authSource: codexAuthPath,
+    auth: routeAuth.auth,
+    providerCaller: openaiResponsesCaller,
+    openaiResponsesCaller,
+    authSource: routeAuth.source,
+    provider: "openai",
+    endpointShape: "responses",
+    providerRoute,
   };
 }

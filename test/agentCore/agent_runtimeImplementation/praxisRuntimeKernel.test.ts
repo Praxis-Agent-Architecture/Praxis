@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../agentCoreContractTestHelper.js";
+import { createApiKeyAuthEnvelope } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
 import { createChatGPTCodexAuthEnvelope } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/codexAuth.js";
 import { createCredentialRef } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
 import { createRuntimeBaseToolExecutorPort } from "../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
@@ -66,6 +67,28 @@ class PlainAgent extends PraxisAgent {
   });
 }
 
+function apiKeyAuthEnvelope(input: {
+  provider: "openai" | "anthropic";
+  credentialType: "openai_api_key" | "anthropic_api_key";
+  apiKey: string;
+}) {
+  const ref = createCredentialRef({
+    id: `${input.provider}-api`,
+    provider: input.provider,
+    credentialType: input.credentialType,
+    source: { kind: "test", label: "unit" },
+  });
+  assert.equal(ref.ok, true);
+  if (!ref.ok) throw new Error("expected credential ref");
+  return createApiKeyAuthEnvelope({
+    credentialRef: ref.credentialRef,
+    apiKey: input.apiKey,
+    ...(input.provider === "anthropic"
+      ? { headerName: "x-api-key", extraHeaders: { "anthropic-version": "2023-06-01" } }
+      : {}),
+  }).envelope;
+}
+
 test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses text output", async () => {
   const store = createInMemorySessionStateEventStore();
   const kernel = createPraxisRuntimeKernel({ runtimeId: "runtime-test", store });
@@ -95,6 +118,287 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   assert.equal(result.toolCalls.length, 0);
   assert.equal(result.state.session?.status, "completed");
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);
+});
+
+test("PraxisRuntimeKernel.run routes OpenAI chat completions with chat tool schemas", async () => {
+  class ChatCompletionsAgent extends PraxisAgent {
+    identity = "agent.kernel-chat";
+    model = model("deepseek-v4-pro", {
+      provider: "openai",
+      endpointShape: "chat_completions",
+      carrierId: "carrier.kernel-chat",
+      baseURL: "https://gateway.example.com/v1",
+      reasoning: { effort: "high" },
+      metadata: { providerRoute: "openai_chat_completions" },
+    });
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-chat" }).run(
+    new ChatCompletionsAgent(),
+    "say hello",
+    {
+      sessionId: "session-kernel-chat",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({ provider: "openai", credentialType: "openai_api_key", apiKey: "sk-chat-secret" }),
+      openaiChatCompletionsCaller: async (request) => {
+        const body = request.requestBody as {
+          messages?: unknown[];
+          tools?: { type?: string; function?: { name?: string } }[];
+          stream?: boolean;
+          stream_options?: { include_usage?: boolean };
+          thinking?: { type?: string };
+          reasoning_effort?: string;
+        };
+        assert.equal(request.url, "https://gateway.example.com/v1/chat/completions");
+        assert.equal(body.stream, true);
+        assert.equal(body.stream_options?.include_usage, true);
+        assert.deepEqual(body.thinking, { type: "enabled" });
+        assert.equal(body.reasoning_effort, "max");
+        assert.ok((body.messages?.length ?? 0) > 0);
+        assert.equal(body.tools?.[0]?.type, "function");
+        assert.equal(body.tools?.[0]?.function?.name, "praxis_tool_code_read");
+        return {
+          choices: [{ message: { role: "assistant", content: "hello from chat completions" } }],
+          usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
+        };
+      },
+      now: () => "2026-05-16T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from chat completions");
+  assert.equal(result.modelCalls[0]?.usage?.source, "openai.chat_completions.usage");
+  assert.equal(result.modelCalls[0]?.usage?.totalTokens, 13);
+});
+
+test("PraxisRuntimeKernel.run replays OpenAI chat completions assistant tool calls before tool results", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-chat-tool-"));
+  await writeFile(path.join(workspace, "notes.txt"), "needle from chat completions tool\n", "utf8");
+
+  class ChatCompletionsToolAgent extends PraxisAgent {
+    identity = "agent.kernel-chat-tool";
+    model = model("compatible-chat", {
+      provider: "openai",
+      endpointShape: "chat_completions",
+      carrierId: "carrier.kernel-chat-tool",
+      baseURL: "https://gateway.example.com/v1",
+      metadata: { providerRoute: "openai_chat_completions" },
+    });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const providerBodies: unknown[] = [];
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-kernel-chat-tool",
+    sessionId: "session-kernel-chat-tool",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-chat-tool" }).run(
+    new ChatCompletionsToolAgent(),
+    "read notes",
+    {
+      sessionId: "session-kernel-chat-tool",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: apiKeyAuthEnvelope({ provider: "openai", credentialType: "openai_api_key", apiKey: "sk-chat-secret" }),
+      executor,
+      openaiChatCompletionsCaller: async (request) => {
+        calls += 1;
+        providerBodies.push(request.requestBody);
+        if (calls === 1) {
+          const toolArguments = JSON.stringify({
+            workspaceRoot: workspace,
+            targetPath: "notes.txt",
+            dryRun: false,
+            context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+          });
+          return [
+            `data: ${JSON.stringify({ choices: [{ delta: { content: "I will inspect the file." } }] })}`,
+            "",
+            `data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    id: "chat-tool-call-1",
+                    type: "function",
+                    function: {
+                      name: "praxis_tool_code_read",
+                      arguments: toolArguments.slice(0, 30),
+                    },
+                  }],
+                },
+                finish_reason: null,
+              }],
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              choices: [{
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    function: { arguments: toolArguments.slice(30) },
+                  }],
+                },
+                finish_reason: "tool_calls",
+              }],
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              choices: [],
+              usage: { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 },
+            })}`,
+            "",
+            "data: [DONE]",
+            "",
+          ].join("\n");
+        }
+
+        const body = request.requestBody as {
+          stream?: boolean;
+          stream_options?: { include_usage?: boolean };
+          messages?: Array<{ role?: string; tool_calls?: Array<{ id?: string }>; tool_call_id?: string }>;
+        };
+        assert.equal(body.stream, true);
+        assert.equal(body.stream_options?.include_usage, true);
+        const messages = body.messages ?? [];
+        const assistantIndex = messages.findIndex((message) =>
+          message.role === "assistant" &&
+          (message.tool_calls ?? []).some((toolCall) => toolCall.id === "chat-tool-call-1")
+        );
+        const toolIndex = messages.findIndex((message) =>
+          message.role === "tool" &&
+          message.tool_call_id === "chat-tool-call-1"
+        );
+        assert.notEqual(assistantIndex, -1);
+        assert.notEqual(toolIndex, -1);
+        assert.ok(assistantIndex < toolIndex);
+        return {
+          choices: [{ message: { role: "assistant", content: "found needle from chat completions tool" } }],
+          usage: { prompt_tokens: 12, completion_tokens: 6, total_tokens: 18 },
+        };
+      },
+      now: () => "2026-05-16T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.toolId, "code.read");
+  assert.equal(result.finalOutput, "found needle from chat completions tool");
+  assert.equal(providerBodies.length, 2);
+});
+
+test("PraxisRuntimeKernel.run routes OpenAI API responses separately from Codex", async () => {
+  class OpenAIResponsesAgent extends PraxisAgent {
+    identity = "agent.kernel-openai-responses";
+    model = model("gpt-5.5", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-openai-responses",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-openai-responses" }).run(
+    new OpenAIResponsesAgent(),
+    "say hello",
+    {
+      sessionId: "session-kernel-openai-responses",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({ provider: "openai", credentialType: "openai_api_key", apiKey: "sk-openai-secret" }),
+      openaiResponsesCaller: async (request) => {
+        assert.equal(request.endpoint, "/v1/responses");
+        assert.equal(request.url, "https://api.openai.com/v1/responses");
+        assert.equal(request.headers.authorization, "[redacted:23]");
+        return {
+          id: "resp_1",
+          output_text: "hello from openai api responses",
+          usage: { input_tokens: 10, output_tokens: 4 },
+        };
+      },
+      now: () => "2026-05-16T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from openai api responses");
+  assert.equal(result.modelCalls[0]?.usage?.source, "openai.responses.usage");
+  assert.equal(result.modelCalls[0]?.usage?.inputTokens, 10);
+});
+
+test("PraxisRuntimeKernel.run routes Anthropic messages and reads message text", async () => {
+  class AnthropicMessagesAgent extends PraxisAgent {
+    identity = "agent.kernel-anthropic";
+    model = model("claude-sonnet", {
+      provider: "anthropic",
+      endpointShape: "messages",
+      carrierId: "carrier.kernel-anthropic",
+      metadata: { providerRoute: "anthropic_messages" },
+    });
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-anthropic" }).run(
+    new AnthropicMessagesAgent(),
+    "say hello",
+    {
+      sessionId: "session-kernel-anthropic",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({ provider: "anthropic", credentialType: "anthropic_api_key", apiKey: "sk-ant-secret" }),
+      anthropicMessagesCaller: async (request) => {
+        const body = request.body as { system?: string; messages?: unknown[]; tools?: { name?: string }[] };
+        assert.equal(request.urlPath, "/v1/messages");
+        assert.equal(body.tools?.[0]?.name, "praxis_tool_code_read");
+        assert.ok((body.messages?.length ?? 0) > 0);
+        assert.match(body.system ?? "", /PraxisRuntimeKernel/u);
+        return {
+          id: "msg_1",
+          content: [{ type: "text", text: "hello from anthropic messages" }],
+          usage: { input_tokens: 11, output_tokens: 5 },
+        };
+      },
+      now: () => "2026-05-16T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from anthropic messages");
+  assert.equal(result.modelCalls[0]?.usage?.source, "anthropic.messages.usage");
+  assert.equal(result.modelCalls[0]?.usage?.inputTokens, 11);
 });
 
 test("PraxisRuntimeKernel.run annotates cache debug with stable-prefix and observed-hit analysis", async () => {

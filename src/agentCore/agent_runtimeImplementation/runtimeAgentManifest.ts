@@ -24,7 +24,7 @@ export type AgentIdentity = string | {
 export type ModelSpec = {
   provider: "openai" | "anthropic" | "deepmind" | "customFormat" | (string & {});
   model: string;
-  endpointShape?: "responses" | "messages" | "custom" | (string & {});
+  endpointShape?: "responses" | "chat_completions" | "messages" | "custom" | (string & {});
   carrierId?: string;
   credentialRef?: CredentialRef;
   reasoning?: ProviderReasoningConfig;
@@ -37,6 +37,7 @@ export type ModelSpec = {
 export type ModelEndpointPath =
   | "/v1/messages"
   | "/v1/responses"
+  | "/v1/chat/completions"
   | "/v1/images"
   | "/v1/batches"
   | "/v1/realtime";
@@ -44,6 +45,7 @@ export type ModelEndpointPath =
 export type ModelEndpointFamily =
   | "messages"
   | "responses"
+  | "chat_completions"
   | "images"
   | "batches"
   | "realtime";
@@ -147,6 +149,7 @@ export type PolicySpec = {
 export type LoopSpec = {
   strategy: "single" | "tool-calling-v1" | "custom" | (string & {});
   maxModelTurns?: number;
+  /** Maximum tool calls accepted inside one model turn. */
   maxToolCalls?: number;
   metadata?: Readonly<Record<string, unknown>>;
 };
@@ -770,12 +773,14 @@ export function model(modelName: string, input: Omit<ModelSpec, "provider" | "mo
 }
 
 function endpointFamilyFor(endpointPath: ModelEndpointPath): ModelEndpointFamily {
+  if (endpointPath === "/v1/chat/completions") return "chat_completions";
   return endpointPath.slice("/v1/".length) as ModelEndpointFamily;
 }
 
 function protocolFamilyFor(endpointPath: ModelEndpointPath): ModelProtocolFamily {
   if (endpointPath === "/v1/messages") return "anthropic-messages";
   if (endpointPath === "/v1/responses") return "openai-responses";
+  if (endpointPath === "/v1/chat/completions") return "openai-compatible";
   if (endpointPath === "/v1/images") return "openai-images";
   if (endpointPath === "/v1/batches") return "openai-batches";
   if (endpointPath === "/v1/realtime") return "openai-realtime";
@@ -1586,6 +1591,8 @@ function normalizeIdentity(identity: AgentIdentity | undefined): AgentManifest["
 function defaultEndpointForModel(modelSpec: ModelSpec, identityId: string): ModelEndpointSpec {
   const endpointPath: ModelEndpointPath = modelSpec.endpointShape === "messages"
     ? "/v1/messages"
+    : modelSpec.endpointShape === "chat_completions"
+      ? "/v1/chat/completions"
     : modelSpec.endpointShape === "custom"
       ? "/v1/responses"
       : "/v1/responses";
@@ -1607,7 +1614,14 @@ function normalizeModelFleet(input: ModelFleetSpec | undefined, modelSpec: Model
     return normalizedFailure("INVALID_MODEL_FLEET", "modelFleet requires at least one endpoint");
   }
 
-  const endpointPaths: readonly ModelEndpointPath[] = ["/v1/messages", "/v1/responses", "/v1/images", "/v1/batches", "/v1/realtime"];
+  const endpointPaths: readonly ModelEndpointPath[] = [
+    "/v1/messages",
+    "/v1/responses",
+    "/v1/chat/completions",
+    "/v1/images",
+    "/v1/batches",
+    "/v1/realtime",
+  ];
   const endpoints = Object.fromEntries(endpointEntries.map(([ref, spec]) => {
     if (!hasText(ref) || !hasText(spec.endpointId)) {
       return [ref, undefined];

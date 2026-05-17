@@ -825,7 +825,11 @@ export async function executeModelInference(
   });
   const compatibilityProfileId = readStringMetadata(metadata, "compatibilityProfileId");
   const maxOutputTokens = readPositiveIntegerMetadata(metadata, "maxOutputTokens");
+  const model = readStringMetadata(metadata, "model")
+    ?? resolvedRole?.profile.model
+    ?? (provider === "openai" ? loadOpenAILiveConfig(roleId).model : "");
   const sanitized = sanitizeProviderRouteFeatureOptions(routeKind, {
+    model,
     reasoningEffort: readStringMetadata(metadata, "reasoningEffort") as string | undefined,
     serviceTier: readStringMetadata(metadata, "serviceTier") as "fast" | undefined,
   });
@@ -833,9 +837,6 @@ export async function executeModelInference(
   const requestedServiceTier = sanitized.serviceTier;
   const inputImageUrls = readStringArrayMetadata(metadata, "inputImageUrls");
   const promptMessages = readPromptMessagesMetadata(metadata?.promptMessages);
-  const model = readStringMetadata(metadata, "model")
-    ?? resolvedRole?.profile.model
-    ?? (provider === "openai" ? loadOpenAILiveConfig(roleId).model : "");
 
   let raw: unknown;
   let text = "";

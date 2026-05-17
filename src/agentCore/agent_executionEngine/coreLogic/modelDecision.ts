@@ -114,9 +114,29 @@ function sseDataObjects(text: string): readonly unknown[] {
   return objects;
 }
 
+function extractChatChoiceText(choices: readonly unknown[]): string {
+  const chunks: string[] = [];
+  for (const choice of choices) {
+    if (!isRecord(choice)) continue;
+    const message = isRecord(choice.message) ? choice.message : undefined;
+    const delta = isRecord(choice.delta) ? choice.delta : undefined;
+    const content = message?.content ?? delta?.content;
+    const contentText = readStreamDelta(content);
+    if (contentText !== undefined) chunks.push(contentText);
+    if (Array.isArray(content)) {
+      for (const block of content) {
+        if (!isRecord(block)) continue;
+        const blockText = readStreamDelta(block.text);
+        if (blockText !== undefined) chunks.push(blockText);
+      }
+    }
+  }
+  return chunks.join("");
+}
+
 function extractText(raw: unknown): string {
   if (typeof raw === "string") {
-    const deltas: string[] = [];
+    const streamChunks: string[] = [];
     const completed: string[] = [];
     const sseObjects = sseDataObjects(raw);
     for (const object of sseObjects) {
@@ -124,14 +144,18 @@ function extractText(raw: unknown): string {
       const eventType = readString(object.type);
       const delta = readStreamDelta(object.delta);
       if (delta !== undefined && (eventType === undefined || eventType.includes("output_text"))) {
-        deltas.push(delta);
+        streamChunks.push(delta);
+      }
+      if (Array.isArray(object.choices)) {
+        const choiceText = extractChatChoiceText(object.choices);
+        if (choiceText.length > 0) streamChunks.push(choiceText);
       }
       if (object.response !== undefined) {
         const text = extractText(object.response);
         if (text.length > 0) completed.push(text);
       }
     }
-    const text = deltas.join("").trim() || completed.join("\n").trim();
+    const text = streamChunks.join("").trim() || completed.join("\n").trim();
     if (text.length > 0) return text;
     return sseObjects.length > 0 ? "" : raw.trim();
   }
@@ -139,6 +163,22 @@ function extractText(raw: unknown): string {
   if (!isRecord(raw)) return "";
   const direct = readString(raw.output_text) ?? readString(raw.text);
   if (direct !== undefined) return direct;
+
+  if (Array.isArray(raw.choices)) {
+    const text = extractChatChoiceText(raw.choices).trim();
+    if (text.length > 0) return text;
+  }
+
+  if (Array.isArray(raw.content)) {
+    const chunks: string[] = [];
+    for (const block of raw.content) {
+      if (!isRecord(block)) continue;
+      const blockText = readString(block.text);
+      if (blockText !== undefined) chunks.push(blockText);
+    }
+    const text = chunks.join("\n").trim();
+    if (text.length > 0) return text;
+  }
 
   const output = raw.output;
   if (!Array.isArray(output)) return "";

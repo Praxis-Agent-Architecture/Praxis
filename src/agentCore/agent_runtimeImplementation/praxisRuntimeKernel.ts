@@ -14,6 +14,12 @@ import { readFileSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type { OpenAIV1ResponsesProviderCaller } from "../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import type { OpenAiV1ChatCompletionsProviderCaller } from "../agent_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
+import type { AnthropicV1MessagesProviderCaller } from "../agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import {
+  isDeepSeekV4Model,
+  mapDeepSeekV4ReasoningEffort,
+} from "../agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import {
   createProviderToolMappings,
   lowerProviderToolResult,
@@ -22,6 +28,7 @@ import {
   type ProviderToolDeclarationBundle,
   type ProviderToolResultEnvelope,
   type ProviderToolNameMapping,
+  type ProviderToolSchemaFamily,
 } from "../agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 import type { BaseToolExecutorPort } from "../agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { receiveTextInput } from "../agent_executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
@@ -144,6 +151,9 @@ export type PraxisRuntimeKernelOptions = {
   sessionId?: string;
   auth?: AuthEnvelope;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
+  anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
   allowPreviousResponseId?: boolean;
   previousProviderResponse?: {
     responseId: string;
@@ -759,6 +769,30 @@ function defaultMcpServerId(toolId: string, args: Readonly<Record<string, unknow
 
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
   return createProviderToolMappings(manifest.harness.tools);
+}
+
+function providerToolSchemaFamilyForModel(model: AgentManifest["model"]): ProviderToolSchemaFamily {
+  if (model.provider === "anthropic" || model.endpointShape === "messages") return "anthropicMessages";
+  if (model.endpointShape === "chat_completions") return "openaiChatCompletions";
+  return "openaiResponses";
+}
+
+function providerRouteForModel(model: AgentManifest["model"]): string | undefined {
+  const route = model.metadata?.providerRoute;
+  return typeof route === "string" && route.trim().length > 0 ? route.trim() : undefined;
+}
+
+function modelInvocationCapabilityForModel(model: AgentManifest["model"]): { capabilityId: string; kind: string } {
+  if (model.provider === "anthropic" || model.endpointShape === "messages") {
+    return { capabilityId: "anthropic-messages", kind: "messages" };
+  }
+  if (model.endpointShape === "chat_completions") {
+    return { capabilityId: "openai-chat-completions", kind: "chat_completions" };
+  }
+  if (providerRouteForModel(model) === "openai_responses" || model.credentialRef?.credentialType === "openai_api_key") {
+    return { capabilityId: "openai-responses", kind: "responses" };
+  }
+  return { capabilityId: "codex-responses", kind: "responses" };
 }
 
 function enrichToolArguments(
@@ -1452,6 +1486,121 @@ function normalizeOpenAIResponseOutputItemForInput(
   };
 }
 
+function stringifyProviderArguments(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === undefined) return "{}";
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "{}";
+  }
+}
+
+function normalizeOpenAIChatCompletionToolCallForInput(
+  item: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> | undefined {
+  const functionRecord = isRecord(item.function) ? item.function : undefined;
+  const name = readString(functionRecord?.name) ?? readString(item.name);
+  const callId = readString(item.id) ?? readString(item.call_id);
+  if (name === undefined || callId === undefined) return undefined;
+  const argumentsText = stringifyProviderArguments(functionRecord?.arguments ?? item.arguments ?? item.input);
+  return {
+    id: callId,
+    type: "function",
+    function: {
+      name,
+      arguments: compactProviderFunctionCallArgumentsForHistory({
+        toolName: name,
+        callId,
+        argumentsText,
+      }),
+    },
+  };
+}
+
+function normalizeOpenAIChatCompletionMessageForInput(
+  message: Readonly<Record<string, unknown>>,
+): Readonly<Record<string, unknown>> | undefined {
+  if (message.role !== "assistant") return undefined;
+  const rawToolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  const toolCalls = rawToolCalls
+    .filter((toolCall): toolCall is Readonly<Record<string, unknown>> => isRecord(toolCall))
+    .map(normalizeOpenAIChatCompletionToolCallForInput)
+    .filter((toolCall): toolCall is Readonly<Record<string, unknown>> => toolCall !== undefined);
+  if (toolCalls.length === 0) return undefined;
+  return {
+    role: "assistant",
+    content: typeof message.content === "string" ? message.content : null,
+    tool_calls: toolCalls,
+  };
+}
+
+function assembleOpenAIChatCompletionMessageFromSse(raw: string): Readonly<Record<string, unknown>> | undefined {
+  const contentChunks: string[] = [];
+  const fragments = new Map<string, {
+    id?: string;
+    type?: string;
+    name?: string;
+    argumentsText: string;
+    index: number;
+  }>();
+  let nextIndex = 0;
+  for (const object of kernelSseDataObjects(raw)) {
+    if (!isRecord(object)) continue;
+    const choices = Array.isArray(object.choices) ? object.choices : [];
+    for (const choice of choices) {
+      if (!isRecord(choice)) continue;
+      const delta = isRecord(choice.delta) ? choice.delta : undefined;
+      const content = delta?.content;
+      if (typeof content === "string") {
+        contentChunks.push(content);
+      }
+      const toolCalls = Array.isArray(delta?.tool_calls) ? delta.tool_calls : [];
+      for (const toolCall of toolCalls) {
+        if (!isRecord(toolCall)) continue;
+        const functionRecord = isRecord(toolCall.function) ? toolCall.function : undefined;
+        const index = typeof toolCall.index === "number" ? toolCall.index : nextIndex;
+        const key = `index:${index}`;
+        const previous = fragments.get(key) ?? { argumentsText: "", index };
+        const argumentsDelta = typeof functionRecord?.arguments === "string"
+          ? functionRecord.arguments
+          : typeof toolCall.arguments === "string"
+            ? toolCall.arguments
+            : "";
+        fragments.set(key, {
+          id: readString(toolCall.id) ?? readString(toolCall.call_id) ?? previous.id,
+          type: readString(toolCall.type) ?? previous.type,
+          name: readString(functionRecord?.name) ?? readString(toolCall.name) ?? previous.name,
+          argumentsText: `${previous.argumentsText}${argumentsDelta}`,
+          index,
+        });
+        nextIndex += 1;
+      }
+    }
+  }
+
+  const toolCalls = [...fragments.values()]
+    .sort((left, right) => left.index - right.index)
+    .filter((fragment) => fragment.name !== undefined)
+    .map((fragment) => ({
+      id: fragment.id ?? `chat-tool-call-${fragment.index}`,
+      type: fragment.type ?? "function",
+      function: {
+        name: fragment.name ?? "",
+        arguments: fragment.argumentsText,
+      },
+    }));
+  const content = contentChunks.join("");
+  if (toolCalls.length === 0 && content.length === 0) {
+    return undefined;
+  }
+  return {
+    role: "assistant",
+    content: content.length > 0 ? content : null,
+    ...(toolCalls.length === 0 ? {} : { tool_calls: toolCalls }),
+  };
+}
+
 function extractOpenAIResponseId(raw: unknown): string | undefined {
   if (typeof raw === "string") {
     let responseId: string | undefined;
@@ -1478,9 +1627,34 @@ function extractOpenAIResponseId(raw: unknown): string | undefined {
   return directId;
 }
 
+function extractOpenAIChatCompletionOutputItems(raw: unknown): readonly Readonly<Record<string, unknown>>[] {
+  if (typeof raw === "string") {
+    const assembled = assembleOpenAIChatCompletionMessageFromSse(raw);
+    const items = [
+      assembled === undefined ? undefined : normalizeOpenAIChatCompletionMessageForInput(assembled),
+      ...kernelSseDataObjects(raw).flatMap(extractOpenAIChatCompletionOutputItems),
+    ].filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
+    const seen = new Set<string>();
+    return items.filter((item, index) => {
+      const key = outputItemKey(item, index);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  if (!isRecord(raw)) return [];
+  const choices = Array.isArray(raw.choices) ? raw.choices : [];
+  return choices
+    .map((choice) => isRecord(choice) && isRecord(choice.message)
+      ? normalizeOpenAIChatCompletionMessageForInput(choice.message)
+      : undefined)
+    .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
+}
+
 function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Record<string, unknown>>[] {
   if (typeof raw === "string") {
-    const items = kernelSseDataObjects(raw).flatMap((object) => {
+    const responseItems = kernelSseDataObjects(raw).flatMap((object) => {
       if (object === null || typeof object !== "object" || Array.isArray(object)) return [];
       const record = object as Record<string, unknown>;
       const eventType = typeof record.type === "string" ? record.type : undefined;
@@ -1492,15 +1666,19 @@ function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Recor
         ? [record.item as Readonly<Record<string, unknown>>]
         : [];
       return [...fromResponse, ...fromItem];
-    });
+    }).map(normalizeOpenAIResponseOutputItemForInput)
+      .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
+    const items = [
+      ...extractOpenAIChatCompletionOutputItems(raw),
+      ...responseItems,
+    ];
     const seen = new Set<string>();
     return items.filter((item, index) => {
       const key = outputItemKey(item, index);
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
-    }).map(normalizeOpenAIResponseOutputItemForInput)
-      .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
+    });
   }
 
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
@@ -1509,7 +1687,7 @@ function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Recor
 
   const output = (raw as { output?: unknown }).output;
   if (!Array.isArray(output)) {
-    return [];
+    return extractOpenAIChatCompletionOutputItems(raw);
   }
 
   return output
@@ -1607,6 +1785,16 @@ function providerRoutingDebug(headers: Readonly<Record<string, string>> | undefi
     responseRequestId: headerValueForKernel(headers, "x-request-id") ?? headerValueForKernel(headers, "x-oai-request-id"),
     responseOpenAIModel: headerValueForKernel(headers, "openai-model"),
   };
+}
+
+function providerResponseHeadersForKernel(providerResult: unknown): Readonly<Record<string, string>> | undefined {
+  if (!isRecord(providerResult) || providerResult.ok !== true || !isRecord(providerResult.response)) return undefined;
+  const headers = providerResult.response.headers;
+  if (!isRecord(headers)) return undefined;
+  return Object.fromEntries(
+    Object.entries(headers).filter((entry): entry is [string, string] =>
+      typeof entry[0] === "string" && typeof entry[1] === "string"),
+  );
 }
 
 function normalizeToolContext(value: unknown): unknown {
@@ -1784,6 +1972,43 @@ function composeOpenAIResponsesInput(input: {
     },
   );
   return providerInput;
+}
+
+function chatToolCallIds(message: Readonly<Record<string, unknown>>): readonly string[] {
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  return toolCalls
+    .map((toolCall) => isRecord(toolCall) ? readString(toolCall.id) : undefined)
+    .filter((toolCallId): toolCallId is string => toolCallId !== undefined);
+}
+
+function composeOpenAIChatCompletionsMessages(input: {
+  dynamicInputText: string;
+  previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
+  toolResultMessages: readonly Readonly<Record<string, unknown>>[];
+}): readonly Readonly<Record<string, unknown>>[] {
+  const toolMessagesByCallId = new Map<string, Readonly<Record<string, unknown>>[]>();
+  for (const toolMessage of input.toolResultMessages) {
+    const callId = readString(toolMessage.tool_call_id);
+    if (callId === undefined) continue;
+    toolMessagesByCallId.set(callId, [...(toolMessagesByCallId.get(callId) ?? []), toolMessage]);
+  }
+
+  const messages: Readonly<Record<string, unknown>>[] = [];
+  const consumedToolMessages = new Set<Readonly<Record<string, unknown>>>();
+  for (const previousItem of input.previousProviderOutputItems) {
+    messages.push(previousItem);
+    for (const callId of chatToolCallIds(previousItem)) {
+      for (const toolMessage of toolMessagesByCallId.get(callId) ?? []) {
+        messages.push(toolMessage);
+        consumedToolMessages.add(toolMessage);
+      }
+    }
+  }
+  messages.push(
+    ...input.toolResultMessages.filter((toolMessage) => !consumedToolMessages.has(toolMessage)),
+    { role: "user", content: input.dynamicInputText },
+  );
+  return messages;
 }
 
 function normalizedSelection(values: readonly string[] | undefined): string[] {
@@ -2020,6 +2245,106 @@ function buildCodexResponsesBodyFromPromptPack(
   }
 
   return body;
+}
+
+function buildOpenAIChatCompletionsBodyFromPromptPack(
+  manifest: AgentManifest,
+  promptPack: StandardPromptPack,
+  providerToolBundle: ProviderToolDeclarationBundle,
+  options: {
+    exposeProviderTools?: boolean;
+    observations?: readonly RuntimeObservationMaterial[];
+    previousProviderOutputItems?: readonly Readonly<Record<string, unknown>>[];
+  } = {},
+): Readonly<Record<string, unknown>> {
+  const promptSplit = splitPromptPackForProvider(promptPack);
+  const systemText = [
+    "You are running inside PraxisRuntimeKernel. Use the Praxis PromptPack as current situation context.",
+    PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+    promptSplit.instructionText,
+  ].filter((part) => part.trim().length > 0).join("\n\n");
+  const dynamicInputText = promptSplit.dynamicInputText.length > 0
+    ? promptSplit.dynamicInputText
+    : "Current Praxis turn has no dynamic prompt material.";
+  const toolResultMessages = providerToolResultsFromObservations(options.observations ?? [])
+    .map((result) => lowerProviderToolResult({ providerFamily: "openaiChatCompletions", result }));
+  const reasoningEffort = isDeepSeekV4Model(manifest.model.model)
+    ? manifest.model.reasoning?.effort
+    : undefined;
+  return {
+    model: manifest.model.model,
+    stream: true,
+    stream_options: { include_usage: true },
+    ...(reasoningEffort === undefined ? {} : { reasoning_effort: reasoningEffort }),
+    messages: [
+      ...(systemText.length > 0 ? [{ role: "system", content: systemText }] : []),
+      ...composeOpenAIChatCompletionsMessages({
+        dynamicInputText,
+        previousProviderOutputItems: options.previousProviderOutputItems ?? [],
+        toolResultMessages,
+      }),
+    ],
+    ...(options.exposeProviderTools === false || providerToolBundle.tools.length === 0 ? {} : { tools: providerToolBundle.tools }),
+  };
+}
+
+function buildAnthropicMessagesBodyFromPromptPack(
+  manifest: AgentManifest,
+  promptPack: StandardPromptPack,
+  providerToolBundle: ProviderToolDeclarationBundle,
+  options: {
+    exposeProviderTools?: boolean;
+    observations?: readonly RuntimeObservationMaterial[];
+  } = {},
+): Readonly<Record<string, unknown>> {
+  const promptSplit = splitPromptPackForProvider(promptPack);
+  const systemText = [
+    "You are running inside PraxisRuntimeKernel. Use the Praxis PromptPack as current situation context.",
+    PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+    promptSplit.instructionText,
+  ].filter((part) => part.trim().length > 0).join("\n\n");
+  const dynamicInputText = promptSplit.dynamicInputText.length > 0
+    ? promptSplit.dynamicInputText
+    : "Current Praxis turn has no dynamic prompt material.";
+  const toolResultInputs = providerToolResultsFromObservations(options.observations ?? [])
+    .map((result) => lowerProviderToolResult({ providerFamily: "anthropicMessages", result }));
+  const messages = [
+    ...toolResultInputs,
+    { role: "user", content: dynamicInputText },
+  ];
+  const deepSeekReasoning = isDeepSeekV4Model(manifest.model.model)
+    ? mapDeepSeekV4ReasoningEffort(manifest.model.reasoning?.effort)
+    : undefined;
+  return {
+    model: manifest.model.model,
+    ...(systemText.length === 0 ? {} : { system: systemText }),
+    ...(deepSeekReasoning === undefined ? {} : { thinking: deepSeekReasoning.thinking }),
+    ...(deepSeekReasoning?.outputConfig === undefined ? {} : { output_config: deepSeekReasoning.outputConfig }),
+    messages,
+    ...(options.exposeProviderTools === false || providerToolBundle.tools.length === 0 ? {} : { tools: providerToolBundle.tools }),
+  };
+}
+
+function buildProviderBodyFromPromptPack(
+  manifest: AgentManifest,
+  promptPack: StandardPromptPack,
+  providerToolBundle: ProviderToolDeclarationBundle,
+  mappings: readonly ProviderToolMapping[],
+  options: {
+    exposeProviderTools?: boolean;
+    observations?: readonly RuntimeObservationMaterial[];
+    previousProviderOutputItems?: readonly Readonly<Record<string, unknown>>[];
+    previousProviderResponseId?: string;
+    promptCacheKey?: string;
+  } = {},
+): Readonly<Record<string, unknown>> {
+  if (manifest.model.provider === "anthropic" || manifest.model.endpointShape === "messages") {
+    return buildAnthropicMessagesBodyFromPromptPack(manifest, promptPack, providerToolBundle, options);
+  }
+  if (manifest.model.endpointShape === "chat_completions") {
+    return buildOpenAIChatCompletionsBodyFromPromptPack(manifest, promptPack, providerToolBundle, options);
+  }
+  return buildCodexResponsesBodyFromPromptPack(manifest, promptPack, mappings, options);
 }
 
 function kernelError(
@@ -2412,8 +2737,9 @@ async function buildPromptPackAndLower(input: {
     };
   }
 
+  const providerFamily = providerToolSchemaFamilyForModel(input.manifest.model);
   const providerToolBundle = lowerPraxisToolsForProvider({
-    providerFamily: "openaiResponses",
+    providerFamily,
     manifest: input.manifest,
     mappings: input.toolMappings,
     includeRuntimeDecisionTools: true,
@@ -2433,7 +2759,7 @@ async function buildPromptPackAndLower(input: {
       },
     },
     target: {
-      capabilityId: "codex-responses",
+      capabilityId: modelInvocationCapabilityForModel(input.manifest.model).capabilityId,
       carrierId: input.manifest.model.carrierId,
       outputMode: "single",
     },
@@ -3251,6 +3577,7 @@ export class PraxisRuntimeKernel {
     const maxModelTurns = manifest.harness.loop.maxModelTurns ?? 2;
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;
     const toolMappings = providerToolMappings(manifest);
+    const providerFamily = providerToolSchemaFamilyForModel(manifest.model);
     let toolContextSelection: {
       families: string[];
       groups: string[];
@@ -3374,8 +3701,8 @@ export class PraxisRuntimeKernel {
       const promptSplit = splitPromptPackForProvider(prompt.promptPack);
       const providerToolResultHistory = providerToolResultHistoryFromObservations(observations);
       const toolResultInputs = providerToolResultHistory.results
-        .map((result) => lowerProviderToolResult({ providerFamily: "openaiResponses", result }));
-      const providerBodyCandidate = buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
+        .map((result) => lowerProviderToolResult({ providerFamily, result }));
+      const providerBodyCandidate = buildProviderBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle, prompt.providerToolBundle.mappings, {
         exposeProviderTools: options.exposeProviderTools,
         observations,
         previousProviderOutputItems: providerResponseOutputItems,
@@ -3391,13 +3718,15 @@ export class PraxisRuntimeKernel {
         promptSplit,
       });
       const previousProviderResponseId = options.allowPreviousResponseId === true &&
+        manifest.model.endpointShape !== "chat_completions" &&
+        manifest.model.provider !== "anthropic" &&
         previousProviderResponse !== undefined &&
         previousProviderResponse.stablePrefixHash === candidateCacheDebug.providerBody.cacheShape.stablePrefixHash
         ? previousProviderResponse.responseId
         : undefined;
       const providerBody = previousProviderResponseId === undefined
         ? providerBodyCandidate
-        : buildCodexResponsesBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle.mappings, {
+        : buildProviderBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle, prompt.providerToolBundle.mappings, {
           exposeProviderTools: options.exposeProviderTools,
           observations,
           previousProviderOutputItems: providerResponseOutputItems,
@@ -3428,13 +3757,22 @@ export class PraxisRuntimeKernel {
         invocationId: modelInvocationId,
         caller: modelCaller,
         loweredPrompt: prompt.loweredPrompt,
-        capability: { capabilityId: "codex-responses", kind: "responses" },
-        carrier: { carrierId: manifest.model.carrierId, provider: manifest.model.provider },
+        capability: modelInvocationCapabilityForModel(manifest.model),
+        carrier: {
+          carrierId: manifest.model.carrierId,
+          provider: manifest.model.provider,
+          endpointShape: manifest.model.endpointShape,
+          baseURL: manifest.model.baseURL,
+          metadata: manifest.model.metadata,
+        },
         mode: "single",
         dryRun,
         allowProviderCall: options.allowProviderCall ?? manifest.harness.policy.allowProviderCall ?? !dryRun,
         auth: options.auth,
         providerCaller: options.providerCaller,
+        openaiResponsesCaller: options.openaiResponsesCaller,
+        openaiChatCompletionsCaller: options.openaiChatCompletionsCaller,
+        anthropicMessagesCaller: options.anthropicMessagesCaller,
         providerBody,
         governance: { accepted: true },
         contract: { accepted: true },
@@ -3445,15 +3783,15 @@ export class PraxisRuntimeKernel {
         ? {
           inputTokens: modelResult.usage.inputTokens,
           outputTokens: modelResult.usage.outputTokens,
-          thinkingTokens: modelResult.usage.reasoningTokens,
+          thinkingTokens: "reasoningTokens" in modelResult.usage ? modelResult.usage.reasoningTokens : undefined,
           totalTokens: modelResult.usage.totalTokens,
-          cachedInputTokens: modelResult.usage.cachedInputTokens,
+          cachedInputTokens: "cachedInputTokens" in modelResult.usage ? modelResult.usage.cachedInputTokens : undefined,
           source: modelResult.usage.source,
           estimated: modelResult.usage.estimated,
         }
         : undefined;
       const providerRouting = modelResult.ok
-        ? providerRoutingDebug(modelResult.providerResult?.ok === true ? modelResult.providerResult.response.headers : undefined)
+        ? providerRoutingDebug(providerResponseHeadersForKernel(modelResult.providerResult))
         : undefined;
       const providerResponseId = modelResult.ok ? extractOpenAIResponseId(modelResult.raw) : undefined;
       const observedCacheDebug = cacheDebugWithPreviousComparison(
@@ -3574,7 +3912,7 @@ export class PraxisRuntimeKernel {
         raw: model.raw,
         sessionId,
         turnIndex: turn,
-        providerFamily: "openaiResponses",
+        providerFamily,
         providerToolMappings: toolMappings,
         providerRawRef: model.modelCallId,
       });
@@ -4301,10 +4639,14 @@ export class PraxisRuntimeKernel {
         finalOutput: "PraxisRuntimeKernel dry-run completed.",
         events: ["agentCore.execution.mainLoop.runner.dryRunFinal"],
       }),
-      onNoFinalOutput: async () => ({
+      onNoFinalOutput: async (input) => ({
         ok: true,
-        finalOutput: "PraxisRuntimeKernel completed without text output.",
-        events: ["agentCore.execution.mainLoop.runner.noFinalOutput"],
+        finalOutput: input.reason === "tool_call_limit"
+          ? "PraxisRuntimeKernel reached the tool call limit before a final answer."
+          : input.reason === "no_continuation"
+            ? "PraxisRuntimeKernel stopped without a final answer."
+            : "PraxisRuntimeKernel reached the model turn limit before a final answer.",
+        events: [`agentCore.execution.mainLoop.runner.noFinalOutput.${input.reason}`],
       }),
     });
 

@@ -8,7 +8,11 @@
 import { createHash } from "node:crypto";
 import type { AgentManifest } from "../../agent_runtimeImplementation/runtimeAgentManifest.js";
 
-export type ProviderToolSchemaFamily = "openaiResponses" | "anthropicMessages" | "geminiGenerateContent";
+export type ProviderToolSchemaFamily =
+  | "openaiResponses"
+  | "openaiChatCompletions"
+  | "anthropicMessages"
+  | "geminiGenerateContent";
 export type PraxisToolProviderKind = "baseTool" | "tap" | "mcp-static" | "dynamic";
 
 export type ProviderToolNameMapping = {
@@ -276,7 +280,7 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
       toolId: "praxis.runtime.ephemeralProcedure",
       providerName: "praxis_ephemeral_procedure",
       providerKind: "baseTool",
-      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability. Procedure steps must obey each BaseTool contract: shell steps must never create or modify workspace files with redirection, heredocs, cat, tee, or ad-hoc file writes; use code.overwrite, code.modify, or code.replaceFile steps for workspace file changes.",
+      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability. Procedure steps must obey each BaseTool contract: shell steps must never create or modify workspace files with redirection, heredocs, cat, tee, or ad-hoc file writes; use code.overwrite, code.modify, or code.replaceFile steps for workspace file changes, and include workspaceRoot for code.overwrite inputs.",
       inputSchema: normalizeProviderInputSchema({
         type: "object",
         additionalProperties: true,
@@ -305,7 +309,7 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
                 input: {
                   type: "object",
                   additionalProperties: true,
-                  description: "Input for the selected BaseTool. Do not put workspace file contents into shell commands; file creation and edits must be expressed as code.* tool inputs.",
+                  description: "Input for the selected BaseTool. Do not put workspace file contents into shell commands; file creation and edits must be expressed as code.* tool inputs. For code.overwrite, include workspaceRoot, targetPath, and content.",
                 },
                 dependsOn: { type: "array", items: { type: "string" } },
                 riskLevel: { type: "string", enum: ["low", "medium", "high"] },
@@ -360,6 +364,17 @@ function openAiTool(declaration: PraxisToolDeclaration): Readonly<Record<string,
     description: declaration.description,
     strict: false,
     parameters: declaration.inputSchema,
+  };
+}
+
+function openAiChatCompletionsTool(declaration: PraxisToolDeclaration): Readonly<Record<string, unknown>> {
+  return {
+    type: "function",
+    function: {
+      name: declaration.providerName,
+      description: declaration.description,
+      parameters: declaration.inputSchema,
+    },
   };
 }
 
@@ -435,9 +450,11 @@ export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProvider
 
   const providerTools = request.providerFamily === "openaiResponses"
     ? declarations.map(openAiTool)
-    : request.providerFamily === "anthropicMessages"
-      ? declarations.map((declaration, index) => anthropicTool(declaration, index === declarations.length - 1))
-      : declarations.map(geminiFunctionDeclaration);
+    : request.providerFamily === "openaiChatCompletions"
+      ? declarations.map(openAiChatCompletionsTool)
+      : request.providerFamily === "anthropicMessages"
+        ? declarations.map((declaration, index) => anthropicTool(declaration, index === declarations.length - 1))
+        : declarations.map(geminiFunctionDeclaration);
   const declarationHash = hashStable({ providerFamily: request.providerFamily, providerTools });
   return {
     providerFamily: request.providerFamily,
@@ -456,7 +473,48 @@ export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProvider
   };
 }
 
-function parseArguments(value: unknown): { ok: true; arguments: Readonly<Record<string, unknown>> } | { ok: false; message: string } {
+function repairMisnestedEphemeralProcedureStepFields(value: string): string | undefined {
+  if (!value.includes("\"procedureId\"") || !value.includes("\"steps\"")) return undefined;
+  const repairableFields = new Set(["dependsOn", "outputRef"]);
+  let output = "";
+  let changed = false;
+  let inString = false;
+  let escaped = false;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index] ?? "";
+    if (inString) {
+      output += char;
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+    if (char === "\"") {
+      inString = true;
+      output += char;
+      continue;
+    }
+    if (char === "}") {
+      const tail = value.slice(index + 1);
+      const match = tail.match(/^\s*,\s*"([A-Za-z0-9_]+)"\s*:/u);
+      if (match !== null && repairableFields.has(match[1] ?? "")) {
+        changed = true;
+        continue;
+      }
+    }
+    output += char;
+  }
+  return changed ? output : undefined;
+}
+
+function parseArguments(
+  value: unknown,
+  providerName?: string,
+): { ok: true; arguments: Readonly<Record<string, unknown>> } | { ok: false; message: string } {
   if (isRecord(value)) return { ok: true, arguments: value };
   if (typeof value !== "string" || value.trim().length === 0) return { ok: true, arguments: {} };
   try {
@@ -465,6 +523,19 @@ function parseArguments(value: unknown): { ok: true; arguments: Readonly<Record<
       ? { ok: true, arguments: parsed }
       : { ok: false, message: "provider tool arguments must decode to an object" };
   } catch {
+    const repaired = providerName === "praxis_ephemeral_procedure"
+      ? repairMisnestedEphemeralProcedureStepFields(value)
+      : undefined;
+    if (repaired !== undefined) {
+      try {
+        const parsed: unknown = JSON.parse(repaired);
+        return isRecord(parsed)
+          ? { ok: true, arguments: parsed }
+          : { ok: false, message: "provider tool arguments must decode to an object" };
+      } catch {
+        return { ok: false, message: "provider tool arguments are not valid JSON" };
+      }
+    }
     return { ok: false, message: "provider tool arguments are not valid JSON" };
   }
 }
@@ -508,7 +579,7 @@ function callEnvelope(input: {
   providerRawRef?: string;
   metadata?: Readonly<Record<string, unknown>>;
 }): ProviderToolCallEnvelope {
-  const parsed = parseArguments(input.args ?? {});
+  const parsed = parseArguments(input.args ?? {}, input.providerName);
   const callId = input.callId ?? `${input.providerName}:${input.index + 1}`;
   return {
     callId,
@@ -556,6 +627,90 @@ function raiseFromOpenAi(raw: unknown, request: RaiseProviderToolCallsRequest): 
         metadata: { providerShape: "openaiResponses" },
       }));
     }
+  }
+  return dedupeToolCalls(calls);
+}
+
+function chatCompletionToolCallLists(raw: unknown): readonly unknown[] {
+  if (!isRecord(raw)) return [];
+  const lists: unknown[] = [];
+  if (Array.isArray(raw.tool_calls)) {
+    lists.push(...raw.tool_calls);
+  }
+  if (Array.isArray(raw.toolCalls)) {
+    lists.push(...raw.toolCalls);
+  }
+  const choices = Array.isArray(raw.choices) ? raw.choices : [];
+  for (const choice of choices) {
+    if (!isRecord(choice)) continue;
+    const message = isRecord(choice.message) ? choice.message : undefined;
+    const delta = isRecord(choice.delta) ? choice.delta : undefined;
+    if (Array.isArray(message?.tool_calls)) lists.push(...message.tool_calls);
+    if (Array.isArray(delta?.tool_calls)) lists.push(...delta.tool_calls);
+  }
+  return lists;
+}
+
+function raiseFromOpenAiChatCompletions(raw: unknown, request: RaiseProviderToolCallsRequest): readonly ProviderToolCallEnvelope[] {
+  if (typeof raw === "string") {
+    const fragments = new Map<string, {
+      id?: string;
+      name?: string;
+      argumentsText: string;
+      argsObject?: unknown;
+      index: number;
+    }>();
+    let nextIndex = 0;
+    for (const object of sseDataObjects(raw)) {
+      for (const item of chatCompletionToolCallLists(object)) {
+        if (!isRecord(item)) continue;
+        const functionRecord = isRecord(item.function) ? item.function : undefined;
+        const id = readString(item.id);
+        const itemIndex = typeof item.index === "number" ? item.index : nextIndex;
+        const key = `index:${itemIndex}`;
+        const existing = fragments.get(key) ?? { id, argumentsText: "", index: itemIndex };
+        existing.id = id ?? existing.id;
+        existing.name = readString(functionRecord?.name) ?? readString(item.name) ?? existing.name;
+        const args = functionRecord?.arguments ?? item.arguments ?? item.input;
+        if (typeof args === "string") {
+          existing.argumentsText += args;
+        } else if (args !== undefined) {
+          existing.argsObject = args;
+        }
+        fragments.set(key, existing);
+        nextIndex += 1;
+      }
+    }
+    return dedupeToolCalls([...fragments.values()]
+      .filter((item) => item.name !== undefined)
+      .map((item, index) => callEnvelope({
+        providerName: item.name ?? "",
+        callId: item.id,
+        args: item.argsObject ?? item.argumentsText,
+        index,
+        providerFamily: "openaiChatCompletions",
+        mappings: request.mappings,
+        providerRawRef: request.providerRawRef,
+        metadata: { providerShape: "openaiChatCompletions" },
+      })));
+  }
+
+  const calls: ProviderToolCallEnvelope[] = [];
+  for (const item of chatCompletionToolCallLists(raw)) {
+    if (!isRecord(item)) continue;
+    const functionRecord = isRecord(item.function) ? item.function : undefined;
+    const name = readString(item.toolId) ?? readString(item.name) ?? readString(functionRecord?.name);
+    if (name === undefined) continue;
+    calls.push(callEnvelope({
+      providerName: name,
+      callId: readString(item.call_id) ?? readString(item.id),
+      args: item.arguments ?? functionRecord?.arguments ?? item.input ?? {},
+      index: calls.length,
+      providerFamily: "openaiChatCompletions",
+      mappings: request.mappings,
+      providerRawRef: request.providerRawRef,
+      metadata: { providerShape: "openaiChatCompletions" },
+    }));
   }
   return dedupeToolCalls(calls);
 }
@@ -633,11 +788,13 @@ function raiseFromGemini(raw: unknown, request: RaiseProviderToolCallsRequest): 
 }
 
 export function raiseProviderToolCalls(request: RaiseProviderToolCallsRequest): readonly ProviderToolCallEnvelope[] {
+  if (request.providerFamily === "openaiChatCompletions") return raiseFromOpenAiChatCompletions(request.raw, request);
   if (request.providerFamily === "anthropicMessages") return raiseFromAnthropic(request.raw, request);
   if (request.providerFamily === "geminiGenerateContent") return raiseFromGemini(request.raw, request);
   if (request.providerFamily === "openaiResponses") return raiseFromOpenAi(request.raw, request);
   return dedupeToolCalls([
     ...raiseFromOpenAi(request.raw, request),
+    ...raiseFromOpenAiChatCompletions(request.raw, request),
     ...raiseFromAnthropic(request.raw, request),
     ...raiseFromGemini(request.raw, request),
   ]);
@@ -653,6 +810,13 @@ function resultText(result: ProviderToolResultEnvelope): string {
 
 export function lowerProviderToolResult(request: LowerProviderToolResultRequest): Readonly<Record<string, unknown>> {
   const result = request.result;
+  if (request.providerFamily === "openaiChatCompletions") {
+    return {
+      role: "tool",
+      tool_call_id: result.callId,
+      content: resultText(result),
+    };
+  }
   if (request.providerFamily === "anthropicMessages") {
     return {
       role: "user",

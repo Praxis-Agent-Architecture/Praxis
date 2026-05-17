@@ -21,6 +21,21 @@ import type {
   OpenAIV1ResponsesResult,
   OpenAIV1ResponsesUsage,
 } from "../../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import {
+  invokeOpenAIV1Responses,
+} from "../../agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import {
+  invokeOpenAiV1ChatCompletions,
+  type OpenAiV1ChatCompletionsInvocationResult,
+  type OpenAiV1ChatCompletionsProviderCaller,
+  type OpenAiV1ChatCompletionsUsage,
+} from "../../agent_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
+import {
+  invokeAnthropicV1Messages,
+  type AnthropicV1MessagesInvocationResult,
+  type AnthropicV1MessagesProviderCaller,
+  type AnthropicV1MessagesUsage,
+} from "../../agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
 
 export type ModelInvocationRuntimeMode = "single" | "stream" | "batch" | (string & {});
 
@@ -72,6 +87,9 @@ export type ModelInvocationCapabilityRef = {
 export type ModelInvocationCarrierRef = {
   carrierId?: string;
   provider?: string;
+  endpointShape?: string;
+  baseURL?: string;
+  metadata?: Readonly<Record<string, unknown>>;
 };
 
 export type ModelInvocationRuntimeRequest = {
@@ -93,6 +111,9 @@ export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & 
   providerBody?: unknown;
   auth?: AuthEnvelope;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
+  anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
   dryRun?: boolean;
   requiredScopes?: readonly string[];
   allowedScopes?: readonly string[];
@@ -100,6 +121,16 @@ export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & 
   clientName?: string;
   clientVersion?: string;
 };
+
+export type ModelInvocationProviderResult =
+  | OpenAIV1ResponsesResult
+  | OpenAiV1ChatCompletionsInvocationResult
+  | AnthropicV1MessagesInvocationResult;
+
+export type ModelInvocationRuntimeUsage =
+  | OpenAIV1ResponsesUsage
+  | OpenAiV1ChatCompletionsUsage
+  | AnthropicV1MessagesUsage;
 
 export type ModelInvocationMockableEnvelope = {
   loweringId: string;
@@ -143,15 +174,15 @@ export type RuntimeModelInvocationResult =
   | {
       ok: true;
       plan: ModelInvocationPlan;
-      providerResult?: OpenAIV1ResponsesResult;
-      usage?: OpenAIV1ResponsesUsage;
+      providerResult?: ModelInvocationProviderResult;
+      usage?: ModelInvocationRuntimeUsage;
       raw: unknown;
       events: readonly string[];
     }
   | {
       ok: false;
       error: ModelInvocationRuntimeError;
-      providerResult?: OpenAIV1ResponsesResult;
+      providerResult?: ModelInvocationProviderResult;
       events: readonly string[];
     };
 
@@ -317,7 +348,7 @@ function liveFailure(
   >,
   message: string,
   boundary: ModelInvocationRuntimeBoundary,
-  providerResult?: OpenAIV1ResponsesResult,
+  providerResult?: ModelInvocationProviderResult,
 ): RuntimeModelInvocationResult {
   return {
     ok: false,
@@ -325,6 +356,49 @@ function liveFailure(
     providerResult,
     events: ["runtime.modelAdapter.modelInvocationRuntime.rejected"],
   };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function metadataString(metadata: Readonly<Record<string, unknown>> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function normalizeEndpointShape(value: string | undefined): "responses" | "chat_completions" | "messages" | "custom" {
+  const normalized = value?.trim().toLowerCase().replace(/[-/]/gu, "_");
+  if (
+    normalized === "chat_completions" ||
+    normalized === "chat_completions_compat" ||
+    normalized === "v1_chat_completions"
+  ) {
+    return "chat_completions";
+  }
+  if (normalized === "messages" || normalized === "anthropic_messages" || normalized === "v1_messages") return "messages";
+  if (normalized === "custom") return "custom";
+  return "responses";
+}
+
+function requestEndpointShape(request: RuntimeModelInvocationLiveRequest): "responses" | "chat_completions" | "messages" | "custom" {
+  return normalizeEndpointShape(
+    request.carrier?.endpointShape ??
+    metadataString(request.carrier?.metadata, "endpointShape") ??
+    request.capability?.kind,
+  );
+}
+
+function isChatGPTCodexResponsesRoute(request: RuntimeModelInvocationLiveRequest, carrierId: string): boolean {
+  const productChannel = metadataString(request.carrier?.metadata, "productChannel");
+  return productChannel === "chatgpt-codex" ||
+    request.auth?.credentialRef?.credentialType === "chatgpt_codex_oauth" ||
+    carrierId.includes("chatgpt-codex") ||
+    (request.requiredScopes ?? []).some((scope) => scope.trim() === "chatgpt.codex.responses");
+}
+
+function bodyRecordOrInput(body: unknown): Record<string, unknown> {
+  return isRecord(body) ? body : { input: body ?? "" };
 }
 
 export async function invokeModelThroughRuntime(
@@ -361,66 +435,221 @@ export async function invokeModelThroughRuntime(
     };
   }
 
-  if (request.providerCaller === undefined) {
-    return liveFailure(
-      "PROVIDER_CALLER_REQUIRED",
-      "model invocation live call requires an injected provider caller",
-      "carrier",
-    );
-  }
-
   const provider = request.carrier?.provider?.trim() ?? planResult.plan.envelope.provider;
-  const endpointIsResponses = request.capability?.kind?.trim() === "responses" || request.mode === "single" || request.mode === undefined;
-  if (provider !== "openai" || !endpointIsResponses) {
-    return liveFailure(
-      "UNSUPPORTED_PROVIDER_ROUTE",
-      "model invocation v1 only supports OpenAI/ChatGPT Codex responses route",
-      "carrier",
-    );
-  }
+  const endpointShape = requestEndpointShape(request);
+  const carrierId = request.carrier?.carrierId?.trim() ?? planResult.plan.envelope.carrierId;
+  if (provider === "openai" && endpointShape === "responses" && isChatGPTCodexResponsesRoute(request, carrierId)) {
+    const caller = request.providerCaller ?? request.openaiResponsesCaller;
+    if (caller === undefined) {
+      return liveFailure(
+        "PROVIDER_CALLER_REQUIRED",
+        "ChatGPT Codex responses invocation requires an injected provider caller",
+        "carrier",
+      );
+    }
 
-  const providerResult = await invokeChatGPTCodexResponses({
-    operation: "create",
-    runtime: {
-      runtimeId: planResult.plan.runtimeId,
-      invocationId: planResult.plan.invocationId,
-      callerId: planResult.plan.caller.id,
-    },
-    dryRun: false,
-    governance: request.governance,
-    contract: request.contract,
-    auth: request.auth,
-    headers: { "content-type": "application/json" },
-    body: request.providerBody,
-    caller: request.providerCaller,
-    requiredScopes: request.requiredScopes ?? ["model.invoke", "chatgpt.codex.responses"],
-    allowedScopes: request.allowedScopes,
-    chatgptAccountId: request.chatgptAccountId,
-    clientName: request.clientName,
-    clientVersion: request.clientVersion,
-    expectResponseObject: false,
-  });
-
-  if (!providerResult.ok) {
-    return liveFailure(
-      "PROVIDER_INVOCATION_FAILED",
-      providerResult.error.message,
-      providerResult.error.boundary === "auth" ? "carrier" : "runtime-state",
-      providerResult,
-    );
-  }
-
-  return {
-    ok: true,
-    plan: {
-      ...planResult.plan,
-      providerCallPermitted: true,
-      transport: "provider",
+    const providerResult = await invokeChatGPTCodexResponses({
+      operation: "create",
+      runtime: {
+        runtimeId: planResult.plan.runtimeId,
+        invocationId: planResult.plan.invocationId,
+        callerId: planResult.plan.caller.id,
+      },
       dryRun: false,
-    },
-    providerResult,
-    usage: providerResult.response.usage,
-    raw: providerResult.response.raw,
-    events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
-  };
+      governance: request.governance,
+      contract: request.contract,
+      auth: request.auth,
+      headers: { "content-type": "application/json" },
+      body: request.providerBody,
+      caller,
+      requiredScopes: request.requiredScopes ?? ["model.invoke", "chatgpt.codex.responses"],
+      allowedScopes: request.allowedScopes,
+      chatgptAccountId: request.chatgptAccountId,
+      clientName: request.clientName,
+      clientVersion: request.clientVersion,
+      expectResponseObject: false,
+    });
+
+    if (!providerResult.ok) {
+      return liveFailure(
+        "PROVIDER_INVOCATION_FAILED",
+        providerResult.error.message,
+        providerResult.error.boundary === "auth" ? "carrier" : "runtime-state",
+        providerResult,
+      );
+    }
+
+    return {
+      ok: true,
+      plan: {
+        ...planResult.plan,
+        providerCallPermitted: true,
+        transport: "provider",
+        dryRun: false,
+      },
+      providerResult,
+      usage: providerResult.response.usage,
+      raw: providerResult.response.raw,
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+    };
+  }
+
+  if (provider === "openai" && endpointShape === "responses") {
+    const caller = request.openaiResponsesCaller ?? request.providerCaller;
+    if (caller === undefined) {
+      return liveFailure(
+        "PROVIDER_CALLER_REQUIRED",
+        "OpenAI v1 responses invocation requires an injected provider caller",
+        "carrier",
+      );
+    }
+
+    const providerResult = await invokeOpenAIV1Responses({
+      operation: "create",
+      runtime: {
+        runtimeId: planResult.plan.runtimeId,
+        invocationId: planResult.plan.invocationId,
+        callerId: planResult.plan.caller.id,
+      },
+      baseUrl: request.carrier?.baseURL,
+      endpointPath: "/v1/responses",
+      dryRun: false,
+      governance: request.governance,
+      contract: request.contract,
+      auth: request.auth,
+      headers: { "content-type": "application/json" },
+      body: request.providerBody,
+      caller,
+      requiredScopes: request.requiredScopes ?? ["model.invoke", "openai.responses"],
+      allowedScopes: request.allowedScopes,
+      expectResponseObject: false,
+    });
+
+    if (!providerResult.ok) {
+      return liveFailure(
+        "PROVIDER_INVOCATION_FAILED",
+        providerResult.error.message,
+        providerResult.error.boundary === "auth" ? "carrier" : "runtime-state",
+        providerResult,
+      );
+    }
+
+    return {
+      ok: true,
+      plan: {
+        ...planResult.plan,
+        providerCallPermitted: true,
+        transport: "provider",
+        dryRun: false,
+      },
+      providerResult,
+      usage: providerResult.response.usage,
+      raw: providerResult.response.raw,
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+    };
+  }
+
+  if (provider === "openai" && endpointShape === "chat_completions") {
+    const caller = request.openaiChatCompletionsCaller;
+    if (caller === undefined) {
+      return liveFailure(
+        "PROVIDER_CALLER_REQUIRED",
+        "OpenAI v1 chat completions invocation requires an injected provider caller",
+        "carrier",
+      );
+    }
+
+    const providerResult = await invokeOpenAiV1ChatCompletions({
+      requestBody: bodyRecordOrInput(request.providerBody),
+      baseUrl: request.carrier?.baseURL,
+      dryRun: false,
+      governance: request.governance,
+      contract: request.contract,
+      auth: request.auth,
+      trace: { correlationId: planResult.plan.invocationId, callerId: planResult.plan.caller.id },
+      caller,
+    });
+
+    if (!providerResult.ok) {
+      return liveFailure(
+        "PROVIDER_INVOCATION_FAILED",
+        providerResult.error.message,
+        providerResult.error.boundary === "provider" ? "runtime-state" : providerResult.error.boundary,
+        providerResult,
+      );
+    }
+
+    return {
+      ok: true,
+      plan: {
+        ...planResult.plan,
+        providerCallPermitted: true,
+        transport: "provider",
+        dryRun: false,
+      },
+      providerResult,
+      usage: providerResult.envelope.usage,
+      raw: providerResult.envelope.rawResponse,
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+    };
+  }
+
+  if (provider === "anthropic" && endpointShape === "messages") {
+    const caller = request.anthropicMessagesCaller;
+    if (caller === undefined) {
+      return liveFailure(
+        "PROVIDER_CALLER_REQUIRED",
+        "Anthropic v1 messages invocation requires an injected provider caller",
+        "carrier",
+      );
+    }
+
+    const providerResult = await invokeAnthropicV1Messages({
+      operation: "create",
+      runtime: {
+        runtimeId: planResult.plan.runtimeId,
+        correlationId: planResult.plan.invocationId,
+        callerId: planResult.plan.caller.id,
+      },
+      dryRun: false,
+      governance: request.governance,
+      contract: request.contract,
+      auth: request.auth,
+      headers: { "content-type": "application/json" },
+      body: request.providerBody,
+      caller,
+      requiredScopes: request.requiredScopes ?? ["model.invoke", "anthropic.messages"],
+      allowedScopes: request.allowedScopes,
+      expectResponseObject: false,
+    });
+
+    if (!providerResult.ok) {
+      return liveFailure(
+        "PROVIDER_INVOCATION_FAILED",
+        providerResult.error.message,
+        providerResult.error.boundary === "auth" ? "carrier" : "runtime-state",
+        providerResult,
+      );
+    }
+
+    return {
+      ok: true,
+      plan: {
+        ...planResult.plan,
+        providerCallPermitted: true,
+        transport: "provider",
+        dryRun: false,
+      },
+      providerResult,
+      usage: providerResult.response.usage,
+      raw: providerResult.response.raw,
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+    };
+  }
+
+  return liveFailure(
+    "UNSUPPORTED_PROVIDER_ROUTE",
+    "model invocation route is not supported by the current runtime provider adapter",
+    "carrier",
+  );
 }

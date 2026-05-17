@@ -32,3 +32,40 @@ test("raxode tui agent compiles as a tool-free structured auxiliary agent", () =
   assert.equal(compiled.manifest.harness.tools.length, 0);
   assert.equal(compiled.manifest.session.persistence, "memory");
 });
+
+test("raxode coding agent carries configured Anthropic messages route into the manifest", () => {
+  const compiled = praxis.compileAgent(new RaxodeCodingAgent({
+    provider: "anthropic",
+    endpointShape: "messages",
+    baseURL: "https://api.anthropic.com",
+    providerRoute: "anthropic_messages",
+    model: "claude-test",
+    reasoningEffort: "low",
+  }));
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  assert.equal(compiled.manifest.model.provider, "anthropic");
+  assert.equal(compiled.manifest.model.endpointShape, "messages");
+  assert.equal(compiled.manifest.model.baseURL, "https://api.anthropic.com");
+  assert.equal(compiled.manifest.model.metadata?.providerRoute, "anthropic_messages");
+  assert.equal(compiled.manifest.modelFleet.endpoints.primary?.endpoint, "/v1/messages");
+  assert.equal(compiled.manifest.modelFleet.endpoints.primary?.provider, "anthropic");
+});
+
+test("raxode tui agent carries configured OpenAI chat completions route into the manifest", () => {
+  const compiled = praxis.compileAgent(new RaxodeTuiAgent({
+    provider: "openai",
+    endpointShape: "chat_completions",
+    baseURL: "https://api.openai.com/v1",
+    providerRoute: "openai_chat_completions",
+    model: "gpt-4o",
+    reasoningEffort: "low",
+  }));
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  assert.equal(compiled.manifest.model.provider, "openai");
+  assert.equal(compiled.manifest.model.endpointShape, "chat_completions");
+  assert.equal(compiled.manifest.model.baseURL, "https://api.openai.com/v1");
+  assert.equal(compiled.manifest.model.metadata?.providerRoute, "openai_chat_completions");
+  assert.equal(compiled.manifest.modelFleet.endpoints.primary?.endpoint, "/v1/chat/completions");
+});

@@ -8,6 +8,7 @@ import {
   providerRouteReasoningLabel,
   providerRouteSupportsFast,
   providerRouteSupportsReasoning,
+  providerRouteSupportsReasoningForModel,
   resolveProviderRouteKind,
   sanitizeProviderRouteFeatureOptions,
 } from "./model-route-features.js";
@@ -36,8 +37,8 @@ test("resolveProviderRouteKind distinguishes responses, chat completions, anthro
 });
 
 test("provider route capability helpers expose the intended UI and runtime flags", () => {
-  assert.equal(providerRouteDisplayName("openai_responses"), "GPT Compatible (Responses API)");
-  assert.equal(providerRouteDisplayName("openai_chat_completions"), "Gemini Compatible (Chat Completions API)");
+  assert.equal(providerRouteDisplayName("openai_responses"), "OpenAI Compatible (Responses API)");
+  assert.equal(providerRouteDisplayName("openai_chat_completions"), "OpenAI Compatible (Chat Completions API)");
   assert.equal(providerRouteDisplayName("anthropic_messages"), "Anthropic Compatible (Messages API)");
   assert.equal(providerRouteReasoningLabel("openai_responses"), "Reasoning");
   assert.equal(providerRouteReasoningLabel("anthropic_messages"), "Thinking");
@@ -45,6 +46,14 @@ test("provider route capability helpers expose the intended UI and runtime flags
   assert.equal(providerRouteSupportsReasoning("openai_responses"), true);
   assert.equal(providerRouteSupportsReasoning("anthropic_messages"), true);
   assert.equal(providerRouteSupportsReasoning("openai_chat_completions"), false);
+  assert.equal(providerRouteSupportsReasoningForModel({
+    routeKind: "openai_chat_completions",
+    model: "deepseek-v4-pro",
+  }), true);
+  assert.equal(providerRouteSupportsReasoningForModel({
+    routeKind: "openai_chat_completions",
+    model: "generic-chat-model",
+  }), false);
   assert.equal(providerRouteSupportsFast("openai_responses"), true);
   assert.equal(providerRouteSupportsFast("anthropic_messages"), false);
 });
@@ -84,6 +93,18 @@ test("provider model selection formatting and parsing stay provider-aware", () =
     model: "gemini-3.1-pro-preview",
     serviceTierFastEnabled: false,
   });
+
+  const deepSeekValue = formatProviderModelSelectionValue({
+    routeKind: "openai_chat_completions",
+    model: "deepseek-v4-pro",
+    reasoning: "high",
+  });
+  assert.equal(deepSeekValue, "deepseek-v4-pro with high thinking");
+  assert.deepEqual(parseProviderModelSelectionValue("openai_chat_completions", deepSeekValue), {
+    model: "deepseek-v4-pro",
+    reasoning: "high",
+    serviceTierFastEnabled: false,
+  });
 });
 
 test("sanitizeProviderRouteFeatureOptions strips unsupported reasoning and FAST metadata", () => {
@@ -114,6 +135,17 @@ test("sanitizeProviderRouteFeatureOptions strips unsupported reasoning and FAST 
     }),
     {
       reasoningEffort: undefined,
+      serviceTier: undefined,
+    },
+  );
+  assert.deepEqual(
+    sanitizeProviderRouteFeatureOptions("openai_chat_completions", {
+      model: "deepseek-v4-flash",
+      reasoningEffort: "high",
+      serviceTier: "fast",
+    }),
+    {
+      reasoningEffort: "high",
       serviceTier: undefined,
     },
   );

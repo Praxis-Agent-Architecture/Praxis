@@ -10,11 +10,13 @@
  */
 
 import type { CredentialRef } from "../authProfileLayer/credentialRef.js";
+import { isDeepSeekV4Model } from "./modelMetadataRegistry.js";
 
 export type ProviderKind = "openai" | "anthropic" | "deepmind" | "customFormat" | (string & {});
 
 export type ProviderEndpointShape =
   | "responses"
+  | "chat_completions"
   | "messages"
   | "completion"
   | "embedding"
@@ -147,6 +149,8 @@ export function createProviderCarrier(input: ProviderCarrierInput = {}): Provide
 }
 
 export const OPENAI_DEFAULT_RESPONSES_BASE_URL = "https://api.openai.com" as const;
+export const OPENAI_DEFAULT_CHAT_COMPLETIONS_BASE_URL = "https://api.openai.com" as const;
+export const ANTHROPIC_DEFAULT_MESSAGES_BASE_URL = "https://api.anthropic.com" as const;
 export const CHATGPT_CODEX_DEFAULT_BASE_URL = "https://chatgpt.com/backend-api/codex" as const;
 
 export type ChatGPTCodexCarrierInput = Omit<
@@ -174,6 +178,90 @@ export function createChatGPTCodexResponsesCarrier(input: ChatGPTCodexCarrierInp
       codexAuthStyle: "Authorization+ChatGPT-Account-ID",
       ...(input.clientName ? { clientName: input.clientName } : {}),
       ...(input.clientVersion ? { clientVersion: input.clientVersion } : {}),
+    },
+  });
+}
+
+export type OpenAIV1ResponsesCarrierInput = Omit<
+  ProviderCarrierInput,
+  "provider" | "endpointShape" | "baseURL" | "credentialRef"
+> & {
+  credentialRef: CredentialRef;
+  baseURL?: string;
+};
+
+export function createOpenAIV1ResponsesCarrier(input: OpenAIV1ResponsesCarrierInput): ProviderCarrierResult {
+  return createProviderCarrier({
+    ...input,
+    provider: "openai",
+    endpointShape: "responses",
+    baseURL: input.baseURL ?? OPENAI_DEFAULT_RESPONSES_BASE_URL,
+    credentialRef: input.credentialRef,
+    scopes: input.scopes ?? ["model.invoke", "openai.responses"],
+    capabilities: input.capabilities ?? ["text", "reasoning", "tool-call", "streaming"],
+    metadata: {
+      apiVersion: "v1",
+      providerRoute: "openai_responses",
+      ...(input.metadata ?? {}),
+    },
+  });
+}
+
+export type OpenAIV1ChatCompletionsCarrierInput = Omit<
+  ProviderCarrierInput,
+  "provider" | "endpointShape" | "baseURL" | "credentialRef"
+> & {
+  credentialRef: CredentialRef;
+  baseURL?: string;
+};
+
+export function createOpenAIV1ChatCompletionsCarrier(
+  input: OpenAIV1ChatCompletionsCarrierInput,
+): ProviderCarrierResult {
+  return createProviderCarrier({
+    ...input,
+    provider: "openai",
+    endpointShape: "chat_completions",
+    baseURL: input.baseURL ?? OPENAI_DEFAULT_CHAT_COMPLETIONS_BASE_URL,
+    credentialRef: input.credentialRef,
+    scopes: input.scopes ?? ["model.invoke", "openai.chat_completions"],
+    capabilities: input.capabilities ?? [
+      "text",
+      ...(isDeepSeekV4Model(input.model) ? ["reasoning"] : []),
+      "tool-call",
+      "streaming",
+    ],
+    metadata: {
+      apiVersion: "v1",
+      providerRoute: "openai_chat_completions",
+      ...(input.metadata ?? {}),
+    },
+  });
+}
+
+export type AnthropicV1MessagesCarrierInput = Omit<
+  ProviderCarrierInput,
+  "provider" | "endpointShape" | "baseURL" | "credentialRef"
+> & {
+  credentialRef: CredentialRef;
+  baseURL?: string;
+  apiVersion?: string;
+};
+
+export function createAnthropicV1MessagesCarrier(input: AnthropicV1MessagesCarrierInput): ProviderCarrierResult {
+  const apiVersion = input.apiVersion?.trim() || "2023-06-01";
+  return createProviderCarrier({
+    ...input,
+    provider: "anthropic",
+    endpointShape: "messages",
+    baseURL: input.baseURL ?? ANTHROPIC_DEFAULT_MESSAGES_BASE_URL,
+    credentialRef: input.credentialRef,
+    scopes: input.scopes ?? ["model.invoke", "anthropic.messages"],
+    capabilities: input.capabilities ?? ["text", "reasoning", "tool-call", "streaming"],
+    metadata: {
+      apiVersion,
+      providerRoute: "anthropic_messages",
+      ...(input.metadata ?? {}),
     },
   });
 }

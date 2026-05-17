@@ -79,6 +79,46 @@ export function shouldRenderDirectTuiConversationHeader(input: {
   }) === "intro" || input.messages.length > 0;
 }
 
+export function shouldUseDirectTuiPinnedRunStatus(input: {
+  enablePinnedRunStatus?: boolean;
+  hasTransientRunStatusLine: boolean;
+  isTty: boolean;
+  hasActiveToolSummary: boolean;
+  exitSummaryActive: boolean;
+  rewindInFlight: boolean;
+  hasRewindOverlay: boolean;
+  hasRushConfirmOverlay: boolean;
+  hasRushOverlay: boolean;
+  modelPickerOpen: boolean;
+}): boolean {
+  return Boolean(
+    input.enablePinnedRunStatus === true
+      && input.hasTransientRunStatusLine
+      && input.isTty
+      && !input.hasActiveToolSummary
+      && !input.exitSummaryActive
+      && !input.rewindInFlight
+      && !input.hasRewindOverlay
+      && !input.hasRushConfirmOverlay
+      && !input.hasRushOverlay
+      && !input.modelPickerOpen,
+  );
+}
+
+export function shouldAnimateDirectTuiRunStatus(input: {
+  hasRunIndicator: boolean;
+  hasActiveToolSummary: boolean;
+}): boolean {
+  return input.hasRunIndicator && !input.hasActiveToolSummary;
+}
+
+export function resolveDirectTuiInkColor(color?: string): string | undefined {
+  if (color === "orange") {
+    return "#FF8A1F";
+  }
+  return color;
+}
+
 export function shouldBreakDirectTuiAssistantSegmentOnStageStart(stage?: string | null): boolean {
   const normalizedStage = stage?.trim();
   if (!normalizedStage) {
@@ -1102,9 +1142,26 @@ export function resolveDirectTuiAssistantTurnResultAction(input: {
   if (!input.finalAnswer) {
     return { kind: "noop" };
   }
+  const finalAnswerText = input.finalAnswer.trim();
+  if (!finalAnswerText) {
+    return { kind: "noop" };
+  }
   if (!input.activeMessageId) {
-    if (input.streamedText.length > 0) {
+    const streamedText = input.streamedText.trim();
+    if (streamedText.length > 0 && streamedText === finalAnswerText) {
       return { kind: "noop" };
+    }
+    if (streamedText.length > 0 && streamedText.endsWith(finalAnswerText)) {
+      return { kind: "noop" };
+    }
+    if (input.streamedText.length > 0 && input.finalAnswer.startsWith(input.streamedText)) {
+      const suffix = input.finalAnswer.slice(input.streamedText.length);
+      return suffix.length > 0
+        ? {
+          kind: "append",
+          text: suffix,
+        }
+        : { kind: "noop" };
     }
     return {
       kind: "append",

@@ -794,15 +794,24 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     import("./authentication/liveProvider.js"),
     import("./application/raxodeApplication.js"),
   ]);
+  const modelOptions = liveProviderModule.resolveRaxodeConfiguredModelOptions({
+    roleId: "core.main",
+    startDir: cwd,
+  });
 
   const created = await applicationLayer.createApplicationProjectRuntime(options.projectRoot ?? defaultProjectRoot(), {
     applicationId: applicationModule.raxodeApplication.id,
     mode: options.mode ?? (process.env.RAXODE_LEGACY_APPLICATION_MODE === "dry-run" ? "dry-run" : "live"),
-    model: process.env.AGENTCORE_CODEX_MODEL ?? "gpt-5.5",
-    reasoningEffort: (process.env.AGENTCORE_CODEX_REASONING_EFFORT as never) ?? "low",
+    provider: modelOptions.provider,
+    endpointShape: modelOptions.endpointShape,
+    baseURL: modelOptions.baseURL,
+    providerRoute: modelOptions.providerRoute,
+    model: modelOptions.model,
+    reasoningEffort: modelOptions.reasoningEffort,
     permissionProfile,
     now: options.now,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
+      startDir: cwd,
       sessionId: context?.sessionId,
       runtimeId: context?.runtimeId,
       turnId: context?.turnId,

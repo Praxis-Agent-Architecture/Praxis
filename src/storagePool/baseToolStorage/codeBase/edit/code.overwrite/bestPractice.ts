@@ -61,13 +61,35 @@ const invocationContextSchema = { type: "object", additionalProperties: true, pr
 export const codeOverwriteBaseToolDefinition = createCodeBaseToolDefinition<CodeOverwriteHandlerInput, CodeOverwriteOutput>({
   toolId: "code.overwrite",
   title: "Code Overwrite",
-  description: "Apply a governed whole-file overwrite through runtime filesystem support.",
-  summary: "Use code.overwrite for whole-file writes instead of shell redirection.",
+  description: "Apply a governed whole-file overwrite through runtime filesystem support. Always provide workspaceRoot as the absolute current workspace root for scope auditing, with targetPath relative to that root.",
+  summary: "Use code.overwrite for complete file writes; pass workspaceRoot, targetPath, and content instead of shell redirection.",
   storageGroup: "edit",
   riskLevel: "risky",
   permissionHints: ["filesystem:write"],
   dependencies: codeOverwriteDependencyDeclarations,
-  inputSchema: jsonSchema("code.overwrite.input", { type: "object", additionalProperties: true, properties: { workspaceRoot: { type: "string" }, targetPath: { type: "string" }, content: { type: "string" }, expectedExistingHash: { type: "string" }, maxBytes: { type: "integer", minimum: 1 }, dryRun: { type: "boolean" }, context: invocationContextSchema } }),
+  inputSchema: jsonSchema("code.overwrite.input", {
+    type: "object",
+    additionalProperties: true,
+    required: ["workspaceRoot", "targetPath", "content"],
+    properties: {
+      workspaceRoot: {
+        type: "string",
+        description: "Absolute current workspace root used as the scope auditing anchor for edit safety.",
+      },
+      targetPath: {
+        type: "string",
+        description: "Workspace-relative file path to create or overwrite; do not use an absolute path.",
+      },
+      content: {
+        type: "string",
+        description: "Complete final file content.",
+      },
+      expectedExistingHash: { type: "string" },
+      maxBytes: { type: "integer", minimum: 1 },
+      dryRun: { type: "boolean" },
+      context: invocationContextSchema,
+    },
+  }),
   outputSchema: jsonSchema("code.overwrite.output", { type: "object", additionalProperties: true }),
 });
 

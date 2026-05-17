@@ -36,6 +36,7 @@ export {
   createApplicationProjectRuntime,
   createPraxisApplicationRuntime,
   type CreateApplicationProjectRuntimeOptions,
+  type PraxisApplicationLiveProvider,
   type PraxisApplicationRuntimeOptions,
 } from "./applicationRuntime.js";
 

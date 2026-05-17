@@ -9,6 +9,13 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
+import type { AuthEnvelope } from "../../authProfileLayer/authEnvelope.js";
+import {
+  isDeepSeekV4Model,
+  mapDeepSeekV4ReasoningEffort,
+} from "../../providerAccessLayer/modelMetadataRegistry.js";
+import { unwrapProviderCallerBody } from "../../providerAccessLayer/providerCaller.js";
+
 export const OPENAI_V1_CHAT_COMPLETIONS_ENDPOINT = "/v1/chat/completions" as const;
 
 export type OpenAiV1ChatCompletionsMethod = "POST";
@@ -30,6 +37,7 @@ export type OpenAiV1ChatCompletionsMockCallerRequest = {
   method: OpenAiV1ChatCompletionsMethod;
   requestBody: Record<string, unknown>;
   headers: {
+    "content-type"?: string;
     authorization?: string;
     organization?: string;
     project?: string;
@@ -48,17 +56,23 @@ export type OpenAiV1ChatCompletionsMockCaller = (
   request: OpenAiV1ChatCompletionsMockCallerRequest,
 ) => Promise<OpenAiV1ChatCompletionsMockCallerResponse> | OpenAiV1ChatCompletionsMockCallerResponse;
 
+export type OpenAiV1ChatCompletionsProviderCaller = (
+  request: OpenAiV1ChatCompletionsMockCallerRequest,
+) => unknown | Promise<unknown>;
+
 export type OpenAiV1ChatCompletionsInvocationRequest = {
   requestBody?: unknown;
   baseUrl?: string;
   apiKey?: string;
   organizationId?: string;
   projectId?: string;
+  auth?: AuthEnvelope;
   timeoutMs?: number;
   trace?: OpenAiV1ChatCompletionsTrace;
   contract?: OpenAiV1ChatCompletionsGate;
   governance?: OpenAiV1ChatCompletionsGate;
   dryRun?: boolean;
+  caller?: OpenAiV1ChatCompletionsProviderCaller;
   mockCaller?: OpenAiV1ChatCompletionsMockCaller;
 };
 
@@ -69,6 +83,8 @@ export type OpenAiV1ChatCompletionsErrorCode =
   | "INVALID_TIMEOUT"
   | "CONTRACT_REJECTED"
   | "GOVERNANCE_REJECTED"
+  | "AUTH_REJECTED"
+  | "MISSING_CALLER"
   | "MISSING_MOCK_CALLER"
   | "UPSTREAM_AUTH_FAILED"
   | "UPSTREAM_RATE_LIMITED"
@@ -95,6 +111,7 @@ export type OpenAiV1ChatCompletionsProviderEnvelope = {
   status?: number;
   rawResponse?: unknown;
   responseHeaders?: Record<string, string>;
+  usage?: OpenAiV1ChatCompletionsUsage;
   authState: "missing" | "provided";
   capabilitySignals: {
     actualInvocationLayer: true;
@@ -105,6 +122,16 @@ export type OpenAiV1ChatCompletionsProviderEnvelope = {
   trace: OpenAiV1ChatCompletionsTrace;
   dryRun: boolean;
   unsafeSideEffects: false;
+};
+
+export type OpenAiV1ChatCompletionsUsage = {
+  source: "openai.chat_completions.usage";
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
+  estimated: false;
 };
 
 export type OpenAiV1ChatCompletionsInvocationResult =
@@ -142,9 +169,154 @@ function cleanTrace(trace: OpenAiV1ChatCompletionsTrace | undefined): OpenAiV1Ch
   };
 }
 
+function isV1BaseUrl(baseUrl: string): boolean {
+  return /\/v1$/u.test(baseUrl);
+}
+
 function endpointUrl(request: OpenAiV1ChatCompletionsInvocationRequest): string {
   const baseUrl = (request.baseUrl?.trim() || "https://api.openai.com").replace(/\/+$/, "");
-  return `${baseUrl}${OPENAI_V1_CHAT_COMPLETIONS_ENDPOINT}`;
+  return isV1BaseUrl(baseUrl)
+    ? `${baseUrl}/chat/completions`
+    : `${baseUrl}${OPENAI_V1_CHAT_COMPLETIONS_ENDPOINT}`;
+}
+
+function authHeaderPlan(auth: AuthEnvelope | undefined): Readonly<Record<string, string>> {
+  if (auth === undefined) return {};
+  return Object.fromEntries(auth.headerPlan.map((header) => [header.name.trim().toLowerCase(), String(header.value)]));
+}
+
+function requestHeaders(request: OpenAiV1ChatCompletionsInvocationRequest): OpenAiV1ChatCompletionsMockCallerRequest["headers"] {
+  const planned = authHeaderPlan(request.auth);
+  return {
+    "content-type": "application/json",
+    authorization: planned.authorization ?? (request.apiKey?.trim() ? `Bearer ${request.apiKey.trim()}` : undefined),
+    organization: request.organizationId?.trim() || undefined,
+    project: request.projectId?.trim() || undefined,
+  };
+}
+
+function authProvided(request: OpenAiV1ChatCompletionsInvocationRequest): boolean {
+  return request.auth?.present === true || Boolean(request.apiKey?.trim());
+}
+
+function readFiniteNumber(record: Readonly<Record<string, unknown>> | undefined, keys: readonly string[]): number | undefined {
+  if (record === undefined) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+function sseDataObjects(text: string): readonly unknown[] {
+  const objects: unknown[] = [];
+  for (const line of text.split(/\r?\n/u)) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice("data:".length).trim();
+    if (payload.length === 0 || payload === "[DONE]") continue;
+    try {
+      objects.push(JSON.parse(payload) as unknown);
+    } catch {
+      // Ignore non-JSON stream payloads.
+    }
+  }
+  return objects;
+}
+
+function usageFromRaw(raw: unknown): OpenAiV1ChatCompletionsUsage | undefined {
+  if (typeof raw === "string") {
+    let streamedUsage: OpenAiV1ChatCompletionsUsage | undefined;
+    for (const object of sseDataObjects(raw)) {
+      const usage = usageFromRaw(object);
+      if (usage !== undefined) streamedUsage = usage;
+    }
+    return streamedUsage;
+  }
+  if (!isRecord(raw)) return undefined;
+  const usage = isRecord(raw.usage) ? raw.usage : undefined;
+  if (usage === undefined) return undefined;
+  const inputDetails = isRecord(usage.prompt_tokens_details)
+    ? usage.prompt_tokens_details
+    : isRecord(usage.promptTokensDetails)
+      ? usage.promptTokensDetails
+      : isRecord(usage.input_tokens_details)
+        ? usage.input_tokens_details
+        : isRecord(usage.inputTokensDetails)
+          ? usage.inputTokensDetails
+          : undefined;
+  const outputDetails = isRecord(usage.completion_tokens_details)
+    ? usage.completion_tokens_details
+    : isRecord(usage.completionTokensDetails)
+      ? usage.completionTokensDetails
+      : isRecord(usage.output_tokens_details)
+        ? usage.output_tokens_details
+        : isRecord(usage.outputTokensDetails)
+          ? usage.outputTokensDetails
+          : undefined;
+  const inputTokens = readFiniteNumber(usage, ["prompt_tokens", "input_tokens", "promptTokens", "inputTokens"]);
+  const outputTokens = readFiniteNumber(usage, ["completion_tokens", "output_tokens", "completionTokens", "outputTokens"]);
+  const totalTokens = readFiniteNumber(usage, ["total_tokens", "totalTokens"]);
+  const reasoningTokens = readFiniteNumber(outputDetails, ["reasoning_tokens", "reasoningTokens"])
+    ?? readFiniteNumber(usage, ["reasoning_tokens", "thinking_tokens", "reasoningTokens", "thinkingTokens"]);
+  const promptCacheHitTokens = readFiniteNumber(usage, [
+    "prompt_cache_hit_tokens",
+    "promptCacheHitTokens",
+    "cache_hit_tokens",
+    "cacheHitTokens",
+  ]);
+  const promptCacheMissTokens = readFiniteNumber(usage, [
+    "prompt_cache_miss_tokens",
+    "promptCacheMissTokens",
+    "cache_miss_tokens",
+    "cacheMissTokens",
+  ]);
+  const cachedInputTokens = readFiniteNumber(inputDetails, ["cached_tokens", "cachedTokens"])
+    ?? promptCacheHitTokens
+    ?? (
+      inputTokens !== undefined && promptCacheMissTokens !== undefined
+        ? Math.max(0, inputTokens - promptCacheMissTokens)
+        : undefined
+    );
+  if (
+    inputTokens === undefined
+    && outputTokens === undefined
+    && totalTokens === undefined
+    && cachedInputTokens === undefined
+    && reasoningTokens === undefined
+  ) return undefined;
+  return {
+    source: "openai.chat_completions.usage",
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    cachedInputTokens,
+    reasoningTokens,
+    estimated: false,
+  };
+}
+
+function applyChatCompletionsCompatibility(requestBody: Record<string, unknown>): Record<string, unknown> {
+  const model = typeof requestBody.model === "string" ? requestBody.model : undefined;
+  if (!isDeepSeekV4Model(model)) {
+    return requestBody;
+  }
+  const reasoningEffort = typeof requestBody.reasoning_effort === "string"
+    ? requestBody.reasoning_effort
+    : undefined;
+  const plan = mapDeepSeekV4ReasoningEffort(reasoningEffort);
+  if (plan === undefined) {
+    return requestBody;
+  }
+  const normalized: Record<string, unknown> = {
+    ...requestBody,
+    thinking: plan.thinking,
+  };
+  if (plan.reasoningEffort === undefined) {
+    delete normalized.reasoning_effort;
+  } else {
+    normalized.reasoning_effort = plan.reasoningEffort;
+  }
+  return normalized;
 }
 
 function toEnvelope(
@@ -161,7 +333,8 @@ function toEnvelope(
     status: response?.status,
     rawResponse: response?.body,
     responseHeaders: response?.headers,
-    authState: request.apiKey?.trim() ? "provided" : "missing",
+    usage: usageFromRaw(response?.body),
+    authState: authProvided(request) ? "provided" : "missing",
     capabilitySignals: {
       actualInvocationLayer: true,
       providerShapePreserved: true,
@@ -272,6 +445,8 @@ export async function invokeOpenAiV1ChatCompletions(
     return failure("INVALID_REQUEST_BODY", "OpenAI v1 chat completions requestBody must be a JSON object envelope", "input");
   }
 
+  const requestBody = applyChatCompletionsCompatibility(request.requestBody);
+
   if (request.timeoutMs !== undefined && request.timeoutMs <= 0) {
     return failure("INVALID_TIMEOUT", "OpenAI v1 chat completions timeoutMs must be greater than zero", "input");
   }
@@ -295,9 +470,63 @@ export async function invokeOpenAiV1ChatCompletions(
   if (request.dryRun !== false) {
     return {
       ok: true,
-      envelope: toEnvelope(request, request.requestBody),
+      envelope: toEnvelope(request, requestBody),
       events: ["agentCore.modelAdapter.openai.v1_chat_completions.dryRunPlanned"],
     };
+  }
+
+  if (request.caller !== undefined) {
+    if (request.governance?.accepted !== true) {
+      return failure(
+        "GOVERNANCE_REJECTED",
+        "OpenAI v1 chat completions live caller requires affirmative runtime governance",
+        "governance",
+      );
+    }
+
+    if (request.auth !== undefined && request.auth.present !== true) {
+      return failure("AUTH_REJECTED", "OpenAI v1 chat completions auth envelope is marked as unavailable", "provider");
+    }
+
+    const callerRequest: OpenAiV1ChatCompletionsMockCallerRequest = {
+      provider: "openai",
+      endpoint: OPENAI_V1_CHAT_COMPLETIONS_ENDPOINT,
+      url: endpointUrl(request),
+      method: "POST",
+      requestBody,
+      headers: requestHeaders(request),
+      timeoutMs: request.timeoutMs ?? 30_000,
+      trace: cleanTrace(request.trace),
+    };
+
+    try {
+      const providerEnvelope = await request.caller(callerRequest);
+      const raw = unwrapProviderCallerBody(providerEnvelope);
+      if (raw === undefined || raw === null) {
+        return failure(
+          "UPSTREAM_RESPONSE_DRIFT",
+          "OpenAI v1 chat completions caller returned an empty provider response",
+          "provider",
+        );
+      }
+      return {
+        ok: true,
+        envelope: {
+          ...toEnvelope(request, requestBody),
+          requestBody,
+          rawResponse: raw,
+          usage: usageFromRaw(raw),
+          dryRun: false,
+        },
+        events: ["agentCore.modelAdapter.openai.v1_chat_completions.providerResponseReceived"],
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: classifyThrown(error),
+        events: ["agentCore.modelAdapter.openai.v1_chat_completions.providerRejected"],
+      };
+    }
   }
 
   if (request.mockCaller === undefined) {
@@ -313,12 +542,8 @@ export async function invokeOpenAiV1ChatCompletions(
     endpoint: OPENAI_V1_CHAT_COMPLETIONS_ENDPOINT,
     url: endpointUrl(request),
     method: "POST",
-    requestBody: request.requestBody,
-    headers: {
-      authorization: request.apiKey?.trim() ? `Bearer ${request.apiKey.trim()}` : undefined,
-      organization: request.organizationId?.trim() || undefined,
-      project: request.projectId?.trim() || undefined,
-    },
+    requestBody,
+    headers: requestHeaders(request),
     timeoutMs: request.timeoutMs ?? 30_000,
     trace: cleanTrace(request.trace),
   };
@@ -336,7 +561,7 @@ export async function invokeOpenAiV1ChatCompletions(
 
     return {
       ok: true,
-      envelope: toEnvelope(request, request.requestBody, response),
+      envelope: toEnvelope(request, requestBody, response),
       events: ["agentCore.modelAdapter.openai.v1_chat_completions.mockResponseReceived"],
     };
   } catch (error) {

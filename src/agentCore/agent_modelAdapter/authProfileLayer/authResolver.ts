@@ -75,6 +75,11 @@ function failure(
   };
 }
 
+function anthropicVersion(request: AuthResolverRequest): string {
+  const explicit = request.extraHeaders?.["anthropic-version"] ?? request.extraHeaders?.["Anthropic-Version"];
+  return explicit?.trim() || request.readEnv?.("ANTHROPIC_VERSION")?.trim() || "2023-06-01";
+}
+
 export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthResolverResult {
   const credentialRef = request.credentialRef;
   if (credentialRef === undefined) {
@@ -83,6 +88,27 @@ export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthReso
 
   const stored = request.store?.get(credentialRef);
   if (stored?.privateMaterial !== undefined) {
+    if (credentialRef.credentialType === "anthropic_api_key") {
+      const secret = stored.privateMaterial.headers?.["x-api-key"] ?? "stored-material";
+      return {
+        ok: true,
+        resolved: {
+          envelope: createApiKeyAuthEnvelope({
+            credentialRef,
+            apiKey: secret,
+            redactedIdentity: stored.redactedIdentity,
+            headerName: "x-api-key",
+            extraHeaders: {
+              "anthropic-version": anthropicVersion(request),
+              ...(request.extraHeaders ?? {}),
+            },
+          }).envelope,
+          privateMaterial: stored.privateMaterial,
+        },
+        events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedFromStore"],
+      };
+    }
+
     return {
       ok: true,
       resolved: {
@@ -104,6 +130,32 @@ export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthReso
         privateMaterial: stored.privateMaterial,
       },
       events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedFromStore"],
+    };
+  }
+
+  if (credentialRef.credentialType === "anthropic_api_key") {
+    const secret =
+      request.injectedSecret ??
+      (credentialRef.source.kind === "environment" && hasText(credentialRef.source.envName)
+        ? request.readEnv?.(credentialRef.source.envName)
+        : undefined);
+
+    if (!hasText(secret)) {
+      return failure("MISSING_SECRET_MATERIAL", "Anthropic API key credentialRef has no available secret material", "source", credentialRef);
+    }
+
+    return {
+      ok: true,
+      resolved: createApiKeyAuthEnvelope({
+        credentialRef,
+        apiKey: secret,
+        headerName: "x-api-key",
+        extraHeaders: {
+          "anthropic-version": anthropicVersion(request),
+          ...(request.extraHeaders ?? {}),
+        },
+      }),
+      events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedAnthropicApiKey"],
     };
   }
 

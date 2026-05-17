@@ -2,6 +2,10 @@ import type {
   CapabilityRequest,
 } from "../../../../../rax/index.js";
 
+import {
+  isDeepSeekV4Model,
+  mapDeepSeekV4ReasoningEffort,
+} from "../../../../../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import type {
   OpenAIApiAdapterDescriptor,
   OpenAIChatCompletionsCreateParams,
@@ -26,8 +30,15 @@ export const openAIChatCompletionsGenerateCreateCompatDescriptor: OpenAIApiAdapt
     "Compatibility lowerer for generate.create when the caller needs legacy chat.completions semantics.",
   prepare(request: CapabilityRequest<OpenAIChatCompletionsGenerateInput>) {
     const input = request.input;
+    const model = request.model ?? input.model;
+    const praxisReasoningEffort = typeof input.reasoningEffort === "string"
+      ? input.reasoningEffort
+      : undefined;
+    const deepSeekReasoning = isDeepSeekV4Model(model)
+      ? mapDeepSeekV4ReasoningEffort(praxisReasoningEffort)
+      : undefined;
     const params = omitUndefined({
-      model: request.model ?? input.model,
+      model,
       messages: input.messages,
       tools: input.tools ?? request.tools,
       tool_choice: input.toolChoice,
@@ -37,7 +48,10 @@ export const openAIChatCompletionsGenerateCreateCompatDescriptor: OpenAIApiAdapt
       temperature: input.temperature,
       top_p: input.topP,
       user: input.user,
-      reasoning_effort: input.reasoningEffort,
+      thinking: deepSeekReasoning?.thinking,
+      reasoning_effort: deepSeekReasoning === undefined
+        ? input.reasoningEffort ?? undefined
+        : deepSeekReasoning.reasoningEffort,
       web_search_options: input.webSearchOptions,
       stream: false as const,
     }) as OpenAIChatCompletionsCreateParams;
@@ -72,8 +86,15 @@ export const openAIChatCompletionsGenerateStreamCompatDescriptor: OpenAIApiAdapt
     "Compatibility lowerer for generate.stream when the caller needs legacy chat.completions semantics.",
   prepare(request: CapabilityRequest<OpenAIChatCompletionsGenerateInput>) {
     const input = request.input;
+    const model = request.model ?? input.model;
+    const praxisReasoningEffort = typeof input.reasoningEffort === "string"
+      ? input.reasoningEffort
+      : undefined;
+    const deepSeekReasoning = isDeepSeekV4Model(model)
+      ? mapDeepSeekV4ReasoningEffort(praxisReasoningEffort)
+      : undefined;
     const params = omitUndefined({
-      model: request.model ?? input.model,
+      model,
       messages: input.messages,
       tools: input.tools ?? request.tools,
       tool_choice: input.toolChoice,
@@ -83,7 +104,10 @@ export const openAIChatCompletionsGenerateStreamCompatDescriptor: OpenAIApiAdapt
       temperature: input.temperature,
       top_p: input.topP,
       user: input.user,
-      reasoning_effort: input.reasoningEffort,
+      thinking: deepSeekReasoning?.thinking,
+      reasoning_effort: deepSeekReasoning === undefined
+        ? input.reasoningEffort ?? undefined
+        : deepSeekReasoning.reasoningEffort,
       web_search_options: input.webSearchOptions,
       stream: true as const,
     }) as OpenAIChatCompletionsStreamParams;

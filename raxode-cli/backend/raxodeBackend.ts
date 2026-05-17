@@ -19,7 +19,10 @@ import {
   type PraxisApplicationViewModel,
   type PraxisApplicationWebSocketServer,
 } from "../../src/applicationLayer/index.js";
-import { createRaxodeLiveProvider } from "./authentication/liveProvider.js";
+import {
+  createRaxodeLiveProvider,
+  resolveRaxodeConfiguredModelOptions,
+} from "./authentication/liveProvider.js";
 
 export type RaxodeBackendCommand = {
   task?: string;
@@ -53,14 +56,20 @@ async function createRaxodeRuntime(options: {
   now?: () => string;
 } = {}) {
   const projectRoot = path.resolve(options.projectRoot ?? "raxode-cli/backend");
+  const modelOptions = resolveRaxodeConfiguredModelOptions({ roleId: "core.main", startDir: process.cwd() });
   const runtimeResult = await createApplicationProjectRuntime(projectRoot, {
     applicationId: "application.raxode.coding",
     mode: "dry-run",
-    model: "gpt-5.5",
-    reasoningEffort: "low",
+    provider: modelOptions.provider,
+    endpointShape: modelOptions.endpointShape,
+    baseURL: modelOptions.baseURL,
+    providerRoute: modelOptions.providerRoute,
+    model: modelOptions.model,
+    reasoningEffort: modelOptions.reasoningEffort,
     permissionProfile: "standard",
     now: options.now,
     liveProviderResolver: async (manifest, context) => createRaxodeLiveProvider(manifest, {
+      startDir: process.cwd(),
       sessionId: context?.sessionId,
       runtimeId: context?.runtimeId,
       turnId: context?.turnId,

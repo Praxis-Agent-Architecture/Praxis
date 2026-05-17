@@ -24,6 +24,8 @@ import {
   type BaseToolContextUsageRecord,
 } from "../agentCore/index.js";
 import type { OpenAIV1ResponsesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import type { OpenAiV1ChatCompletionsProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
+import type { AnthropicV1MessagesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
 import { invokeChatGPTCodexResponses } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
 import type { AuthEnvelope } from "../agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
 import { resolveProviderModelMetadata } from "../agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
@@ -53,6 +55,18 @@ import {
   type PraxisApplicationProject,
 } from "./applicationProject.js";
 
+export type PraxisApplicationLiveProvider = {
+  auth: AuthEnvelope;
+  providerCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
+  openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
+  anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
+  provider?: string;
+  endpointShape?: string;
+  baseURL?: string;
+  providerRoute?: string;
+};
+
 export type PraxisApplicationRuntimeOptions = {
   project: PraxisApplicationProject;
   applicationId?: string;
@@ -60,6 +74,10 @@ export type PraxisApplicationRuntimeOptions = {
   runtimeId?: string;
   cwd?: string;
   mode?: PraxisApplicationRuntimeMode;
+  provider?: string;
+  endpointShape?: string;
+  baseURL?: string;
+  providerRoute?: string;
   model?: string;
   reasoningEffort?: PraxisApplicationReasoningEffort;
   permissionProfile?: PraxisApplicationPermissionProfile;
@@ -70,7 +88,7 @@ export type PraxisApplicationRuntimeOptions = {
     turnId?: string;
     onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void;
     onProviderStreamEvent?: (event: Readonly<Record<string, unknown>>) => void;
-  }) => Promise<{ auth: AuthEnvelope; providerCaller: OpenAIV1ResponsesProviderCaller } | undefined>;
+  }) => Promise<PraxisApplicationLiveProvider | undefined>;
   now?: () => string;
 };
 
@@ -150,6 +168,9 @@ function createApplicationModelState(input: {
   model?: string;
   reasoningEffort?: PraxisApplicationReasoningEffort;
   provider?: string;
+  endpointShape?: string;
+  baseURL?: string;
+  providerRoute?: string;
 }): PraxisApplicationModelState {
   const provider = input.provider ?? "openai";
   const model = input.model ?? "gpt-5.5";
@@ -158,6 +179,9 @@ function createApplicationModelState(input: {
     model,
     reasoningEffort: cleanReasoning(input.reasoningEffort),
     provider,
+    endpointShape: input.endpointShape,
+    baseURL: input.baseURL,
+    providerRoute: input.providerRoute,
     contextWindowTokens: metadata?.contextWindowTokens,
     maxInputTokens: metadata?.maxInputTokens,
     inputBudgetThreshold: metadata?.inputBudgetThreshold,
@@ -1657,6 +1681,15 @@ function readResponseSources(raw: unknown): Array<{ title?: string; url: string;
   return dedupeSources(sources);
 }
 
+function openAIResponsesCallerFor(liveProvider: PraxisApplicationLiveProvider | undefined): OpenAIV1ResponsesProviderCaller | undefined {
+  if (liveProvider === undefined) return undefined;
+  const provider = liveProvider.provider?.trim();
+  const endpointShape = liveProvider.endpointShape?.trim();
+  if (provider !== undefined && provider !== "openai") return undefined;
+  if (endpointShape !== undefined && endpointShape !== "responses") return undefined;
+  return liveProvider.openaiResponsesCaller ?? liveProvider.providerCaller;
+}
+
 function createProviderNativeSearchAdapter(input: {
   auth: AuthEnvelope;
   providerCaller: OpenAIV1ResponsesProviderCaller;
@@ -2286,6 +2319,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     model: createApplicationModelState({
       model: options.model,
       reasoningEffort: options.reasoningEffort,
+      provider: options.provider,
+      endpointShape: options.endpointShape,
+      baseURL: options.baseURL,
+      providerRoute: options.providerRoute,
     }),
     permissionProfile: options.permissionProfile ?? "standard",
     turns: 0,
@@ -2456,6 +2493,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       });
       const defaultAgentOptions = {
         policyProfile: state.permissionProfile,
+        provider: state.model.provider,
+        endpointShape: state.model.endpointShape,
+        baseURL: state.model.baseURL,
+        providerRoute: state.model.providerRoute,
         model: state.model.model,
         reasoningEffort: state.model.reasoningEffort,
       };
@@ -2545,7 +2586,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       return { ok: false, view: view(), events: [started, failed], error: { code: compiled.code, message: compiled.message } };
     }
 
-    let liveProvider: { auth: AuthEnvelope; providerCaller: OpenAIV1ResponsesProviderCaller } | undefined;
+    let liveProvider: PraxisApplicationLiveProvider | undefined;
     if ((command.mode ?? state.mode) === "live") {
       try {
         liveProvider = await options.liveProviderResolver?.(compiled.manifest, {
@@ -2594,6 +2635,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           allowToolExecution: false,
           auth: liveProvider?.auth,
           providerCaller: liveProvider?.providerCaller,
+          openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
+          openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
+          anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
           exposeProviderTools: false,
           approvalResolver: approvalResolverForRun(),
           storage: {
@@ -2754,7 +2798,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       },
     });
 
-    let liveProvider: { auth: AuthEnvelope; providerCaller: OpenAIV1ResponsesProviderCaller } | undefined;
+    let liveProvider: PraxisApplicationLiveProvider | undefined;
     let emitTextDelta: ((delta: string, metadata?: Readonly<Record<string, unknown>>) => void) | undefined;
     let emitProviderStreamEvent: ((event: Readonly<Record<string, unknown>>) => void) | undefined;
     if (state.mode === "live") {
@@ -2839,6 +2883,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       allowToolExecution: state.mode === "live",
       auth: liveProvider?.auth,
       providerCaller: liveProvider?.providerCaller,
+      openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
+      openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
+      anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
       previousProviderResponse: state.lastProviderResponseBySession.get(state.sessionId),
       exposeProviderTools: true,
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
@@ -2850,19 +2897,19 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         initMode: "on-run",
       },
       sandbox: { cwd: state.cwd },
-      baseToolAdapters: liveProvider
+      baseToolAdapters: openAIResponsesCallerFor(liveProvider)
         ? {
           network: {
             nativeWebSearch: createProviderNativeSearchAdapter({
-              auth: liveProvider.auth,
-              providerCaller: liveProvider.providerCaller,
+              auth: liveProvider!.auth,
+              providerCaller: openAIResponsesCallerFor(liveProvider)!,
               runtimeId: state.runtimeId,
             }),
           },
           omni: {
             transformMedia: createOpenAIResponsesImageVisionAdapter({
-              auth: liveProvider.auth,
-              providerCaller: liveProvider.providerCaller,
+              auth: liveProvider!.auth,
+              providerCaller: openAIResponsesCallerFor(liveProvider)!,
               runtimeId: state.runtimeId,
               model: state.model.model,
               attachments: command.input.attachments,
@@ -3024,7 +3071,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             ...createApplicationModelState({
               model: command.model,
               reasoningEffort: command.reasoningEffort ?? state.model.reasoningEffort,
-              provider: state.model.provider,
+              provider: command.provider ?? state.model.provider,
+              endpointShape: command.endpointShape ?? state.model.endpointShape,
+              baseURL: command.baseURL ?? state.model.baseURL,
+              providerRoute: command.providerRoute ?? state.model.providerRoute,
             }),
           };
           const changed = publish({

@@ -57,6 +57,9 @@ export type PraxisApplicationModelState = {
   model: string;
   reasoningEffort: PraxisApplicationReasoningEffort;
   provider?: string;
+  endpointShape?: string;
+  baseURL?: string;
+  providerRoute?: string;
   contextWindowTokens?: number;
   maxInputTokens?: number;
   inputBudgetThreshold?: number;
@@ -278,6 +281,10 @@ export type PraxisApplicationCommand =
       sessionId?: string;
       model: string;
       reasoningEffort?: PraxisApplicationReasoningEffort;
+      provider?: string;
+      endpointShape?: string;
+      baseURL?: string;
+      providerRoute?: string;
     }
   | {
       type: "application.changePermissionProfile";

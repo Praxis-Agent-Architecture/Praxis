@@ -4013,6 +4013,7 @@ export function toTapAgentModelRoute(
     })
     : "openai_responses";
   const sanitized = sanitizeProviderRouteFeatureOptions(routeKind, {
+    model: plan.model,
     reasoningEffort: resolveReasoningEffort(plan),
     serviceTier: plan.serviceTier,
   });

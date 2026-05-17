@@ -63,3 +63,26 @@ test("Anthropic v1 messages uses an injected caller for guarded live invocation"
   assert.deepEqual(result.response.raw, { providerPath: "/v1/messages", opaque: true });
   assert.equal(result.response.providerFieldsOpaque, true);
 });
+
+test("Anthropic v1 messages extracts standard usage from provider responses", async () => {
+  const result = await invokeAnthropicV1Messages({
+    operation: "create",
+    runtime: { runtimeId: "runtime-usage" },
+    auth: { kind: "api-key", present: true },
+    dryRun: false,
+    expectResponseObject: true,
+    caller: () => ({
+      id: "msg_1",
+      content: [{ type: "text", text: "hello" }],
+      usage: { input_tokens: 7, output_tokens: 3 },
+    }),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.response.usage?.source, "anthropic.messages.usage");
+  assert.equal(result.response.usage?.inputTokens, 7);
+  assert.equal(result.response.usage?.outputTokens, 3);
+  assert.equal(result.response.usage?.totalTokens, undefined);
+  assert.equal(result.response.usage?.estimated, false);
+});

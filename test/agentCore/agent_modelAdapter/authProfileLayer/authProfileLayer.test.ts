@@ -124,6 +124,31 @@ test("authResolver uses explicit environment readers and explicit Codex auth rea
   assert.equal(resolvedCodex.resolved.privateMaterial?.headers?.["X-OpenAI-Fedramp"], "true");
 });
 
+test("authResolver resolves Anthropic API keys with standard messages headers", () => {
+  const anthropicRef = createCredentialRef({
+    id: "anthropic-default",
+    provider: "anthropic",
+    credentialType: "anthropic_api_key",
+    source: { kind: "environment", envName: "ANTHROPIC_API_KEY" },
+  });
+  assert.equal(anthropicRef.ok, true);
+  if (!anthropicRef.ok) {
+    throw new Error("expected anthropic ref");
+  }
+
+  const resolved = resolveAuthEnvelope({
+    credentialRef: anthropicRef.credentialRef,
+    readEnv: (name) => name === "ANTHROPIC_API_KEY" ? "sk-ant-secret-abcdef123456" : undefined,
+  });
+
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.resolved.envelope.kind, "api-key");
+  assert.equal(resolved.resolved.envelope.present, true);
+  assert.equal(resolved.resolved.privateMaterial?.headers?.["x-api-key"], "sk-ant-secret-abcdef123456");
+  assert.equal(resolved.resolved.privateMaterial?.headers?.["anthropic-version"], "2023-06-01");
+  assert.equal(JSON.stringify(resolved.resolved.envelope).includes("sk-ant-secret"), false);
+});
+
 test("Codex auth parser follows CLI auth.json and JWT claim shape without exposing tokens", () => {
   const idToken = fakeJwt({
     email: "user@example.com",

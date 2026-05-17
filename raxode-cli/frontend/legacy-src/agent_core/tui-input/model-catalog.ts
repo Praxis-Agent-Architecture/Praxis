@@ -11,6 +11,10 @@ import {
   prepareResponsesParamsForOpenAIAuth,
   type OpenAILiveConfig,
 } from "../../rax/live-config.js";
+import {
+  DEEPSEEK_V4_REASONING_LEVELS,
+  isDeepSeekV4Model,
+} from "../../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import { loadResolvedEmbeddingConfig, type RaxcodeResolvedEmbeddingConfig } from "../../raxcode-config.js";
 import { resolveCacheDir } from "../../runtime-paths.js";
 
@@ -127,6 +131,9 @@ let modelAvailabilityCacheMemo:
   | null = null;
 
 function fallbackReasoningLevels(modelId: string): string[] {
+  if (isDeepSeekV4Model(modelId)) {
+    return [...DEEPSEEK_V4_REASONING_LEVELS];
+  }
   if (/^gpt/iu.test(modelId)) {
     return ["none", "low", "medium", "high", "xhigh"];
   }
@@ -300,6 +307,12 @@ export async function listAvailableChatModels(
   });
   if (!response.ok) {
     const detail = await response.text();
+    if (
+      !isChatgptCodexBackendBaseURL(config.baseURL)
+      && (response.status === 404 || response.status === 405)
+    ) {
+      return ensureModelCatalogCandidates([], config, [config.model]);
+    }
     throw new Error(`Unable to load models: ${response.status} ${detail || response.statusText}`);
   }
   const payload = await response.json() as OpenAIModelsPayload;
@@ -393,14 +406,15 @@ function hashScopeFingerprint(parts: string[]): string {
 }
 
 export function buildChatModelAvailabilityScopeKey(
-  config: Pick<OpenAILiveConfig, "authMode" | "baseURL" | "apiKey" | "accountId" | "defaultHeaders">,
+  config: Pick<OpenAILiveConfig, "authMode" | "baseURL" | "apiKey" | "accountId" | "defaultHeaders" | "apiStyle">,
 ): string {
   const accountId = typeof config.defaultHeaders?.["chatgpt-account-id"] === "string"
     ? config.defaultHeaders["chatgpt-account-id"]
     : config.accountId;
+  const apiStyle = config.apiStyle?.trim() ?? "";
   const fingerprint = config.authMode === "chatgpt_oauth"
-    ? hashScopeFingerprint([config.authMode, config.baseURL, accountId ?? ""])
-    : hashScopeFingerprint([config.authMode, config.baseURL, config.apiKey]);
+    ? hashScopeFingerprint([config.authMode, config.baseURL, apiStyle, accountId ?? ""])
+    : hashScopeFingerprint([config.authMode, config.baseURL, apiStyle, config.apiKey]);
   return `chat:${fingerprint}`;
 }
 
@@ -534,7 +548,7 @@ export async function probeChatCompletionsModelAvailability(
           content: "Reply with exactly OK.",
         },
       ],
-      max_completion_tokens: 16,
+      max_tokens: 16,
       stream: false,
     });
     if (response && typeof response === "object" && Symbol.asyncIterator in response) {

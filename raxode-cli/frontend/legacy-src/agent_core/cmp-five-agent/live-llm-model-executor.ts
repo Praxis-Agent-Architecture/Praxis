@@ -210,6 +210,7 @@ export function createCmpRoleLiveLlmModelExecutor(
     })
     : "openai_responses";
   const sanitized = sanitizeProviderRouteFeatureOptions(routeKind, {
+    model,
     reasoningEffort: input.reasoningEffort,
     serviceTier: input.serviceTier,
   });

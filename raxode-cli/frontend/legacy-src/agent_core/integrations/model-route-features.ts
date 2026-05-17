@@ -1,6 +1,7 @@
 import type { OpenAILiveConfig } from "../../rax/live-config.js";
 import type { ProviderId } from "../../rax/index.js";
 import type { RaxcodeReasoningEffort } from "../../raxcode-config.js";
+import { isDeepSeekV4Model } from "../../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 
 type ProviderGenerationVariant =
   | "responses"
@@ -93,6 +94,16 @@ export function providerRouteSupportsReasoning(kind: ProviderRouteKind): boolean
   return kind === "openai_responses" || kind === "anthropic_messages";
 }
 
+export function providerRouteSupportsReasoningForModel(input: {
+  routeKind: ProviderRouteKind;
+  model?: string;
+}): boolean {
+  if (providerRouteSupportsReasoning(input.routeKind)) {
+    return true;
+  }
+  return input.routeKind === "openai_chat_completions" && isDeepSeekV4Model(input.model);
+}
+
 export function providerRouteReasoningLabel(kind: ProviderRouteKind): "Reasoning" | "Thinking" | null {
   if (kind === "openai_responses") {
     return "Reasoning";
@@ -103,12 +114,22 @@ export function providerRouteReasoningLabel(kind: ProviderRouteKind): "Reasoning
   return null;
 }
 
+export function providerRouteReasoningLabelForModel(input: {
+  routeKind: ProviderRouteKind;
+  model?: string;
+}): "Reasoning" | "Thinking" | null {
+  if (input.routeKind === "openai_chat_completions" && isDeepSeekV4Model(input.model)) {
+    return "Thinking";
+  }
+  return providerRouteReasoningLabel(input.routeKind);
+}
+
 export function providerRouteDisplayName(kind: ProviderRouteKind): string {
   switch (kind) {
     case "openai_responses":
-      return "GPT Compatible (Responses API)";
+      return "OpenAI Compatible (Responses API)";
     case "openai_chat_completions":
-      return "Gemini Compatible (Chat Completions API)";
+      return "OpenAI Compatible (Chat Completions API)";
     case "anthropic_messages":
       return "Anthropic Compatible (Messages API)";
     case "deepmind_generateContent":
@@ -129,6 +150,9 @@ export function formatProviderModelSelectionValue(input: {
     case "anthropic_messages":
       return `${input.model} with ${reasoning} thinking`;
     case "openai_chat_completions":
+      return isDeepSeekV4Model(input.model)
+        ? `${input.model} with ${reasoning} thinking`
+        : input.model;
     case "deepmind_generateContent":
       return input.model;
   }
@@ -160,6 +184,16 @@ export function parseProviderModelSelectionValue(
       serviceTierFastEnabled: false,
     };
   }
+  if (routeKind === "openai_chat_completions") {
+    const match = value.match(/^(.*) with (none|low|medium|high|xhigh) thinking$/u);
+    if (match?.[1] && match[2] && isDeepSeekV4Model(match[1].trim())) {
+      return {
+        model: match[1].trim(),
+        reasoning: match[2].trim() as RaxcodeReasoningEffort,
+        serviceTierFastEnabled: false,
+      };
+    }
+  }
   const model = value.trim();
   if (!model) {
     return null;
@@ -173,6 +207,7 @@ export function parseProviderModelSelectionValue(
 export function sanitizeProviderRouteFeatureOptions(
   routeKind: ProviderRouteKind,
   input: {
+    model?: string;
     reasoningEffort?: string;
     serviceTier?: "fast";
   },
@@ -181,7 +216,10 @@ export function sanitizeProviderRouteFeatureOptions(
   serviceTier?: "fast";
 } {
   return {
-    reasoningEffort: providerRouteSupportsReasoning(routeKind)
+    reasoningEffort: providerRouteSupportsReasoningForModel({
+      routeKind,
+      model: input.model,
+    })
       ? input.reasoningEffort
       : undefined,
     serviceTier: providerRouteSupportsFast(routeKind)

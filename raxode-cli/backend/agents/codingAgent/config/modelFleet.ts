@@ -1,15 +1,33 @@
 import { praxis } from "@praxis-ai/framework";
-import type { ModelFleetSpec, ModelSpec } from "@praxis-ai/framework";
+import type { ModelEndpointSpec, ModelFleetSpec, ModelSpec } from "@praxis-ai/framework";
 import { createModelMetadataRecord } from "../../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 
 import type { NormalizedRaxodeOptions } from "./raxodeOptions.js";
 
+function endpointPathFor(shape: NormalizedRaxodeOptions["endpointShape"]): ModelEndpointSpec["endpoint"] {
+  if (shape === "messages") return "/v1/messages";
+  if (shape === "chat_completions") return "/v1/chat/completions";
+  return "/v1/responses";
+}
+
+function metadataFor(options: NormalizedRaxodeOptions): Readonly<Record<string, unknown>> | undefined {
+  const metadata = createModelMetadataRecord({ provider: options.provider, model: options.model });
+  const routeMetadata = options.providerRoute
+    ? { providerRoute: options.providerRoute }
+    : {};
+  const baseMetadata = metadata ?? {};
+  return Object.keys(baseMetadata).length > 0 || Object.keys(routeMetadata).length > 0
+    ? { ...baseMetadata, ...routeMetadata }
+    : undefined;
+}
+
 export function createRaxodeModel(options: NormalizedRaxodeOptions): ModelSpec {
-  const metadata = createModelMetadataRecord({ provider: "openai", model: options.model });
+  const metadata = metadataFor(options);
   return praxis.model(options.model, {
-    provider: "openai",
-    endpointShape: "responses",
+    provider: options.provider,
+    endpointShape: options.endpointShape,
     carrierId: "carrier.raxode.coding.primary",
+    baseURL: options.baseURL,
     reasoning: {
       effort: options.reasoningEffort,
       summary: "concise",
@@ -19,13 +37,14 @@ export function createRaxodeModel(options: NormalizedRaxodeOptions): ModelSpec {
 }
 
 export function createRaxodeModelFleet(options: NormalizedRaxodeOptions): ModelFleetSpec {
-  const primaryMetadata = createModelMetadataRecord({ provider: "openai", model: options.model });
+  const primaryMetadata = metadataFor(options);
   return praxis.modelFleet.auto({
-    primary: praxis.endpoint("/v1/responses", {
-      role: "background",
-      provider: "openai",
+    primary: praxis.endpoint(endpointPathFor(options.endpointShape), {
+      role: options.endpointShape === "messages" ? "reasoning" : "background",
+      provider: options.provider,
       model: options.model,
       carrierId: "carrier.raxode.coding.primary",
+      baseURL: options.baseURL,
       capabilityMatrix: { text: true, reasoning: true, toolCalling: true, metadata: primaryMetadata },
       failurePolicy: { onUnavailable: "degrade", maxRetries: 1, timeoutMs: 30_000 },
       metadata: primaryMetadata,

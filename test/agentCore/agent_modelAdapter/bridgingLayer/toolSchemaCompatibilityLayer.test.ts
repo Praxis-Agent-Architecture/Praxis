@@ -11,6 +11,9 @@ import {
 import {
   tool,
 } from "../../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
+import {
+  codeOverwriteBaseToolDefinition,
+} from "../../../../src/storagePool/baseToolStorage/codeBase/edit/code.overwrite/bestPractice.js";
 
 const fixtureTools = [
   tool("code.read", {
@@ -61,6 +64,21 @@ test("toolSchemaCompatibilityLayer lowers Praxis tools to OpenAI, Claude, and Ge
   const expandTool = openai.tools.find((item) => item.name === "praxis_expand_tool_context") as { parameters?: { required?: string[]; properties?: { targetKind?: { enum?: string[] } } } } | undefined;
   assert.deepEqual(expandTool?.parameters?.required, ["targetKind", "toolId"]);
   assert.deepEqual(expandTool?.parameters?.properties?.targetKind?.enum, ["tool"]);
+
+  const procedureTool = openai.tools.find((item) => item.name === "praxis_ephemeral_procedure") as {
+    parameters?: {
+      properties?: {
+        steps?: {
+          items?: {
+            properties?: {
+              input?: { description?: string };
+            };
+          };
+        };
+      };
+    };
+  } | undefined;
+  assert.match(procedureTool?.parameters?.properties?.steps?.items?.properties?.input?.description ?? "", /workspaceRoot/u);
 });
 
 test("toolSchemaCompatibilityLayer keeps colliding provider names reversible", () => {
@@ -84,6 +102,99 @@ test("toolSchemaCompatibilityLayer keeps colliding provider names reversible", (
     },
   });
   assert.equal(calls[0]?.toolId, "code_read");
+});
+
+test("toolSchemaCompatibilityLayer supports OpenAI chat completions tool shape and calls", () => {
+  const lowered = lowerPraxisToolsForProvider({ providerFamily: "openaiChatCompletions", tools: fixtureTools });
+
+  assert.deepEqual((lowered.providerPayload as { tools?: unknown }).tools, lowered.tools);
+  assert.equal(lowered.tools[0]?.type, "function");
+  assert.equal((lowered.tools[0] as { function?: { name?: string } }).function?.name, "praxis_tool_code_read");
+  assert.deepEqual(
+    ((lowered.tools[0] as { function?: { parameters?: { required?: string[] } } }).function?.parameters?.required),
+    ["path"],
+  );
+
+  const mappings = [{ providerName: "praxis_tool_code_read", toolId: "code.read" }];
+  const calls = raiseProviderToolCalls({
+    providerFamily: "openaiChatCompletions",
+    mappings,
+    raw: {
+      choices: [{
+        message: {
+          tool_calls: [{
+            id: "call-1",
+            type: "function",
+            function: {
+              name: "praxis_tool_code_read",
+              arguments: "{\"path\":\"README.md\"}",
+            },
+          }],
+        },
+      }],
+    },
+  });
+
+  assert.equal(calls[0]?.callId, "call-1");
+  assert.equal(calls[0]?.toolId, "code.read");
+  assert.deepEqual(calls[0]?.arguments, { path: "README.md" });
+});
+
+test("toolSchemaCompatibilityLayer exposes code.overwrite workspaceRoot contract clearly", () => {
+  const overwriteTool = tool("code.overwrite", {
+    family: "codeBase",
+    group: "edit",
+    description: codeOverwriteBaseToolDefinition.description,
+    inputSchema: codeOverwriteBaseToolDefinition.inputSchema.schema as Readonly<Record<string, unknown>>,
+  });
+  const lowered = lowerPraxisToolsForProvider({ providerFamily: "openaiChatCompletions", tools: [overwriteTool] });
+  const providerTool = lowered.tools.find((item) =>
+    (item as { function?: { name?: string } }).function?.name === "praxis_tool_code_overwrite"
+  ) as { function?: { description?: string; parameters?: { required?: string[]; properties?: Record<string, { description?: string }> } } } | undefined;
+
+  assert.match(providerTool?.function?.description ?? "", /workspaceRoot/u);
+  assert.deepEqual(providerTool?.function?.parameters?.required, ["workspaceRoot", "targetPath", "content"]);
+  assert.match(providerTool?.function?.parameters?.properties?.workspaceRoot?.description ?? "", /scope auditing/u);
+});
+
+test("toolSchemaCompatibilityLayer raises fragmented OpenAI chat completions streaming tool calls", () => {
+  const calls = raiseProviderToolCalls({
+    providerFamily: "openaiChatCompletions",
+    mappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    raw: [
+      `data: ${JSON.stringify({
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              id: "chat-stream-call-1",
+              type: "function",
+              function: { name: "praxis_tool_code_read", arguments: "{\"path\":" },
+            }],
+          },
+        }],
+      })}`,
+      "",
+      `data: ${JSON.stringify({
+        choices: [{
+          delta: {
+            tool_calls: [{
+              index: 0,
+              function: { arguments: "\"README.md\"}" },
+            }],
+          },
+        }],
+      })}`,
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.callId, "chat-stream-call-1");
+  assert.equal(calls[0]?.toolId, "code.read");
+  assert.deepEqual(calls[0]?.arguments, { path: "README.md" });
 });
 
 test("toolSchemaCompatibilityLayer can expose only expanded tools while keeping runtime decision tools", () => {
@@ -203,6 +314,41 @@ test("toolSchemaCompatibilityLayer normalizes loose schemas and raises provider 
   assert.equal(malformed[0]?.malformedArguments, "provider tool arguments must decode to an object");
 });
 
+test("toolSchemaCompatibilityLayer repairs common DeepSeek ephemeral procedure step field drift", () => {
+  const repaired = raiseProviderToolCalls({
+    providerFamily: "openaiChatCompletions",
+    raw: {
+      choices: [{
+        message: {
+          tool_calls: [{
+            id: "call-procedure",
+            type: "function",
+            function: {
+              name: "praxis_ephemeral_procedure",
+              arguments: [
+                "{\"procedureId\":\"build\",\"purpose\":\"build app\",\"steps\":[",
+                "{\"stepId\":\"write\",\"baseToolId\":\"code.overwrite\",",
+                "\"input\":{\"targetPath\":\"index.html\",\"content\":\"<button data-x=\\\"1\\\">ok</button>\"},",
+                "\"riskLevel\":\"low\"}, \"dependsOn\": []}]}",
+              ].join(""),
+            },
+          }],
+        },
+      }],
+    },
+  });
+
+  assert.equal(repaired[0]?.malformedArguments, undefined);
+  assert.equal(repaired[0]?.providerName, "praxis_ephemeral_procedure");
+  assert.deepEqual(repaired[0]?.arguments.steps, [{
+    stepId: "write",
+    baseToolId: "code.overwrite",
+    input: { targetPath: "index.html", content: "<button data-x=\"1\">ok</button>" },
+    riskLevel: "low",
+    dependsOn: [],
+  }]);
+});
+
 test("toolSchemaCompatibilityLayer lowers provider tool results", () => {
   const result = {
     callId: "call-1",
@@ -216,6 +362,11 @@ test("toolSchemaCompatibilityLayer lowers provider tool results", () => {
     type: "function_call_output",
     call_id: "call-1",
     output: "hello",
+  });
+  assert.deepEqual(lowerProviderToolResult({ providerFamily: "openaiChatCompletions", result }), {
+    role: "tool",
+    tool_call_id: "call-1",
+    content: "hello",
   });
   assert.deepEqual(lowerProviderToolResult({ providerFamily: "anthropicMessages", result }), {
     role: "user",

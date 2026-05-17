@@ -24,6 +24,7 @@ import {
   resolveDirectTuiComposerSelectionTopRow,
   resolveDirectTuiConversationPhase,
   resolveDirectTuiContextUsedTokens,
+  resolveDirectTuiInkColor,
   resolveDirectTuiProcedurePlannedToolPreviews,
   resolveDirectTuiToolSummaryResultLineLimit,
   resolveDirectTuiToolPreviewSummaryLines,
@@ -31,8 +32,10 @@ import {
   settleDirectTuiLiveToolSummaryText,
   stabilizeDirectTuiProcedurePlannedToolPreviewLines,
   shouldApplyDirectTuiTurnResultContext,
+  shouldAnimateDirectTuiRunStatus,
   shouldBreakDirectTuiAssistantSegmentOnStageStart,
   shouldRenderDirectTuiConversationHeader,
+  shouldUseDirectTuiPinnedRunStatus,
 } from "./direct-tui-presentation.js";
 
 test("formal conversation starts only after a real user message appears", () => {
@@ -165,6 +168,47 @@ test("conversation header lives in the scrollable transcript instead of a fixed 
   }), false);
 });
 
+test("run status stays in transcript flow unless pinned terminal painting is explicitly enabled", () => {
+  const commonState = {
+    hasTransientRunStatusLine: true,
+    isTty: true,
+    hasActiveToolSummary: false,
+    exitSummaryActive: false,
+    rewindInFlight: false,
+    hasRewindOverlay: false,
+    hasRushConfirmOverlay: false,
+    hasRushOverlay: false,
+    modelPickerOpen: false,
+  };
+
+  assert.equal(shouldUseDirectTuiPinnedRunStatus(commonState), false);
+  assert.equal(shouldUseDirectTuiPinnedRunStatus({
+    ...commonState,
+    enablePinnedRunStatus: true,
+  }), true);
+});
+
+test("run status animates independently while waiting before tool summaries arrive", () => {
+  assert.equal(shouldAnimateDirectTuiRunStatus({
+    hasRunIndicator: true,
+    hasActiveToolSummary: false,
+  }), true);
+  assert.equal(shouldAnimateDirectTuiRunStatus({
+    hasRunIndicator: true,
+    hasActiveToolSummary: true,
+  }), false);
+  assert.equal(shouldAnimateDirectTuiRunStatus({
+    hasRunIndicator: false,
+    hasActiveToolSummary: false,
+  }), false);
+});
+
+test("ink transcript rendering maps orange segments to the intended orange accent", () => {
+  assert.equal(resolveDirectTuiInkColor("orange"), "#FF8A1F");
+  assert.equal(resolveDirectTuiInkColor("cyan"), "cyan");
+  assert.equal(resolveDirectTuiInkColor(undefined), undefined);
+});
+
 test("turn_result updates the active assistant message instead of appending a second segment", () => {
   assert.deepEqual(resolveDirectTuiAssistantTurnResultAction({
     finalAnswer: "你好！我是 Praxis Core。",
@@ -184,6 +228,26 @@ test("turn_result appends only when there was no streamed assistant message", ()
   }), {
     kind: "append",
     text: "完整答案",
+  });
+});
+
+test("turn_result appends a distinct final answer after committed progress messages", () => {
+  assert.deepEqual(resolveDirectTuiAssistantTurnResultAction({
+    finalAnswer: "服务已经正常运行，可以打开 http://localhost:3000 查看效果。",
+    streamedText: "让我验证 detached process 是否已经正常服务。",
+  }), {
+    kind: "append",
+    text: "服务已经正常运行，可以打开 http://localhost:3000 查看效果。",
+  });
+});
+
+test("turn_result appends only the missing suffix when committed text is a final-answer prefix", () => {
+  assert.deepEqual(resolveDirectTuiAssistantTurnResultAction({
+    finalAnswer: "服务已经正常运行，可以打开 http://localhost:3000 查看效果。",
+    streamedText: "服务已经正常运行",
+  }), {
+    kind: "append",
+    text: "，可以打开 http://localhost:3000 查看效果。",
   });
 });
 

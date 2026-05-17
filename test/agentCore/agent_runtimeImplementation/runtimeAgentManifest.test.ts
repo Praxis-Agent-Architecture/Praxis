@@ -172,6 +172,35 @@ test("compileAgent supports configured instances without treating constructor as
   assert.equal(result.manifest.model.endpointShape, "responses");
 });
 
+test("compileAgent maps chat completions endpoint shape into manifest and default fleet", () => {
+  class ChatCompletionAgent extends PraxisAgent {
+    identity = "agent.chat-completions";
+    model = model("compatible-chat", {
+      provider: "openai",
+      endpointShape: "chat_completions",
+      carrierId: "carrier.chat",
+      baseURL: "https://gateway.example.com/v1",
+    });
+    harness = harness({
+      loop: loop({ strategy: "single" }),
+    });
+  }
+
+  const result = compileAgent(ChatCompletionAgent, {
+    compiledAt: "2026-05-16T00:00:00.000Z",
+    manifestId: "manifest.chat-completions",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.manifest.model.endpointShape, "chat_completions");
+  assert.equal(result.manifest.modelFleet.endpoints.primary?.endpoint, "/v1/chat/completions");
+  assert.equal(result.manifest.modelFleet.endpoints.primary?.endpointFamily, "chat_completions");
+  assert.equal(result.manifest.modelFleet.endpoints.primary?.protocolFamily, "openai-compatible");
+  assert.equal(result.manifest.modelFleet.endpoints.primary?.carrierId, "carrier.chat");
+  assert.equal(result.manifest.modelFleet.endpoints.primary?.baseURL, "https://gateway.example.com/v1");
+});
+
 test("session sqlite defaults to rax workspace storage refs", () => {
   class SqliteAgent extends PraxisAgent {
     identity = "agent.sqlite-defaults";

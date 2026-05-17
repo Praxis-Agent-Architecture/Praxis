@@ -51,8 +51,8 @@ export function createRaxodeHarness(options: NormalizedRaxodeOptions): HarnessSp
       ],
     }),
     loop: praxis.loop.standard({
-      maxModelTurns: 24,
-      maxToolCalls: options.includeAllCatalogTools ? 32 : 16,
+      maxModelTurns: 4096,
+      maxToolCalls: 4096,
     }),
   });
 }

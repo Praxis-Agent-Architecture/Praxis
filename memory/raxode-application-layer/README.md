@@ -135,3 +135,26 @@ Runtime decision tools such as `praxis_expand_tool_context` remain exposed even 
 `applicationLayer` now carries BaseTool context selection and tool usage across same-session Raxode turns. A tool expanded or used in one turn can stay visible in the next turn without exposing the full 175-tool schema set again. This is the intended cache-friendly middle ground: stable indexes stay small, hot tools remain reachable, and cold tools do not churn provider tool declarations.
 
 PromptPack segment hashes now represent provider-visible prompt text rather than internal runtime heat metadata. The internal metadata hash is still emitted under segment provider hints for diagnostics. `raxode:cache-xray` also prints provider body fingerprints so future cache investigations can distinguish tool-schema changes, PromptPack text changes, previous provider output items, and tool result blocks.
+
+## 2026-05-16 Multi Provider Model Routes
+
+The framework model route now treats ChatGPT Codex responses, OpenAI API responses, OpenAI chat completions, and Anthropic messages as distinct runtime routes instead of folding every OpenAI-shaped call into the Codex carrier.
+
+`AgentManifest.model.endpointShape` now accepts `responses`, `chat_completions`, and `messages`. `PraxisRuntimeKernel` derives provider tool schema family and provider body shape from the manifest model:
+
+- `responses` with the Codex capability, `chatgpt-codex` metadata, ChatGPT Codex carrier id, or `chatgpt.codex.responses` scope stays on the ChatGPT Codex responses path.
+- OpenAI API `responses` uses the public OpenAI responses carrier and `openaiResponsesCaller`.
+- OpenAI-compatible `chat_completions` lowers tools/messages to the chat completions shape and uses `openaiChatCompletionsCaller`.
+- Anthropic `messages` lowers tools/messages to the Anthropic messages shape and uses `anthropicMessagesCaller`.
+
+`providerCaller` remains the legacy OpenAI responses-compatible caller for Codex/OpenAI responses. New provider families should use the named caller fields so request envelope types do not drift across provider protocols.
+
+`authResolver` now resolves `anthropic_api_key` into an `x-api-key` envelope with `anthropic-version`. Tool schema compatibility now includes OpenAI chat completions tool/result shapes, and model decision parsing reads OpenAI chat completions and Anthropic message text/tool-call outputs.
+
+Verification passed with:
+
+```bash
+npm run typecheck
+node --import tsx --test test/agentCore/agent_modelAdapter/authProfileLayer/authProfileLayer.test.ts test/agentCore/agent_modelAdapter/providerAccessLayer/providerAccessLayer.test.ts test/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.test.ts test/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.test.ts test/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.test.ts test/agentCore/agent_executionEngine/coreLogic/modelDecision.test.ts test/agentCore/agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.test.ts test/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.test.ts test/agentCore/agent_runtimeImplementation/runtimeAgentManifest.test.ts
+node --import tsx --test raxode-cli/backend/tests/raxodeLiveProvider.test.ts raxode-cli/backend/tests/raxodeBackend.compile.test.ts raxode-cli/backend/tests/legacyDirectApplicationBackend.test.ts test/applicationLayer/applicationLayer.test.ts
+```
