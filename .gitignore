@@ -89,3 +89,6 @@ test/
 tasks/
 docs/
 memory/
+tmpmd/
+AGENTS.md
+
