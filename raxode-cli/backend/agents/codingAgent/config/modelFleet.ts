@@ -15,9 +15,12 @@ function metadataFor(options: NormalizedRaxodeOptions): Readonly<Record<string, 
   const routeMetadata = options.providerRoute
     ? { providerRoute: options.providerRoute }
     : {};
+  const outputMetadata = typeof options.maxOutputTokens === "number" && Number.isFinite(options.maxOutputTokens)
+    ? { maxOutputTokens: options.maxOutputTokens }
+    : {};
   const baseMetadata = metadata ?? {};
-  return Object.keys(baseMetadata).length > 0 || Object.keys(routeMetadata).length > 0
-    ? { ...baseMetadata, ...routeMetadata }
+  return Object.keys(baseMetadata).length > 0 || Object.keys(routeMetadata).length > 0 || Object.keys(outputMetadata).length > 0
+    ? { ...baseMetadata, ...routeMetadata, ...outputMetadata }
     : undefined;
 }
 

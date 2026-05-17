@@ -808,6 +808,7 @@ export async function startLegacyDirectApplicationBackend(options: LegacyDirectB
     providerRoute: modelOptions.providerRoute,
     model: modelOptions.model,
     reasoningEffort: modelOptions.reasoningEffort,
+    maxOutputTokens: modelOptions.maxOutputTokens,
     permissionProfile,
     now: options.now,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {

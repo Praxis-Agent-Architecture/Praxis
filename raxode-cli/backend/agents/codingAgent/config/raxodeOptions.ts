@@ -20,11 +20,13 @@ export type RaxodeOptions = {
   providerRoute?: RaxodeProviderRoute;
   model?: string;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "none" | "minimal";
+  maxOutputTokens?: number;
 };
 
-export type NormalizedRaxodeOptions = Required<Omit<RaxodeOptions, "baseURL" | "providerRoute">> & {
+export type NormalizedRaxodeOptions = Required<Omit<RaxodeOptions, "baseURL" | "providerRoute" | "maxOutputTokens">> & {
   baseURL?: string;
   providerRoute?: RaxodeProviderRoute;
+  maxOutputTokens?: number;
 };
 
 export function normalizeRaxodeOptions(options: RaxodeOptions = {}): NormalizedRaxodeOptions {
@@ -39,5 +41,6 @@ export function normalizeRaxodeOptions(options: RaxodeOptions = {}): NormalizedR
     providerRoute: options.providerRoute,
     model: options.model ?? "gpt-5.5",
     reasoningEffort: options.reasoningEffort ?? "low",
+    maxOutputTokens: options.maxOutputTokens,
   };
 }

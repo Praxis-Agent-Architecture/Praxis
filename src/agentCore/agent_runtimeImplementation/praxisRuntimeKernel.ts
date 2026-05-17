@@ -505,6 +505,10 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
+function readPositiveInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
 function readStringArray(value: unknown): readonly string[] {
   if (!Array.isArray(value)) return [];
   const values: string[] = [];
@@ -1698,6 +1702,152 @@ function extractOpenAIResponseOutputItems(raw: unknown): readonly Readonly<Recor
     .filter((item): item is Readonly<Record<string, unknown>> => item !== undefined);
 }
 
+function parseJsonRecordForKernel(text: string): Readonly<Record<string, unknown>> | undefined {
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+type AnthropicContentBlockDraft = {
+  index: number;
+  type?: string;
+  id?: string;
+  name?: string;
+  input?: Readonly<Record<string, unknown>>;
+  inputJsonText: string;
+  text: string;
+  thinking: string;
+  signature: string;
+  redactedData?: string;
+};
+
+function assembleAnthropicContentBlocksFromSse(raw: string): readonly Readonly<Record<string, unknown>>[] {
+  const blocks = new Map<number, AnthropicContentBlockDraft>();
+  const blockForIndex = (index: number): AnthropicContentBlockDraft => {
+    const existing = blocks.get(index);
+    if (existing !== undefined) return existing;
+    const draft: AnthropicContentBlockDraft = { index, inputJsonText: "", text: "", thinking: "", signature: "" };
+    blocks.set(index, draft);
+    return draft;
+  };
+
+  for (const object of kernelSseDataObjects(raw)) {
+    if (!isRecord(object)) continue;
+    const eventType = readString(object.type);
+    const index = typeof object.index === "number" && Number.isInteger(object.index) ? object.index : blocks.size;
+    if (eventType === "content_block_start" && isRecord(object.content_block)) {
+      const sourceBlock = object.content_block;
+      const draft = blockForIndex(index);
+      draft.type = readString(sourceBlock.type) ?? draft.type;
+      if (draft.type === "tool_use") {
+        draft.id = readString(sourceBlock.id) ?? draft.id;
+        draft.name = readString(sourceBlock.name) ?? draft.name;
+        if (isRecord(sourceBlock.input) && Object.keys(sourceBlock.input).length > 0) {
+          draft.input = sourceBlock.input;
+        }
+      }
+      if (draft.type === "text" && typeof sourceBlock.text === "string") {
+        draft.text += sourceBlock.text;
+      }
+      if (draft.type === "thinking") {
+        if (typeof sourceBlock.thinking === "string") draft.thinking += sourceBlock.thinking;
+        if (typeof sourceBlock.signature === "string") draft.signature += sourceBlock.signature;
+      }
+      if (draft.type === "redacted_thinking" && typeof sourceBlock.data === "string") {
+        draft.redactedData = sourceBlock.data;
+      }
+      continue;
+    }
+    if (eventType === "content_block_delta" && isRecord(object.delta)) {
+      const delta = object.delta;
+      const draft = blockForIndex(index);
+      if (delta.type === "input_json_delta" && typeof delta.partial_json === "string") {
+        draft.type = draft.type ?? "tool_use";
+        draft.inputJsonText += delta.partial_json;
+      }
+      if (delta.type === "text_delta" && typeof delta.text === "string") {
+        draft.type = draft.type ?? "text";
+        draft.text += delta.text;
+      }
+      if (delta.type === "thinking_delta" && typeof delta.thinking === "string") {
+        draft.type = draft.type ?? "thinking";
+        draft.thinking += delta.thinking;
+      }
+      if (delta.type === "signature_delta" && typeof delta.signature === "string") {
+        draft.type = draft.type ?? "thinking";
+        draft.signature += delta.signature;
+      }
+    }
+  }
+
+  return [...blocks.values()]
+    .sort((left, right) => left.index - right.index)
+    .flatMap((draft): readonly Readonly<Record<string, unknown>>[] => {
+      if (draft.type === "tool_use" && draft.id !== undefined && draft.name !== undefined) {
+        return [{
+          type: "tool_use",
+          id: draft.id,
+          name: draft.name,
+          input: draft.inputJsonText.trim().length > 0
+            ? parseJsonRecordForKernel(draft.inputJsonText) ?? draft.input ?? {}
+            : draft.input ?? {},
+        }];
+      }
+      if (draft.type === "text" && draft.text.length > 0) {
+        return [{ type: "text", text: draft.text }];
+      }
+      if (draft.type === "thinking" && (draft.thinking.length > 0 || draft.signature.length > 0)) {
+        return [{
+          type: "thinking",
+          thinking: draft.thinking,
+          ...(draft.signature.length === 0 ? {} : { signature: draft.signature }),
+        }];
+      }
+      if (draft.type === "redacted_thinking" && draft.redactedData !== undefined) {
+        return [{ type: "redacted_thinking", data: draft.redactedData }];
+      }
+      return [];
+    });
+}
+
+function extractAnthropicMessagesOutputItems(raw: unknown): readonly Readonly<Record<string, unknown>>[] {
+  if (typeof raw === "string") {
+    const streamContent = assembleAnthropicContentBlocksFromSse(raw);
+    const nestedMessages = kernelSseDataObjects(raw).flatMap((object) =>
+      isRecord(object) && object.message !== undefined
+        ? extractAnthropicMessagesOutputItems(object.message)
+        : []
+    );
+    const messages = [
+      ...(streamContent.length === 0 ? [] : [{ role: "assistant", content: streamContent }]),
+      ...nestedMessages,
+    ];
+    const seen = new Set<string>();
+    return messages.filter((item, index) => {
+      const key = outputItemKey(item, index);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }
+
+  if (!isRecord(raw) || !Array.isArray(raw.content) || raw.content.length === 0) return [];
+  return [{ role: "assistant", content: raw.content }];
+}
+
+function extractProviderOutputItems(
+  raw: unknown,
+  providerFamily: ProviderToolSchemaFamily,
+): readonly Readonly<Record<string, unknown>>[] {
+  if (providerFamily === "anthropicMessages") {
+    return extractAnthropicMessagesOutputItems(raw);
+  }
+  return extractOpenAIResponseOutputItems(raw);
+}
+
 function renderPromptPackProviderMaterials(materials: readonly StandardPromptPack["materials"][number][]): string {
   return materials
     .map((material) => [`<${material.kind} id="${material.id}">`, material.text, `</${material.kind}>`].join("\n"))
@@ -2011,6 +2161,85 @@ function composeOpenAIChatCompletionsMessages(input: {
   return messages;
 }
 
+function anthropicToolUseIds(message: Readonly<Record<string, unknown>>): readonly string[] {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return content
+    .map((block) => isRecord(block) && block.type === "tool_use" ? readString(block.id) : undefined)
+    .filter((toolUseId): toolUseId is string => toolUseId !== undefined);
+}
+
+function anthropicToolResultIds(message: Readonly<Record<string, unknown>>): readonly string[] {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return content
+    .map((block) => isRecord(block) && block.type === "tool_result" ? readString(block.tool_use_id) : undefined)
+    .filter((toolUseId): toolUseId is string => toolUseId !== undefined);
+}
+
+function anthropicToolResultBlocksForId(
+  message: Readonly<Record<string, unknown>>,
+  toolUseId: string,
+): readonly Readonly<Record<string, unknown>>[] {
+  const content = Array.isArray(message.content) ? message.content : [];
+  return content.filter((block): block is Readonly<Record<string, unknown>> =>
+    isRecord(block) &&
+    block.type === "tool_result" &&
+    block.tool_use_id === toolUseId
+  );
+}
+
+function appendAnthropicUserText(
+  messages: Readonly<Record<string, unknown>>[],
+  dynamicInputText: string,
+): readonly Readonly<Record<string, unknown>>[] {
+  const textBlock = { type: "text", text: dynamicInputText };
+  const last = messages[messages.length - 1];
+  if (last !== undefined && last.role === "user" && Array.isArray(last.content)) {
+    messages[messages.length - 1] = {
+      ...last,
+      content: [...last.content, textBlock],
+    };
+    return messages;
+  }
+  messages.push({ role: "user", content: dynamicInputText });
+  return messages;
+}
+
+function composeAnthropicMessages(input: {
+  dynamicInputText: string;
+  previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
+  toolResultMessages: readonly Readonly<Record<string, unknown>>[];
+}): readonly Readonly<Record<string, unknown>>[] {
+  const toolMessagesByToolUseId = new Map<string, Readonly<Record<string, unknown>>[]>();
+  for (const toolMessage of input.toolResultMessages) {
+    for (const toolUseId of anthropicToolResultIds(toolMessage)) {
+      toolMessagesByToolUseId.set(toolUseId, [...(toolMessagesByToolUseId.get(toolUseId) ?? []), toolMessage]);
+    }
+  }
+
+  const messages: Readonly<Record<string, unknown>>[] = [];
+  const consumedToolMessages = new Set<Readonly<Record<string, unknown>>>();
+  for (const previousItem of input.previousProviderOutputItems) {
+    messages.push(previousItem);
+    const toolUseIds = anthropicToolUseIds(previousItem);
+    if (toolUseIds.length === 0) continue;
+    const toolResultBlocks: Readonly<Record<string, unknown>>[] = [];
+    for (const toolUseId of toolUseIds) {
+      for (const toolMessage of toolMessagesByToolUseId.get(toolUseId) ?? []) {
+        const blocks = anthropicToolResultBlocksForId(toolMessage, toolUseId);
+        if (blocks.length === 0) continue;
+        toolResultBlocks.push(...blocks);
+        consumedToolMessages.add(toolMessage);
+      }
+    }
+    if (toolResultBlocks.length > 0) {
+      messages.push({ role: "user", content: toolResultBlocks });
+    }
+  }
+
+  messages.push(...input.toolResultMessages.filter((toolMessage) => !consumedToolMessages.has(toolMessage)));
+  return appendAnthropicUserText(messages, input.dynamicInputText);
+}
+
 function normalizedSelection(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
 }
@@ -2295,6 +2524,7 @@ function buildAnthropicMessagesBodyFromPromptPack(
   options: {
     exposeProviderTools?: boolean;
     observations?: readonly RuntimeObservationMaterial[];
+    previousProviderOutputItems?: readonly Readonly<Record<string, unknown>>[];
   } = {},
 ): Readonly<Record<string, unknown>> {
   const promptSplit = splitPromptPackForProvider(promptPack);
@@ -2308,15 +2538,19 @@ function buildAnthropicMessagesBodyFromPromptPack(
     : "Current Praxis turn has no dynamic prompt material.";
   const toolResultInputs = providerToolResultsFromObservations(options.observations ?? [])
     .map((result) => lowerProviderToolResult({ providerFamily: "anthropicMessages", result }));
-  const messages = [
-    ...toolResultInputs,
-    { role: "user", content: dynamicInputText },
-  ];
+  const messages = composeAnthropicMessages({
+    dynamicInputText,
+    previousProviderOutputItems: options.previousProviderOutputItems ?? [],
+    toolResultMessages: toolResultInputs,
+  });
   const deepSeekReasoning = isDeepSeekV4Model(manifest.model.model)
     ? mapDeepSeekV4ReasoningEffort(manifest.model.reasoning?.effort)
     : undefined;
+  const maxTokens = readPositiveInteger(manifest.model.metadata?.maxOutputTokens) ?? 8_192;
   return {
     model: manifest.model.model,
+    max_tokens: maxTokens,
+    stream: true,
     ...(systemText.length === 0 ? {} : { system: systemText }),
     ...(deepSeekReasoning === undefined ? {} : { thinking: deepSeekReasoning.thinking }),
     ...(deepSeekReasoning?.outputConfig === undefined ? {} : { output_config: deepSeekReasoning.outputConfig }),
@@ -3891,7 +4125,7 @@ export class PraxisRuntimeKernel {
         };
       }
 
-      providerResponseOutputItems.push(...extractOpenAIResponseOutputItems(modelResult.raw));
+      providerResponseOutputItems.push(...extractProviderOutputItems(modelResult.raw, providerFamily));
       if (providerResponseId !== undefined) {
         previousProviderResponse = {
           responseId: providerResponseId,

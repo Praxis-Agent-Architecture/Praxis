@@ -44,6 +44,7 @@ async function withRaxcodeHome<T>(
     model: string;
     apiKey?: string;
     accessToken?: string;
+    maxOutputTokens?: number;
   },
   run: (home: string) => Promise<T>,
 ): Promise<T> {
@@ -92,6 +93,7 @@ async function withRaxcodeHome<T>(
         },
         model: input.model,
         reasoningEffort: "low",
+        maxOutputTokens: input.maxOutputTokens,
         enabled: true,
       }],
       roleBindings: Object.fromEntries(RAXCODE_ROLE_IDS.map((roleId) => [roleId, {
@@ -245,6 +247,57 @@ test("raxode live provider extracts OpenAI chat completions tool previews from S
   assert.equal(events[0]?.callId, "chat-tool-call-1");
   assert.match(String(events[0]?.argumentsDelta), /targetPath/u);
   assert.match(String(events[1]?.argumentsDelta), /README\.md/u);
+});
+
+test("raxode live provider extracts Anthropic messages tool previews from SSE frames", () => {
+  const events: Array<Record<string, unknown>> = [];
+  const remainder = extractAndPublishSseDeltas([
+    "event: content_block_start",
+    "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_code_read\",\"input\":{}}}",
+    "",
+    "event: content_block_delta",
+    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"path\\\":\"}}",
+    "",
+    "event: content_block_delta",
+    "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\"src/index.ts\\\"}\"}}",
+    "",
+    "event: content_block_stop",
+    "data: {\"type\":\"content_block_stop\",\"index\":0}",
+    "",
+    "",
+  ].join("\n"), undefined, (event) => events.push(event as unknown as Record<string, unknown>));
+
+  assert.equal(remainder, "");
+  assert.deepEqual(events.map((event) => event.phase), ["started", "delta", "delta", "done"]);
+  assert.equal(events[0]?.callId, "call_1");
+  assert.equal(events[0]?.providerToolName, "praxis_tool_code_read");
+  assert.equal(events[3]?.callId, "call_1");
+  assert.equal(events[3]?.providerToolName, "praxis_tool_code_read");
+  assert.equal(events[3]?.arguments, "{\"path\":\"src/index.ts\"}");
+});
+
+test("raxode live provider does not report text block stops as Anthropic tool previews", () => {
+  const events: Array<Record<string, unknown>> = [];
+  const remainder = extractAndPublishSseDeltas([
+    "event: content_block_start",
+    "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"I will inspect first.\"}}",
+    "",
+    "event: content_block_stop",
+    "data: {\"type\":\"content_block_stop\",\"index\":0}",
+    "",
+    "event: content_block_start",
+    "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_code_read\",\"input\":{}}}",
+    "",
+    "event: content_block_stop",
+    "data: {\"type\":\"content_block_stop\",\"index\":1}",
+    "",
+    "",
+  ].join("\n"), undefined, (event) => events.push(event as unknown as Record<string, unknown>));
+
+  assert.equal(remainder, "");
+  assert.deepEqual(events.map((event) => event.phase), ["started", "done"]);
+  assert.equal(events[0]?.callId, "call_1");
+  assert.equal(events[1]?.callId, "call_1");
 });
 
 test("raxode live provider keeps tool preview identity across split SSE reads", () => {
@@ -496,11 +549,13 @@ test("raxode live provider maps raxcode Anthropic messages config to messages ca
     baseURL: "https://api.anthropic.com",
     model: "claude-test",
     apiKey: "sk-ant-test",
+    maxOutputTokens: 777,
   }, async (home) => {
     const resolved = resolveRaxodeConfiguredModelOptions({ roleId: "core.main", startDir: home });
     assert.equal(resolved.provider, "anthropic");
     assert.equal(resolved.endpointShape, "messages");
     assert.equal(resolved.providerRoute, "anthropic_messages");
+    assert.equal(resolved.maxOutputTokens, 777);
 
     const requests: Array<{ url: string; headers?: Readonly<Record<string, string>>; body?: unknown }> = [];
     const provider = createRaxodeLiveProvider(manifestFor(resolved), {

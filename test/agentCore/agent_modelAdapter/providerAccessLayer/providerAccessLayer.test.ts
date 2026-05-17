@@ -161,8 +161,8 @@ test("providerAccessLayer resolves DeepSeek v4 manual context metadata for both 
     for (const model of ["deepseek-v4-flash", "deepseek-v4-pro"] as const) {
       const metadata = resolveProviderModelMetadata({ provider, model });
       assert.equal(metadata?.contextWindowTokens, 1_000_000);
-      assert.equal(metadata?.maxInputTokens, 1_000_000);
-      assert.equal(metadata?.usableInputTokens, 950_000);
+      assert.equal(metadata?.maxInputTokens, 616_000);
+      assert.equal(metadata?.usableInputTokens, 585_200);
       assert.equal(metadata?.inputBudgetThreshold, 0.95);
     }
   }

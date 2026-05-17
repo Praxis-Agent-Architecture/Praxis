@@ -24,6 +24,14 @@ export type DeepSeekV4ReasoningPlan = {
 
 export const DEEPSEEK_V4_REASONING_LEVELS = ["none", "low", "medium", "high", "xhigh"] as const;
 
+const DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS = 1_000_000;
+const DEEPSEEK_V4_MAX_OUTPUT_TOKENS = 384_000;
+const DEEPSEEK_V4_INPUT_BUDGET_THRESHOLD = 0.95;
+const DEEPSEEK_V4_MAX_INPUT_TOKENS = DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS - DEEPSEEK_V4_MAX_OUTPUT_TOKENS;
+const DEEPSEEK_V4_USABLE_INPUT_TOKENS = Math.floor(
+  DEEPSEEK_V4_MAX_INPUT_TOKENS * DEEPSEEK_V4_INPUT_BUDGET_THRESHOLD,
+);
+
 const MANUAL_MODEL_METADATA: readonly ProviderModelMetadata[] = [
   {
     provider: "openai",
@@ -37,37 +45,37 @@ const MANUAL_MODEL_METADATA: readonly ProviderModelMetadata[] = [
   {
     provider: "openai",
     model: "deepseek-v4-flash",
-    contextWindowTokens: 1_000_000,
-    maxInputTokens: 1_000_000,
-    inputBudgetThreshold: 0.95,
-    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    contextWindowTokens: DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS,
+    maxInputTokens: DEEPSEEK_V4_MAX_INPUT_TOKENS,
+    inputBudgetThreshold: DEEPSEEK_V4_INPUT_BUDGET_THRESHOLD,
+    usableInputTokens: DEEPSEEK_V4_USABLE_INPUT_TOKENS,
     source: "manual-registry",
   },
   {
     provider: "openai",
     model: "deepseek-v4-pro",
-    contextWindowTokens: 1_000_000,
-    maxInputTokens: 1_000_000,
-    inputBudgetThreshold: 0.95,
-    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    contextWindowTokens: DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS,
+    maxInputTokens: DEEPSEEK_V4_MAX_INPUT_TOKENS,
+    inputBudgetThreshold: DEEPSEEK_V4_INPUT_BUDGET_THRESHOLD,
+    usableInputTokens: DEEPSEEK_V4_USABLE_INPUT_TOKENS,
     source: "manual-registry",
   },
   {
     provider: "anthropic",
     model: "deepseek-v4-flash",
-    contextWindowTokens: 1_000_000,
-    maxInputTokens: 1_000_000,
-    inputBudgetThreshold: 0.95,
-    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    contextWindowTokens: DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS,
+    maxInputTokens: DEEPSEEK_V4_MAX_INPUT_TOKENS,
+    inputBudgetThreshold: DEEPSEEK_V4_INPUT_BUDGET_THRESHOLD,
+    usableInputTokens: DEEPSEEK_V4_USABLE_INPUT_TOKENS,
     source: "manual-registry",
   },
   {
     provider: "anthropic",
     model: "deepseek-v4-pro",
-    contextWindowTokens: 1_000_000,
-    maxInputTokens: 1_000_000,
-    inputBudgetThreshold: 0.95,
-    usableInputTokens: Math.floor(1_000_000 * 0.95),
+    contextWindowTokens: DEEPSEEK_V4_CONTEXT_WINDOW_TOKENS,
+    maxInputTokens: DEEPSEEK_V4_MAX_INPUT_TOKENS,
+    inputBudgetThreshold: DEEPSEEK_V4_INPUT_BUDGET_THRESHOLD,
+    usableInputTokens: DEEPSEEK_V4_USABLE_INPUT_TOKENS,
     source: "manual-registry",
   },
 ] as const;

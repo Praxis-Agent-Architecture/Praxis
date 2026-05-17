@@ -41,6 +41,7 @@ test("raxode coding agent carries configured Anthropic messages route into the m
     providerRoute: "anthropic_messages",
     model: "claude-test",
     reasoningEffort: "low",
+    maxOutputTokens: 777,
   }));
   assert.equal(compiled.ok, true);
   if (!compiled.ok) return;
@@ -48,8 +49,10 @@ test("raxode coding agent carries configured Anthropic messages route into the m
   assert.equal(compiled.manifest.model.endpointShape, "messages");
   assert.equal(compiled.manifest.model.baseURL, "https://api.anthropic.com");
   assert.equal(compiled.manifest.model.metadata?.providerRoute, "anthropic_messages");
+  assert.equal(compiled.manifest.model.metadata?.maxOutputTokens, 777);
   assert.equal(compiled.manifest.modelFleet.endpoints.primary?.endpoint, "/v1/messages");
   assert.equal(compiled.manifest.modelFleet.endpoints.primary?.provider, "anthropic");
+  assert.equal(compiled.manifest.modelFleet.endpoints.primary?.metadata?.maxOutputTokens, 777);
 });
 
 test("raxode tui agent carries configured OpenAI chat completions route into the manifest", () => {

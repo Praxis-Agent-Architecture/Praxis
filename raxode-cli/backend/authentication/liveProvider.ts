@@ -62,6 +62,7 @@ export type RaxodeConfiguredModelOptions = {
   provider: "openai" | "anthropic";
   model: string;
   reasoningEffort: RaxcodeReasoningEffort;
+  maxOutputTokens?: number;
   endpointShape: RaxodeEndpointShape;
   baseURL?: string;
   providerRoute: RaxodeProviderRoute;
@@ -359,6 +360,7 @@ export function resolveRaxodeConfiguredModelOptions(options: {
       provider: "openai",
       model: cleanText(process.env.AGENTCORE_CODEX_MODEL) ?? "gpt-5.5",
       reasoningEffort: (cleanText(process.env.AGENTCORE_CODEX_REASONING_EFFORT) as RaxcodeReasoningEffort | undefined) ?? "low",
+      maxOutputTokens: undefined,
       endpointShape: "responses",
       baseURL: CHATGPT_CODEX_DEFAULT_BASE_URL,
       providerRoute: "chatgpt_codex_responses",
@@ -372,6 +374,7 @@ export function resolveRaxodeConfiguredModelOptions(options: {
     provider: providerForRoute(providerRoute),
     model: resolved.binding.overrides?.model ?? resolved.profile.model,
     reasoningEffort: envReasoningOverride ?? resolved.binding.overrides?.reasoning ?? resolved.profile.reasoningEffort ?? "none",
+    maxOutputTokens: resolved.binding.overrides?.maxOutputTokens ?? resolved.profile.maxOutputTokens,
     endpointShape: endpointShapeForRoute(providerRoute),
     baseURL: normalizeBaseURL(resolved.profile.route.baseURL) ?? defaultBaseURLForRoute(providerRoute),
     providerRoute,
@@ -634,6 +637,51 @@ export function readSseToolCallPreviewEvents(payload: string): readonly RaxodePr
         }
       }
     }
+    if (type === "content_block_start" && isRecord(parsed.content_block)) {
+      const block = parsed.content_block;
+      if (block.type === "tool_use") {
+        const providerToolName = readString(block.name);
+        const callId = readString(block.id);
+        const blockInput = isRecord(block.input) && Object.keys(block.input).length > 0
+          ? JSON.stringify(block.input)
+          : undefined;
+        if (providerToolName !== undefined || callId !== undefined) {
+          events.push({
+            channel: "tool_call_preview",
+            phase: "started",
+            itemId: callId,
+            outputIndex: readNumber(parsed.index) ?? outputIndex,
+            callId,
+            providerToolName,
+            arguments: blockInput,
+            rawType: type,
+          });
+        }
+      }
+    }
+    if (type === "content_block_delta" && isRecord(parsed.delta)) {
+      const delta = parsed.delta;
+      if (delta.type === "input_json_delta") {
+        const partialJson = readString(delta.partial_json);
+        if (partialJson !== undefined) {
+          events.push({
+            channel: "tool_call_preview",
+            phase: "delta",
+            outputIndex: readNumber(parsed.index) ?? outputIndex,
+            argumentsDelta: partialJson,
+            rawType: type,
+          });
+        }
+      }
+    }
+    if (type === "content_block_stop") {
+      events.push({
+        channel: "tool_call_preview",
+        phase: "done",
+        outputIndex: readNumber(parsed.index) ?? outputIndex,
+        rawType: type,
+      });
+    }
     return events;
   } catch {
     return [];
@@ -712,7 +760,14 @@ export function extractAndPublishSseDeltas(
       onTextDelta?.(delta);
     }
     for (const toolCallPreviewEvent of readSseToolCallPreviewEvents(payload)) {
-      onProviderStreamEvent?.(rememberToolCallPreviewEvent(toolCallPreviewState, toolCallPreviewEvent));
+      const enrichedEvent = rememberToolCallPreviewEvent(toolCallPreviewState, toolCallPreviewEvent);
+      const isAnonymousAnthropicBlockStop = enrichedEvent.rawType === "content_block_stop"
+        && enrichedEvent.callId === undefined
+        && enrichedEvent.itemId === undefined
+        && enrichedEvent.providerToolName === undefined;
+      if (!isAnonymousAnthropicBlockStop) {
+        onProviderStreamEvent?.(enrichedEvent);
+      }
     }
   }
   return remainder;

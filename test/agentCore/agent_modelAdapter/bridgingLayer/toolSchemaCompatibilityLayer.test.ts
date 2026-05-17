@@ -197,6 +197,40 @@ test("toolSchemaCompatibilityLayer raises fragmented OpenAI chat completions str
   assert.deepEqual(calls[0]?.arguments, { path: "README.md" });
 });
 
+test("toolSchemaCompatibilityLayer raises fragmented Anthropic messages streaming tool calls", () => {
+  const calls = raiseProviderToolCalls({
+    providerFamily: "anthropicMessages",
+    mappings: [{ providerName: "praxis_tool_code_scan", toolId: "code.scan" }],
+    raw: [
+      "event: content_block_start",
+      "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"I will scan first.\"}}",
+      "",
+      "event: content_block_stop",
+      "data: {\"type\":\"content_block_stop\",\"index\":0}",
+      "",
+      "event: content_block_start",
+      "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_code_scan\",\"input\":{}}}",
+      "",
+      "event: content_block_delta",
+      "data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"directoryPath\\\":\"}}",
+      "",
+      "event: content_block_delta",
+      "data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\".\\\", \\\"maxEntries\\\": 50}\"}}",
+      "",
+      "event: content_block_stop",
+      "data: {\"type\":\"content_block_stop\",\"index\":2}",
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]?.callId, "call_1");
+  assert.equal(calls[0]?.toolId, "code.scan");
+  assert.deepEqual(calls[0]?.arguments, { directoryPath: ".", maxEntries: 50 });
+});
+
 test("toolSchemaCompatibilityLayer can expose only expanded tools while keeping runtime decision tools", () => {
   const mappings = createProviderToolMappings(fixtureTools);
   const filtered = lowerPraxisToolsForProvider({
@@ -346,6 +380,38 @@ test("toolSchemaCompatibilityLayer repairs common DeepSeek ephemeral procedure s
     input: { targetPath: "index.html", content: "<button data-x=\"1\">ok</button>" },
     riskLevel: "low",
     dependsOn: [],
+  }]);
+});
+
+test("toolSchemaCompatibilityLayer repairs DeepSeek Anthropic procedure riskLevel drift", () => {
+  const malformedArguments = [
+    "{\"procedureId\":\"build\",\"purpose\":\"build app\",\"steps\":[",
+    "{\"stepId\":\"write\",\"baseToolId\":\"code.overwrite\",",
+    "\"input\":{\"workspaceRoot\":\".\",\"targetPath\":\"server.js\",\"content\":\"console.log(1)\"}},",
+    "\"riskLevel\":\"low\"}]}",
+  ].join("");
+
+  const repaired = raiseProviderToolCalls({
+    providerFamily: "anthropicMessages",
+    raw: [
+      "event: content_block_start",
+      "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call-risk\",\"name\":\"praxis_ephemeral_procedure\",\"input\":{}}}",
+      "",
+      "event: content_block_delta",
+      `data: ${JSON.stringify({ type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: malformedArguments } })}`,
+      "",
+      "event: content_block_stop",
+      "data: {\"type\":\"content_block_stop\",\"index\":0}",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(repaired[0]?.malformedArguments, undefined);
+  assert.deepEqual(repaired[0]?.arguments.steps, [{
+    stepId: "write",
+    baseToolId: "code.overwrite",
+    input: { workspaceRoot: ".", targetPath: "server.js", content: "console.log(1)" },
+    riskLevel: "low",
   }]);
 });
 

@@ -198,6 +198,76 @@ test("interpretModelDecision reads Anthropic messages text content", () => {
   assert.equal(result.decisions[0]?.finalOutput, "anthropic final");
 });
 
+test("interpretModelDecision reads streamed Anthropic messages text", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-anthropic-stream-text",
+    turnIndex: 2,
+    providerFamily: "anthropicMessages",
+    raw: [
+      "event: content_block_start",
+      "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+      "",
+      "event: content_block_delta",
+      "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"All \"}}",
+      "",
+      "event: content_block_delta",
+      "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"done.\"}}",
+      "",
+      "event: content_block_stop",
+      "data: {\"type\":\"content_block_stop\",\"index\":0}",
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "finalOutput");
+  assert.equal(result.decisions[0]?.finalOutput, "All done.");
+});
+
+test("interpretModelDecision reads streamed Anthropic tool calls with visible preamble", () => {
+  const result = interpretModelDecision({
+    sessionId: "session-decision-anthropic-stream-tool",
+    turnIndex: 3,
+    providerFamily: "anthropicMessages",
+    providerToolMappings: [{ providerName: "praxis_tool_code_scan", toolId: "code.scan" }],
+    raw: [
+      "event: content_block_start",
+      "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+      "",
+      "event: content_block_delta",
+      "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"I will inspect. \"}}",
+      "",
+      "event: content_block_stop",
+      "data: {\"type\":\"content_block_stop\",\"index\":0}",
+      "",
+      "event: content_block_start",
+      "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_code_scan\",\"input\":{}}}",
+      "",
+      "event: content_block_delta",
+      "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"directoryPath\\\":\"}}",
+      "",
+      "event: content_block_delta",
+      "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"\\\".\\\", \\\"maxEntries\\\": 50}\"}}",
+      "",
+      "event: content_block_stop",
+      "data: {\"type\":\"content_block_stop\",\"index\":1}",
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"),
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions[0]?.kind, "toolCall");
+  assert.equal(result.decisions[0]?.preambleText, "I will inspect.");
+  assert.equal(result.decisions[0]?.toolCall?.toolId, "code.scan");
+  assert.deepEqual(result.decisions[0]?.toolCall?.arguments, { directoryPath: ".", maxEntries: 50 });
+});
+
 test("interpretModelDecision converts malformed provider tool arguments into fail decision", () => {
   const result = interpretModelDecision({
     sessionId: "session-decision-malformed-tool",

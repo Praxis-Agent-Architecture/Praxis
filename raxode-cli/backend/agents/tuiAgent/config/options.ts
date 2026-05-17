@@ -13,12 +13,14 @@ export type RaxodeTuiOptions = {
   providerRoute?: RaxodeTuiProviderRoute;
   model?: string;
   reasoningEffort?: "low" | "medium" | "high" | "xhigh" | "none" | "minimal";
+  maxOutputTokens?: number;
   timeoutMs?: number;
 };
 
-export type NormalizedRaxodeTuiOptions = Required<Omit<RaxodeTuiOptions, "baseURL" | "providerRoute">> & {
+export type NormalizedRaxodeTuiOptions = Required<Omit<RaxodeTuiOptions, "baseURL" | "providerRoute" | "maxOutputTokens">> & {
   baseURL?: string;
   providerRoute?: RaxodeTuiProviderRoute;
+  maxOutputTokens?: number;
 };
 
 export function normalizeRaxodeTuiOptions(options: RaxodeTuiOptions = {}): NormalizedRaxodeTuiOptions {
@@ -29,6 +31,7 @@ export function normalizeRaxodeTuiOptions(options: RaxodeTuiOptions = {}): Norma
     providerRoute: options.providerRoute,
     model: options.model ?? "gpt-5.4-mini",
     reasoningEffort: options.reasoningEffort ?? "low",
+    maxOutputTokens: options.maxOutputTokens,
     timeoutMs: options.timeoutMs ?? 1800,
   };
 }

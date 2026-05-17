@@ -76,15 +76,15 @@ test("buildOpenAIStatusIdentityRows describes ChatGPT subscription auth with pla
   });
 
   assert.deepEqual(rows.map((row) => [row.label, row.text]), [
-    ["OpenAI auth path:", "ChatGPT subscription"],
-    ["OpenAI identity:", "ChatGPT Account with Pro Subscription"],
+    ["Provider auth path:", "ChatGPT subscription"],
+    ["Provider identity:", "ChatGPT Account with Pro Subscription"],
     ["ChatGPT plan:", "Pro"],
     ["ChatGPT account:", "acct_123"],
     ["ChatGPT email:", "user@example.com"],
-    ["OpenAI auth profile:", "auth.openai.official"],
-    ["OpenAI provider profile:", "profile.provider.openai.official"],
-    ["OpenAI route:", "GPT Endpoint (Responses API)"],
-    ["OpenAI base URL:", "https://chatgpt.com/backend-api/codex"],
+    ["Provider auth profile:", "auth.openai.official"],
+    ["Provider profile:", "profile.provider.openai.official"],
+    ["Provider route:", "GPT Endpoint (Responses API)"],
+    ["Provider base URL:", "https://chatgpt.com/backend-api/codex"],
     ["OAuth refresh token:", "present"],
     ["Access token expires:", "2026-05-12T12:00:00.000Z"],
   ]);
@@ -108,12 +108,12 @@ test("buildOpenAIStatusIdentityRows describes API key auth without pretending it
   });
 
   assert.deepEqual(rows.map((row) => [row.label, row.text]), [
-    ["OpenAI auth path:", "API key"],
-    ["OpenAI identity:", "GPT Compatible (Completions API)"],
-    ["OpenAI auth profile:", "auth.openai.default"],
-    ["OpenAI provider profile:", "profile.provider.openai.default"],
-    ["OpenAI route:", "GPT Compatible (Completions API)"],
-    ["OpenAI base URL:", "https://api.example.com/v1"],
+    ["Provider auth path:", "API key"],
+    ["Provider identity:", "GPT Compatible (Completions API)"],
+    ["Provider auth profile:", "auth.openai.default"],
+    ["Provider profile:", "profile.provider.openai.default"],
+    ["Provider route:", "GPT Compatible (Completions API)"],
+    ["Provider base URL:", "https://api.example.com/v1"],
   ]);
   assert.equal(rows.some((row) => row.label === "ChatGPT plan:"), false);
 });

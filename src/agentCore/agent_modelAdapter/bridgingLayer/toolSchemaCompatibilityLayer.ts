@@ -475,7 +475,14 @@ export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProvider
 
 function repairMisnestedEphemeralProcedureStepFields(value: string): string | undefined {
   if (!value.includes("\"procedureId\"") || !value.includes("\"steps\"")) return undefined;
-  const repairableFields = new Set(["dependsOn", "outputRef"]);
+  const repairableFields = new Set(["dependsOn", "outputRef", "riskLevel"]);
+  const previousNonWhitespace = (startIndex: number): string | undefined => {
+    for (let index = startIndex; index >= 0; index -= 1) {
+      const char = value[index];
+      if (char !== undefined && !/\s/u.test(char)) return char;
+    }
+    return undefined;
+  };
   let output = "";
   let changed = false;
   let inString = false;
@@ -501,7 +508,9 @@ function repairMisnestedEphemeralProcedureStepFields(value: string): string | un
     if (char === "}") {
       const tail = value.slice(index + 1);
       const match = tail.match(/^\s*,\s*"([A-Za-z0-9_]+)"\s*:/u);
-      if (match !== null && repairableFields.has(match[1] ?? "")) {
+      const fieldName = match?.[1] ?? "";
+      const isRiskLevelDrift = fieldName === "riskLevel" && previousNonWhitespace(index - 1) === "}";
+      if (match !== null && repairableFields.has(fieldName) && (fieldName !== "riskLevel" || isRiskLevelDrift)) {
         changed = true;
         continue;
       }
@@ -716,6 +725,57 @@ function raiseFromOpenAiChatCompletions(raw: unknown, request: RaiseProviderTool
 }
 
 function raiseFromAnthropic(raw: unknown, request: RaiseProviderToolCallsRequest): readonly ProviderToolCallEnvelope[] {
+  if (typeof raw === "string") {
+    const fragments = new Map<string, {
+      id?: string;
+      name?: string;
+      argumentsText: string;
+      argsObject?: unknown;
+      index: number;
+    }>();
+    let nextIndex = 0;
+    for (const object of sseDataObjects(raw)) {
+      if (!isRecord(object)) continue;
+      const eventType = readString(object.type);
+      const itemIndex = typeof object.index === "number" ? object.index : nextIndex;
+      const key = `index:${itemIndex}`;
+      if (eventType === "content_block_start" && isRecord(object.content_block)) {
+        const block = object.content_block;
+        if (block.type !== "tool_use") continue;
+        const existing = fragments.get(key) ?? { argumentsText: "", index: itemIndex };
+        existing.id = readString(block.id) ?? existing.id;
+        existing.name = readString(block.name) ?? existing.name;
+        if (isRecord(block.input) && Object.keys(block.input).length > 0) {
+          existing.argsObject = block.input;
+        }
+        fragments.set(key, existing);
+        nextIndex += 1;
+        continue;
+      }
+      if (eventType === "content_block_delta" && isRecord(object.delta)) {
+        const delta = object.delta;
+        if (delta.type !== "input_json_delta") continue;
+        const partialJson = typeof delta.partial_json === "string" ? delta.partial_json : undefined;
+        if (partialJson === undefined) continue;
+        const existing = fragments.get(key) ?? { argumentsText: "", index: itemIndex };
+        existing.argumentsText += partialJson;
+        fragments.set(key, existing);
+      }
+    }
+    return dedupeToolCalls([...fragments.values()]
+      .filter((item) => item.name !== undefined)
+      .map((item, index) => callEnvelope({
+        providerName: item.name ?? "",
+        callId: item.id,
+        args: item.argsObject ?? item.argumentsText,
+        index,
+        providerFamily: "anthropicMessages",
+        mappings: request.mappings,
+        providerRawRef: request.providerRawRef,
+        metadata: { providerShape: "anthropicMessages" },
+      })));
+  }
+
   if (!isRecord(raw)) return [];
   const messages = [raw, ...(Array.isArray(raw.messages) ? raw.messages : []), ...(Array.isArray(raw.output) ? raw.output : [])];
   const calls: ProviderToolCallEnvelope[] = [];

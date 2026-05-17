@@ -8,6 +8,7 @@ import {
   createApplicationProjectRuntime,
   createLocalApplicationTransport,
 } from "../../../src/applicationLayer/index.js";
+import type { AnthropicV1MessagesRequestEnvelope } from "../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
 import type { OpenAIV1ResponsesRequestEnvelope } from "../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { AuthEnvelope } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
 import {
@@ -31,10 +32,10 @@ test("raxode backend runs through applicationLayer", async () => {
   assert.equal(result.view.sessionId, "session.raxode.test");
   assert.equal(result.view.agentId, "agent.raxode.coding");
   assert.equal(result.view.permissionProfile, "bapr");
-  assert.equal(result.view.model.contextWindowTokens, 400_000);
-  assert.equal(result.view.model.maxInputTokens, 272_000);
+  assert.equal(result.view.model.contextWindowTokens, 1_000_000);
+  assert.equal(result.view.model.maxInputTokens, 616_000);
   assert.equal(result.view.model.inputBudgetThreshold, 0.95);
-  assert.equal(result.view.model.usableInputTokens, 258_400);
+  assert.equal(result.view.model.usableInputTokens, 585_200);
   assert.equal(result.view.tools.mounted, 175);
 });
 
@@ -164,6 +165,100 @@ test("raxode application runtime includes prior same-session turns in the next p
   assert.equal(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.stablePrefixChanged, false);
   assert.equal(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.dynamicPayloadChanged, true);
   assert.ok(completedModelEvents[1]?.metadata?.cacheDebug?.comparisonToPrevious?.changedFingerprintKeys?.includes("inputHash"));
+});
+
+test("raxode application runtime builds streaming Anthropic messages body with configured output budget", async () => {
+  const providerBodies: unknown[] = [];
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+  const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+    applicationId: "application.raxode.coding",
+    mode: "live",
+    provider: "anthropic",
+    endpointShape: "messages",
+    providerRoute: "anthropic_messages",
+    baseURL: "https://api.deepseek.com/anthropic",
+    model: "deepseek-v4-pro",
+    reasoningEffort: "high",
+    maxOutputTokens: 384_000,
+    permissionProfile: "bapr",
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      provider: "anthropic",
+      endpointShape: "messages",
+      providerRoute: "anthropic_messages",
+      anthropicMessagesCaller: async (envelope: AnthropicV1MessagesRequestEnvelope) => {
+        providerBodies.push(envelope.body);
+        return [
+          "event: message_start",
+          "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-anthropic-test\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"deepseek-v4-pro\",\"content\":[],\"usage\":{\"input_tokens\":101,\"cache_creation_input_tokens\":9,\"cache_read_input_tokens\":91,\"output_tokens\":1}}}",
+          "",
+          "event: content_block_start",
+          "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
+          "",
+          "event: content_block_delta",
+          "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}",
+          "",
+          "event: message_delta",
+          "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":7}}",
+          "",
+          "event: message_stop",
+          "data: {\"type\":\"message_stop\"}",
+          "",
+          "data: [DONE]",
+          "",
+        ].join("\n");
+      },
+    }),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const transport = createLocalApplicationTransport(created.runtime);
+  const sessionId = "session.raxode.anthropic.body.test";
+  const start = await transport.dispatch({
+    type: "application.start",
+    sessionId,
+    cwd: process.cwd(),
+    mode: "live",
+  });
+  assert.equal(start.ok, true);
+  const turn = await transport.dispatch({
+    type: "application.submitTurn",
+    sessionId,
+    mode: "live",
+    input: {
+      type: "application.input",
+      text: "say ok",
+      cwd: process.cwd(),
+    },
+  });
+  assert.equal(turn.ok, true);
+  assert.equal(providerBodies.length, 1);
+  const body = providerBodies[0] as {
+    model?: string;
+    max_tokens?: number;
+    stream?: boolean;
+    thinking?: { type?: string };
+    output_config?: { effort?: string };
+    tools?: unknown[];
+    messages?: Array<{ role?: string }>;
+  };
+  assert.equal(body.model, "deepseek-v4-pro");
+  assert.equal(body.max_tokens, 384_000);
+  assert.equal(body.stream, true);
+  assert.deepEqual(body.thinking, { type: "enabled" });
+  assert.deepEqual(body.output_config, { effort: "max" });
+  assert.ok((body.tools?.length ?? 0) > 0);
+  assert.equal(body.messages?.[0]?.role, "user");
+  assert.equal(turn.view.usage?.inputTokens, 201);
+  assert.equal(turn.view.usage?.cachedInputTokens, 91);
+  assert.equal(turn.view.usage?.outputTokens, 7);
+  assert.equal(turn.view.usage?.estimated, false);
 });
 
 test("raxode application runtime separates provider cache miss from stable PromptPack drift", async () => {

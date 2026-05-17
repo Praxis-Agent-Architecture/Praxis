@@ -62,6 +62,7 @@ export type PraxisApplicationModelState = {
   providerRoute?: string;
   contextWindowTokens?: number;
   maxInputTokens?: number;
+  maxOutputTokens?: number;
   inputBudgetThreshold?: number;
   usableInputTokens?: number;
   metadataSource?: string;
@@ -285,6 +286,7 @@ export type PraxisApplicationCommand =
       endpointShape?: string;
       baseURL?: string;
       providerRoute?: string;
+      maxOutputTokens?: number;
     }
   | {
       type: "application.changePermissionProfile";

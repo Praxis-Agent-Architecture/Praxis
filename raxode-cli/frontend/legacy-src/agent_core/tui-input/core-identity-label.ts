@@ -141,9 +141,9 @@ export function buildOpenAIStatusIdentityRows(input: {
   if (input.authStatus.authMode === "chatgpt_oauth") {
     const planLabel = formatChatGPTPlanLabel(input.authStatus.planType);
     rows.push(
-      { label: "OpenAI auth path:", text: "ChatGPT subscription" },
+      { label: "Provider auth path:", text: "ChatGPT subscription" },
       {
-        label: "OpenAI identity:",
+        label: "Provider identity:",
         text: identity.text,
         segments: identity.valueSegments,
       },
@@ -161,29 +161,29 @@ export function buildOpenAIStatusIdentityRows(input: {
     }
   } else if (input.authStatus.authMode === "api_key") {
     rows.push(
-      { label: "OpenAI auth path:", text: "API key" },
+      { label: "Provider auth path:", text: "API key" },
       {
-        label: "OpenAI identity:",
+        label: "Provider identity:",
         text: identity.text,
         segments: identity.valueSegments,
       },
     );
   } else {
     rows.push(
-      { label: "OpenAI auth path:", text: "Unconfigured" },
-      { label: "OpenAI identity:", text: "No OpenAI credentials configured" },
+      { label: "Provider auth path:", text: "Unconfigured" },
+      { label: "Provider identity:", text: "No provider credentials configured" },
     );
   }
 
   if (input.authStatus.activeAuthProfileId) {
-    rows.push({ label: "OpenAI auth profile:", text: input.authStatus.activeAuthProfileId });
+    rows.push({ label: "Provider auth profile:", text: input.authStatus.activeAuthProfileId });
   }
   if (input.authStatus.activeProviderProfileId) {
-    rows.push({ label: "OpenAI provider profile:", text: input.authStatus.activeProviderProfileId });
+    rows.push({ label: "Provider profile:", text: input.authStatus.activeProviderProfileId });
   }
-  rows.push({ label: "OpenAI route:", text: formatApiRouteIdentityText(input.routeKind) });
+  rows.push({ label: "Provider route:", text: formatApiRouteIdentityText(input.routeKind) });
   if (input.baseURL) {
-    rows.push({ label: "OpenAI base URL:", text: input.baseURL });
+    rows.push({ label: "Provider base URL:", text: input.baseURL });
   }
   if (input.authStatus.authMode === "chatgpt_oauth") {
     rows.push({

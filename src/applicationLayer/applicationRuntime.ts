@@ -80,6 +80,7 @@ export type PraxisApplicationRuntimeOptions = {
   providerRoute?: string;
   model?: string;
   reasoningEffort?: PraxisApplicationReasoningEffort;
+  maxOutputTokens?: number;
   permissionProfile?: PraxisApplicationPermissionProfile;
   approvalResolver?: RuntimeApprovalResolver;
   liveProviderResolver?: (manifest: AgentManifest, context?: {
@@ -171,6 +172,7 @@ function createApplicationModelState(input: {
   endpointShape?: string;
   baseURL?: string;
   providerRoute?: string;
+  maxOutputTokens?: number;
 }): PraxisApplicationModelState {
   const provider = input.provider ?? "openai";
   const model = input.model ?? "gpt-5.5";
@@ -182,6 +184,7 @@ function createApplicationModelState(input: {
     endpointShape: input.endpointShape,
     baseURL: input.baseURL,
     providerRoute: input.providerRoute,
+    maxOutputTokens: input.maxOutputTokens,
     contextWindowTokens: metadata?.contextWindowTokens,
     maxInputTokens: metadata?.maxInputTokens,
     inputBudgetThreshold: metadata?.inputBudgetThreshold,
@@ -2323,6 +2326,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       endpointShape: options.endpointShape,
       baseURL: options.baseURL,
       providerRoute: options.providerRoute,
+      maxOutputTokens: options.maxOutputTokens,
     }),
     permissionProfile: options.permissionProfile ?? "standard",
     turns: 0,
@@ -2499,6 +2503,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         providerRoute: state.model.providerRoute,
         model: state.model.model,
         reasoningEffort: state.model.reasoningEffort,
+        maxOutputTokens: state.model.maxOutputTokens,
       };
       const agentOptions = typeof options.agentOptions === "object" && options.agentOptions !== null
         ? { ...defaultAgentOptions, ...options.agentOptions }
@@ -3075,6 +3080,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
               endpointShape: command.endpointShape ?? state.model.endpointShape,
               baseURL: command.baseURL ?? state.model.baseURL,
               providerRoute: command.providerRoute ?? state.model.providerRoute,
+              maxOutputTokens: command.maxOutputTokens ?? state.model.maxOutputTokens,
             }),
           };
           const changed = publish({

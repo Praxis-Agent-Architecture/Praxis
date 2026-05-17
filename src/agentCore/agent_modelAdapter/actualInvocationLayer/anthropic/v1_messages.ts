@@ -183,15 +183,62 @@ function readFiniteNumber(record: Readonly<Record<string, unknown>> | undefined,
   return undefined;
 }
 
+function sseDataObjects(text: string): readonly unknown[] {
+  const objects: unknown[] = [];
+  for (const line of text.split(/\r?\n/u)) {
+    if (!line.startsWith("data:")) continue;
+    const payload = line.slice("data:".length).trim();
+    if (payload.length === 0 || payload === "[DONE]") continue;
+    try {
+      objects.push(JSON.parse(payload) as unknown);
+    } catch {
+      // Ignore non-JSON stream payloads.
+    }
+  }
+  return objects;
+}
+
+function mergeAnthropicUsage(
+  previous: AnthropicV1MessagesUsage | undefined,
+  next: AnthropicV1MessagesUsage | undefined,
+): AnthropicV1MessagesUsage | undefined {
+  if (next === undefined) return previous;
+  if (previous === undefined) return next;
+  return {
+    source: "anthropic.messages.usage",
+    inputTokens: next.inputTokens ?? previous.inputTokens,
+    outputTokens: next.outputTokens ?? previous.outputTokens,
+    totalTokens: next.totalTokens ?? previous.totalTokens,
+    cachedInputTokens: next.cachedInputTokens ?? previous.cachedInputTokens,
+    estimated: false,
+  };
+}
+
 export function extractAnthropicV1MessagesUsage(raw: unknown): AnthropicV1MessagesUsage | undefined {
+  if (typeof raw === "string") {
+    let latest: AnthropicV1MessagesUsage | undefined;
+    for (const object of sseDataObjects(raw)) {
+      latest = mergeAnthropicUsage(latest, extractAnthropicV1MessagesUsage(object));
+    }
+    return latest;
+  }
+
   if (!isRecord(raw) || !isRecord(raw.usage)) {
+    if (isRecord(raw) && isRecord(raw.message)) {
+      return extractAnthropicV1MessagesUsage(raw.message);
+    }
     return undefined;
   }
   const usage = raw.usage;
-  const inputTokens = readFiniteNumber(usage, ["input_tokens", "inputTokens"]);
+  const rawInputTokens = readFiniteNumber(usage, ["input_tokens", "inputTokens"]);
   const outputTokens = readFiniteNumber(usage, ["output_tokens", "outputTokens"]);
   const totalTokens = readFiniteNumber(usage, ["total_tokens", "totalTokens"]);
+  const cacheCreationInputTokens = readFiniteNumber(usage, ["cache_creation_input_tokens", "cacheCreationInputTokens"]);
   const cachedInputTokens = readFiniteNumber(usage, ["cache_read_input_tokens", "cached_tokens", "cachedTokens"]);
+  // Anthropic-style cache usage reports cache read/create tokens outside input_tokens.
+  const inputTokens = rawInputTokens === undefined && cacheCreationInputTokens === undefined && cachedInputTokens === undefined
+    ? undefined
+    : (rawInputTokens ?? 0) + (cacheCreationInputTokens ?? 0) + (cachedInputTokens ?? 0);
   if (
     inputTokens === undefined &&
     outputTokens === undefined &&
@@ -396,9 +443,14 @@ export async function invokeAnthropicV1Messages(
     };
   } catch (error) {
     const code = classifyAnthropicV1MessagesProviderError(error);
+    const publicSafeMessage = isRecord(error) && error.publicSafe === true && typeof error.message === "string"
+      ? error.message.trim()
+      : "";
     return failure(
       code,
-      `Anthropic v1 messages provider caller failed with ${code}`,
+      publicSafeMessage.length === 0
+        ? `Anthropic v1 messages provider caller failed with ${code}`
+        : `Anthropic v1 messages ${publicSafeMessage}`,
       "provider",
       code === "PROVIDER_RATE_LIMITED" || code === "PROVIDER_TIMEOUT" || code === "PROVIDER_UNAVAILABLE",
       request,

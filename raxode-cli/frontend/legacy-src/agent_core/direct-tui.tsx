@@ -148,6 +148,7 @@ import {
 } from "./tui-input/direct-assistant-stream.js";
 import {
   buildOpenAIStatusIdentityRows,
+  type OpenAIStatusAuthSnapshot,
 } from "./tui-input/core-identity-label.js";
 import {
   appendDirectTuiCheckpointEvent,
@@ -3117,20 +3118,40 @@ function buildSlashPanelView(
   const workspaceInputValue = inputState.value || resolvePanelDraftValue(draft, "workspacePath", context.currentCwd);
   const statusText = notice?.text ?? panelStatusForBackendStatus(context.backendStatus);
   const rateLimitView = composeStatusRateLimitDisplayView(context.rateLimitRecord);
-  const openAIRouteKind = resolveProviderRouteKind({
-    provider: "openai",
-    baseURL: context.openAIConfig?.baseURL ?? context.route,
-    apiStyle: context.openAIConfig?.apiStyle,
-  });
-  const openAIStatusIdentityRows = buildOpenAIStatusIdentityRows({
-    authStatus: context.openAIAuthStatus,
-    routeKind: openAIRouteKind,
-    baseURL: context.openAIConfig?.baseURL ?? context.route,
+  const coreStatusRouteKind = coreProfile
+    ? resolveProviderRouteKind({
+      provider: coreProfile.provider,
+      baseURL: coreProfile.route.baseURL,
+      apiStyle: coreProfile.route.apiStyle,
+    })
+    : resolveProviderRouteKind({
+      provider: "openai",
+      baseURL: context.openAIConfig?.baseURL ?? context.route,
+      apiStyle: context.openAIConfig?.apiStyle,
+    });
+  const coreStatusAuthStatus: OpenAIStatusAuthSnapshot = coreProfile
+    ? {
+      authMode: coreProfile.provider === "openai"
+        ? context.openAIAuthStatus.authMode
+        : "api_key",
+      activeAuthProfileId: coreProfile.authProfileId,
+      activeProviderProfileId: coreProfile.id,
+      email: coreProfile.provider === "openai" ? context.openAIAuthStatus.email : undefined,
+      planType: coreProfile.provider === "openai" ? context.openAIAuthStatus.planType : undefined,
+      accountId: coreProfile.provider === "openai" ? context.openAIAuthStatus.accountId : undefined,
+      accessTokenExpiresAt: coreProfile.provider === "openai" ? context.openAIAuthStatus.accessTokenExpiresAt : undefined,
+      refreshTokenPresent: coreProfile.provider === "openai" ? context.openAIAuthStatus.refreshTokenPresent : false,
+    }
+    : context.openAIAuthStatus;
+  const providerStatusIdentityRows = buildOpenAIStatusIdentityRows({
+    authStatus: coreStatusAuthStatus,
+    routeKind: coreStatusRouteKind,
+    baseURL: coreProfile?.route.baseURL ?? context.openAIConfig?.baseURL ?? context.route,
   });
   const officialUsageUnavailableText =
-    context.openAIAuthStatus.authMode === "api_key"
+    coreStatusAuthStatus.authMode === "api_key"
       ? "Not applicable (API key billing is provider-side)"
-      : context.openAIAuthStatus.authMode !== "chatgpt_oauth"
+      : coreStatusAuthStatus.authMode !== "chatgpt_oauth"
         ? "Unavailable (ChatGPT subscription login required)"
         : rateLimitView.availability === "error"
           ? `Unavailable (${rateLimitView.error ?? "refresh failed"})`
@@ -3356,7 +3377,7 @@ function buildSlashPanelView(
           createBodyKeyValueLine("Praxis package version:", PRAXIS_DISPLAY_VERSION, { indent: 4, labelWidth: 28 }),
           createBodyKeyValueLine("Permissions mode:", modeChoice, { indent: 4, labelWidth: 28 }),
           createBodyKeyValueLine("Active agents:", String(context.agents.length), { indent: 4, labelWidth: 28 }),
-          ...openAIStatusIdentityRows.map((row) => createBodyKeyValueLine(row.label, row.text, {
+          ...providerStatusIdentityRows.map((row) => createBodyKeyValueLine(row.label, row.text, {
             indent: 4,
             labelWidth: 28,
             valueSegments: row.segments,

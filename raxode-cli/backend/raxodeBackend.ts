@@ -66,6 +66,7 @@ async function createRaxodeRuntime(options: {
     providerRoute: modelOptions.providerRoute,
     model: modelOptions.model,
     reasoningEffort: modelOptions.reasoningEffort,
+    maxOutputTokens: modelOptions.maxOutputTokens,
     permissionProfile: "standard",
     now: options.now,
     liveProviderResolver: async (manifest, context) => createRaxodeLiveProvider(manifest, {

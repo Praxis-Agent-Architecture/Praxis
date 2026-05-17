@@ -150,6 +150,14 @@ function extractText(raw: unknown): string {
         const choiceText = extractChatChoiceText(object.choices);
         if (choiceText.length > 0) streamChunks.push(choiceText);
       }
+      if (eventType === "content_block_start" && isRecord(object.content_block) && object.content_block.type === "text") {
+        const blockText = readStreamDelta(object.content_block.text);
+        if (blockText !== undefined) streamChunks.push(blockText);
+      }
+      if (eventType === "content_block_delta" && isRecord(object.delta) && object.delta.type === "text_delta") {
+        const textDelta = readStreamDelta(object.delta.text);
+        if (textDelta !== undefined) streamChunks.push(textDelta);
+      }
       if (object.response !== undefined) {
         const text = extractText(object.response);
         if (text.length > 0) completed.push(text);

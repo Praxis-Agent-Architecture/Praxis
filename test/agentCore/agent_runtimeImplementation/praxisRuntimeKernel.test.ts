@@ -401,6 +401,506 @@ test("PraxisRuntimeKernel.run routes Anthropic messages and reads message text",
   assert.equal(result.modelCalls[0]?.usage?.inputTokens, 11);
 });
 
+test("PraxisRuntimeKernel.run replays Anthropic assistant tool_use before tool_result", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-anthropic-tool-"));
+  await writeFile(path.join(workspace, "notes.txt"), "needle from anthropic tool\n", "utf8");
+
+  class AnthropicToolAgent extends PraxisAgent {
+    identity = "agent.kernel-anthropic-tool";
+    model = model("deepseek-v4-pro", {
+      provider: "anthropic",
+      endpointShape: "messages",
+      carrierId: "carrier.kernel-anthropic-tool",
+      baseURL: "https://gateway.example.com/anthropic",
+      metadata: { providerRoute: "anthropic_messages" },
+    });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const providerBodies: unknown[] = [];
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-kernel-anthropic-tool",
+    sessionId: "session-kernel-anthropic-tool",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-anthropic-tool" }).run(
+    new AnthropicToolAgent(),
+    "read notes",
+    {
+      sessionId: "session-kernel-anthropic-tool",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: apiKeyAuthEnvelope({ provider: "anthropic", credentialType: "anthropic_api_key", apiKey: "sk-ant-secret" }),
+      executor,
+      anthropicMessagesCaller: async (request) => {
+        calls += 1;
+        providerBodies.push(request.body);
+        if (calls === 1) {
+          const toolArguments = JSON.stringify({
+            workspaceRoot: workspace,
+            targetPath: "notes.txt",
+            dryRun: false,
+            context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+          });
+          return [
+            `data: ${JSON.stringify({
+              type: "message_start",
+              message: {
+                id: "msg_anthropic_tool_1",
+                type: "message",
+                role: "assistant",
+                model: "deepseek-v4-pro",
+                content: [],
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_start",
+              index: 0,
+              content_block: {
+                type: "thinking",
+                thinking: "",
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "thinking_delta", thinking: "I need to inspect the file before answering." },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "signature_delta", signature: "sig-ant-tool-call-1" },
+            })}`,
+            "",
+            `data: ${JSON.stringify({ type: "content_block_stop", index: 0 })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_start",
+              index: 1,
+              content_block: {
+                type: "tool_use",
+                id: "ant-tool-call-1",
+                name: "praxis_tool_code_read",
+                input: {},
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 1,
+              delta: { type: "input_json_delta", partial_json: toolArguments.slice(0, 40) },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 1,
+              delta: { type: "input_json_delta", partial_json: toolArguments.slice(40) },
+            })}`,
+            "",
+            `data: ${JSON.stringify({ type: "content_block_stop", index: 1 })}`,
+            "",
+            `data: ${JSON.stringify({ type: "message_stop" })}`,
+            "",
+          ].join("\n");
+        }
+
+        const body = request.body as {
+          stream?: boolean;
+          messages?: Array<{ role?: string; content?: unknown }>;
+        };
+        assert.equal(body.stream, true);
+        const messages = body.messages ?? [];
+        const assistantWithTool = messages.find((message) =>
+          message.role === "assistant" &&
+          Array.isArray(message.content) &&
+          message.content.some((block) =>
+            typeof block === "object" &&
+            block !== null &&
+            !Array.isArray(block) &&
+            (block as { type?: unknown; id?: unknown }).type === "tool_use" &&
+            (block as { id?: unknown }).id === "ant-tool-call-1"
+          )
+        );
+        const assistantIndex = messages.findIndex((message) =>
+          message === assistantWithTool
+        );
+        const toolResultIndex = messages.findIndex((message) =>
+          message.role === "user" &&
+          Array.isArray(message.content) &&
+          message.content.some((block) =>
+            typeof block === "object" &&
+            block !== null &&
+            !Array.isArray(block) &&
+            (block as { type?: unknown; tool_use_id?: unknown }).type === "tool_result" &&
+            (block as { tool_use_id?: unknown }).tool_use_id === "ant-tool-call-1"
+          )
+        );
+        assert.notEqual(assistantIndex, -1);
+        assert.notEqual(toolResultIndex, -1);
+        assert.ok(assistantIndex < toolResultIndex);
+        assert.ok(assistantWithTool !== undefined);
+        assert.deepEqual((assistantWithTool.content as unknown[])[0], {
+          type: "thinking",
+          thinking: "I need to inspect the file before answering.",
+          signature: "sig-ant-tool-call-1",
+        });
+        return {
+          id: "msg_2",
+          content: [{ type: "text", text: "found needle from anthropic tool" }],
+          usage: { input_tokens: 12, output_tokens: 6 },
+        };
+      },
+      now: () => "2026-05-16T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.toolId, "code.read");
+  assert.equal(result.finalOutput, "found needle from anthropic tool");
+  assert.equal(providerBodies.length, 2);
+});
+
+test("PraxisRuntimeKernel.run merges Anthropic tool_results immediately after multi-tool assistant message", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-anthropic-multi-tool-"));
+  await writeFile(path.join(workspace, "notes.txt"), "needle from anthropic multi tool\n", "utf8");
+
+  class AnthropicMultiToolAgent extends PraxisAgent {
+    identity = "agent.kernel-anthropic-multi-tool";
+    model = model("deepseek-v4-pro", {
+      provider: "anthropic",
+      endpointShape: "messages",
+      carrierId: "carrier.kernel-anthropic-multi-tool",
+      baseURL: "https://gateway.example.com/anthropic",
+      metadata: { providerRoute: "anthropic_messages" },
+    });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read"), tool("code.scan")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 2 }),
+    });
+  }
+
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-kernel-anthropic-multi-tool",
+    sessionId: "session-kernel-anthropic-multi-tool",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-anthropic-multi-tool" }).run(
+    new AnthropicMultiToolAgent(),
+    "read and scan",
+    {
+      sessionId: "session-kernel-anthropic-multi-tool",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: apiKeyAuthEnvelope({ provider: "anthropic", credentialType: "anthropic_api_key", apiKey: "sk-ant-secret" }),
+      executor,
+      anthropicMessagesCaller: async (request) => {
+        calls += 1;
+        if (calls === 1) {
+          const readArguments = JSON.stringify({
+            workspaceRoot: workspace,
+            targetPath: "notes.txt",
+            dryRun: false,
+            context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+          });
+          const scanArguments = JSON.stringify({
+            directoryPath: ".",
+            maxEntries: 10,
+          });
+          return [
+            `data: ${JSON.stringify({
+              type: "message_start",
+              message: {
+                id: "msg_anthropic_multi_tool_1",
+                type: "message",
+                role: "assistant",
+                model: "deepseek-v4-pro",
+                content: [],
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_start",
+              index: 0,
+              content_block: {
+                type: "tool_use",
+                id: "ant-tool-read-1",
+                name: "praxis_tool_code_read",
+                input: {},
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "input_json_delta", partial_json: readArguments },
+            })}`,
+            "",
+            `data: ${JSON.stringify({ type: "content_block_stop", index: 0 })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_start",
+              index: 1,
+              content_block: {
+                type: "tool_use",
+                id: "ant-tool-scan-1",
+                name: "praxis_tool_code_scan",
+                input: {},
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 1,
+              delta: { type: "input_json_delta", partial_json: scanArguments },
+            })}`,
+            "",
+            `data: ${JSON.stringify({ type: "content_block_stop", index: 1 })}`,
+            "",
+            `data: ${JSON.stringify({ type: "message_stop" })}`,
+            "",
+          ].join("\n");
+        }
+
+        const body = request.body as {
+          messages?: Array<{ role?: string; content?: unknown }>;
+        };
+        const messages = body.messages ?? [];
+        const assistantIndex = messages.findIndex((message) =>
+          message.role === "assistant" &&
+          Array.isArray(message.content) &&
+          message.content.some((block) =>
+            typeof block === "object" &&
+            block !== null &&
+            !Array.isArray(block) &&
+            (block as { type?: unknown; id?: unknown }).type === "tool_use" &&
+            (block as { id?: unknown }).id === "ant-tool-read-1"
+          ) &&
+          message.content.some((block) =>
+            typeof block === "object" &&
+            block !== null &&
+            !Array.isArray(block) &&
+            (block as { type?: unknown; id?: unknown }).type === "tool_use" &&
+            (block as { id?: unknown }).id === "ant-tool-scan-1"
+          )
+        );
+        assert.notEqual(assistantIndex, -1);
+        const nextMessage = messages[assistantIndex + 1];
+        assert.equal(nextMessage?.role, "user");
+        assert.ok(Array.isArray(nextMessage.content));
+        const resultIds = nextMessage.content
+          .map((block) =>
+            typeof block === "object" && block !== null && !Array.isArray(block)
+              ? (block as { type?: unknown; tool_use_id?: unknown })
+              : undefined
+          )
+          .filter((block): block is { type?: unknown; tool_use_id?: unknown } => block?.type === "tool_result")
+          .map((block) => block.tool_use_id);
+        assert.deepEqual(resultIds, ["ant-tool-read-1", "ant-tool-scan-1"]);
+        return {
+          id: "msg_multi_tool_2",
+          content: [{ type: "text", text: "multi tool replay valid" }],
+          usage: { input_tokens: 12, output_tokens: 6 },
+        };
+      },
+      now: () => "2026-05-17T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 2);
+  assert.equal(result.finalOutput, "multi tool replay valid");
+});
+
+test("PraxisRuntimeKernel.run replays Anthropic EphemeralProcedure tool_result immediately after tool_use", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-anthropic-procedure-"));
+  await writeFile(path.join(workspace, "notes.txt"), "needle from anthropic procedure\n", "utf8");
+
+  class AnthropicProcedureAgent extends PraxisAgent {
+    identity = "agent.kernel-anthropic-procedure";
+    model = model("deepseek-v4-pro", {
+      provider: "anthropic",
+      endpointShape: "messages",
+      carrierId: "carrier.kernel-anthropic-procedure",
+      baseURL: "https://gateway.example.com/anthropic",
+      metadata: { providerRoute: "anthropic_messages" },
+    });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read"), tool("code.scan")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 3 }),
+    });
+  }
+
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-kernel-anthropic-procedure",
+    sessionId: "session-kernel-anthropic-procedure",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-anthropic-procedure" }).run(
+    new AnthropicProcedureAgent(),
+    "read and scan by procedure",
+    {
+      sessionId: "session-kernel-anthropic-procedure",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: apiKeyAuthEnvelope({ provider: "anthropic", credentialType: "anthropic_api_key", apiKey: "sk-ant-secret" }),
+      executor,
+      anthropicMessagesCaller: async (request) => {
+        calls += 1;
+        if (calls === 1) {
+          const procedureArguments = JSON.stringify({
+            procedureId: "anthropic-procedure-read-scan",
+            purpose: "read notes.txt and scan workspace through mounted BaseTools",
+            executionMode: "serial",
+            steps: [
+              {
+                stepId: "read",
+                baseToolId: "code.read",
+                input: {
+                  workspaceRoot: workspace,
+                  targetPath: "notes.txt",
+                  dryRun: false,
+                  context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+                },
+                riskLevel: "low",
+              },
+              {
+                stepId: "scan",
+                baseToolId: "code.scan",
+                input: {
+                  directoryPath: ".",
+                  maxEntries: 10,
+                },
+                dependsOn: ["read"],
+                riskLevel: "low",
+              },
+            ],
+          });
+          return [
+            `data: ${JSON.stringify({
+              type: "message_start",
+              message: {
+                id: "msg_anthropic_procedure_1",
+                type: "message",
+                role: "assistant",
+                model: "deepseek-v4-pro",
+                content: [],
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_start",
+              index: 0,
+              content_block: {
+                type: "tool_use",
+                id: "ant-procedure-call-1",
+                name: "praxis_ephemeral_procedure",
+                input: {},
+              },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "input_json_delta", partial_json: procedureArguments.slice(0, 200) },
+            })}`,
+            "",
+            `data: ${JSON.stringify({
+              type: "content_block_delta",
+              index: 0,
+              delta: { type: "input_json_delta", partial_json: procedureArguments.slice(200) },
+            })}`,
+            "",
+            `data: ${JSON.stringify({ type: "content_block_stop", index: 0 })}`,
+            "",
+            `data: ${JSON.stringify({ type: "message_stop" })}`,
+            "",
+          ].join("\n");
+        }
+
+        const body = request.body as {
+          messages?: Array<{ role?: string; content?: unknown }>;
+        };
+        const messages = body.messages ?? [];
+        const assistantIndex = messages.findIndex((message) =>
+          message.role === "assistant" &&
+          Array.isArray(message.content) &&
+          message.content.some((block) =>
+            typeof block === "object" &&
+            block !== null &&
+            !Array.isArray(block) &&
+            (block as { type?: unknown; id?: unknown }).type === "tool_use" &&
+            (block as { id?: unknown }).id === "ant-procedure-call-1"
+          )
+        );
+        assert.notEqual(assistantIndex, -1);
+        const nextMessage = messages[assistantIndex + 1];
+        assert.equal(nextMessage?.role, "user");
+        assert.ok(Array.isArray(nextMessage.content));
+        assert.equal(
+          nextMessage.content.some((block) =>
+            typeof block === "object" &&
+            block !== null &&
+            !Array.isArray(block) &&
+            (block as { type?: unknown; tool_use_id?: unknown }).type === "tool_result" &&
+            (block as { tool_use_id?: unknown }).tool_use_id === "ant-procedure-call-1"
+          ),
+          true,
+        );
+        return {
+          id: "msg_anthropic_procedure_2",
+          content: [{ type: "text", text: "anthropic procedure replay valid" }],
+          usage: { input_tokens: 12, output_tokens: 6 },
+        };
+      },
+      now: () => "2026-05-17T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 2);
+  assert.equal(result.toolCalls.some((record) => record.callId === "anthropic-procedure-read-scan:read"), true);
+  assert.equal(result.toolCalls.some((record) => record.callId === "anthropic-procedure-read-scan:scan"), true);
+  assert.equal(result.finalOutput, "anthropic procedure replay valid");
+  assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "executeEphemeralProcedure"), true);
+});
+
 test("PraxisRuntimeKernel.run annotates cache debug with stable-prefix and observed-hit analysis", async () => {
   let completedCacheDebug: {
     providerBody?: {
