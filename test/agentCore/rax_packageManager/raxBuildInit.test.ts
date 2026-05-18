@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { chmod, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -27,7 +28,7 @@ test("rax build init minimal creates a runnable public-API project skeleton", as
   assert.equal(result.plan.preset, "minimal");
   assert.equal(result.writtenFiles.some((file) => file.endsWith("agents/mainAgent.ts")), true);
   const agentSource = await readFile(path.join(targetDir, "agents/mainAgent.ts"), "utf8");
-  assert.match(agentSource, /from "@praxis-ai\/framework"/);
+  assert.match(agentSource, /from "@praxis-ai\/praxis"/);
   assert.match(agentSource, /praxis\.sandbox\.hostObserved\(\)/);
   assert.match(agentSource, /praxis\.toolPolicies\.standard\(\)/);
 });
@@ -118,8 +119,8 @@ test("rax help never creates a project by accident", async () => {
   await assert.rejects(readFile(path.join(targetDir, "package.json"), "utf8"));
 });
 
-test("rax inspect console explains missing framework dependency before project install", async () => {
-  const targetDir = path.join(scratchRoot, "inspect-console");
+test("rax inspect console can load a generated public-API project from the source checkout", async () => {
+  const targetDir = path.join(os.tmpdir(), "praxis-rax-build-init-test", "inspect-console");
   await rm(targetDir, { recursive: true, force: true });
   const created = await initRaxProject({
     preset: "minimal",
@@ -133,10 +134,10 @@ test("rax inspect console explains missing framework dependency before project i
     path.join(targetDir, "agents/mainAgent.ts"),
   ]);
 
-  assert.equal(result.exitCode, 1);
-  assert.match(result.output, /self-repair hints:/);
-  assert.match(result.output, /npm install/);
-  assert.match(result.output, /@praxis-ai\/framework/);
+  assert.equal(result.exitCode, 0);
+  assert.match(result.output, /rax inspect/);
+  assert.match(result.output, /agent: agent\.inspect-console/);
+  assert.match(result.output, /missing dependencies: none/);
 });
 
 test("rax inspect auto-discovers named Agent exports", async () => {

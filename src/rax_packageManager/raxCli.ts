@@ -1044,7 +1044,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
           : "  - run npm install in the generated agent project",
         multipleExports
           ? "  - add a default export if this file has one intended Agent"
-          : "  - verify @praxis-ai/framework is installed or linked",
+          : "  - verify @praxis-ai/praxis is installed or linked",
         "  - rerun rax inspect after the issue is fixed",
         "",
       ].join("\n"),

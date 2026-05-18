@@ -9,4 +9,4 @@ while [ -h "$PRG" ]; do
   esac
 done
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$PRG")" && pwd)
-exec node --import tsx "$SCRIPT_DIR/../src/rax_packageManager/raxCli.ts" "$@"
+exec node "$SCRIPT_DIR/../dist/rax_packageManager/raxCli.js" "$@"

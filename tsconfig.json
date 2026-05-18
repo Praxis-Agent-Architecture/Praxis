@@ -9,8 +9,15 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@praxis-ai/praxis": ["src/agentCore/index.ts"],
+      "@praxis-ai/praxis/agent-core": ["src/agentCore/index.ts"],
+      "@praxis-ai/praxis/application-layer": ["src/applicationLayer/index.ts"],
+      "@praxis-ai/praxis/rax": ["src/rax_packageManager/index.ts"]
+    }
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "realtest/**/*.ts", "raxode-cli/**/*.ts"],
-  "exclude": ["node_modules", "dist", "raxode-cli/frontend/legacy-src/**", "realtest/我给你举个例子吧傻逼codex/**"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/agentCore/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

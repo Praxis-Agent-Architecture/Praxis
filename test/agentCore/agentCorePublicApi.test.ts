@@ -39,7 +39,7 @@ import {
   baseTool as packageBaseTool,
   modelAuthoring as packageModelAuthoring,
   praxis as packagePraxis,
-} from "@praxis-ai/framework";
+} from "@praxis-ai/praxis";
 
 class MinimalDeveloperAgent extends PraxisAgent {
   identity = "agent.public.minimal";
