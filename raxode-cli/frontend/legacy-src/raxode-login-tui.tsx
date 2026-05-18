@@ -33,7 +33,7 @@ type LoginPage =
   | { kind: "openai-route" }
   | { kind: "openai-config" }
   | { kind: "anthropic-config" }
-  | { kind: "login-progress"; lines: string[]; cancelTarget: "chatgpt-method" }
+  | { kind: "login-progress"; lines: string[]; cancelTarget: "method" | "chatgpt-method" | "openai-config" | "anthropic-config" }
   | { kind: "success"; message: string; next: "embedding" }
   | { kind: "embedding-config" }
   | { kind: "final"; skippedEmbedding: boolean };
@@ -357,26 +357,38 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
   };
 
   const finalizeApiConfiguration = async (method: MethodOption) => {
-    if (method === "openai") {
-      applyOpenAICompatibleApiLoginConfig(openAiBaseUrl.value, openAiApiKey.value, fallbackDir, {
-        routeKind: currentOpenAiRoute,
-        model: openAiModel.value,
+    try {
+      if (method === "openai") {
+        applyOpenAICompatibleApiLoginConfig(openAiBaseUrl.value, openAiApiKey.value, fallbackDir, {
+          routeKind: currentOpenAiRoute,
+          model: openAiModel.value,
+        });
+        setCurrentMethod("openai");
+        setPage({
+          kind: "success",
+          message: currentOpenAiRoute === "gemini_compatible"
+            ? "Chat Completions Compatible API Configuration Successful!"
+            : "GPT Compatible API Configuration Successful!",
+          next: "embedding",
+        });
+        return;
+      }
+      applyAnthropicEndpointLoginConfig(anthropicBaseUrl.value, anthropicApiKey.value, fallbackDir, {
+        model: anthropicModel.value,
       });
-      setCurrentMethod("openai");
+      setCurrentMethod("anthropic");
+      setPage({ kind: "success", message: "Anthropic Endpoint Model Configuration Successful!", next: "embedding" });
+    } catch (error) {
       setPage({
-        kind: "success",
-        message: currentOpenAiRoute === "gemini_compatible"
-          ? "Chat Completions Compatible API Configuration Successful!"
-          : "GPT Compatible API Configuration Successful!",
-        next: "embedding",
+        kind: "login-progress",
+        lines: [
+          error instanceof Error ? error.message : String(error),
+          "",
+          "press ESC to return to previous page",
+        ],
+        cancelTarget: method === "openai" ? "openai-config" : "anthropic-config",
       });
-      return;
     }
-    applyAnthropicEndpointLoginConfig(anthropicBaseUrl.value, anthropicApiKey.value, fallbackDir, {
-      model: anthropicModel.value,
-    });
-    setCurrentMethod("anthropic");
-    setPage({ kind: "success", message: "Anthropic Endpoint Model Configuration Successful!", next: "embedding" });
   };
 
   const finalizeEmbeddingConfiguration = async (skipped: boolean) => {
@@ -440,7 +452,7 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
 
     if (page.kind === "login-progress") {
       if (key.escape && !loginInFlightRef.current) {
-        setPage(page.cancelTarget === "chatgpt-method" ? { kind: "chatgpt-method" } : { kind: "method" });
+        setPage({ kind: page.cancelTarget });
       }
       return;
     }

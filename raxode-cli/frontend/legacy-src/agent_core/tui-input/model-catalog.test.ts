@@ -198,6 +198,41 @@ test("listAvailableAnthropicModels normalizes anthropic /v1/models payloads", as
   }
 });
 
+test("listAvailableAnthropicModels uses DeepSeek root models endpoint for anthropic-compatible base URL", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({
+      data: [
+        { id: "deepseek-v4-flash" },
+        { id: "deepseek-v4-pro" },
+      ],
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const models = await listAvailableAnthropicModels({
+      apiKey: "sk-deepseek-test",
+      baseURL: "https://api.deepseek.com/anthropic",
+    });
+    assert.equal(requestedUrl, "https://api.deepseek.com/models");
+    assert.deepEqual(
+      models.map((entry) => entry.id),
+      ["deepseek-v4-flash", "deepseek-v4-pro"],
+    );
+    assert.deepEqual(models[0]?.reasoningLevels, ["none", "low", "medium", "high", "xhigh"]);
+    assert.equal(models[0]?.defaultReasoningLevel, "low");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("chat model availability scope separates response and chat-completions probes", () => {
   const common = {
     authMode: "api_key" as const,

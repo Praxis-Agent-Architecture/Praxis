@@ -9,6 +9,7 @@ import {
   applyChatGptSubscriptionRoleRouting,
   applyEmbeddingLoginConfig,
   applyOpenAICompatibleApiLoginConfig,
+  listAvailableAnthropicModels,
   maskSecretForDisplay,
   normalizeAnthropicBaseURL,
   normalizeEmbeddingBaseURL,
@@ -55,6 +56,7 @@ test("normalize login base URLs trims endpoint suffixes", () => {
   assert.equal(normalizeGeminiCompatibleBaseURL("https://example.com"), "https://example.com");
   assert.equal(normalizeGeminiCompatibleBaseURL("https://example.com/v1/chat/completions/"), "https://example.com/v1/chat/completions/");
   assert.equal(normalizeAnthropicBaseURL("https://anthropic.example/v1/messages/"), "https://anthropic.example/v1/messages/");
+  assert.equal(normalizeAnthropicBaseURL("https://api.deepseek.com/anthropic/"), "https://api.deepseek.com/anthropic");
   assert.equal(normalizeEmbeddingBaseURL("https://embed.example/v1/embeddings"), "https://embed.example/v1");
 });
 
@@ -79,6 +81,36 @@ test("provider login rejects full endpoint URLs without trailing slash", async (
       /trailing/i,
     );
   });
+});
+
+test("listAvailableAnthropicModels uses DeepSeek root models endpoint for anthropic-compatible base URL", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestedUrl = "";
+  globalThis.fetch = (async (input) => {
+    requestedUrl = String(input);
+    return new Response(JSON.stringify({
+      data: [
+        { id: "deepseek-v4-flash" },
+        { id: "deepseek-v4-pro" },
+      ],
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json",
+      },
+    });
+  }) as typeof fetch;
+
+  try {
+    const models = await listAvailableAnthropicModels(
+      "https://api.deepseek.com/anthropic",
+      "sk-deepseek-test",
+    );
+    assert.equal(requestedUrl, "https://api.deepseek.com/models");
+    assert.deepEqual(models, ["deepseek-v4-flash", "deepseek-v4-pro"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
 
 test("applyOpenAICompatibleApiLoginConfig rewires every role profile to the provided upstream", async () => {

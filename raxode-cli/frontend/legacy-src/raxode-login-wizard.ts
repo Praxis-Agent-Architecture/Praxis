@@ -103,7 +103,22 @@ export function normalizeGeminiCompatibleBaseURL(inputValue: string): string {
 }
 
 export function normalizeAnthropicBaseURL(inputValue: string): string {
-  return inputValue.trim();
+  const trimmed = inputValue.trim();
+  try {
+    const parsed = new URL(trimmed);
+    if (
+      parsed.hostname === "api.deepseek.com"
+      && parsed.pathname.replace(/\/+$/u, "") === "/anthropic"
+    ) {
+      parsed.pathname = "/anthropic";
+      parsed.search = "";
+      parsed.hash = "";
+      return parsed.toString().replace(/\/$/u, "");
+    }
+  } catch {
+    // Fall through to the raw trimmed value so the normal URL validator reports it.
+  }
+  return trimmed;
 }
 
 export function normalizeEmbeddingBaseURL(inputValue: string): string {
@@ -416,7 +431,7 @@ export function applyEmbeddingLoginConfig(
 }
 
 export async function listAvailableAnthropicModels(baseURL: string, apiKey: string): Promise<string[]> {
-  const response = await fetch(`${normalizeAnthropicBaseURL(baseURL).replace(/\/$/u, "")}/v1/models`, {
+  const response = await fetch(buildAnthropicModelsURL(baseURL), {
     headers: {
       "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
@@ -430,6 +445,23 @@ export async function listAvailableAnthropicModels(baseURL: string, apiKey: stri
   return (payload.data ?? [])
     .map((entry) => entry.id?.trim())
     .filter((entry): entry is string => Boolean(entry));
+}
+
+function isDeepSeekAnthropicCompatibleBaseURL(baseURL: string): boolean {
+  try {
+    const parsed = new URL(normalizeAnthropicBaseURL(baseURL));
+    return parsed.hostname === "api.deepseek.com"
+      && parsed.pathname.replace(/\/+$/u, "") === "/anthropic";
+  } catch {
+    return false;
+  }
+}
+
+function buildAnthropicModelsURL(baseURL: string): string {
+  if (isDeepSeekAnthropicCompatibleBaseURL(baseURL)) {
+    return "https://api.deepseek.com/models";
+  }
+  return `${normalizeAnthropicBaseURL(baseURL).replace(/\/$/u, "")}/v1/models`;
 }
 
 function buildLoginSummaryScreen(result: LoginWizardResult): string[] {

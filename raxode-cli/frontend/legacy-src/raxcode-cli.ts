@@ -335,11 +335,15 @@ async function readApiKeyFromInput(): Promise<string> {
 function printStatus(): void {
   const status = getOpenAIAuthStatus();
   const scaffold = ensureRaxcodeHomeScaffold();
+  let primaryResolved: ReturnType<typeof loadResolvedRoleConfig> | undefined;
   process.stdout.write(`${CLI_DISPLAY_NAME} home: ${scaffold.home}\n`);
   process.stdout.write(`Workspace: ${resolveConfiguredWorkspaceRoot()}\n`);
   for (const roleId of ["core.main", "tui.main"] as const) {
     try {
       const resolved = loadResolvedRoleConfig(roleId);
+      if (roleId === "core.main") {
+        primaryResolved = resolved;
+      }
       process.stdout.write(`${roleId} provider: ${resolved.profile.provider}\n`);
       process.stdout.write(`${roleId} model: ${resolved.binding.overrides?.model ?? resolved.profile.model}\n`);
       process.stdout.write(`${roleId} route: ${resolved.profile.route.apiStyle ?? "(default)"}\n`);
@@ -350,9 +354,9 @@ function printStatus(): void {
       process.stdout.write(`${roleId} provider: not configured\n`);
     }
   }
-  process.stdout.write(`OpenAI auth mode: ${status.authMode}\n`);
-  process.stdout.write(`OpenAI auth profile: ${status.activeAuthProfileId ?? "(none)"}\n`);
-  process.stdout.write(`OpenAI provider profile: ${status.activeProviderProfileId ?? "(none)"}\n`);
+  process.stdout.write(`Provider auth mode: ${primaryResolved?.authProfile.authMode ?? status.authMode}\n`);
+  process.stdout.write(`Provider auth profile: ${primaryResolved?.authProfile.id ?? status.activeAuthProfileId ?? "(none)"}\n`);
+  process.stdout.write(`Provider profile: ${primaryResolved?.profile.id ?? status.activeProviderProfileId ?? "(none)"}\n`);
   if (status.email) {
     process.stdout.write(`Email: ${status.email}\n`);
   }
@@ -365,7 +369,7 @@ function printStatus(): void {
   if (status.accessTokenExpiresAt) {
     process.stdout.write(`Access token expires at: ${status.accessTokenExpiresAt}\n`);
   }
-  process.stdout.write(`Refresh token present: ${status.refreshTokenPresent ? "yes" : "no"}\n`);
+  process.stdout.write(`Refresh token present: ${Boolean(primaryResolved?.authProfile.credentials.refreshToken ?? status.refreshTokenPresent) ? "yes" : "no"}\n`);
 }
 
 async function runLogin(args: string[]): Promise<number> {

@@ -337,7 +337,7 @@ export async function listAvailableAnthropicModels(config: {
   apiKey: string;
   baseURL: string;
 }): Promise<AvailableModelCatalogEntry[]> {
-  const response = await fetch(`${config.baseURL.replace(/\/$/u, "")}/v1/models`, {
+  const response = await fetch(buildAnthropicModelsURL(config.baseURL), {
     headers: {
       "x-api-key": config.apiKey,
       "anthropic-version": "2023-06-01",
@@ -354,12 +354,29 @@ export async function listAvailableAnthropicModels(config: {
     .map((id) => ({
       id,
       label: id,
-      reasoningLevels: [...ANTHROPIC_REASONING_LEVELS],
+      reasoningLevels: normalizeReasoningLevels(id).length > 0 ? normalizeReasoningLevels(id) : [...ANTHROPIC_REASONING_LEVELS],
       reasoningLevelDescriptions: {},
-      defaultReasoningLevel: "medium",
+      defaultReasoningLevel: isDeepSeekV4Model(id) ? "low" : "medium",
       supportsFastServiceTier: false,
       source: "chat",
     } satisfies AvailableModelCatalogEntry));
+}
+
+function isDeepSeekAnthropicCompatibleBaseURL(baseURL: string): boolean {
+  try {
+    const parsed = new URL(baseURL.trim());
+    return parsed.hostname === "api.deepseek.com"
+      && parsed.pathname.replace(/\/+$/u, "") === "/anthropic";
+  } catch {
+    return false;
+  }
+}
+
+function buildAnthropicModelsURL(baseURL: string): string {
+  if (isDeepSeekAnthropicCompatibleBaseURL(baseURL)) {
+    return "https://api.deepseek.com/models";
+  }
+  return `${baseURL.replace(/\/$/u, "")}/v1/models`;
 }
 
 function resolveModelAvailabilityCachePath(fallbackDir = process.cwd()): string {
