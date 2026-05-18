@@ -23,6 +23,7 @@ Stable public exports:
 - `@praxis-ai/praxis/agent-core`
 - `@praxis-ai/praxis/application-layer`
 - `@praxis-ai/praxis/rax`
+- `@praxis-ai/praxis/provider/*`
 
 Internal runtime folders are open-source implementation details. Build agents through the public facade instead of importing deep files.
 

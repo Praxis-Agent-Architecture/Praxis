@@ -35,6 +35,10 @@
       "types": "./dist/rax_packageManager/index.d.ts",
       "import": "./dist/rax_packageManager/index.js"
     },
+    "./provider/*": {
+      "types": "./dist/agentCore/agent_modelAdapter/*.d.ts",
+      "import": "./dist/agentCore/agent_modelAdapter/*.js"
+    },
     "./package.json": "./package.json"
   },
   "engines": {
