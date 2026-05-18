@@ -2,7 +2,6 @@ import { cp, mkdir, readdir } from "node:fs/promises";
 import path from "node:path";
 
 const assetExtensions = new Set([".md", ".json", ".txt", ".yaml", ".yml"]);
-const internalNotes = new Set(["raxodeProviderConfiguration.md"]);
 const sourceRoot = path.resolve("src");
 const distRoot = path.resolve("dist");
 
@@ -15,9 +14,6 @@ async function copyAssets(directory) {
       continue;
     }
     if (!entry.isFile() || !assetExtensions.has(path.extname(entry.name))) {
-      continue;
-    }
-    if (internalNotes.has(entry.name)) {
       continue;
     }
     const relative = path.relative(sourceRoot, source);
