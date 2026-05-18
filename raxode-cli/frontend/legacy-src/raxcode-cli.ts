@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   getOpenAIAuthStatus,
@@ -12,7 +12,6 @@ import {
 } from "./raxcode-openai-auth.js";
 import { loadOpenAILiveConfig } from "./rax/live-config.js";
 import { runRaxodeLoginTui } from "./raxode-login-tui.js";
-import { runRaxodeTuiWithStartupSplash } from "./raxode-startup-splash.js";
 import {
   ensureRaxcodeHomeScaffold,
   loadRaxcodeUiConfig,
@@ -85,7 +84,33 @@ function printUsage(): void {
 }
 
 function resolveCliAppRoot(moduleDir = MODULE_DIR): string {
-  return resolve(moduleDir, "..");
+  let current = resolve(moduleDir);
+  while (true) {
+    const candidate = resolve(current, "package.json");
+    if (existsSync(candidate)) {
+      return current;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return resolve(moduleDir, "..");
+    }
+    current = parent;
+  }
+}
+
+function resolveTsxCommand(startDir: string): string {
+  let current = resolve(startDir);
+  while (true) {
+    const candidate = resolve(current, "node_modules", ".bin", "tsx");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return resolve(startDir, "node_modules", ".bin", "tsx");
+    }
+    current = parent;
+  }
 }
 
 function resolveUiEntrypoint(command: RaxodeUiCommand, moduleDir = MODULE_DIR): { command: string; args: string[] } {
@@ -97,7 +122,7 @@ function resolveUiEntrypoint(command: RaxodeUiCommand, moduleDir = MODULE_DIR): 
   );
   if (existsSync(sourceEntrypoint)) {
     return {
-      command: resolve(appRoot, "node_modules", ".bin", "tsx"),
+      command: resolveTsxCommand(moduleDir),
       args: [sourceEntrypoint],
     };
   }
@@ -209,6 +234,7 @@ async function runUiCommandWithBootstrap(
   }
   const launchPlan = resolveRaxodeLaunchPlan(command, args, options);
   try {
+    const { runRaxodeTuiWithStartupSplash } = await import("./raxode-startup-splash.js");
     return await runRaxodeTuiWithStartupSplash({
       ...launchPlan,
       env: {
@@ -311,6 +337,19 @@ function printStatus(): void {
   const scaffold = ensureRaxcodeHomeScaffold();
   process.stdout.write(`${CLI_DISPLAY_NAME} home: ${scaffold.home}\n`);
   process.stdout.write(`Workspace: ${resolveConfiguredWorkspaceRoot()}\n`);
+  for (const roleId of ["core.main", "tui.main"] as const) {
+    try {
+      const resolved = loadResolvedRoleConfig(roleId);
+      process.stdout.write(`${roleId} provider: ${resolved.profile.provider}\n`);
+      process.stdout.write(`${roleId} model: ${resolved.binding.overrides?.model ?? resolved.profile.model}\n`);
+      process.stdout.write(`${roleId} route: ${resolved.profile.route.apiStyle ?? "(default)"}\n`);
+      process.stdout.write(`${roleId} base URL: ${resolved.profile.route.baseURL}\n`);
+      process.stdout.write(`${roleId} request URL: ${resolved.profile.route.finalRequestURL ?? "(derived at runtime)"}\n`);
+      process.stdout.write(`${roleId} auth profile: ${resolved.authProfile.id}\n`);
+    } catch {
+      process.stdout.write(`${roleId} provider: not configured\n`);
+    }
+  }
   process.stdout.write(`OpenAI auth mode: ${status.authMode}\n`);
   process.stdout.write(`OpenAI auth profile: ${status.activeAuthProfileId ?? "(none)"}\n`);
   process.stdout.write(`OpenAI provider profile: ${status.activeProviderProfileId ?? "(none)"}\n`);
@@ -390,4 +429,8 @@ export async function runRaxcodeCli(argv: string[]): Promise<number> {
   }
   printUsage();
   return 1;
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  process.exitCode = await runRaxcodeCli(process.argv.slice(2));
 }

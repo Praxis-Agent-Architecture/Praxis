@@ -41,8 +41,9 @@ type LoginPage =
 type MethodOption = "chatgpt" | "openai" | "anthropic";
 type ChatGptMethodOption = "web-login" | "device-auth";
 type OpenAIRouteOption = OpenAICompatibleRouteKind;
-type OpenAIFieldId = "baseURL" | "apiKey";
-type AnthropicFieldId = "baseURL" | "apiKey";
+type ProviderConfigFieldId = "baseURL" | "model" | "apiKey";
+type OpenAIFieldId = ProviderConfigFieldId;
+type AnthropicFieldId = ProviderConfigFieldId;
 type EmbeddingFieldId = "baseURL" | "apiKey";
 
 const STARTUP_WORD = "RAXODE";
@@ -269,8 +270,10 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
   const [embeddingFieldIndex, setEmbeddingFieldIndex] = useState(0);
   const [editingField, setEditingField] = useState<OpenAIFieldId | AnthropicFieldId | EmbeddingFieldId | null>(null);
   const [openAiBaseUrl, setOpenAiBaseUrl] = useState(createTuiTextInputState());
+  const [openAiModel, setOpenAiModel] = useState(createTuiTextInputState());
   const [openAiApiKey, setOpenAiApiKey] = useState(createTuiTextInputState());
   const [anthropicBaseUrl, setAnthropicBaseUrl] = useState(createTuiTextInputState());
+  const [anthropicModel, setAnthropicModel] = useState(createTuiTextInputState());
   const [anthropicApiKey, setAnthropicApiKey] = useState(createTuiTextInputState());
   const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState(createTuiTextInputState());
   const [embeddingApiKey, setEmbeddingApiKey] = useState(createTuiTextInputState());
@@ -306,7 +309,7 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
   const chatGptMethodOptions = ["web-login", "device-auth"] as const;
   const openAiRouteOptions = [
     "GPT Compatible (Responses API)",
-    "Gemini Compatible (Chat Completions API)",
+    "Chat Completions Compatible (OpenAI/Gemini/DeepSeek)",
   ] as const;
 
   const exitApp = () => {
@@ -357,18 +360,21 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
     if (method === "openai") {
       applyOpenAICompatibleApiLoginConfig(openAiBaseUrl.value, openAiApiKey.value, fallbackDir, {
         routeKind: currentOpenAiRoute,
+        model: openAiModel.value,
       });
       setCurrentMethod("openai");
       setPage({
         kind: "success",
         message: currentOpenAiRoute === "gemini_compatible"
-          ? "Gemini Compatible API Configuration Successful!"
+          ? "Chat Completions Compatible API Configuration Successful!"
           : "GPT Compatible API Configuration Successful!",
         next: "embedding",
       });
       return;
     }
-    applyAnthropicEndpointLoginConfig(anthropicBaseUrl.value, anthropicApiKey.value, fallbackDir);
+    applyAnthropicEndpointLoginConfig(anthropicBaseUrl.value, anthropicApiKey.value, fallbackDir, {
+      model: anthropicModel.value,
+    });
     setCurrentMethod("anthropic");
     setPage({ kind: "success", message: "Anthropic Endpoint Model Configuration Successful!", next: "embedding" });
   };
@@ -398,12 +404,29 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
   };
 
   const clearActiveField = (
-    focusedField: OpenAIFieldId | AnthropicFieldId | EmbeddingFieldId,
+    focusedField: EmbeddingFieldId,
     setBaseState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
     setSecretState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
   ) => {
     if (focusedField === "baseURL") {
       setBaseState(createTuiTextInputState());
+      return;
+    }
+    setSecretState(createTuiTextInputState());
+  };
+
+  const clearProviderField = (
+    focusedField: ProviderConfigFieldId,
+    setBaseState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
+    setModelState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
+    setSecretState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
+  ) => {
+    if (focusedField === "baseURL") {
+      setBaseState(createTuiTextInputState());
+      return;
+    }
+    if (focusedField === "model") {
+      setModelState(createTuiTextInputState());
       return;
     }
     setSecretState(createTuiTextInputState());
@@ -501,6 +524,86 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
       return;
     }
 
+    const handleProviderFormPage = (
+      fieldIndex: number,
+      setFieldIndex: React.Dispatch<React.SetStateAction<number>>,
+      baseState: TuiTextInputState,
+      setBaseState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
+      modelState: TuiTextInputState,
+      setModelState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
+      secretState: TuiTextInputState,
+      setSecretState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
+      pageKind: "openai-config" | "anthropic-config",
+    ) => {
+      const fieldIds: ProviderConfigFieldId[] = ["baseURL", "model", "apiKey"];
+      const focusedField = fieldIds[fieldIndex] ?? "baseURL";
+      const applyToFocusedField = (state: TuiTextInputState) => {
+        if (focusedField === "baseURL") {
+          setBaseState(state);
+        } else if (focusedField === "model") {
+          setModelState(state);
+        } else {
+          setSecretState(state);
+        }
+      };
+      const focusedState = focusedField === "baseURL" ? baseState : focusedField === "model" ? modelState : secretState;
+      if (editingField === focusedField) {
+        if (key.ctrl && inputText === "u") {
+          clearProviderField(focusedField, setBaseState, setModelState, setSecretState);
+          return;
+        }
+        const inputResult = applyTuiTextInputKey(
+          focusedState,
+          inputText,
+          key,
+        );
+        if (inputResult.submit) {
+          if (focusedField !== "apiKey") {
+            setEditingField(null);
+            return;
+          }
+          setEditingField(null);
+          if (pageKind === "openai-config" && baseState.value.trim() && modelState.value.trim() && secretState.value.trim()) {
+            void finalizeApiConfiguration("openai");
+          } else if (pageKind === "anthropic-config" && baseState.value.trim() && modelState.value.trim() && secretState.value.trim()) {
+            void finalizeApiConfiguration("anthropic");
+          }
+          return;
+        }
+        if (inputResult.handled) {
+          applyToFocusedField(inputResult.nextState);
+        }
+        return;
+      }
+
+      if (key.ctrl && inputText === "u") {
+        clearProviderField(focusedField, setBaseState, setModelState, setSecretState);
+        setEditingField(focusedField);
+        return;
+      }
+
+      if (key.upArrow) {
+        setFieldIndex((previous) => Math.max(0, previous - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setFieldIndex((previous) => Math.min(fieldIds.length - 1, previous + 1));
+        return;
+      }
+      if (key.return) {
+        setEditingField(focusedField);
+        return;
+      }
+
+      if (shouldBeginInlineEditing(inputText, key)) {
+        const inputResult = applyTuiTextInputKey(focusedState, inputText, key);
+        if (inputResult.handled) {
+          applyToFocusedField(inputResult.nextState);
+          setEditingField(focusedField);
+        }
+      }
+    };
+
     const handleFormPage = (
       fieldIndex: number,
       setFieldIndex: React.Dispatch<React.SetStateAction<number>>,
@@ -508,9 +611,8 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
       setBaseState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
       secretState: TuiTextInputState,
       setSecretState: React.Dispatch<React.SetStateAction<TuiTextInputState>>,
-      pageKind: "openai-config" | "anthropic-config" | "embedding-config",
     ) => {
-      const focusedField: OpenAIFieldId | AnthropicFieldId | EmbeddingFieldId = fieldIndex === 0 ? "baseURL" : "apiKey";
+      const focusedField: EmbeddingFieldId = fieldIndex === 0 ? "baseURL" : "apiKey";
       const applyToFocusedField = (state: TuiTextInputState) => {
         if (focusedField === "baseURL") {
           setBaseState(state);
@@ -534,16 +636,10 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
             return;
           }
           setEditingField(null);
-          if (pageKind === "openai-config" && baseState.value.trim() && secretState.value.trim()) {
-            void finalizeApiConfiguration("openai");
-          } else if (pageKind === "anthropic-config" && baseState.value.trim() && secretState.value.trim()) {
-            void finalizeApiConfiguration("anthropic");
-          } else if (pageKind === "embedding-config") {
-            if (!baseState.value.trim() && !secretState.value.trim()) {
-              void finalizeEmbeddingConfiguration(true);
-            } else if (baseState.value.trim() && secretState.value.trim()) {
-              void finalizeEmbeddingConfiguration(false);
-            }
+          if (!baseState.value.trim() && !secretState.value.trim()) {
+            void finalizeEmbeddingConfiguration(true);
+          } else if (baseState.value.trim() && secretState.value.trim()) {
+            void finalizeEmbeddingConfiguration(false);
           }
           return;
         }
@@ -569,8 +665,7 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
       }
       if (key.return) {
         if (
-          pageKind === "embedding-config"
-          && fieldIndex === 1
+          fieldIndex === 1
           && !baseState.value.trim()
           && !secretState.value.trim()
         ) {
@@ -595,15 +690,15 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
     };
 
     if (page.kind === "openai-config") {
-      handleFormPage(openAiFieldIndex, setOpenAiFieldIndex, openAiBaseUrl, setOpenAiBaseUrl, openAiApiKey, setOpenAiApiKey, "openai-config");
+      handleProviderFormPage(openAiFieldIndex, setOpenAiFieldIndex, openAiBaseUrl, setOpenAiBaseUrl, openAiModel, setOpenAiModel, openAiApiKey, setOpenAiApiKey, "openai-config");
       return;
     }
     if (page.kind === "anthropic-config") {
-      handleFormPage(anthropicFieldIndex, setAnthropicFieldIndex, anthropicBaseUrl, setAnthropicBaseUrl, anthropicApiKey, setAnthropicApiKey, "anthropic-config");
+      handleProviderFormPage(anthropicFieldIndex, setAnthropicFieldIndex, anthropicBaseUrl, setAnthropicBaseUrl, anthropicModel, setAnthropicModel, anthropicApiKey, setAnthropicApiKey, "anthropic-config");
       return;
     }
     if (page.kind === "embedding-config") {
-      handleFormPage(embeddingFieldIndex, setEmbeddingFieldIndex, embeddingBaseUrl, setEmbeddingBaseUrl, embeddingApiKey, setEmbeddingApiKey, "embedding-config");
+      handleFormPage(embeddingFieldIndex, setEmbeddingFieldIndex, embeddingBaseUrl, setEmbeddingBaseUrl, embeddingApiKey, setEmbeddingApiKey);
     }
   });
 
@@ -674,7 +769,7 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
           <>
             <Text color={TUI_THEME.text}>
               {currentOpenAiRoute === "gemini_compatible"
-                ? "Gemini Compatible Model Configuration"
+                ? "Chat Completions Compatible Model Configuration"
                 : "GPT Compatible Model Configuration"}
             </Text>
             <Text> </Text>
@@ -685,8 +780,12 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
                 ? " /v1/chat/completions"
                 : " /v1/responses",
             })}
-            {formatInputFieldLine("secret-api-key: ", openAiApiKey, {
+            {formatInputFieldLine("model: ", openAiModel, {
               active: openAiFieldIndex === 1,
+              editing: editingField === "model",
+            })}
+            {formatInputFieldLine("secret-api-key: ", openAiApiKey, {
+              active: openAiFieldIndex === 2,
               editing: editingField === "apiKey",
               secret: true,
             })}
@@ -706,8 +805,12 @@ function LoginApp({ fallbackDir = process.cwd(), onExit }: LoginAppProps): React
               editing: editingField === "baseURL",
               suffix: " /v1/messages",
             })}
-            {formatInputFieldLine("secret-api-key: ", anthropicApiKey, {
+            {formatInputFieldLine("model: ", anthropicModel, {
               active: anthropicFieldIndex === 1,
+              editing: editingField === "model",
+            })}
+            {formatInputFieldLine("secret-api-key: ", anthropicApiKey, {
+              active: anthropicFieldIndex === 2,
               editing: editingField === "apiKey",
               secret: true,
             })}

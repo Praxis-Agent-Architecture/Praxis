@@ -13,8 +13,8 @@ const appRoot = resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 test("workspace restore subprocess restores checkpointed files without mutating the caller thread", async () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-workspace-restore-subprocess-home-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-workspace-restore-subprocess-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     mkdirSync(join(workspace, "src"), { recursive: true });
@@ -45,9 +45,9 @@ test("workspace restore subprocess restores checkpointed files without mutating 
     assert.equal(existsSync(join(workspace, "notes.txt")), false);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });

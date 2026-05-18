@@ -6,15 +6,15 @@ function resolveUserHome(fallbackDir = process.cwd()): string {
 }
 
 export function resolveRaxcodeHome(fallbackDir = process.cwd()): string {
-  return resolve(process.env.RAXCODE_HOME ?? join(resolveUserHome(fallbackDir), ".raxcode"));
+  return resolve(process.env.RAXODE_HOME ?? join(resolveUserHome(fallbackDir), ".raxode"));
 }
 
 export function resolveConfigRoot(fallbackDir = process.cwd()): string {
-  return resolve(process.env.PRAXIS_CONFIG_ROOT ?? resolveRaxcodeHome(fallbackDir));
+  return resolveRaxcodeHome(fallbackDir);
 }
 
 export function resolveStateRoot(fallbackDir = process.cwd()): string {
-  return resolve(process.env.PRAXIS_STATE_ROOT ?? resolveRaxcodeHome(fallbackDir));
+  return resolveRaxcodeHome(fallbackDir);
 }
 
 export function resolveWorkspaceRoot(fallbackDir = process.cwd()): string {

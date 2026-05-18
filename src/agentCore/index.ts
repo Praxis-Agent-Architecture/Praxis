@@ -464,6 +464,28 @@ export {
 } from "./agent_runtimeImplementation/runtimeSessionStateEventStore.js";
 
 export {
+  bindRaxodeRoleModel,
+  createRaxodeModelEntry,
+  createRaxodeProviderProfile,
+  createRaxodeSecret,
+  maskRaxodeSecret,
+  resolveRaxodeProviderRequestUrl,
+  type RaxodeEndpointShape,
+  type RaxodeModelEntry,
+  type RaxodeModelEntryResult,
+  type RaxodeProviderConfigurationError,
+  type RaxodeProviderProfile,
+  type RaxodeProviderProfileResult,
+  type RaxodeProviderRequestUrlPlan,
+  type RaxodeProviderRequestUrlResult,
+  type RaxodeRoleBinding,
+  type RaxodeRoleBindingResult,
+  type RaxodeSecret,
+  type RaxodeSecretResult,
+  type RaxodeUrlMode,
+} from "./agent_modelAdapter/authProfileLayer/providerConfiguration.js";
+
+export {
   createFrameworkInspectionReport,
   type FrameworkDependencyInput,
   type FrameworkInspectionFinding,

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import type { AgentManifest } from "../../../src/agentCore/index.js";
+import { resolveRaxodeProviderRequestUrl } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/providerConfiguration.js";
 import { RAXCODE_ROLE_IDS } from "../../frontend/legacy-src/raxcode-config.js";
 import {
   createCodexRoutingTransport,
@@ -49,11 +50,25 @@ async function withRaxcodeHome<T>(
   run: (home: string) => Promise<T>,
 ): Promise<T> {
   const home = await mkdtemp(path.join(os.tmpdir(), "raxode-raxcode-route-"));
-  const previousHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const previousHome = process.env.RAXODE_HOME;
+  const previousLegacyHome = process.env.RAXCODE_HOME;
+  process.env.RAXODE_HOME = home;
+  process.env.RAXCODE_HOME = path.join(home, "legacy-raxcode-ignored");
   try {
     const authProfileId = `auth.${input.provider}.test`;
     const profileId = `profile.${input.provider}.test`;
+    const endpointShape = input.apiStyle === "messages"
+      ? "messages"
+      : input.apiStyle === "chat_completions"
+        ? "chat_completions"
+        : "responses";
+    const routePlan = resolveRaxodeProviderRequestUrl({
+      inputBaseURL: input.baseURL,
+      endpointShape,
+    });
+    if (!routePlan.ok) {
+      throw new Error(routePlan.error.message);
+    }
     await writeFile(path.join(home, "auth.json"), `${JSON.stringify({
       schemaVersion: 3,
       activeAuthProfileIdBySlot: {
@@ -90,6 +105,8 @@ async function withRaxcodeHome<T>(
         route: {
           baseURL: input.baseURL,
           apiStyle: input.apiStyle,
+          urlMode: routePlan.plan.urlMode,
+          finalRequestURL: routePlan.plan.finalRequestURL,
         },
         model: input.model,
         reasoningEffort: "low",
@@ -128,9 +145,14 @@ async function withRaxcodeHome<T>(
     return await run(home);
   } finally {
     if (previousHome === undefined) {
+      delete process.env.RAXODE_HOME;
+    } else {
+      process.env.RAXODE_HOME = previousHome;
+    }
+    if (previousLegacyHome === undefined) {
       delete process.env.RAXCODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = previousHome;
+      process.env.RAXCODE_HOME = previousLegacyHome;
     }
     await rm(home, { recursive: true, force: true });
   }
@@ -389,7 +411,66 @@ test("raxode live provider turn-state is reset by a new transport instance", asy
   assert.equal(headers[1]?.["x-codex-turn-state"], undefined);
 });
 
-test("raxode configured model options preserve legacy Codex route when AGENTCORE_CODEX env is present", async () => {
+test("raxode live provider does not override ChatGPT Codex request path", async () => {
+  await withRaxcodeHome({
+    provider: "openai",
+    authMode: "chatgpt_oauth",
+    apiStyle: "responses",
+    baseURL: "https://chatgpt.com/backend-api/codex",
+    model: "gpt-5.5",
+    accessToken: "access-token-test",
+  }, async (home) => {
+    const urls: string[] = [];
+    const provider = createRaxodeLiveProvider(manifestFor({
+      provider: "openai",
+      endpointShape: "responses",
+      baseURL: "https://chatgpt.com/backend-api/codex",
+      providerRoute: "chatgpt_codex_responses",
+    }), {
+      startDir: home,
+      sessionId: "session.codex-url.test",
+      runtimeId: "runtime.codex-url.test",
+      turnId: "turn.1",
+      transport: async (request) => {
+        urls.push(request.url);
+        return {
+          status: 200,
+          headers: {},
+          body: { id: "resp.codex-url.test", output: [] },
+        };
+      },
+    });
+
+    await provider.openaiResponsesCaller?.({
+      provider: "openai",
+      apiVersion: "v1",
+      operation: "create",
+      method: "POST",
+      url: "https://chatgpt.com/backend-api/codex/responses",
+      pathSuffix: "",
+      headers: { "content-type": "application/json" },
+      query: {},
+      body: { model: "gpt-5.5", input: "hello", stream: true },
+      endpoint: "/responses",
+      runtime: {
+        runtimeId: "runtime.codex-url.test",
+        invocationId: "invocation.codex-url.test",
+        callerId: "caller.codex-url.test",
+        traceId: "trace.codex-url.test",
+      },
+      requestedScopes: ["model.invoke"],
+      grantedScopes: ["model.invoke"],
+      dryRun: false,
+      providerCallPlanned: true,
+      unsafeSideEffects: false,
+      providerFieldsOpaque: true,
+    });
+
+    assert.deepEqual(urls, ["https://chatgpt.com/backend-api/codex/responses"]);
+  });
+});
+
+test("raxode configured model options only use legacy Codex env when explicitly forced", async () => {
   const previousModel = process.env.AGENTCORE_CODEX_MODEL;
   const previousReasoning = process.env.AGENTCORE_CODEX_REASONING_EFFORT;
   process.env.AGENTCORE_CODEX_MODEL = "gpt-5.5";
@@ -401,7 +482,16 @@ test("raxode configured model options preserve legacy Codex route when AGENTCORE
     model: "gpt-4o",
     apiKey: "sk-config-test",
   }, async (home) => {
-    const resolved = resolveRaxodeConfiguredModelOptions({ roleId: "core.main", startDir: home });
+    const configResolved = resolveRaxodeConfiguredModelOptions({ roleId: "core.main", startDir: home });
+
+    assert.equal(configResolved.provider, "openai");
+    assert.equal(configResolved.model, "gpt-4o");
+    assert.equal(configResolved.reasoningEffort, "low");
+    assert.equal(configResolved.endpointShape, "chat_completions");
+    assert.equal(configResolved.providerRoute, "openai_chat_completions");
+    assert.equal(configResolved.authSource, "raxcode-config");
+
+    const resolved = resolveRaxodeConfiguredModelOptions({ roleId: "core.main", startDir: home, forceCodexLegacy: true });
 
     assert.equal(resolved.provider, "openai");
     assert.equal(resolved.model, "gpt-5.5");
@@ -474,7 +564,7 @@ test("raxode configured model options ignore reasoning-only legacy Codex env for
       const resolved = resolveRaxodeConfiguredModelOptions({ roleId: "core.main", startDir: home });
 
       assert.equal(resolved.model, "deepseek-v4-flash");
-      assert.equal(resolved.reasoningEffort, "medium");
+      assert.equal(resolved.reasoningEffort, "low");
       assert.equal(resolved.endpointShape, "chat_completions");
       assert.equal(resolved.providerRoute, "openai_chat_completions");
       assert.equal(resolved.authSource, "raxcode-config");
@@ -546,7 +636,7 @@ test("raxode live provider maps raxcode Anthropic messages config to messages ca
   await withRaxcodeHome({
     provider: "anthropic",
     apiStyle: "messages",
-    baseURL: "https://api.anthropic.com",
+    baseURL: "https://api.deepseek.com/anthropic/",
     model: "claude-test",
     apiKey: "sk-ant-test",
     maxOutputTokens: 777,
@@ -594,7 +684,7 @@ test("raxode live provider maps raxcode Anthropic messages config to messages ca
       providerFieldsOpaque: true,
     });
 
-    assert.equal(requests[0]?.url, "https://api.anthropic.com/v1/messages");
+    assert.equal(requests[0]?.url, "https://api.deepseek.com/anthropic/");
     assert.equal(requests[0]?.headers?.["x-api-key"], "sk-ant-test");
     assert.equal(requests[0]?.headers?.["anthropic-version"], "2023-06-01");
     assert.deepEqual(requests[0]?.body, { model: "claude-test", messages: [] });

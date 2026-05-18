@@ -26,6 +26,7 @@ import type {
 } from "./agent_core/ta-pool-model/index.js";
 import { createTapGovernanceObject } from "./agent_core/ta-pool-model/index.js";
 import type { TaPoolMode } from "./agent_core/ta-pool-types/index.js";
+import type { RaxodeUrlMode } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/providerConfiguration.js";
 
 export const RAXCODE_SCHEMA_VERSION = 3;
 
@@ -135,6 +136,8 @@ export interface RaxcodeProviderProfile {
   route: {
     baseURL: string;
     apiStyle?: string;
+    urlMode?: RaxodeUrlMode;
+    finalRequestURL?: string;
   };
   model: string;
   reasoningEffort?: RaxcodeReasoningEffort;
@@ -496,6 +499,8 @@ function makeRoleProfile(roleId: RaxcodeRoleId): RaxcodeProviderProfile {
     route: {
       baseURL: "https://api.openai.com/v1",
       apiStyle: "responses",
+      urlMode: "auto_append_endpoint",
+      finalRequestURL: "https://api.openai.com/v1/responses",
     },
     model: plan.model,
     reasoningEffort: plan.reasoning,
@@ -544,6 +549,8 @@ function createDefaultConfigFile(fallbackDir = process.cwd()): RaxcodeConfigFile
         route: {
           baseURL: "https://api.anthropic.com",
           apiStyle: "messages",
+          urlMode: "auto_append_endpoint",
+          finalRequestURL: "https://api.anthropic.com/v1/messages",
         },
         model: "claude-opus-4-6-thinking",
         contextWindowTokens: 200_000,
@@ -557,6 +564,8 @@ function createDefaultConfigFile(fallbackDir = process.cwd()): RaxcodeConfigFile
         route: {
           baseURL: "https://api.anthropic.com",
           apiStyle: "messages",
+          urlMode: "auto_append_endpoint",
+          finalRequestURL: "https://api.anthropic.com/v1/messages",
         },
         model: "claude-opus-4-6-thinking",
         contextWindowTokens: 200_000,
@@ -765,6 +774,8 @@ function loadConfigFile(filePath: string): RaxcodeConfigFile {
       route: {
         baseURL: asString(route.baseURL, filePath, `profiles[${index}].route.baseURL`),
         apiStyle: asOptionalString(route.apiStyle),
+        urlMode: asOptionalString(route.urlMode) as RaxodeUrlMode | undefined,
+        finalRequestURL: asOptionalString(route.finalRequestURL),
       },
       model: asString(record.model, filePath, `profiles[${index}].model`),
       reasoningEffort: asOptionalString(record.reasoningEffort) as RaxcodeReasoningEffort | undefined,

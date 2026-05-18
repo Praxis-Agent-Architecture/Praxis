@@ -21,8 +21,8 @@ import {
 test("direct session store saves, lists, loads, and renames snapshots", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-session-store-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-direct-session-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     saveDirectTuiSessionSnapshot({
@@ -77,9 +77,9 @@ test("direct session store saves, lists, loads, and renames snapshots", () => {
     assert.equal(loadDirectTuiSessionSnapshot("session-1", workspace)?.name, "renamed session");
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });
@@ -90,8 +90,8 @@ test("direct session store scopes sessions to the current cwd", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-session-store-scope-home-"));
   const workspaceA = mkdtempSync(join(tmpdir(), "praxis-direct-session-scope-a-"));
   const workspaceB = mkdtempSync(join(tmpdir(), "praxis-direct-session-scope-b-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     saveDirectTuiSessionSnapshot({
@@ -114,9 +114,9 @@ test("direct session store scopes sessions to the current cwd", () => {
     assert.equal(loadDirectTuiSessionSnapshot("session-a", workspaceB), null);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspaceA, { recursive: true, force: true });
@@ -127,8 +127,8 @@ test("direct session store scopes sessions to the current cwd", () => {
 test("direct session store ignores legacy global sessions", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-session-store-legacy-home-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-direct-session-legacy-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     const legacySessionsDir = join(home, "sessions");
@@ -164,9 +164,9 @@ test("direct session store ignores legacy global sessions", () => {
     assert.equal(loadDirectTuiSessionSnapshot("legacy-session", workspace), null);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });
@@ -176,8 +176,8 @@ test("direct session store ignores legacy global sessions", () => {
 test("direct session store falls back to the current workspace when snapshot workspace is invalid", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-session-store-invalid-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-direct-session-invalid-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     saveDirectTuiSessionSnapshot({
@@ -213,9 +213,9 @@ test("direct session store falls back to the current workspace when snapshot wor
     assert.equal(loaded?.workspace, workspace);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });
@@ -225,8 +225,8 @@ test("direct session store falls back to the current workspace when snapshot wor
 test("direct session selector resolves exact ids, names, and unique prefixes", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-session-select-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-direct-session-select-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     saveDirectTuiSessionSnapshot({
@@ -263,9 +263,9 @@ test("direct session selector resolves exact ids, names, and unique prefixes", (
     assert.equal(resolveDirectTuiSessionSelection("missing", workspace).status, "not_found");
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });
@@ -287,8 +287,8 @@ test("resume selector prefers unique simple names and falls back to session id",
 test("direct agent registry saves, lists, and renames agents", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-agent-store-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-direct-agent-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     saveDirectTuiAgent({
@@ -309,9 +309,9 @@ test("direct agent registry saves, lists, and renames agents", () => {
     assert.equal(existsSync(join(workspace, ".raxode", "sessions", "direct-tui-agents.json")), true);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });

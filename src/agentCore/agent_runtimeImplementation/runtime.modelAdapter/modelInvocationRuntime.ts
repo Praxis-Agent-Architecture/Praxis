@@ -391,7 +391,9 @@ function requestEndpointShape(request: RuntimeModelInvocationLiveRequest): "resp
 
 function isChatGPTCodexResponsesRoute(request: RuntimeModelInvocationLiveRequest, carrierId: string): boolean {
   const productChannel = metadataString(request.carrier?.metadata, "productChannel");
+  const providerRoute = metadataString(request.carrier?.metadata, "providerRoute");
   return productChannel === "chatgpt-codex" ||
+    providerRoute === "chatgpt_codex_responses" ||
     request.auth?.credentialRef?.credentialType === "chatgpt_codex_oauth" ||
     carrierId.includes("chatgpt-codex") ||
     (request.requiredScopes ?? []).some((scope) => scope.trim() === "chatgpt.codex.responses");

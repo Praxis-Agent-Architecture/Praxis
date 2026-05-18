@@ -9,6 +9,7 @@
   },
   "bin": {
     "rax": "./bin/rax",
+    "raxode": "./bin/raxode",
     "raxode-cli": "./bin/raxode-cli"
   },
   "exports": {

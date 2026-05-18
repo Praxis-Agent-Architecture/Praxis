@@ -246,6 +246,8 @@ function ensureOfficialOpenAIProviderProfile(configFile: RaxcodeConfigFile): voi
     existing.route = {
       baseURL: OPENAI_OFFICIAL_BASE_URL,
       apiStyle: "responses",
+      urlMode: "literal",
+      finalRequestURL: OPENAI_OFFICIAL_BASE_URL,
     };
     existing.enabled = true;
     if (!existing.model) {
@@ -264,6 +266,8 @@ function ensureOfficialOpenAIProviderProfile(configFile: RaxcodeConfigFile): voi
     route: {
       baseURL: OPENAI_OFFICIAL_BASE_URL,
       apiStyle: "responses",
+      urlMode: "literal",
+      finalRequestURL: OPENAI_OFFICIAL_BASE_URL,
     },
     model: corePlan.model,
     reasoningEffort: corePlan.reasoning,

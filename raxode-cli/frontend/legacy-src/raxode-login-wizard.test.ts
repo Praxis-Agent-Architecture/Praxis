@@ -23,15 +23,22 @@ import {
 import { OPENAI_OFFICIAL_AUTH_PROFILE_ID } from "./raxcode-openai-auth.js";
 
 function withTempHome<T>(rootDir: string, fn: () => T): T {
-  const previousHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  const previousHome = process.env.RAXODE_HOME;
+  const previousLegacyHome = process.env.RAXCODE_HOME;
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
+  process.env.RAXCODE_HOME = path.join(rootDir, ".legacy-raxcode-ignored");
   try {
     return fn();
   } finally {
     if (previousHome === undefined) {
+      delete process.env.RAXODE_HOME;
+    } else {
+      process.env.RAXODE_HOME = previousHome;
+    }
+    if (previousLegacyHome === undefined) {
       delete process.env.RAXCODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = previousHome;
+      process.env.RAXCODE_HOME = previousLegacyHome;
     }
   }
 }
@@ -43,18 +50,43 @@ test("maskSecretForDisplay keeps the first seven and last four characters", () =
 });
 
 test("normalize login base URLs trims endpoint suffixes", () => {
-  assert.equal(normalizeOpenAICompatibleBaseURL("https://example.com/v1/responses"), "https://example.com/v1");
-  assert.equal(normalizeOpenAICompatibleBaseURL("https://example.com"), "https://example.com/v1");
-  assert.equal(normalizeGeminiCompatibleBaseURL("https://example.com/v1/chat/completions"), "https://example.com/v1");
-  assert.equal(normalizeGeminiCompatibleBaseURL("https://example.com"), "https://example.com/v1");
-  assert.equal(normalizeAnthropicBaseURL("https://anthropic.example/v1/messages"), "https://anthropic.example");
+  assert.equal(normalizeOpenAICompatibleBaseURL("https://example.com"), "https://example.com");
+  assert.equal(normalizeOpenAICompatibleBaseURL("https://example.com/v1/responses/"), "https://example.com/v1/responses/");
+  assert.equal(normalizeGeminiCompatibleBaseURL("https://example.com"), "https://example.com");
+  assert.equal(normalizeGeminiCompatibleBaseURL("https://example.com/v1/chat/completions/"), "https://example.com/v1/chat/completions/");
+  assert.equal(normalizeAnthropicBaseURL("https://anthropic.example/v1/messages/"), "https://anthropic.example/v1/messages/");
   assert.equal(normalizeEmbeddingBaseURL("https://embed.example/v1/embeddings"), "https://embed.example/v1");
+});
+
+test("provider login rejects full endpoint URLs without trailing slash", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-login-full-endpoint-reject-"));
+  withTempHome(rootDir, () => {
+    assert.throws(
+      () => applyOpenAICompatibleApiLoginConfig("https://gateway.example.com/v1/responses", "sk-test", rootDir),
+      /trailing/i,
+    );
+    assert.throws(
+      () => applyOpenAICompatibleApiLoginConfig(
+        "https://gateway.example.com/v1/chat/completions",
+        "sk-test",
+        rootDir,
+        { routeKind: "gemini_compatible" },
+      ),
+      /trailing/i,
+    );
+    assert.throws(
+      () => applyAnthropicEndpointLoginConfig("https://gateway.example.com/v1/messages", "sk-test", rootDir),
+      /trailing/i,
+    );
+  });
 });
 
 test("applyOpenAICompatibleApiLoginConfig rewires every role profile to the provided upstream", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-login-openai-compatible-"));
   withTempHome(rootDir, () => {
-    applyOpenAICompatibleApiLoginConfig("https://gateway.example.com", "sk-test-openai-compatible", rootDir);
+    applyOpenAICompatibleApiLoginConfig("https://gateway.example.com", "sk-test-openai-compatible", rootDir, {
+      model: "deepseek-v4-pro",
+    });
 
     const authFile = loadRaxcodeAuthFile(rootDir);
     const configFile = loadRaxcodeConfigFile(rootDir);
@@ -65,7 +97,10 @@ test("applyOpenAICompatibleApiLoginConfig rewires every role profile to the prov
       const profile = configFile.profiles.find((entry) => entry.id === profileId);
       assert.equal(profile?.provider, "openai");
       assert.equal(profile?.authProfileId, "auth.openai.default");
-      assert.equal(profile?.route.baseURL, "https://gateway.example.com/v1");
+      assert.equal(profile?.route.baseURL, "https://gateway.example.com");
+      assert.equal(profile?.route.urlMode, "auto_append_endpoint");
+      assert.equal(profile?.route.finalRequestURL, "https://gateway.example.com/v1/responses");
+      assert.equal(profile?.model, "deepseek-v4-pro");
     }
   });
 });
@@ -74,10 +109,10 @@ test("applyOpenAICompatibleApiLoginConfig can rewire every role profile to Gemin
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-login-gemini-compatible-"));
   withTempHome(rootDir, () => {
     applyOpenAICompatibleApiLoginConfig(
-      "https://viewpro.top/v1/chat/completions",
+      "https://viewpro.top/v1/chat/completions/",
       "sk-test-gemini-compatible",
       rootDir,
-      { routeKind: "gemini_compatible" },
+      { routeKind: "gemini_compatible", model: "gemini-3.1-pro-preview" },
     );
 
     const configFile = loadRaxcodeConfigFile(rootDir);
@@ -85,7 +120,9 @@ test("applyOpenAICompatibleApiLoginConfig can rewire every role profile to Gemin
       const profileId = configFile.roleBindings[roleId as keyof typeof configFile.roleBindings].profileId;
       const profile = configFile.profiles.find((entry) => entry.id === profileId);
       assert.equal(profile?.provider, "openai");
-      assert.equal(profile?.route.baseURL, "https://viewpro.top/v1");
+      assert.equal(profile?.route.baseURL, "https://viewpro.top/v1/chat/completions/");
+      assert.equal(profile?.route.urlMode, "literal");
+      assert.equal(profile?.route.finalRequestURL, "https://viewpro.top/v1/chat/completions/");
       assert.equal(profile?.route.apiStyle, "chat/completions");
       assert.equal(profile?.model, "gemini-3.1-pro-preview");
     }
@@ -127,6 +164,7 @@ test("applyChatGptSubscriptionRoleRouting rewires every role profile to the offi
       const profile = configFile.profiles.find((entry) => entry.id === profileId);
       assert.equal(profile?.authProfileId, OPENAI_OFFICIAL_AUTH_PROFILE_ID);
       assert.equal(profile?.route.baseURL, "https://chatgpt.com/backend-api/codex");
+      assert.equal(profile?.route.finalRequestURL, "https://chatgpt.com/backend-api/codex");
     }
   });
 });
@@ -150,7 +188,9 @@ test("applyEmbeddingLoginConfig writes a dedicated embedding upstream profile", 
 test("applyAnthropicEndpointLoginConfig rewires every role profile to the provided anthropic upstream", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-login-anthropic-compatible-"));
   withTempHome(rootDir, () => {
-    applyAnthropicEndpointLoginConfig("https://gateway.example.com/v1/messages", "sk-test-anthropic-compatible", rootDir);
+    applyAnthropicEndpointLoginConfig("https://gateway.example.com/anthropic/", "sk-test-anthropic-compatible", rootDir, {
+      model: "deepseek-v4-pro",
+    });
 
     const authFile = loadRaxcodeAuthFile(rootDir);
     const configFile = loadRaxcodeConfigFile(rootDir);
@@ -161,9 +201,11 @@ test("applyAnthropicEndpointLoginConfig rewires every role profile to the provid
       const profile = configFile.profiles.find((entry) => entry.id === profileId);
       assert.equal(profile?.provider, "anthropic");
       assert.equal(profile?.authProfileId, "auth.anthropic.default");
-      assert.equal(profile?.route.baseURL, "https://gateway.example.com");
+      assert.equal(profile?.route.baseURL, "https://gateway.example.com/anthropic/");
+      assert.equal(profile?.route.urlMode, "literal");
+      assert.equal(profile?.route.finalRequestURL, "https://gateway.example.com/anthropic/");
       assert.equal(profile?.route.apiStyle, "messages");
-      assert.equal(profile?.model, "claude-sonnet-4-6");
+      assert.equal(profile?.model, "deepseek-v4-pro");
     }
   });
 });

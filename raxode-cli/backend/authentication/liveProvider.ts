@@ -13,6 +13,10 @@ import type { OpenAIV1ResponsesProviderCaller } from "../../../src/agentCore/age
 import type { AuthEnvelope, ProviderAuthMaterial } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
 import { resolveAuthEnvelope } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
 import { createCredentialRef, type CredentialType } from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+import {
+  resolveRaxodeProviderRequestUrl,
+  type RaxodeUrlMode,
+} from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/providerConfiguration.js";
 import { createProviderCaller, type ProviderCaller } from "../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
 import {
   ANTHROPIC_DEFAULT_MESSAGES_BASE_URL,
@@ -65,6 +69,8 @@ export type RaxodeConfiguredModelOptions = {
   maxOutputTokens?: number;
   endpointShape: RaxodeEndpointShape;
   baseURL?: string;
+  urlMode?: RaxodeUrlMode;
+  finalRequestURL?: string;
   providerRoute: RaxodeProviderRoute;
   roleId: RaxcodeRoleId;
   authSource: "raxcode-config" | "codex-env";
@@ -259,40 +265,8 @@ function legacyCodexEnvRequested(): boolean {
   return hasText(process.env.AGENTCORE_CODEX_MODEL) || hasText(process.env.AGENTCORE_CODEX_REASONING_EFFORT);
 }
 
-function shouldUseLegacyCodexEnv(
-  resolved: RaxcodeResolvedRoleConfig,
-  providerRoute: RaxodeProviderRoute,
-  options: { forceCodexLegacy?: boolean },
-): boolean {
-  if (options.forceCodexLegacy === true) {
-    return true;
-  }
-  if (!legacyCodexEnvRequested()) {
-    return false;
-  }
-  if (providerRoute === "chatgpt_codex_responses") {
-    return true;
-  }
-  const envModel = cleanText(process.env.AGENTCORE_CODEX_MODEL);
-  if (envModel === undefined) {
-    return false;
-  }
-  return envModel !== (resolved.binding.overrides?.model ?? resolved.profile.model);
-}
-
-function envReasoningOverrideForResolvedConfig(
-  resolved: RaxcodeResolvedRoleConfig,
-  providerRoute: RaxodeProviderRoute,
-): RaxcodeReasoningEffort | undefined {
-  if (providerRoute === "chatgpt_codex_responses") {
-    return undefined;
-  }
-  const envModel = cleanText(process.env.AGENTCORE_CODEX_MODEL);
-  const resolvedModel = resolved.binding.overrides?.model ?? resolved.profile.model;
-  if (envModel !== undefined && envModel !== resolvedModel) {
-    return undefined;
-  }
-  return cleanText(process.env.AGENTCORE_CODEX_REASONING_EFFORT) as RaxcodeReasoningEffort | undefined;
+function shouldUseLegacyCodexEnv(options: { forceCodexLegacy?: boolean }): boolean {
+  return options.forceCodexLegacy === true && legacyCodexEnvRequested();
 }
 
 function roleIdForManifest(manifest: AgentManifest): RaxcodeRoleId {
@@ -300,7 +274,7 @@ function roleIdForManifest(manifest: AgentManifest): RaxcodeRoleId {
 }
 
 function normalizedApiStyle(value: string | undefined): string {
-  return (value ?? "responses").trim().toLowerCase().replace(/[.-]+/gu, "_");
+  return (value ?? "responses").trim().toLowerCase().replace(/[./-]+/gu, "_");
 }
 
 function providerRouteForResolvedConfig(config: RaxcodeResolvedRoleConfig): RaxodeProviderRoute {
@@ -355,7 +329,7 @@ export function resolveRaxodeConfiguredModelOptions(options: {
   const roleId = options.roleId ?? "core.main";
   const resolved = loadResolvedRoleConfig(roleId, options.startDir);
   const providerRoute = providerRouteForResolvedConfig(resolved);
-  if (shouldUseLegacyCodexEnv(resolved, providerRoute, options)) {
+  if (shouldUseLegacyCodexEnv(options)) {
     return {
       provider: "openai",
       model: cleanText(process.env.AGENTCORE_CODEX_MODEL) ?? "gpt-5.5",
@@ -363,20 +337,51 @@ export function resolveRaxodeConfiguredModelOptions(options: {
       maxOutputTokens: undefined,
       endpointShape: "responses",
       baseURL: CHATGPT_CODEX_DEFAULT_BASE_URL,
+      urlMode: "literal",
+      finalRequestURL: CHATGPT_CODEX_DEFAULT_BASE_URL,
       providerRoute: "chatgpt_codex_responses",
       roleId,
       authSource: "codex-env",
     };
   }
 
-  const envReasoningOverride = envReasoningOverrideForResolvedConfig(resolved, providerRoute);
+  const endpointShape = endpointShapeForRoute(providerRoute);
+  const configuredBaseURL = cleanText(resolved.profile.route.baseURL);
+  if (providerRoute === "chatgpt_codex_responses") {
+    return {
+      provider: "openai",
+      model: resolved.binding.overrides?.model ?? resolved.profile.model,
+      reasoningEffort: resolved.binding.overrides?.reasoning ?? resolved.profile.reasoningEffort ?? "low",
+      maxOutputTokens: resolved.binding.overrides?.maxOutputTokens ?? resolved.profile.maxOutputTokens,
+      endpointShape,
+      baseURL: configuredBaseURL ?? CHATGPT_CODEX_DEFAULT_BASE_URL,
+      urlMode: resolved.profile.route.urlMode ?? "literal",
+      finalRequestURL: cleanText(resolved.profile.route.finalRequestURL) ?? configuredBaseURL ?? CHATGPT_CODEX_DEFAULT_BASE_URL,
+      providerRoute,
+      roleId,
+      authSource: "raxcode-config",
+    };
+  }
+  const routePlan = configuredBaseURL === undefined
+    ? undefined
+    : resolveRaxodeProviderRequestUrl({
+        inputBaseURL: configuredBaseURL,
+        endpointShape,
+      });
+  if (routePlan?.ok === false) {
+    throw new Error(routePlan.error.message);
+  }
+  const plannedURL = routePlan?.ok === true ? routePlan.plan.finalRequestURL : undefined;
+  const plannedMode = routePlan?.ok === true ? routePlan.plan.urlMode : undefined;
   return {
     provider: providerForRoute(providerRoute),
     model: resolved.binding.overrides?.model ?? resolved.profile.model,
-    reasoningEffort: envReasoningOverride ?? resolved.binding.overrides?.reasoning ?? resolved.profile.reasoningEffort ?? "none",
+    reasoningEffort: resolved.binding.overrides?.reasoning ?? resolved.profile.reasoningEffort ?? "none",
     maxOutputTokens: resolved.binding.overrides?.maxOutputTokens ?? resolved.profile.maxOutputTokens,
-    endpointShape: endpointShapeForRoute(providerRoute),
-    baseURL: normalizeBaseURL(resolved.profile.route.baseURL) ?? defaultBaseURLForRoute(providerRoute),
+    endpointShape,
+    baseURL: configuredBaseURL ?? defaultBaseURLForRoute(providerRoute),
+    urlMode: resolved.profile.route.urlMode ?? plannedMode,
+    finalRequestURL: cleanText(resolved.profile.route.finalRequestURL) ?? plannedURL,
     providerRoute,
     roleId,
     authSource: "raxcode-config",
@@ -522,10 +527,10 @@ function resolveRouteAuth(input: {
   };
 }
 
-function createResponsesCaller(rawCaller: ProviderCaller): OpenAIV1ResponsesProviderCaller {
+function createResponsesCaller(rawCaller: ProviderCaller, finalRequestURL?: string): OpenAIV1ResponsesProviderCaller {
   return async (request) => rawCaller({
     method: request.method,
-    url: request.url,
+    url: finalRequestURL ?? request.url,
     headers: request.headers,
     query: request.query,
     body: request.body,
@@ -534,10 +539,10 @@ function createResponsesCaller(rawCaller: ProviderCaller): OpenAIV1ResponsesProv
   });
 }
 
-function createChatCompletionsCaller(rawCaller: ProviderCaller): OpenAiV1ChatCompletionsProviderCaller {
+function createChatCompletionsCaller(rawCaller: ProviderCaller, finalRequestURL?: string): OpenAiV1ChatCompletionsProviderCaller {
   return async (request) => rawCaller({
     method: request.method,
-    url: request.url,
+    url: finalRequestURL ?? request.url,
     headers: request.headers,
     body: request.requestBody,
     provider: "openai",
@@ -545,11 +550,11 @@ function createChatCompletionsCaller(rawCaller: ProviderCaller): OpenAiV1ChatCom
   });
 }
 
-function createMessagesCaller(rawCaller: ProviderCaller, baseURL: string): AnthropicV1MessagesProviderCaller {
+function createMessagesCaller(rawCaller: ProviderCaller, baseURL: string, finalRequestURL?: string): AnthropicV1MessagesProviderCaller {
   const normalizedBaseURL = normalizeBaseURL(baseURL) ?? ANTHROPIC_DEFAULT_MESSAGES_BASE_URL;
   return async (request) => rawCaller({
     method: request.method,
-    url: `${normalizedBaseURL}${request.urlPath}`,
+    url: finalRequestURL ?? `${normalizedBaseURL}${request.urlPath}`,
     headers: request.headers,
     query: request.query,
     body: request.body,
@@ -894,9 +899,10 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
     startDir: options.startDir,
     authSource: configured.authSource,
   });
-  const baseURL = normalizeBaseURL(manifest.model.baseURL)
+  const baseURL = cleanText(manifest.model.baseURL)
     ?? configured.baseURL
     ?? defaultBaseURLForRoute(providerRoute);
+  const finalRequestURL = cleanText(configured.finalRequestURL);
   const routeAuth = resolveRouteAuth({
     manifest,
     route: providerRoute,
@@ -971,7 +977,7 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   });
 
   if (providerRoute === "openai_chat_completions") {
-    const openaiChatCompletionsCaller = createChatCompletionsCaller(rawCaller);
+    const openaiChatCompletionsCaller = createChatCompletionsCaller(rawCaller, finalRequestURL);
     return {
       auth: routeAuth.auth,
       openaiChatCompletionsCaller,
@@ -983,7 +989,7 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
   }
 
   if (providerRoute === "anthropic_messages") {
-    const anthropicMessagesCaller = createMessagesCaller(rawCaller, carrier.carrier.baseURL ?? baseURL);
+    const anthropicMessagesCaller = createMessagesCaller(rawCaller, carrier.carrier.baseURL ?? baseURL, finalRequestURL);
     return {
       auth: routeAuth.auth,
       anthropicMessagesCaller,
@@ -994,7 +1000,10 @@ export function createRaxodeLiveProvider(manifest: AgentManifest, options: {
     };
   }
 
-  const openaiResponsesCaller = createResponsesCaller(rawCaller);
+  const openaiResponsesCaller = createResponsesCaller(
+    rawCaller,
+    providerRoute === "chatgpt_codex_responses" ? undefined : finalRequestURL,
+  );
   return {
     auth: routeAuth.auth,
     providerCaller: openaiResponsesCaller,

@@ -14,8 +14,8 @@ import {
 test("direct turn checkpoints save, list, and replace records by turn id", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-turn-checkpoints-"));
   const workspaceRoot = join(home, "workspace");
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     rmSync(workspaceRoot, { recursive: true, force: true });
@@ -75,9 +75,9 @@ test("direct turn checkpoints save, list, and replace records by turn id", () =>
     assert.equal(getDirectTuiTurnCheckpoint("session-1", "2", workspaceRoot)?.workspaceCheckpointCommit, "def456");
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
   }
@@ -86,8 +86,8 @@ test("direct turn checkpoints save, list, and replace records by turn id", () =>
 test("direct checkpoint events append structured failure readback", () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-direct-turn-checkpoint-events-"));
   const workspaceRoot = join(home, "workspace");
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     appendDirectTuiCheckpointEvent({
@@ -106,9 +106,9 @@ test("direct checkpoint events append structured failure readback", () => {
     assert.match(content, /"errorOrigin":"workspace_root"/u);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
   }

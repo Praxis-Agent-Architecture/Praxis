@@ -95,11 +95,11 @@ OPENAI_API_STYLE=responses
 
 test("loadLiveProviderConfig reads auth.json/config.json as the primary runtime source", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-live-config-json-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const auth = JSON.parse(await readFile(authPath, "utf8")) as {
     authProfiles: Array<{ id: string; credentials: { apiKey?: string } }>;
   };
@@ -136,21 +136,21 @@ test("loadLiveProviderConfig reads auth.json/config.json as the primary runtime 
 
   assert.equal(providerConfig.openai.apiKey, "json-openai-key");
   assert.equal(providerConfig.openai.baseURL, "https://json-openai.example.com/v1");
-  assert.equal(providerConfig.openai.model, "gpt-5.4");
+  assert.equal(providerConfig.openai.model, "gpt-5.5");
   assert.equal(providerConfig.anthropic.apiKey, "json-anthropic-key");
   assert.equal(providerConfig.anthropicAlt?.apiKey, "json-anthropic-alt-key");
   assert.equal(providerConfig.deepmind.model, "gemini-json");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadOpenAILiveConfig maps chatgpt_oauth profiles onto bearer auth plus account header", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-live-config-oauth-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const auth = JSON.parse(await readFile(authPath, "utf8")) as {
     activeAuthProfileIdBySlot: Record<string, string>;
     authProfiles: Array<Record<string, unknown>>;
@@ -195,12 +195,12 @@ test("loadOpenAILiveConfig maps chatgpt_oauth profiles onto bearer auth plus acc
   assert.equal(openaiConfig.planType, "pro");
   assert.equal(openaiConfig.model, "gpt-5.4");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadOpenAILiveConfig reports friendly JSON guidance when auth/config are incomplete", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-live-config-incomplete-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
   let captured: unknown;
@@ -214,16 +214,16 @@ test("loadOpenAILiveConfig reports friendly JSON guidance when auth/config are i
   assert.match(captured.message, /auth\.json/u);
   assert.match(captured.message, /config\.json/u);
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadOpenAILiveConfig resolves OpenAI auth and baseURL from the requested role profile", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-live-config-role-routes-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const auth = JSON.parse(await readFile(authPath, "utf8")) as {
     authProfiles: Array<Record<string, unknown>>;
   };
@@ -282,7 +282,7 @@ test("loadOpenAILiveConfig resolves OpenAI auth and baseURL from the requested r
   assert.equal(mpConfig.model, "gpt-5.4-mini");
   assert.equal(mpConfig.reasoningEffort, "none");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("prepareResponsesParamsForOpenAIAuth maps ChatGPT subscription fast tier onto priority", () => {

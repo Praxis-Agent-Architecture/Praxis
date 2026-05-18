@@ -17,7 +17,7 @@ import {
 test("ensureRaxcodeHomeScaffold creates auth/config templates and state directories", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-home-"));
   const workspaceDir = path.join(rootDir, "workspace");
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   process.env.PRAXIS_WORKSPACE_ROOT = workspaceDir;
 
   const result = ensureRaxcodeHomeScaffold(workspaceDir);
@@ -33,16 +33,16 @@ test("ensureRaxcodeHomeScaffold creates auth/config templates and state director
   assert.equal(Object.keys(config.roleBindings).length, 15);
   assert.equal(parsedConfig.ui?.animationMode, "off");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
   delete process.env.PRAXIS_WORKSPACE_ROOT;
 });
 
 test("loadRaxcodeLiveChatModelPlan resolves all 15 role plans from config", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-plan-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const config = loadRaxcodeConfigFile(rootDir);
   config.roleBindings["cmp.dispatcher"].overrides = {
     model: "gpt-5.4-mini",
@@ -61,15 +61,15 @@ test("loadRaxcodeLiveChatModelPlan resolves all 15 role plans from config", asyn
   assert.equal(plan.cmp.dispatcher.maxOutputTokens, 321_000);
   assert.equal(plan.tui.main.reasoning, "low");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadRaxcodeConfigFile migrates legacy default core model to gpt-5.5 low", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-migrate-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const config = loadRaxcodeConfigFile(rootDir);
   config.schemaVersion = 1;
   const coreProfile = config.profiles.find((entry) => entry.id === "profile.core.main");
@@ -90,15 +90,15 @@ test("loadRaxcodeConfigFile migrates legacy default core model to gpt-5.5 low", 
   assert.equal(migrated.profiles.find((entry) => entry.id === "profile.core.main")?.reasoningEffort, "low");
   assert.equal(migrated.roleBindings["core.main"].overrides, undefined);
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadResolvedProviderSlotConfig binds provider profile and auth profile through slots", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-provider-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
+  const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
   const auth = JSON.parse(await readFile(authPath, "utf8")) as {
     authProfiles: Array<{ id: string; authMode?: string; credentials: { apiKey?: string } }>;
   };
@@ -112,15 +112,15 @@ test("loadResolvedProviderSlotConfig binds provider profile and auth profile thr
   assert.equal(resolved.authProfile.id, "auth.openai.default");
   assert.equal(resolved.authProfile.credentials.apiKey, "test-openai");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadRaxcodeTapOverride reads persistent capability overrides and matrix", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-permissions-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const config = loadRaxcodeConfigFile(rootDir);
   config.permissions.capabilityOverrides = [
     {
@@ -138,15 +138,15 @@ test("loadRaxcodeTapOverride reads persistent capability overrides and matrix", 
   assert.equal(override.toolPolicyOverrides?.[0]?.capabilitySelector, "git.push");
   assert.equal(config.permissions.shared15ViewMatrix.length, 15);
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadRaxcodeConfigFile resolves ui.animationMode from config", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-ui-animation-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const config = loadRaxcodeConfigFile(rootDir);
   config.ui.animationMode = "off";
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -154,15 +154,15 @@ test("loadRaxcodeConfigFile resolves ui.animationMode from config", async () => 
   const reloaded = loadRaxcodeConfigFile(rootDir);
   assert.equal(reloaded.ui.animationMode, "off");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("resolveConfiguredWorkspaceRoot prefers launch cwd over persisted default workspace", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-workspace-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const config = loadRaxcodeConfigFile(rootDir);
   config.workspace.defaultPath = "/tmp/praxis-default-workspace";
   await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
@@ -178,16 +178,16 @@ test("resolveConfiguredWorkspaceRoot prefers launch cwd over persisted default w
   delete process.env.INIT_CWD;
   assert.equal(resolveConfiguredWorkspaceRoot(rootDir), rootDir);
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("loadResolvedEmbeddingConfig resolves dedicated embedding upstream config", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxcode-embedding-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const auth = JSON.parse(await readFile(authPath, "utf8")) as {
     authProfiles: Array<{ id: string; provider: string; authMode?: string; credentials: { apiKey?: string } }>;
   };
@@ -218,5 +218,5 @@ test("loadResolvedEmbeddingConfig resolves dedicated embedding upstream config",
   assert.equal(resolved?.apiKey, "test-embedding-key");
   assert.equal(resolved?.baseURL, "https://viewpro.top/v1");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });

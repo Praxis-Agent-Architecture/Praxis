@@ -66,7 +66,7 @@ function defaultProjectRoot(): string {
 }
 
 function defaultStateRoot(cwd: string): string {
-  return path.resolve(process.env.PRAXIS_STATE_ROOT ?? process.env.RAXCODE_HOME ?? path.join(cwd, ".raxode"));
+  return path.resolve(process.env.PRAXIS_STATE_ROOT ?? process.env.RAXODE_HOME ?? path.join(cwd, ".raxode"));
 }
 
 function normalizePermissionProfile(value: string | undefined): PraxisApplicationPermissionProfile {

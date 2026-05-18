@@ -14,7 +14,7 @@ import {
 
 test("loginOpenAIWithApiKey persists api_key mode on the default profile", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-openai-api-key-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
   const status = loginOpenAIWithApiKey("sk-test-key", rootDir);
@@ -26,16 +26,16 @@ test("loginOpenAIWithApiKey persists api_key mode on the default profile", async
   assert.equal(profile?.authMode, "api_key");
   assert.equal(profile?.credentials.apiKey, "sk-test-key");
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("refreshOpenAIOAuthIfNeeded refreshes an expiring stored official profile", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-openai-refresh-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const auth = loadRaxcodeAuthFile(rootDir);
   auth.activeAuthProfileIdBySlot.openai = "auth.openai.official";
   auth.authProfiles.push({
@@ -99,16 +99,16 @@ test("refreshOpenAIOAuthIfNeeded refreshes an expiring stored official profile",
     globalThis.fetch = originalFetch;
   }
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });
 
 test("logoutOpenAIAuth removes the stored official profile and falls back to default routing", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-openai-logout-"));
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   ensureRaxcodeHomeScaffold(rootDir);
 
-  const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
-  const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+  const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
   const auth = loadRaxcodeAuthFile(rootDir);
   auth.activeAuthProfileIdBySlot.openai = "auth.openai.official";
   auth.authProfiles.push({
@@ -144,5 +144,5 @@ test("logoutOpenAIAuth removes the stored official profile and falls back to def
   assert.equal(nextAuthRaw.activeAuthProfileIdBySlot.openai, "auth.openai.default");
   assert.equal(nextAuthRaw.authProfiles.some((entry) => entry.id === "auth.openai.official"), false);
 
-  delete process.env.RAXCODE_HOME;
+  delete process.env.RAXODE_HOME;
 });

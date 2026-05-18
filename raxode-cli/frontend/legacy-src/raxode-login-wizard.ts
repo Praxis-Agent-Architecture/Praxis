@@ -24,6 +24,11 @@ import {
   listAvailableChatModels,
   probeEmbeddingModelAvailability,
 } from "./agent_core/tui-input/model-catalog.js";
+import {
+  resolveRaxodeProviderRequestUrl,
+  type RaxodeEndpointShape,
+  type RaxodeUrlMode,
+} from "../../../src/agentCore/agent_modelAdapter/authProfileLayer/providerConfiguration.js";
 
 const OPENAI_DEFAULT_AUTH_PROFILE_ID = "auth.openai.default";
 const OPENAI_EMBEDDING_AUTH_PROFILE_ID = "auth.openai.embedding.default";
@@ -34,11 +39,13 @@ export type OpenAICompatibleRouteKind = "gpt_compatible" | "gemini_compatible";
 
 interface OpenAICompatibleFormState {
   baseURL: string;
+  model: string;
   apiKey: string;
 }
 
 interface AnthropicFormState {
   baseURL: string;
+  model: string;
   apiKey: string;
 }
 
@@ -88,54 +95,15 @@ export function maskSecretForDisplay(secret: string): string {
 }
 
 export function normalizeOpenAICompatibleBaseURL(inputValue: string): string {
-  const trimmed = inputValue.trim().replace(/\/$/u, "");
-  if (!trimmed) {
-    return "";
-  }
-  if (trimmed.endsWith("/v1/responses")) {
-    return trimmed.slice(0, -"/responses".length);
-  }
-  if (trimmed.endsWith("/responses")) {
-    return trimmed.slice(0, -"/responses".length);
-  }
-  if (trimmed.endsWith("/v1")) {
-    return trimmed;
-  }
-  return `${trimmed}/v1`;
+  return inputValue.trim();
 }
 
 export function normalizeGeminiCompatibleBaseURL(inputValue: string): string {
-  const trimmed = inputValue.trim().replace(/\/$/u, "");
-  if (!trimmed) {
-    return "";
-  }
-  if (trimmed.endsWith("/v1/chat/completions")) {
-    return trimmed.slice(0, -"/chat/completions".length);
-  }
-  if (trimmed.endsWith("/chat/completions")) {
-    return trimmed.slice(0, -"/chat/completions".length);
-  }
-  if (trimmed.endsWith("/v1")) {
-    return trimmed;
-  }
-  return `${trimmed}/v1`;
+  return inputValue.trim();
 }
 
 export function normalizeAnthropicBaseURL(inputValue: string): string {
-  const trimmed = inputValue.trim().replace(/\/$/u, "");
-  if (!trimmed) {
-    return "";
-  }
-  if (trimmed.endsWith("/v1/messages")) {
-    return trimmed.slice(0, -"/v1/messages".length);
-  }
-  if (trimmed.endsWith("/messages")) {
-    return trimmed.slice(0, -"/messages".length);
-  }
-  if (trimmed.endsWith("/v1")) {
-    return trimmed.slice(0, -"/v1".length);
-  }
-  return trimmed;
+  return inputValue.trim();
 }
 
 export function normalizeEmbeddingBaseURL(inputValue: string): string {
@@ -200,6 +168,28 @@ function createApiKeyAuthProfile(
   };
 }
 
+function planProviderRequestUrl(input: {
+  baseURL: string;
+  endpointShape: RaxodeEndpointShape;
+}): {
+  baseURL: string;
+  urlMode: RaxodeUrlMode;
+  finalRequestURL: string;
+} {
+  const result = resolveRaxodeProviderRequestUrl({
+    inputBaseURL: input.baseURL,
+    endpointShape: input.endpointShape,
+  });
+  if (!result.ok) {
+    throw new Error(result.error.message);
+  }
+  return {
+    baseURL: result.plan.inputBaseURL,
+    urlMode: result.plan.urlMode,
+    finalRequestURL: result.plan.finalRequestURL,
+  };
+}
+
 function applyOpenAIRouteToAllRoles(
   configFile: RaxcodeConfigFile,
   options: {
@@ -207,6 +197,8 @@ function applyOpenAIRouteToAllRoles(
     baseURL: string;
     labelPrefix: string;
     apiStyle: string;
+    urlMode: RaxodeUrlMode;
+    finalRequestURL: string;
     defaultModel?: string;
   },
 ): void {
@@ -228,6 +220,8 @@ function applyOpenAIRouteToAllRoles(
     profile.route = {
       baseURL: options.baseURL,
       apiStyle: options.apiStyle,
+      urlMode: options.urlMode,
+      finalRequestURL: options.finalRequestURL,
     };
     if (options.defaultModel) {
       profile.model = options.defaultModel;
@@ -251,14 +245,24 @@ export function applyOpenAICompatibleApiLoginConfig(
   fallbackDir = process.cwd(),
   options: {
     routeKind?: OpenAICompatibleRouteKind;
+    model?: string;
   } = {},
 ): void {
   const routeKind = options.routeKind ?? "gpt_compatible";
+  const endpointShape: RaxodeEndpointShape = routeKind === "gemini_compatible" ? "chat_completions" : "responses";
   const normalizedBaseURL = routeKind === "gemini_compatible"
     ? normalizeGeminiCompatibleBaseURL(baseURL)
     : normalizeOpenAICompatibleBaseURL(baseURL);
   if (!normalizedBaseURL || !apiKey.trim()) {
     throw new Error("OpenAI compatible configuration requires both base URL and API key.");
+  }
+  const routePlan = planProviderRequestUrl({
+    baseURL: normalizedBaseURL,
+    endpointShape,
+  });
+  const model = options.model?.trim();
+  if (!model) {
+    throw new Error("OpenAI compatible configuration requires a model name.");
   }
   const authFile = loadRaxcodeAuthFile(fallbackDir);
   const configFile = loadRaxcodeConfigFile(fallbackDir);
@@ -274,10 +278,12 @@ export function applyOpenAICompatibleApiLoginConfig(
   authFile.activeAuthProfileIdBySlot.openai = OPENAI_DEFAULT_AUTH_PROFILE_ID;
   applyOpenAIRouteToAllRoles(configFile, {
     authProfileId: OPENAI_DEFAULT_AUTH_PROFILE_ID,
-    baseURL: normalizedBaseURL,
-    labelPrefix: routeKind === "gemini_compatible" ? "Gemini Compatible" : "OpenAI Compatible",
+    baseURL: routePlan.baseURL,
+    labelPrefix: routeKind === "gemini_compatible" ? "Chat Completions Compatible" : "OpenAI Compatible",
     apiStyle: routeKind === "gemini_compatible" ? "chat/completions" : "responses",
-    defaultModel: routeKind === "gemini_compatible" ? "gemini-3.1-pro-preview" : undefined,
+    urlMode: routePlan.urlMode,
+    finalRequestURL: routePlan.finalRequestURL,
+    defaultModel: model,
   });
   configFile.providerSlots.openai = configFile.roleBindings["core.main"]?.profileId ?? "profile.core.main";
   writeRaxcodeAuthFile(authFile, fallbackDir);
@@ -293,6 +299,8 @@ export function applyChatGptSubscriptionRoleRouting(
     baseURL: OPENAI_OFFICIAL_BASE_URL,
     labelPrefix: "OpenAI Official",
     apiStyle: "responses",
+    urlMode: "literal",
+    finalRequestURL: OPENAI_OFFICIAL_BASE_URL,
   });
   writeRaxcodeConfigFile(configFile, fallbackDir);
 }
@@ -301,10 +309,21 @@ export function applyAnthropicEndpointLoginConfig(
   baseURL: string,
   apiKey: string,
   fallbackDir = process.cwd(),
+  options: {
+    model?: string;
+  } = {},
 ): void {
   const normalizedBaseURL = normalizeAnthropicBaseURL(baseURL);
   if (!normalizedBaseURL || !apiKey.trim()) {
     throw new Error("Anthropic endpoint configuration requires both base URL and API key.");
+  }
+  const routePlan = planProviderRequestUrl({
+    baseURL: normalizedBaseURL,
+    endpointShape: "messages",
+  });
+  const model = options.model?.trim();
+  if (!model) {
+    throw new Error("Anthropic endpoint configuration requires a model name.");
   }
   const authFile = loadRaxcodeAuthFile(fallbackDir);
   const configFile = loadRaxcodeConfigFile(fallbackDir);
@@ -322,10 +341,12 @@ export function applyAnthropicEndpointLoginConfig(
   if (profile) {
     profile.authProfileId = ANTHROPIC_DEFAULT_AUTH_PROFILE_ID;
     profile.route = {
-      baseURL: normalizedBaseURL,
+      baseURL: routePlan.baseURL,
       apiStyle: "messages",
+      urlMode: routePlan.urlMode,
+      finalRequestURL: routePlan.finalRequestURL,
     };
-    profile.model = "claude-sonnet-4-6";
+    profile.model = model;
     profile.enabled = true;
   }
   configFile.providerSlots.anthropic = "profile.provider.anthropic.default";
@@ -342,10 +363,12 @@ export function applyAnthropicEndpointLoginConfig(
     roleProfile.provider = "anthropic";
     roleProfile.authProfileId = ANTHROPIC_DEFAULT_AUTH_PROFILE_ID;
     roleProfile.route = {
-      baseURL: normalizedBaseURL,
+      baseURL: routePlan.baseURL,
       apiStyle: "messages",
+      urlMode: routePlan.urlMode,
+      finalRequestURL: routePlan.finalRequestURL,
     };
-    roleProfile.model = "claude-sonnet-4-6";
+    roleProfile.model = model;
     binding.overrides = {
       ...binding?.overrides,
       serviceTier: undefined,
@@ -504,15 +527,17 @@ async function promptOpenAICompatibleForm(rl: ReadlineInterface): Promise<OpenAI
     "GPT Compatible Model Configuration",
     "",
     "openai_compatible_format_base_url: [                         ] /v1/responses",
+    "model:                             [ deepseek-v4-pro           ]",
     "secret-api-key:                  [ sk-abc1****************7890 ]",
     "",
     "type each value and press ENTER",
   ]);
   const baseURL = await promptLine(rl, "openai_compatible_format_base_url: ");
+  const model = await promptLine(rl, "model: ");
   rl.pause();
   const apiKey = await promptSecret("secret-api-key: ");
   rl.resume();
-  return { baseURL, apiKey };
+  return { baseURL, model, apiKey };
 }
 
 async function promptAnthropicForm(rl: ReadlineInterface): Promise<AnthropicFormState> {
@@ -520,15 +545,17 @@ async function promptAnthropicForm(rl: ReadlineInterface): Promise<AnthropicForm
     "Anthropic Endpoint Model Configuration",
     "",
     "anthropic_format_base_url: [                         ] /v1/messages",
+    "model:                    [ deepseek-v4-pro           ]",
     "secret-api-key:            [ sk-ant****************7890 ]",
     "",
     "type each value and press ENTER",
   ]);
   const baseURL = await promptLine(rl, "anthropic_format_base_url: ");
+  const model = await promptLine(rl, "model: ");
   rl.pause();
   const apiKey = await promptSecret("secret-api-key: ");
   rl.resume();
-  return { baseURL, apiKey };
+  return { baseURL, model, apiKey };
 }
 
 async function promptEmbeddingForm(rl: ReadlineInterface): Promise<EmbeddingFormState | null> {
@@ -642,10 +669,10 @@ export async function runRaxodeLoginWizard(fallbackDir = process.cwd()): Promise
       await promptLine(rl, "");
     } else if (method === "openai_compatible_api") {
       const form = await promptOpenAICompatibleForm(rl);
-      applyOpenAICompatibleApiLoginConfig(form.baseURL, form.apiKey, fallbackDir);
+      applyOpenAICompatibleApiLoginConfig(form.baseURL, form.apiKey, fallbackDir, { model: form.model });
     } else {
       const form = await promptAnthropicForm(rl);
-      applyAnthropicEndpointLoginConfig(form.baseURL, form.apiKey, fallbackDir);
+      applyAnthropicEndpointLoginConfig(form.baseURL, form.apiKey, fallbackDir, { model: form.model });
       writeScreen([
         "Anthropic Endpoint Model Configuration",
         "",

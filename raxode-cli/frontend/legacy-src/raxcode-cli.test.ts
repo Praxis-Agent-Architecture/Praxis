@@ -28,11 +28,13 @@ test("resolveRaxodeCliCommand defaults bare raxode to tui", () => {
 
 test("resolveRaxodeLaunchPlan uses tsx and source entrypoints in dev/source mode", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxode-cli-source-"));
-  const moduleDir = path.join(rootDir, "src");
+  const moduleDir = path.join(rootDir, "raxode-cli", "frontend", "legacy-src");
   const workspaceDir = path.join(rootDir, "workspace");
   await mkdir(path.join(moduleDir, "agent_core"), { recursive: true });
   await mkdir(path.join(rootDir, "node_modules", ".bin"), { recursive: true });
   await mkdir(workspaceDir, { recursive: true });
+  await writeFile(path.join(rootDir, "package.json"), "{\"name\":\"@praxis-ai/framework\"}\n", "utf8");
+  await writeFile(path.join(rootDir, "node_modules", ".bin", "tsx"), "", "utf8");
   await writeFile(path.join(moduleDir, "agent_core", "direct-tui.tsx"), "", "utf8");
   await writeFile(path.join(moduleDir, "agent_core", "live-agent-chat.ts"), "", "utf8");
 
@@ -114,28 +116,28 @@ test("resolveRaxodeLaunchPlan uses node and dist entrypoints in compiled mode", 
 
 test("hasConfiguredPrimaryModelAuth is false when the primary config is incomplete but ignores missing embedding config", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxode-cli-auth-"));
-  const previousHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  const previousHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   try {
     ensureRaxcodeHomeScaffold(rootDir);
     assert.equal(hasConfiguredPrimaryModelAuth(), false);
   } finally {
     if (previousHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = previousHome;
+      process.env.RAXODE_HOME = previousHome;
     }
   }
 });
 
 test("hasConfiguredPrimaryModelAuth is true when the core OpenAI route is configured", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxode-cli-auth-configured-"));
-  const previousHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = path.join(rootDir, ".raxcode");
+  const previousHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
   try {
     ensureRaxcodeHomeScaffold(rootDir);
-    const authPath = path.join(process.env.RAXCODE_HOME!, "auth.json");
-    const configPath = path.join(process.env.RAXCODE_HOME!, "config.json");
+    const authPath = path.join(process.env.RAXODE_HOME!, "auth.json");
+    const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
     const auth = JSON.parse(await readFile(authPath, "utf8")) as {
       authProfiles: Array<{ id: string; credentials: { apiKey?: string } }>;
     };
@@ -156,9 +158,9 @@ test("hasConfiguredPrimaryModelAuth is true when the core OpenAI route is config
     assert.equal(hasConfiguredPrimaryModelAuth(), true);
   } finally {
     if (previousHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = previousHome;
+      process.env.RAXODE_HOME = previousHome;
     }
   }
 });

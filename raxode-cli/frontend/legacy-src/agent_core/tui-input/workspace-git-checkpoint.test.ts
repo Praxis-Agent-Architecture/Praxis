@@ -20,8 +20,8 @@ function runGit(cwd: string, args: string[]): string {
 test("workspace git checkpoint writes a shadow snapshot and restores workspace files", async () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-workspace-checkpoint-home-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-workspace-checkpoint-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     mkdirSync(join(workspace, "src"), { recursive: true });
@@ -63,9 +63,9 @@ test("workspace git checkpoint writes a shadow snapshot and restores workspace f
     assert.equal(existsSync(join(workspace, "notes.txt")), false);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });
@@ -75,8 +75,8 @@ test("workspace git checkpoint writes a shadow snapshot and restores workspace f
 test("workspace git checkpoint skips nested cmp worktree directories and gitlink-style entries", async () => {
   const home = mkdtempSync(join(tmpdir(), "praxis-workspace-checkpoint-home-"));
   const workspace = mkdtempSync(join(tmpdir(), "praxis-workspace-checkpoint-workspace-"));
-  const oldHome = process.env.RAXCODE_HOME;
-  process.env.RAXCODE_HOME = home;
+  const oldHome = process.env.RAXODE_HOME;
+  process.env.RAXODE_HOME = home;
 
   try {
     runGit(workspace, ["init", "--initial-branch", "main"]);
@@ -109,9 +109,9 @@ test("workspace git checkpoint skips nested cmp worktree directories and gitlink
     assert.match(checkpoint.checkpointRef, /^refs\/sessions\/session-2\/turns\//u);
   } finally {
     if (oldHome === undefined) {
-      delete process.env.RAXCODE_HOME;
+      delete process.env.RAXODE_HOME;
     } else {
-      process.env.RAXCODE_HOME = oldHome;
+      process.env.RAXODE_HOME = oldHome;
     }
     rmSync(home, { recursive: true, force: true });
     rmSync(workspace, { recursive: true, force: true });
