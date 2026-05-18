@@ -9,8 +9,15 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@praxis-ai/praxis": ["src/agentCore/index.ts"],
+      "@praxis-ai/praxis/agent-core": ["src/agentCore/index.ts"],
+      "@praxis-ai/praxis/application-layer": ["src/applicationLayer/index.ts"],
+      "@praxis-ai/praxis/rax": ["src/rax_packageManager/index.ts"]
+    }
   },
-  "include": ["agentCore/**/*.ts", "storagePool/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "test/agentCore/**/*.ts"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }
