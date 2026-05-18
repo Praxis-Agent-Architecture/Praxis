@@ -48,6 +48,7 @@ test("registerTapCapabilityFamilyAssembly wires foundation, search, skill, MCP, 
     "code.patch",
     "shell.restricted",
     "shell.session",
+    "shell.serviceStartAndVerify",
     "test.run",
     "git.status",
     "git.diff",
@@ -90,16 +91,17 @@ test("registerTapCapabilityFamilyAssembly wires foundation, search, skill, MCP, 
     "mp.compact",
   ]);
   assert.deepEqual(result.familyKeys.userio, [
+    "question.ask",
     "request_user_input",
     "request_permissions",
     "audio.transcribe",
     "speech.synthesize",
     "image.generate",
   ]);
-  assert.equal(result.packages.length, 59);
-  assert.equal(result.bindings.length, 59);
+  assert.equal(result.packages.length, 61);
+  assert.equal(result.bindings.length, 61);
   assert.equal(result.activationFactoryRefs.length, activationFactories.size);
-  assert.equal(result.registrationAudit.length, 59);
+  assert.equal(result.registrationAudit.length, 61);
   assert.equal(result.activationFactoryAudit.length, activationFactories.size);
   assert.equal(registeredCapabilityKeys.includes("search.web"), true);
   assert.equal(registeredCapabilityKeys.includes("search.fetch"), true);

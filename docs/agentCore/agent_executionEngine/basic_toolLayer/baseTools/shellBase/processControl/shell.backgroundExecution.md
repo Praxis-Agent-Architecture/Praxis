@@ -48,6 +48,7 @@
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
 - 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
 - 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。
+- 真实 background provider 返回的只是进程生命周期事实：handle、`pid`、`alive`、`exitCode`、日志 artifact 引用、启动状态和 `serviceLifecycle.verificationStatus`；service/process/daemon/dev server/local worker 是否 healthy 必须由 `shell.serviceStartAndVerify` 或等价 probe 单独证明。
 
 ## 6. 输入边界
 
@@ -60,6 +61,7 @@
 
 - 工具执行结果、工具事件、审计材料和可交给 TAP 继续治理的状态。
 - 不泄漏底层实现细节的标准工具结果信封。
+- background 启动成功时输出稳定 handle、生命周期快照、stdout/stderr artifact 引用；不得把启动成功写成服务已可用。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 
@@ -103,6 +105,7 @@
 - 实现一个最小纯函数或薄类壳，能完成“提供 Shell 基础工具 / 进程控制 中的“后台执行”基础能力原语”的可测路径。
 - 所有副作用先通过明确依赖注入进入，避免在文件内部偷偷读全局状态。
 - 危险动作先只实现 dry-run / guard / audit path，再逐步打开真实执行。
+- 打开真实执行时必须经 runtime-owned provider，provider 要启动实际进程并把服务可达性标为未验证。
 
 第一版实现应该追求“能被调用、能被测、边界清楚”，不要追求一次性完整。
 
@@ -112,6 +115,7 @@
 - 验证该文件确实只完成“提供 Shell 基础工具 / 进程控制 中的“后台执行”基础能力原语”，没有越界承担相邻模块职责。
 - 验证错误结果可解释、可分类、不会泄漏不该暴露的内部细节。
 - 验证 guard/dry-run/audit path，避免测试误触真实危险操作。
+- 验证真实 provider 路径不会返回伪 started：测试应看到进程产生的可读副作用，并看到 reachability 仍是未验证。
 
 测试优先证明边界正确，而不是证明未来完整能力已经全部实现。
 

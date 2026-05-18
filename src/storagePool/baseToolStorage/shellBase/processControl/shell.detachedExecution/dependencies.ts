@@ -83,8 +83,19 @@ export function createHostExecutorShellDetachedExecutionProvider(
       throw new Error(result.error.message);
     }
 
+    const output = result.output as Readonly<Record<string, unknown>>;
     return {
-      resultEnvelope: result.output,
+      resultEnvelope: {
+        ...output,
+        detachedHandle: output.detachedHandle ?? output.launchId ?? context.invocationId ?? "detached",
+        serviceStatus: output.serviceStatus ?? "started",
+        verificationStatus: output.verificationStatus ?? "unverified",
+        serviceLifecycle: output.serviceLifecycle ?? {
+          verificationStatus: "not-run",
+          userReachability: "not-verified",
+          nextRequiredAction: "verify",
+        },
+      },
       metadata: { hostExecutor: "BaseToolExecutorPort.shell.startDetached", ...(result.metadata ?? {}) },
     };
   };

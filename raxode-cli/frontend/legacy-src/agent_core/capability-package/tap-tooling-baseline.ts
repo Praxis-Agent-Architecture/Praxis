@@ -14,6 +14,7 @@ export const TAP_TOOLING_BASELINE_CAPABILITY_KEYS = [
   "code.patch",
   "shell.restricted",
   "shell.session",
+  "shell.serviceStartAndVerify",
   "test.run",
   "git.status",
   "git.diff",
@@ -1199,6 +1200,140 @@ export function createTapToolingCapabilityPackage(
           rollbackStrategy: "restore prior binding or clear live session registry",
           deprecateStrategy: "freeze new session starts before removal",
           cleanupStrategy: "terminate lingering sessions before replacement",
+          generationPolicy: "create_next_generation",
+        },
+        activationSpec,
+        replayPolicy: "re_review_then_dispatch",
+        metadata: {
+          packageKind: "tap-tooling-baseline",
+        },
+      });
+    }
+    case "shell.serviceStartAndVerify": {
+      const activationSpec = {
+        targetPool: "ta-capability-pool",
+        activationMode: "activate_after_verify" as const,
+        registerOrReplace: "register_or_replace" as const,
+        generationStrategy: "create_next_generation" as const,
+        drainStrategy: "graceful" as const,
+        manifestPayload: {
+          capabilityKey,
+          capabilityId: "capability:shell.serviceStartAndVerify:1",
+          version: "1.0.0",
+          generation: 1,
+          kind: "tool",
+          description: "Start a long-lived local service and verify its process, TCP, HTTP, log, or command health probe before reporting availability.",
+          tags: ["tap", "bootstrap", "shell", "service", "lifecycle"],
+          routeHints: [{ key: "runtime", value: "local-tooling" }],
+          metadata: {
+            baselineFamily: "tap-bootstrap-tma",
+            formalPackage: true,
+            lifecycleSource: "praxis.baseTool.shell.serviceStartAndVerify",
+          },
+        },
+        bindingPayload: {
+          adapterId: "adapter.shell.serviceStartAndVerify",
+          runtimeKind: "local-tooling",
+          commandPolicy: "service-lifecycle",
+          workspaceScope: "workspace-only",
+        },
+        adapterFactoryRef: "factory:tap-tooling:shell.serviceStartAndVerify",
+      };
+
+      return createCapabilityPackage({
+        manifest: {
+          capabilityKey,
+          capabilityKind: "tool",
+          tier: "B0",
+          version: "1.0.0",
+          generation: 1,
+          description: "Start a long-lived local service and verify its process, TCP, HTTP, log, or command health probe before reporting availability.",
+          dependencies: ["shell.restricted"],
+          tags: ["tap", "bootstrap", "shell", "service", "lifecycle"],
+          routeHints: [{ key: "runtime", value: "local-tooling" }],
+          supportedPlatforms: ["linux", "macos", "windows"],
+          metadata: {
+            baselineFamily: "tap-bootstrap-tma",
+            formalPackage: true,
+            lifecycleSource: "praxis.baseTool.shell.serviceStartAndVerify",
+          },
+        },
+        adapter: {
+          adapterId: "adapter.shell.serviceStartAndVerify",
+          runtimeKind: "local-tooling",
+          supports: ["process", "tcp", "http", "log", "command"],
+          prepare: { ref: "adapter.prepare:shell.serviceStartAndVerify" },
+          execute: { ref: "adapter.execute:shell.serviceStartAndVerify" },
+          cancel: { ref: "adapter.cancel:shell.serviceStartAndVerify" },
+          resultMapping: {
+            successStatuses: ["success", "partial"],
+            artifactKinds: ["service-lifecycle", "stdout", "stderr", "registry"],
+          },
+        },
+        policy: {
+          defaultBaseline: {
+            grantedTier: "B0",
+            mode: "balanced",
+            scope: createWorkspaceScope(["exec", "shell.serviceStartAndVerify"]),
+          },
+          recommendedMode: "standard",
+          riskLevel: "risky",
+          defaultScope: createWorkspaceScope(["exec", "shell.serviceStartAndVerify"]),
+          reviewRequirements: ["allow_with_constraints"],
+          safetyFlags: ["workspace_cwd_only", "service_health_probe_required", "full_logs_to_artifacts"],
+          humanGateRequirements: ["dangerous_commands_or_external_paths_require_human_gate"],
+        },
+        builder: {
+          builderId: "builder.shell.serviceStartAndVerify",
+          buildStrategy: "builtin-bootstrap-tooling",
+          requiresNetwork: false,
+          requiresInstall: false,
+          requiresSystemWrite: false,
+          allowedWorkdirScope: ["workspace/**"],
+          activationSpecRef: createCapabilityPackageActivationSpecRef(activationSpec),
+          replayCapability: "re_review_then_dispatch",
+        },
+        verification: {
+          smokeEntry: "smoke:shell.serviceStartAndVerify",
+          healthEntry: "health:shell.serviceStartAndVerify",
+          successCriteria: ["service process is spawned", "health probe result is explicit", "stdout/stderr artifacts and service registry are returned"],
+          failureSignals: ["process exits before probe", "tcp/http/log/command probe timeout", "missing artifact refs"],
+          evidenceOutput: ["pid", "serviceStatus", "health", "stdoutArtifactRef", "stderrArtifactRef", "registryArtifactRef"],
+        },
+        usage: {
+          usageDocRef: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.serviceStartAndVerify.md",
+          bestPractices: [
+            "Use this for service/process/daemon/dev-server/local-worker startup tasks instead of treating spawn as availability.",
+            "Only report the service as usable when health.healthy is true or serviceStatus is healthy.",
+          ],
+          knownLimits: [
+            "The first version supports process, tcp, http, log, and command probes.",
+            "It does not replace manual debugging; failureReason and recommendedNextActions guide the next step.",
+          ],
+          exampleInvocations: [
+            {
+              exampleId: "shell.serviceStartAndVerify.http",
+              capabilityKey,
+              operation: "serviceStartAndVerify",
+              input: {
+                command: "node server.js",
+                cwd: ".",
+                verification: {
+                  kind: "http",
+                  url: "http://127.0.0.1:3000/",
+                  expectedStatus: 200,
+                  timeoutMs: 30000,
+                },
+              },
+            },
+          ],
+        },
+        lifecycle: {
+          installStrategy: "built-in bootstrap registration",
+          replaceStrategy: "register_or_replace",
+          rollbackStrategy: "restore prior binding or stop issuing service lifecycle calls",
+          deprecateStrategy: "freeze new service starts before removal",
+          cleanupStrategy: "terminate lingering service processes before replacement",
           generationPolicy: "create_next_generation",
         },
         activationSpec,

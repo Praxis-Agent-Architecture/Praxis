@@ -40,6 +40,16 @@ test("planShellDetachedExecution creates an approval-gated dry-run detached plan
   assert.equal(result.output.detachedContract.outlivesAgentSession, true);
   assert.equal(result.output.detachedContract.requiresTapApproval, true);
   assert.equal(result.output.resultEnvelope.detachedHandle, "server-daemon");
+  assert.deepEqual(result.output.resultEnvelope.statusSnapshot, {
+    handle: "server-daemon",
+    lifecycleKind: "detached",
+    processState: "planned",
+    verificationState: "not-requested",
+    verified: false,
+    command: "node server.js",
+    cwd: "/repo/app",
+    summary: "detached process launch is planned; service reachability has not been verified",
+  });
   assert.equal(result.output.dryRun, true);
   assert.equal(result.output.executionBlocked, true);
   assert.equal(result.output.unsafeSideEffects, false);

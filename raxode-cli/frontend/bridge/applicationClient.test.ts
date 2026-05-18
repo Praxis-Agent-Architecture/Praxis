@@ -27,7 +27,7 @@ test("process application client submits a turn through the stdio backend", asyn
 
   assert.equal(result.ok, true);
   assert.equal(result.view.agentId, "agent.raxode.coding");
-  assert.equal(result.view.tools.mounted, 175);
+  assert.equal(result.view.tools.mounted, 176);
   assert.equal(events.includes("conversation"), true);
   assert.equal(events.includes("final"), true);
 });

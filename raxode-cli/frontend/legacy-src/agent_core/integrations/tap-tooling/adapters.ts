@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+import { createRuntimeBaseToolExecutorPort } from "../../../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import type {
   CapabilityAdapter,
   CapabilityInvocationPlan,
@@ -63,11 +64,17 @@ import {
   normalizeNewlines,
   readTextFileIfExists,
   restoreNewlines,
+  asBoolean,
+  asNumber,
+  asRecord,
+  asString,
+  asStringArray,
   type BrowserPlaywrightRuntimeLike,
   type BrowserPlaywrightSessionLike,
   type CommandExecutionResult,
   type NormalizedCommandInput,
   type NormalizedDocWriteInput,
+  type NormalizedShellServiceStartAndVerifyInput,
   type NormalizedRepoWriteEntry,
   type PreparedBrowserPlaywrightState,
   type PreparedCodeDiffState,
@@ -81,15 +88,172 @@ import {
   type PreparedGitStatusState,
   type PreparedRemoteExecState,
   type PreparedRepoWriteState,
+  type PreparedShellServiceStartAndVerifyState,
   type PreparedShellSessionState,
   type PreparedSkillDocState,
   type PreparedSpreadsheetWriteState,
   type PreparedTrackerCreateState,
   type PreparedWriteTodosState,
+  type ShellServiceStartAndVerifyRunner,
   type ShellSessionRuntimeState,
   type SpreadsheetWriteCellValue,
   type TapToolingAdapterOptions,
 } from "./shared.js";
+
+function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_./:=@%+-]+$/u.test(value)
+    ? value
+    : `'${value.replace(/'/gu, `'\\''`)}'`;
+}
+
+function commandStringFromServiceInput(commandValue: unknown, argsValue: unknown): string | undefined {
+  const commandArray = asStringArray(commandValue);
+  const command = commandArray?.[0] ?? asString(commandValue);
+  if (!command) {
+    return undefined;
+  }
+  const args = [
+    ...(commandArray?.slice(1) ?? []),
+    ...(asStringArray(argsValue) ?? []),
+  ];
+  return args.length > 0
+    ? [command, ...args].map(shellQuote).join(" ")
+    : command;
+}
+
+function normalizeServiceVerification(
+  value: unknown,
+  planTimeoutMs: number | undefined,
+): Record<string, unknown> {
+  const source = asRecord(value) ?? {};
+  const kind = asString(source.kind) ?? asString(source.type) ?? asString(source.probeType);
+  if (!kind) {
+    throw new Error("shell.serviceStartAndVerify requires verification.kind or probe.type.");
+  }
+  const verification: Record<string, unknown> = {
+    ...source,
+    kind,
+  };
+  delete verification.type;
+  delete verification.probeType;
+
+  if (kind === "http") {
+    verification.expectedStatus =
+      asNumber(source.expectedStatus)
+      ?? asNumber(source.statusCode)
+      ?? asNumber(source.status)
+      ?? verification.expectedStatus;
+  }
+  if (verification.timeoutMs === undefined && planTimeoutMs !== undefined) {
+    verification.timeoutMs = planTimeoutMs;
+  }
+  return verification;
+}
+
+function normalizeShellServiceStartAndVerifyInput(params: {
+  plan: CapabilityInvocationPlan;
+  workspaceRoot: string;
+}): NormalizedShellServiceStartAndVerifyInput {
+  const inputRecord = asRecord(params.plan.input) ?? {};
+  const startRecord = asRecord(inputRecord.start) ?? inputRecord;
+  const command = commandStringFromServiceInput(
+    startRecord.command ?? inputRecord.command,
+    startRecord.args ?? inputRecord.args,
+  );
+  if (!command) {
+    throw new Error("shell.serviceStartAndVerify requires a non-empty command.");
+  }
+  const shell = asString(startRecord.shell ?? inputRecord.shell);
+  const normalizedShell = shell === "bash" || shell === "zsh" || shell === "sh" ? shell : "sh";
+  const scope = getGrantedScope(params.plan);
+  const cwd = resolvePathWithinWorkspace({
+    workspaceRoot: params.workspaceRoot,
+    candidatePath:
+      asString(startRecord.cwd)
+      ?? asString(inputRecord.cwd)
+      ?? asString(startRecord.workdir)
+      ?? asString(inputRecord.workdir)
+      ?? asString(startRecord.dir_path)
+      ?? asString(inputRecord.dir_path)
+      ?? ".",
+    scope,
+    operationCandidates: ["exec", "shell.serviceStartAndVerify"],
+    label: "shell.serviceStartAndVerify cwd",
+  });
+  const launchMode = asString(startRecord.launchMode ?? inputRecord.launchMode)
+    ?? asString(startRecord.launch_mode ?? inputRecord.launch_mode);
+  const restartPolicy = asString(startRecord.restartPolicy ?? inputRecord.restartPolicy)
+    ?? asString(startRecord.restart_policy ?? inputRecord.restart_policy);
+  const serviceId = asString(startRecord.serviceId ?? inputRecord.serviceId)
+    ?? asString(startRecord.service_id ?? inputRecord.service_id)
+    ?? `service-${randomUUID()}`;
+  const verificationSource = inputRecord.verification ?? inputRecord.probe;
+  const verification = normalizeServiceVerification(verificationSource, params.plan.timeoutMs);
+  const outputBufferLimitBytes =
+    asNumber(startRecord.outputBufferLimitBytes ?? inputRecord.outputBufferLimitBytes)
+    ?? asNumber(startRecord.output_buffer_limit_bytes ?? inputRecord.output_buffer_limit_bytes)
+    ?? 64 * 1024;
+
+  return {
+    start: {
+      command,
+      shell: normalizedShell,
+      cwd: cwd.absolutePath,
+      relativeWorkspaceCwd: cwd.relativeWorkspacePath,
+      serviceId,
+      launchMode: launchMode === "detached" ? "detached" : "background",
+      restartPolicy: restartPolicy === "on-failure" ? "on-failure" : "none",
+      outputBufferLimitBytes,
+      captureOutput: asBoolean(startRecord.captureOutput ?? inputRecord.captureOutput)
+        ?? asBoolean(startRecord.capture_output ?? inputRecord.capture_output)
+        ?? true,
+    },
+    verification,
+  };
+}
+
+function createDefaultServiceStartAndVerifyRunner(input: {
+  workspaceRoot: string;
+}): ShellServiceStartAndVerifyRunner {
+  return async (request) => {
+    const executor = createRuntimeBaseToolExecutorPort({
+      runtimeId: "raxode-legacy-tap",
+      sessionId: "raxode-legacy-tap",
+      policy: {
+        workspaceRoot: input.workspaceRoot,
+        allowedRoots: [input.workspaceRoot],
+        allowShellExecution: true,
+        allowProcessExecution: true,
+      },
+    });
+    const result = await executor.shell?.startServiceAndVerify?.({
+      start: {
+        command: request.start.command,
+        shell: request.start.shell,
+        cwd: request.start.cwd,
+        serviceId: request.start.serviceId,
+        launchMode: request.start.launchMode,
+        restartPolicy: request.start.restartPolicy,
+        outputBufferLimitBytes: request.start.outputBufferLimitBytes,
+        captureOutput: request.start.captureOutput,
+      },
+      verification: request.verification as never,
+      context: {
+        invocationId: request.start.serviceId,
+      },
+    });
+    if (!result) {
+      return {
+        ok: false,
+        error: {
+          code: "service_runner_unavailable",
+          message: "Praxis runtime executor did not provide shell.startServiceAndVerify.",
+        },
+      };
+    }
+    return result;
+  };
+}
 
 export class RepoWriteCapabilityAdapter implements CapabilityAdapter {
   readonly id = "adapter.repo.write";
@@ -2290,6 +2454,136 @@ export class RestrictedShellCapabilityAdapter implements CapabilityAdapter {
   }
 }
 
+export class ShellServiceStartAndVerifyCapabilityAdapter implements CapabilityAdapter {
+  readonly id = "adapter.shell.serviceStartAndVerify";
+  readonly runtimeKind = "local-tooling";
+  readonly #workspaceRoot: string;
+  readonly #runner: ShellServiceStartAndVerifyRunner;
+  readonly #prepared = new Map<string, PreparedShellServiceStartAndVerifyState>();
+
+  constructor(options: TapToolingAdapterOptions) {
+    this.#workspaceRoot = path.resolve(options.workspaceRoot);
+    this.#runner = options.serviceStartAndVerifyRunner
+      ?? createDefaultServiceStartAndVerifyRunner({ workspaceRoot: this.#workspaceRoot });
+  }
+
+  supports(plan: CapabilityInvocationPlan): boolean {
+    if (plan.capabilityKey !== "shell.serviceStartAndVerify") {
+      return false;
+    }
+    try {
+      normalizeShellServiceStartAndVerifyInput({
+        plan,
+        workspaceRoot: this.#workspaceRoot,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async prepare(plan: CapabilityInvocationPlan, lease: CapabilityLease): Promise<PreparedCapabilityCall> {
+    const input = normalizeShellServiceStartAndVerifyInput({
+      plan,
+      workspaceRoot: this.#workspaceRoot,
+    });
+    const prepared = createPreparedCapabilityCall({
+      lease,
+      plan,
+      executionMode: "long-running",
+      preparedPayloadRef: `shell-service-start-and-verify:${plan.planId}`,
+      metadata: {
+        planId: plan.planId,
+        workspaceRoot: this.#workspaceRoot,
+        serviceId: input.start.serviceId,
+      },
+    });
+    this.#prepared.set(prepared.preparedId, { input });
+    return prepared;
+  }
+
+  async execute(prepared: PreparedCapabilityCall) {
+    const state = this.#prepared.get(prepared.preparedId);
+    if (!state) {
+      return createCapabilityResultEnvelope({
+        executionId: prepared.preparedId,
+        status: "failed",
+        error: {
+          code: "shell_service_prepared_state_missing",
+          message: `Prepared shell.serviceStartAndVerify state for ${prepared.preparedId} was not found.`,
+        },
+      });
+    }
+    this.#prepared.delete(prepared.preparedId);
+
+    const result = await this.#runner(state.input);
+    if (!result.ok) {
+      return createCapabilityResultEnvelope({
+        executionId: prepared.preparedId,
+        status: "failed",
+        error: {
+          code: result.error?.code ?? "shell_service_runtime_failed",
+          message: result.error?.message ?? "shell.serviceStartAndVerify failed before returning a service status.",
+          details: result.error?.details && typeof result.error.details === "object"
+            ? result.error.details as Record<string, unknown>
+            : undefined,
+        },
+        metadata: {
+          capabilityKey: "shell.serviceStartAndVerify",
+          runtimeKind: this.runtimeKind,
+          serviceId: state.input.start.serviceId,
+        },
+      });
+    }
+
+    const output = result.output ?? {};
+    const serviceStatus = typeof output.serviceStatus === "string"
+      ? output.serviceStatus
+      : typeof output.status === "string"
+        ? output.status
+        : "unverified";
+    const health = output.health && typeof output.health === "object"
+      ? output.health as Record<string, unknown>
+      : undefined;
+    const healthy = health?.healthy === true || serviceStatus === "healthy";
+
+    return createCapabilityResultEnvelope({
+      executionId: prepared.preparedId,
+      status: healthy ? "success" : "partial",
+      output: {
+        ...output,
+        cwd: state.input.start.relativeWorkspaceCwd,
+        serviceStatus,
+        healthy,
+      },
+      error: healthy
+        ? undefined
+        : {
+          code: `shell_service_${serviceStatus}`,
+          message: typeof output.failureReason === "string"
+            ? output.failureReason
+            : `shell.serviceStartAndVerify returned serviceStatus=${serviceStatus}.`,
+          details: {
+            serviceStatus,
+            health,
+            failureReason: output.failureReason,
+            recommendedNextActions: output.recommendedNextActions,
+            stdoutArtifactRef: output.stdoutArtifactRef,
+            stderrArtifactRef: output.stderrArtifactRef,
+            registryArtifactRef: output.registryArtifactRef,
+          },
+        },
+      metadata: {
+        capabilityKey: "shell.serviceStartAndVerify",
+        runtimeKind: this.runtimeKind,
+        serviceId: state.input.start.serviceId,
+        serviceStatus,
+        healthy,
+      },
+    });
+  }
+}
+
 export class TestRunCapabilityAdapter implements CapabilityAdapter {
   readonly id = "adapter.test.run";
   readonly runtimeKind = "local-tooling";
@@ -2907,6 +3201,8 @@ export function createTapToolingCapabilityAdapter(
       return new SkillDocGenerateCapabilityAdapter(options);
     case "shell.restricted":
       return new RestrictedShellCapabilityAdapter(options);
+    case "shell.serviceStartAndVerify":
+      return new ShellServiceStartAndVerifyCapabilityAdapter(options);
     case "test.run":
       return new TestRunCapabilityAdapter(options);
   }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1524,6 +1524,139 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   const dynamicPromptText = JSON.stringify(dynamicPrompt) ?? "";
   assert.match(dynamicPromptText, /nativeToolResult: call_id=tool-call-1/u);
   assert.doesNotMatch(dynamicPromptText, /needle from runtime kernel/u);
+});
+
+test("PraxisRuntimeKernel.runManifest uses runtime cwd as default baseTool workspace root", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-runtime-cwd-"));
+  await writeFile(path.join(workspace, "workspace-only.txt"), "needle from runtime cwd\n", "utf8");
+
+  class RuntimeCwdToolAgent extends PraxisAgent {
+    identity = "agent.runtime-cwd-tool";
+    model = model("gpt-5.4", { carrierId: "carrier.runtime-cwd-tool" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-cwd-tool" }).run(
+    new RuntimeCwdToolAgent(),
+    "read workspace-only.txt",
+    {
+      sessionId: "session-cwd-tool",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      storage: { cwd: workspace },
+      sandbox: { cwd: workspace },
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "code.read",
+              call_id: "runtime-cwd-code-read",
+              arguments: JSON.stringify({
+                targetPath: "workspace-only.txt",
+                dryRun: false,
+              }),
+            }],
+          };
+        }
+        return { output_text: "read complete" };
+      },
+      now: () => "2026-05-18T00:00:00.000Z",
+    },
+  );
+
+  await rm(workspace, { recursive: true, force: true });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.arguments), new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /needle from runtime cwd/u);
+});
+
+test("PraxisRuntimeKernel.runManifest gives EphemeralProcedure steps the runtime workspace root", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-procedure-cwd-"));
+  await writeFile(path.join(workspace, "procedure-only.txt"), "needle from procedure runtime cwd\n", "utf8");
+
+  class ProcedureRuntimeCwdAgent extends PraxisAgent {
+    identity = "agent.procedure-runtime-cwd";
+    model = model("gpt-5.4", { carrierId: "carrier.procedure-runtime-cwd" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("code.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 2 }),
+    });
+  }
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-procedure-cwd" }).run(
+    new ProcedureRuntimeCwdAgent(),
+    "read procedure-only.txt by procedure",
+    {
+      sessionId: "session-procedure-cwd",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      storage: { cwd: workspace },
+      sandbox: { cwd: workspace },
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "praxis_ephemeral_procedure",
+              call_id: "procedure-runtime-cwd-call",
+              arguments: JSON.stringify({
+                procedureId: "procedure-runtime-cwd",
+                purpose: "read an existing file through code.read",
+                executionMode: "serial",
+                steps: [{
+                  stepId: "read",
+                  baseToolId: "code.read",
+                  input: {
+                    targetPath: "procedure-only.txt",
+                    dryRun: false,
+                  },
+                  riskLevel: "low",
+                }],
+              }),
+            }],
+          };
+        }
+        return { output_text: "procedure read complete" };
+      },
+      now: () => "2026-05-18T00:00:00.000Z",
+    },
+  );
+
+  await rm(workspace, { recursive: true, force: true });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.callId, "procedure-runtime-cwd:read");
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.arguments), new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /needle from procedure runtime cwd/u);
 });
 
 test("PraxisRuntimeKernel.runManifest reuses same-turn full code.read observations for repeated range reads", async () => {

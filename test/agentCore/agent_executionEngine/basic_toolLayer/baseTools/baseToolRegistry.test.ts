@@ -14,13 +14,13 @@ test("baseTool registry discovers the active builtin tool files with markdown to
   const registry = createBaseToolRegistry();
   const snapshot = registry.snapshot();
 
-  assert.equal(baseToolRegistryDescriptor.builtinToolCountTarget, 175);
-  assert.equal(definitions.length, 175);
-  assert.equal(snapshot.builtins, 175);
+  assert.equal(baseToolRegistryDescriptor.builtinToolCountTarget, 176);
+  assert.equal(definitions.length, 176);
+  assert.equal(snapshot.builtins, 176);
   assert.equal(snapshot.customs, 0);
-  assert.equal(snapshot.total, 175);
+  assert.equal(snapshot.total, 176);
   assert.equal(snapshot.byFamily.code, 29);
-  assert.equal(snapshot.byFamily.shell, 32);
+  assert.equal(snapshot.byFamily.shell, 33);
   assert.equal(snapshot.byFamily.git, 35);
   assert.equal(snapshot.byFamily.office, 0);
   assert.equal(snapshot.byFamily.skill, 6);

@@ -27,7 +27,7 @@ export type CodeEditReadResult = {
 
 export type CodeEditWriteResult = {
   bytesWritten: number;
-};
+} & Readonly<Record<string, unknown>>;
 
 export type CodeEditDeleteResult = {
   deleted: boolean;

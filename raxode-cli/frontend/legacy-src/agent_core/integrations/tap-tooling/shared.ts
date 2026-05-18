@@ -129,6 +129,28 @@ export interface ShellSessionInput extends ShellRestrictedInput {
   chars?: string;
 }
 
+export interface ShellServiceStartAndVerifyInput {
+  command?: string | string[];
+  args?: string[];
+  cwd?: string;
+  workdir?: string;
+  dir_path?: string;
+  shell?: "sh" | "bash" | "zsh";
+  serviceId?: string;
+  service_id?: string;
+  launchMode?: "background" | "detached";
+  launch_mode?: "background" | "detached";
+  restartPolicy?: "none" | "on-failure";
+  restart_policy?: "none" | "on-failure";
+  outputBufferLimitBytes?: number;
+  output_buffer_limit_bytes?: number;
+  captureOutput?: boolean;
+  capture_output?: boolean;
+  probe?: Record<string, unknown>;
+  verification?: Record<string, unknown>;
+  start?: Record<string, unknown>;
+}
+
 export interface GitStatusInput {
   path?: string;
   cwd?: string;
@@ -308,6 +330,35 @@ export interface NormalizedCommandInput {
   description?: string;
 }
 
+export interface NormalizedShellServiceStartAndVerifyInput {
+  start: {
+    command: string;
+    shell: "sh" | "bash" | "zsh";
+    cwd: string;
+    relativeWorkspaceCwd: string;
+    serviceId: string;
+    launchMode: "background" | "detached";
+    restartPolicy: "none" | "on-failure";
+    outputBufferLimitBytes: number;
+    captureOutput: boolean;
+  };
+  verification: Record<string, unknown>;
+}
+
+export interface ShellServiceStartAndVerifyRunnerResult {
+  ok: boolean;
+  output?: Record<string, unknown>;
+  error?: {
+    code?: string;
+    message?: string;
+    details?: unknown;
+  };
+}
+
+export type ShellServiceStartAndVerifyRunner = (
+  input: NormalizedShellServiceStartAndVerifyInput,
+) => Promise<ShellServiceStartAndVerifyRunnerResult>;
+
 export interface CommandExecutionResult {
   exitCode: number | null;
   signal: NodeJS.Signals | null;
@@ -324,6 +375,7 @@ export interface TapToolingAdapterOptions {
   commandRunner?: (
     input: NormalizedCommandInput,
   ) => Promise<CommandExecutionResult>;
+  serviceStartAndVerifyRunner?: ShellServiceStartAndVerifyRunner;
   browserPlaywrightRuntime?: BrowserPlaywrightRuntimeLike;
   defaultShellTimeoutMs?: number;
   defaultTestTimeoutMs?: number;
@@ -526,6 +578,10 @@ export interface PreparedShellSessionState {
     sessionId?: string;
     chars?: string;
   };
+}
+
+export interface PreparedShellServiceStartAndVerifyState {
+  input: NormalizedShellServiceStartAndVerifyInput;
 }
 
 export interface GitStatusEntry {

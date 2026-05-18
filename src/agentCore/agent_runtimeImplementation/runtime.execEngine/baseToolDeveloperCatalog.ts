@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / BaseTool 开发者目录。
- * 核心目的：把 storage-owned 175 个 BaseTool 暴露成可校验的 authoring helper，避免开发者手写散乱 toolId。
+ * 核心目的：把 storage-owned 176 个 BaseTool 暴露成可校验的 authoring helper，避免开发者手写散乱 toolId。
  * 边界：这里只生成 ToolSpec，不执行工具、不定义工具语义、不替代 BaseTool registry。
  */
 

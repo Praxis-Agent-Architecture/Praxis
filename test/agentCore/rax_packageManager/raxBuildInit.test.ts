@@ -293,7 +293,7 @@ test("rax inspect reports selected BaseTools through CLI host adapter readiness"
   }
 });
 
-test("rax test --all-testable reports the full 175 BaseTool readiness matrix", async () => {
+test("rax test --all-testable reports the full 176 BaseTool readiness matrix", async () => {
   const targetDir = path.join(scratchRoot, "all-testable-readiness");
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
@@ -325,8 +325,8 @@ test("rax test --all-testable reports the full 175 BaseTool readiness matrix", a
       };
     };
   };
-  assert.equal(payload.readiness?.toolReadiness?.total, 175);
-  assert.equal(payload.readiness?.toolReadiness?.ready, 175);
+  assert.equal(payload.readiness?.toolReadiness?.total, 176);
+  assert.equal(payload.readiness?.toolReadiness?.ready, 176);
   assert.deepEqual(payload.readiness?.toolReadiness?.missing, []);
   assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "mcp.call"), true);
   assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "computeruse.mouseClick"), true);

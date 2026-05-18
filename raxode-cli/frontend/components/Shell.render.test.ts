@@ -38,8 +38,8 @@ const view: RaxodeApplicationViewModel = {
   sessions: [],
   approvals: [],
   tools: {
-    total: 175,
-    mounted: 175,
+    total: 176,
+    mounted: 176,
     byFamily: { shellBase: 32, gitBase: 35 },
     byRiskLevel: {},
     byReadiness: {},

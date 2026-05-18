@@ -329,7 +329,7 @@ runtime request
 
 Tool exposure is not all-or-nothing. The framework supports several authoring modes:
 
-- `allOpen`: expose all 175 BaseTool definitions. Useful for fullstack stress tests, noisy for normal agents.
+- `allOpen`: expose all 176 BaseTool definitions. Useful for fullstack stress tests, noisy for normal agents.
 - `autoFolded`: expose family-level tool descriptions first; the model can request `praxis_expand_tool_context` to unfold a family/group/tool description.
 - `manualCoarse`: developer selects by family or group, for example all `codeBase` and `gitBase`.
 - `manualFine`: developer selects exact tool ids, for example `code.read` and `git.getRepositoryStatus`.
@@ -373,8 +373,8 @@ bin/rax test realtest/fullstack --all-testable --json
 Expected current all-tools matrix:
 
 ```text
-catalog.total = 175
-matrixCoverage.covered = 175
+catalog.total = 176
+matrixCoverage.covered = 176
 matrixCoverage.missing = 0
 shell = 32/32
 git = 35/35

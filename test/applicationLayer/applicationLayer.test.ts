@@ -137,8 +137,8 @@ test("applicationLayer project runtime can execute a dry-run turn", async () => 
     ["primary", "agent.raxode.coding", "primary"],
     ["tui", "agent.raxode.tui", "sidecar"],
   ]);
-  assert.equal(start.view.tools.total, 175);
-  assert.equal(start.view.tools.mounted, 175);
+  assert.equal(start.view.tools.total, 176);
+  assert.equal(start.view.tools.mounted, 176);
 
   const result = await transport.dispatch({
     type: "application.submitTurn",
@@ -158,8 +158,8 @@ test("applicationLayer project runtime can execute a dry-run turn", async () => 
   assert.equal(result.view.model.maxInputTokens, 272_000);
   assert.equal(result.view.model.usableInputTokens, 258_400);
   assert.equal(result.view.permissionProfile, "standard");
-  assert.equal(result.view.tools.total, 175);
-  assert.equal(result.view.tools.mounted, 175);
+  assert.equal(result.view.tools.total, 176);
+  assert.equal(result.view.tools.mounted, 176);
   assert.equal(result.view.counters.turns, 1);
   assert.equal(result.view.status, "completed");
 });

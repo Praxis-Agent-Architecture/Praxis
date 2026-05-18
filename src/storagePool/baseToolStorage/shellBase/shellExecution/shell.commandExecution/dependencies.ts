@@ -67,9 +67,10 @@ export function createHostExecutorShellCommandExecutionProvider(
     if (!result.ok) {
       const error = new Error(result.error.message);
       error.name = result.error.code;
+      error.cause = (result.error as { metadata?: unknown }).metadata;
       throw error;
     }
 
-    return result.output;
+    return { ...result.output, ...(result.metadata ?? {}) };
   };
 }

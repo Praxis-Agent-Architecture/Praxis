@@ -58,16 +58,22 @@ export function createHostExecutorCodeOverwriteProvider(
       }
       const result = await readText({ path: request.targetPath, encoding: request.encoding, maxBytes: request.maxBytes });
       if (!result.ok) {
-        throw new Error(result.error.message);
+        const error = new Error(result.error.message);
+        error.name = result.error.code;
+        error.cause = (result.error as { metadata?: unknown }).metadata;
+        throw error;
       }
-      return { content: result.output.content, truncated: result.output.truncated, encoding: request.encoding };
+      return { content: result.output.content, truncated: result.output.truncated, encoding: request.encoding, ...(result.metadata ?? {}) };
     },
     async writeText(request) {
       const result = await writeText({ path: request.targetPath, content: request.content, encoding: request.encoding });
       if (!result.ok) {
-        throw new Error(result.error.message);
+        const error = new Error(result.error.message);
+        error.name = result.error.code;
+        error.cause = (result.error as { metadata?: unknown }).metadata;
+        throw error;
       }
-      return { bytesWritten: result.output.bytesWritten };
+      return { bytesWritten: result.output.bytesWritten, ...(result.metadata ?? {}) };
     },
   };
 }

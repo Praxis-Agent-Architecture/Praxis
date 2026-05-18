@@ -54,7 +54,7 @@ export type ShellCommandExecutionProviderResult = {
   exitCode: number;
   stdout: string;
   stderr: string;
-};
+} & Readonly<Record<string, unknown>>;
 
 export type ShellCommandExecutionProvider = (
   request: ShellCommandExecutionProviderRequest,
@@ -84,6 +84,8 @@ export type ShellCommandExecutionErrorCode =
   | "SCOPE_DENIED"
   | "WORKSPACE_WRITE_REQUIRES_CODE_TOOL"
   | "LONG_RUNNING_FOREGROUND_COMMAND"
+  | "CWD_REJECTED"
+  | "OUTSIDE_ALLOWED_ROOTS"
   | "SANDBOX_PROVIDER_UNSUPPORTED"
   | "SANDBOX_UNAVAILABLE"
   | "REAL_COMMAND_EXECUTION_NOT_ALLOWED"
@@ -190,6 +192,10 @@ export type ShellCommandExecutionOutput = {
   exitCode?: number;
   stdout: string;
   stderr: string;
+  workspacePathNormalization?: Readonly<Record<string, unknown>>;
+  requestedCwd?: string;
+  normalizedCwd?: string;
+  workspaceRoot?: string;
   permissionsRequired: readonly ["shell:execute"];
   unsafeSideEffects: false;
 };
@@ -288,6 +294,7 @@ function toolFailure(
   boundary: ShellExecutionBoundary,
   context?: ShellToolContext,
 ): ShellToolFailureEnvelope {
+  const errorMetadata = objectValue(context?.auditMetadata);
   return {
     ok: false,
     toolId: shellCommandExecutionDescriptor.toolId,
@@ -297,6 +304,7 @@ function toolFailure(
       boundary,
       safeForRuntimeInspection: true,
       internalDetailExposed: false,
+      ...(errorMetadata ?? {}),
     },
     audit: [auditEvent("agentCore.basicTool.shell.commandExecution.rejected", context, { code, boundary })],
     events: ["basicTool.shell.commandExecution.rejected"],
@@ -307,7 +315,16 @@ function publicSafeProviderErrorCode(error: unknown): ShellCommandExecutionError
   if (error instanceof Error && (error.name === "SANDBOX_UNAVAILABLE" || error.name === "SANDBOX_PROVIDER_UNSUPPORTED")) {
     return error.name;
   }
+  if (error instanceof Error && (error.name === "CWD_REJECTED" || error.name === "OUTSIDE_ALLOWED_ROOTS")) {
+    return error.name;
+  }
   return "PROVIDER_REJECTED";
+}
+
+function objectValue(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : undefined;
 }
 
 function resolveScopes(
@@ -459,7 +476,8 @@ function normalizeShellCommandExecution(
     return acceptedScopes;
   }
 
-  const command = normalizeCommand(request.command);
+  const target = objectValue((request as { target?: unknown }).target);
+  const command = normalizeCommand(request.command ?? target?.command);
   if (typeof command !== "string") {
     return command;
   }
@@ -484,14 +502,14 @@ function normalizeShellCommandExecution(
       "LONG_RUNNING_FOREGROUND_COMMAND",
       [
         `shell.commandExecution refused foreground launch because ${foregroundLongRunningReason}.`,
-        "Use shell.backgroundExecution or shell.detachedExecution for the service, or wrap a probe in timeout.",
+        "Use shell.serviceStartAndVerify when the service URL must be verified, or shell.backgroundExecution/shell.detachedExecution for launch-only process control.",
         "When verifying a web app, read the actual listening port from stdout or scan localhost ports 3000-3020 instead of assuming 3000.",
       ].join(" "),
       "governance",
     );
   }
 
-  const cwd = normalizeCwd(request.cwd);
+  const cwd = normalizeCwd(request.cwd ?? target?.workingDirectory ?? target?.cwd);
   if (cwd !== undefined && typeof cwd !== "string") {
     return cwd;
   }
@@ -507,7 +525,7 @@ function normalizeShellCommandExecution(
     command,
     args,
     cwd,
-    shellType: stringValue(request.shellType)?.trim() || undefined,
+    shellType: stringValue(request.shellType ?? target?.shell ?? target?.shellType)?.trim() || undefined,
     timeoutMs,
     acceptedScopes,
   };
@@ -647,6 +665,10 @@ export async function executeShellCommand(
         exitCode: providerResult.exitCode,
         stdout: providerResult.stdout,
         stderr: providerResult.stderr,
+        workspacePathNormalization: objectValue(providerResult.workspacePathNormalization),
+        requestedCwd: stringValue(providerResult.requestedCwd),
+        normalizedCwd: stringValue(providerResult.normalizedCwd),
+        workspaceRoot: stringValue(providerResult.workspaceRoot),
         permissionsRequired: shellCommandExecutionDescriptor.permissionsRequired,
         unsafeSideEffects: false,
       },
@@ -660,11 +682,12 @@ export async function executeShellCommand(
     };
   } catch (error) {
     const code = publicSafeProviderErrorCode(error);
+    const metadata = objectValue(error instanceof Error ? error.cause : undefined);
     return toolFailure(
       code,
       error instanceof Error ? error.message : "shell.commandExecution provider rejected the invocation",
       code === "SANDBOX_UNAVAILABLE" || code === "SANDBOX_PROVIDER_UNSUPPORTED" ? "governance" : "provider",
-      request.context,
+      { ...request.context, auditMetadata: { ...(request.context?.auditMetadata ?? {}), ...(metadata ?? {}) } },
     );
   }
 }

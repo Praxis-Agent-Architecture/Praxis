@@ -17,6 +17,20 @@ import {
   createRaxodeBackendWebSocketServer,
 } from "../raxodeBackend.js";
 
+function findToolEvent(
+  events: readonly unknown[],
+  callId: string,
+  status: "completed" | "failed" | "running",
+): { metadata?: Record<string, unknown> } | undefined {
+  return events
+    .map((event) => event as { kind?: string; metadata?: Record<string, unknown> })
+    .find((event) =>
+      event.kind === "tool" &&
+      event.metadata?.toolCallId === callId &&
+      event.metadata?.toolStatus === status
+    );
+}
+
 test("raxode backend runs through applicationLayer", async () => {
   const backend = await createRaxodeBackend({
     now: () => "2026-05-10T00:00:00.000Z",
@@ -36,7 +50,7 @@ test("raxode backend runs through applicationLayer", async () => {
   assert.equal(result.view.model.maxInputTokens, 616_000);
   assert.equal(result.view.model.inputBudgetThreshold, 0.95);
   assert.equal(result.view.model.usableInputTokens, 585_200);
-  assert.equal(result.view.tools.mounted, 175);
+  assert.equal(result.view.tools.mounted, 176);
 });
 
 test("raxode application runtime includes prior same-session turns in the next provider prompt", async () => {
@@ -261,6 +275,275 @@ test("raxode application runtime builds streaming Anthropic messages body with c
   assert.equal(turn.view.usage?.estimated, false);
 });
 
+test("raxode application runtime normalizes code and shell workspace paths to the active cwd", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-workspace-paths-"));
+  const events: unknown[] = [];
+  let providerCallCount = 0;
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async () => {
+          providerCallCount += 1;
+          if (providerCallCount > 1) {
+            return { output_text: "workspace path normalization complete" };
+          }
+          return {
+            output: [
+              {
+                type: "function_call",
+                name: "code.overwrite",
+                call_id: "code-relative-path",
+                arguments: JSON.stringify({
+                  workspaceRoot: "/workspace",
+                  targetPath: "server.js",
+                  content: "relative\n",
+                  context: {
+                    workspaceRoot: "/workspace",
+                    dryRun: false,
+                    guard: { accepted: true, allowed: true },
+                  },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "code.overwrite",
+                call_id: "code-alias-path",
+                arguments: JSON.stringify({
+                  workspaceRoot: "/workspace",
+                  targetPath: "/workspace/server.js",
+                  content: "alias\n",
+                  context: {
+                    workspaceRoot: "/workspace",
+                    dryRun: false,
+                    guard: { accepted: true, allowed: true },
+                  },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "code.overwrite",
+                call_id: "code-absolute-path",
+                arguments: JSON.stringify({
+                  workspaceRoot: "/workspace",
+                  targetPath: path.join(workspace, "server.js"),
+                  content: "absolute\n",
+                  context: {
+                    workspaceRoot: "/workspace",
+                    dryRun: false,
+                    guard: { accepted: true, allowed: true },
+                  },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "shell.commandExecution",
+                call_id: "shell-relative-cwd",
+                arguments: JSON.stringify({
+                  target: { command: "pwd", workingDirectory: ".", shell: "sh" },
+                  context: { workspaceRoot: "/workspace" },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "shell.commandExecution",
+                call_id: "shell-alias-cwd",
+                arguments: JSON.stringify({
+                  target: { command: "pwd", workingDirectory: "/workspace", shell: "sh" },
+                  context: { workspaceRoot: "/workspace" },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "shell.commandExecution",
+                call_id: "shell-absolute-cwd",
+                arguments: JSON.stringify({
+                  target: { command: "pwd", workingDirectory: workspace, shell: "sh" },
+                  context: { workspaceRoot: "/workspace" },
+                }),
+              },
+            ],
+          };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const unsubscribe = transport.subscribe((event) => events.push(event));
+    try {
+      const start = await transport.dispatch({
+        type: "application.start",
+        sessionId: "session.raxode.workspace-paths.test",
+        cwd: workspace,
+        mode: "live",
+      });
+      assert.equal(start.ok, true);
+      const result = await transport.dispatch({
+        type: "application.submitTurn",
+        sessionId: "session.raxode.workspace-paths.test",
+        mode: "live",
+        input: {
+          type: "application.input",
+          text: "write server.js using three path forms and run pwd using three cwd forms",
+          cwd: workspace,
+        },
+      });
+      assert.equal(result.ok, true);
+    } finally {
+      unsubscribe();
+    }
+
+    assert.equal(await readFile(path.join(workspace, "server.js"), "utf8"), "absolute\n");
+    const aliasCode = findToolEvent(events, "code-alias-path", "completed");
+    const aliasCodeMetadata = aliasCode?.metadata?.resultMetadata as Record<string, unknown> | undefined;
+    assert.equal(aliasCodeMetadata?.workspaceRoot, workspace);
+    assert.equal(aliasCodeMetadata?.normalizedPath, path.join(workspace, "server.js"));
+    assert.equal(aliasCodeMetadata?.mappingSource, "workspace-alias");
+    assert.equal(aliasCodeMetadata?.pathWasMapped, true);
+
+    const aliasShell = findToolEvent(events, "shell-alias-cwd", "completed");
+    const aliasShellMetadata = aliasShell?.metadata?.resultMetadata as Record<string, unknown> | undefined;
+    assert.equal(aliasShellMetadata?.workspaceRoot, workspace);
+    assert.equal(aliasShellMetadata?.normalizedCwd, workspace);
+    assert.equal(aliasShellMetadata?.mappingSource, "workspace-alias");
+    assert.equal(aliasShellMetadata?.cwdWasMapped, true);
+    assert.equal(String(aliasShell?.metadata?.outputPreview).includes(workspace), true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("raxode application runtime returns structured workspace path rejections", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "raxode-workspace-path-reject-"));
+  const events: unknown[] = [];
+  let providerCallCount = 0;
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+
+  try {
+    const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+      applicationId: "application.raxode.coding",
+      mode: "live",
+      model: "gpt-5.5",
+      reasoningEffort: "low",
+      permissionProfile: "bapr",
+      now: () => "2026-05-10T00:00:00.000Z",
+      liveProviderResolver: async () => ({
+        auth: fakeAuth,
+        providerCaller: async () => {
+          providerCallCount += 1;
+          if (providerCallCount > 1) {
+            return { output_text: "workspace path rejection complete" };
+          }
+          return {
+            output: [
+              {
+                type: "function_call",
+                name: "shell.commandExecution",
+                call_id: "shell-tmp-cwd",
+                arguments: JSON.stringify({
+                  target: { command: "pwd", workingDirectory: "/tmp", shell: "sh" },
+                  context: { workspaceRoot: "/workspace" },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "shell.commandExecution",
+                call_id: "shell-home-cwd",
+                arguments: JSON.stringify({
+                  target: { command: "pwd", workingDirectory: "/home/proview", shell: "sh" },
+                  context: { workspaceRoot: "/workspace" },
+                }),
+              },
+              {
+                type: "function_call",
+                name: "code.overwrite",
+                call_id: "code-etc-path",
+                arguments: JSON.stringify({
+                  targetPath: "/etc/passwd",
+                  content: "nope",
+                  context: {
+                    dryRun: false,
+                    guard: { accepted: true, allowed: true },
+                  },
+                }),
+              },
+            ],
+          };
+        },
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+
+    const transport = createLocalApplicationTransport(created.runtime);
+    const unsubscribe = transport.subscribe((event) => events.push(event));
+    try {
+      const start = await transport.dispatch({
+        type: "application.start",
+        sessionId: "session.raxode.workspace-path-reject.test",
+        cwd: workspace,
+        mode: "live",
+      });
+      assert.equal(start.ok, true);
+      const result = await transport.dispatch({
+        type: "application.submitTurn",
+        sessionId: "session.raxode.workspace-path-reject.test",
+        mode: "live",
+        input: {
+          type: "application.input",
+          text: "try outside workspace paths",
+          cwd: workspace,
+        },
+      });
+      assert.equal(result.ok, true);
+    } finally {
+      unsubscribe();
+    }
+
+    const tmp = findToolEvent(events, "shell-tmp-cwd", "failed")?.metadata?.resultMetadata as Record<string, unknown> | undefined;
+    assert.equal(tmp?.errorCode, "CWD_REJECTED");
+    assert.equal(tmp?.requestedCwd, "/tmp");
+    assert.equal(tmp?.normalizedCwd, "/tmp");
+    assert.equal(tmp?.workspaceRoot, workspace);
+    assert.equal(tmp?.suggestedCwd, workspace);
+
+    const home = findToolEvent(events, "shell-home-cwd", "failed")?.metadata?.resultMetadata as Record<string, unknown> | undefined;
+    assert.equal(home?.errorCode, "CWD_REJECTED");
+    assert.equal(home?.requestedCwd, "/home/proview");
+    assert.equal(home?.workspaceRoot, workspace);
+
+    const etc = findToolEvent(events, "code-etc-path", "failed")?.metadata?.resultMetadata as Record<string, unknown> | undefined;
+    assert.equal(etc?.errorCode, "OUTSIDE_ALLOWED_ROOTS");
+    assert.equal(etc?.requestedPath, "/etc/passwd");
+    assert.equal(etc?.normalizedPath, "/etc/passwd");
+    assert.equal(etc?.workspaceRoot, workspace);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("raxode application runtime separates provider cache miss from stable PromptPack drift", async () => {
   const events: unknown[] = [];
   const fakeAuth: AuthEnvelope = {
@@ -467,6 +750,103 @@ test("raxode application runtime injects expanded BaseTool manuals for one model
   assert.match(JSON.stringify(providerBodies[1]), /baseTool:manual:tool:code\.read/u);
   assert.doesNotMatch(JSON.stringify(providerBodies[2]), /baseTool:manual:tool:code\.read/u);
   assert.match(JSON.stringify(providerBodies[2]), /baseTool:summary:tool:code\.read/u);
+});
+
+test("raxode application runtime marks background service launches as unverified until reachability is checked", async () => {
+  const fakeAuth: AuthEnvelope = {
+    kind: "none",
+    present: true,
+    headerPlan: [],
+    queryPlan: [],
+    publicSafe: true,
+  };
+  const events: unknown[] = [];
+  let calls = 0;
+  const created = await createApplicationProjectRuntime(path.resolve("raxode-cli/backend"), {
+    applicationId: "application.raxode.coding",
+    mode: "live",
+    model: "gpt-5.5",
+    reasoningEffort: "low",
+    permissionProfile: "bapr",
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "praxis_tool_shell_backgroundExecution",
+              call_id: "call-background-service",
+              arguments: JSON.stringify({
+                target: {
+                  command: "node -e \"setTimeout(()=>{},5000)\"",
+                  jobId: "dev-server",
+                },
+              }),
+            }],
+          };
+        }
+        return { output_text: "service launch recorded" };
+      },
+    }),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  const transport = createLocalApplicationTransport(created.runtime);
+  const unsubscribe = transport.subscribe((event) => events.push(event));
+  try {
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId: "session.raxode.service-launch.test",
+      cwd: process.cwd(),
+      mode: "live",
+    });
+    assert.equal(start.ok, true);
+    const turn = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId: "session.raxode.service-launch.test",
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "Start the local dev server.",
+        cwd: process.cwd(),
+      },
+    });
+    assert.equal(turn.ok, true);
+  } finally {
+    unsubscribe();
+  }
+
+  const completedToolEvent = events
+    .map((event) => event as {
+      kind?: string;
+      metadata?: {
+        toolId?: string;
+        toolStatus?: string;
+        humanResultSummary?: readonly string[];
+        resultMetadata?: {
+          serviceStatus?: string;
+          verificationStatus?: string;
+          serviceHandle?: string;
+          nextRequiredAction?: string;
+        };
+      };
+    })
+    .find((event) =>
+      event.kind === "tool"
+      && event.metadata?.toolId === "shell.backgroundExecution"
+      && event.metadata.toolStatus === "completed"
+    );
+
+  assert.ok(completedToolEvent);
+  assert.equal(completedToolEvent.metadata?.resultMetadata?.serviceStatus, "alive");
+  assert.equal(completedToolEvent.metadata?.resultMetadata?.verificationStatus, "unverified");
+  assert.equal(completedToolEvent.metadata?.resultMetadata?.serviceHandle, "dev-server");
+  assert.equal(completedToolEvent.metadata?.resultMetadata?.nextRequiredAction, "verify");
+  assert.ok(
+    completedToolEvent.metadata?.humanResultSummary?.some((line) => /not verified|unverified/u.test(line)),
+  );
 });
 
 test("raxode application runtime pre-compacts session history when previous provider context is near the limit", async () => {
@@ -1407,6 +1787,9 @@ test("raxode bapr carries application approval into detached shell TAP approval 
   assert.ok(completedToolEvent);
   assert.equal(completedToolEvent.metadata?.errorPreview, undefined);
   assert.match(String(completedToolEvent.metadata?.outputPreview), /shell\.detachedExecution/u);
+  assert.match(JSON.stringify(completedToolEvent.metadata?.humanResultSummary), /verification not-requested/u);
+  assert.equal((completedToolEvent.metadata?.resultMetadata as Record<string, unknown> | undefined)?.serviceVerificationStatus, "not-requested");
+  assert.equal(typeof (completedToolEvent.metadata?.resultMetadata as Record<string, unknown> | undefined)?.processId, "number");
 });
 
 test("raxode application runtime resolves pasted image references to local attachment paths", async () => {

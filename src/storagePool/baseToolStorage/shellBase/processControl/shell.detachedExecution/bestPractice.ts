@@ -6,6 +6,7 @@
 import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { createShellBaseToolDefinition, createShellCoreHandler, injectRuntimeInvocationMetadata, jsonSchema } from "../../_shared/baseToolAdapter.js";
 import { plainJsonRecord, readRecord, safeMetadata, trimmedString } from "../_shared/processControlJson.js";
+import { withUnverifiedServiceLifecycle } from "../_shared/serviceLifecycle.js";
 import { anthropicShellDetachedExecutionPractice } from "./anthropic.js";
 import { deepmindShellDetachedExecutionPractice } from "./deepmind.js";
 import { openaiShellDetachedExecutionPractice } from "./openai.js";
@@ -175,6 +176,7 @@ function normalizedProviderRequest(
 
 function normalizeProviderResult(
   providerResult: unknown,
+  plannedOutput: ShellDetachedExecutionOutput,
 ): { resultEnvelope: Readonly<Record<string, unknown>>; metadata: Readonly<Record<string, unknown>> } | undefined {
   const resultRecord = readRecord(providerResult);
   if (resultRecord === undefined) {
@@ -186,7 +188,17 @@ function normalizeProviderResult(
     return undefined;
   }
 
-  return { resultEnvelope, metadata: safeMetadata(resultRecord.metadata) };
+  return {
+    resultEnvelope: withUnverifiedServiceLifecycle(resultEnvelope, {
+      command: plannedOutput.target.command,
+      handle: plannedOutput.target.launchId,
+      cwd: plannedOutput.target.workingDirectory,
+      lifecycleKind: "detached",
+      launchMode: "detached",
+      statusSource: "shell.detachedExecution.provider",
+    }),
+    metadata: safeMetadata(resultRecord.metadata),
+  };
 }
 
 export async function executeShellDetachedExecution(
@@ -220,6 +232,7 @@ export async function executeShellDetachedExecution(
   try {
     const providerResult = normalizeProviderResult(
       await selection.provider(normalizedProviderRequest(request, planned.output), context),
+      planned.output,
     );
     if (providerResult === undefined) {
       return failure("PROVIDER_REJECTED", "shell.detachedExecution provider must return a plain JSON runtime envelope", "provider", context);

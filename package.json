@@ -18,11 +18,27 @@
     "./application": "./src/applicationLayer/index.ts",
     "./rax": "./src/rax_packageManager/index.ts"
   },
+  "files": [
+    "bin",
+    "docs",
+    "memory",
+    "raxode-cli",
+    "realtest/README.md",
+    "realtest/minimal",
+    "realtest/fullstack",
+    "scripts",
+    "src",
+    "LICENSE",
+    "tsconfig.json"
+  ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
+    "build": "npm run typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pack:dry-run": "npm pack --dry-run --json",
+    "pack:dist": "mkdir -p dist && npm pack --pack-destination dist",
     "chat:agentCore": "node --import tsx scripts/agentCore_Agent_Test/agentcore_chat.ts",
     "chat:agentCore:live": "node --import tsx scripts/agentCore_Agent_Test/agentcore_chat.ts",
     "chat:realtest:minimal": "node --import tsx scripts/agentCore_Agent_Test/agentcore_chat.ts --agent realtest/minimal",
@@ -44,6 +60,7 @@
     "smoke:agentCore": "node --import tsx scripts/agentCore_Agent_Test/agentcore_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
     "test:agentCore": "find test/agentCore -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
+    "test:unit": "npm run test:agentCore",
     "tasks:agentCore": "node tasks/scripts/agentcore_workflow.mjs",
     "raxode:tui": "./bin/raxode-cli --process",
     "raxode:cache-xray": "node scripts/raxode-cache-xray.mjs",
@@ -51,8 +68,7 @@
     "raxode:legacy-tui": "PRAXIS_BOOTSTRAP_MODE=off RAXODE_RENDER_FPS=120 node --import tsx raxode-cli/frontend/legacy-src/agent_core/direct-tui.tsx"
   },
   "devDependencies": {
-    "@types/node": "^24.12.0",
-    "typescript": "^5.9.3"
+    "@types/node": "^24.12.0"
   },
   "optionalDependencies": {
     "@ffmpeg/core": "^0.12.10",
@@ -74,6 +90,7 @@
     "openai": "^6.37.0",
     "react": "^18.3.1",
     "string-width": "^7.2.0",
+    "typescript": "^5.9.3",
     "tsx": "^4.21.0",
     "zod": "^4.4.3"
   }

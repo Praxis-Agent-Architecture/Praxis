@@ -33,6 +33,8 @@ await executeShellProcessSpawning({
 
 Dry-run never calls a provider. Real execution requires an affirmative runtime guard and an injected or host runtime provider. Runtime/TAP owns approval, sandbox, sudo policy, session ownership, process lifecycle, background/detached handles, termination decisions, and output streams; this baseTool only validates JSON input, shapes a normalized provider request, dispatches to the runtime provider, and accepts only explicit non-planned plain JSON runtime envelopes.
 
+Foreground `executable + args` and shell `command` targets are both valid runtime shapes. Background or detached launches must return a real runtime envelope with a stable handle and optional `pid`; the envelope must leave service reachability as `not-run` until upper layers verify the actual URL, UI, log, or process state.
+
 ## Returns
 
 Returns a public-safe `ShellToolResult` with `output`, `audit`, and `events` on success, or a classified error such as `GOVERNANCE_REJECTED`, `PROVIDER_UNAVAILABLE`, or `PROVIDER_REJECTED`.
@@ -53,3 +55,4 @@ const result = await executeShellProcessSpawning({
 - Do not treat `dryRun: false` as approval.
 - Do not leak internal provider errors without mapping them to public-safe error codes.
 - Do not return Node child process objects or raw process handles; return only runtime-owned envelopes or stable handle IDs.
+- Do not treat `launchMode: "background"` or `"detached"` as service verification.

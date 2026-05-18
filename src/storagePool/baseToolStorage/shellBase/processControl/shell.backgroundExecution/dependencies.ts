@@ -82,8 +82,19 @@ export function createHostExecutorShellBackgroundExecutionProvider(
       throw new Error(result.error.message);
     }
 
+    const output = result.output as Readonly<Record<string, unknown>>;
     return {
-      resultEnvelope: result.output,
+      resultEnvelope: {
+        ...output,
+        backgroundHandle: output.backgroundHandle ?? output.jobId ?? context.invocationId ?? "background",
+        serviceStatus: output.serviceStatus ?? "started",
+        verificationStatus: output.verificationStatus ?? "unverified",
+        serviceLifecycle: output.serviceLifecycle ?? {
+          verificationStatus: "not-run",
+          userReachability: "not-verified",
+          nextRequiredAction: "verify",
+        },
+      },
       metadata: { hostExecutor: "BaseToolExecutorPort.shell.startBackground", ...(result.metadata ?? {}) },
     };
   };

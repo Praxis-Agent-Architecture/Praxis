@@ -48,6 +48,7 @@
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
 - 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
 - 在不冻结最终 schema 的前提下，给后续真实实现留下最小但清楚的扩展点。
+- 支持 `command` 和 `executable + args` 两类输入形态；background/detached 输出必须是 runtime-owned handle、可选 `pid` 和 lifecycle，而不是伪 planned 状态。
 
 ## 6. 输入边界
 
@@ -60,6 +61,7 @@
 
 - 工具执行结果、工具事件、审计材料和可交给 TAP 继续治理的状态。
 - 不泄漏底层实现细节的标准工具结果信封。
+- `launchMode` 为 background/detached 时，输出只能证明进程启动或释放，服务可达性继续标记为未验证。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 
@@ -103,6 +105,7 @@
 - 实现一个最小纯函数或薄类壳，能完成“提供 Shell 基础工具 / 进程控制 中的“创建进程”基础能力原语”的可测路径。
 - 所有副作用先通过明确依赖注入进入，避免在文件内部偷偷读全局状态。
 - 危险动作先只实现 dry-run / guard / audit path，再逐步打开真实执行。
+- 真实执行必须经 runtime-owned process adapter；foreground 要支持 executable targets，background/detached 要启动实际进程并保留生命周期快照。
 
 第一版实现应该追求“能被调用、能被测、边界清楚”，不要追求一次性完整。
 
@@ -112,6 +115,7 @@
 - 验证该文件确实只完成“提供 Shell 基础工具 / 进程控制 中的“创建进程”基础能力原语”，没有越界承担相邻模块职责。
 - 验证错误结果可解释、可分类、不会泄漏不该暴露的内部细节。
 - 验证 guard/dry-run/audit path，避免测试误触真实危险操作。
+- 验证 `executable + args` 前台执行和 background/detached 启动都走真实 runtime adapter，不把 `planned` 当作完成。
 
 测试优先证明边界正确，而不是证明未来完整能力已经全部实现。
 

@@ -276,7 +276,7 @@ async function main(): Promise<void> {
       unknownCoveredIds,
     },
     matrixRuns,
-    note: "realityMatrixCoverage is the 175-tool runtime readiness ledger. matrixCoverage is the stricter repeatable smoke coverage and may lag behind host readiness.",
+    note: "realityMatrixCoverage is the 176-tool runtime readiness ledger. matrixCoverage is the stricter repeatable smoke coverage and may lag behind host readiness.",
   };
 
   console.log(JSON.stringify(summary, null, 2));

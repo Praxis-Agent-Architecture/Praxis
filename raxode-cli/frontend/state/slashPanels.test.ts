@@ -40,7 +40,7 @@ const view: RaxodeApplicationViewModel = {
     note: "ok",
     updatedAt: "2026-05-10T00:00:00.000Z",
   }],
-  tools: { total: 175, mounted: 175, byFamily: {}, byRiskLevel: {}, byReadiness: {}, mountedToolIds: [] },
+  tools: { total: 176, mounted: 176, byFamily: {}, byRiskLevel: {}, byReadiness: {}, mountedToolIds: [] },
   counters: { turns: 0, events: 0, modelCalls: 0, toolCalls: 0, mainLoopSteps: 0 },
   lines: [],
   events: [],

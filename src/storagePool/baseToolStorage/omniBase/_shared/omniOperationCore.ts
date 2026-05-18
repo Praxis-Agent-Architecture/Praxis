@@ -450,10 +450,13 @@ export async function executeOmniOperationCore(config: OmniOperationConfig, requ
     };
   } catch (error) {
     const providerError = publicSafeProviderError(error);
+    const providerCode = providerError?.code === 'PROVIDER_UNAVAILABLE' ? 'PROVIDER_UNAVAILABLE' : 'PROVIDER_REJECTED';
     return failure(
       config,
-      providerError?.code ?? 'PROVIDER_REJECTED',
-      providerError?.message ?? config.toolId + ' runtime provider rejected the request',
+      providerCode,
+      providerCode === 'PROVIDER_UNAVAILABLE' && providerError?.message !== undefined
+        ? providerError.message
+        : config.toolId + ' runtime provider failed before returning a public-safe artifact envelope',
       'provider',
     );
   }

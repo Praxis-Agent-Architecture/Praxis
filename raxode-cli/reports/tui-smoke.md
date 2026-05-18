@@ -32,8 +32,8 @@ Expected evidence in `/tmp/raxode-tui-smoke.log`:
 powered by Praxis
 v0.1.0
 Raxode                                                                 ready
-raxode · standard · gpt-5.5/low · 175/175 tools
-mountedTools=175
+raxode · standard · gpt-5.5/low · 176/176 tools
+mountedTools=176
 ```
 
 The `timeout` exit code is expected because this command only verifies that the interactive TUI enters raw-mode rendering without crashing.
@@ -59,7 +59,7 @@ Expected evidence in `/tmp/raxode-tmux-status-full.txt`:
 powered by Praxis
 Drag to select text, Ctrl+V to paste images, @ to choose files, / to choose
 Status
-tools 175/175
+tools 176/176
 ```
 
 This verifies real TTY input, repeated backspace correction, slash panel opening, and application view propagation. It is not yet a full rendered-frame 120Hz benchmark.

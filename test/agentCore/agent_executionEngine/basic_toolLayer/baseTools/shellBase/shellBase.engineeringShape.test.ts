@@ -67,7 +67,7 @@ function assertFile(pathname: string, message: string): void {
 
 test("shellBase engineering shape keeps every shell tool in the same storage and entry layout", () => {
   const tools = listShellStorageTools();
-  assert.equal(tools.length, 32, "shellBase should expose exactly 32 storage-backed shell tools");
+  assert.equal(tools.length, 33, "shellBase should expose exactly 33 storage-backed shell tools");
 
   for (const tool of tools) {
     for (const filename of requiredStorageFiles) {
@@ -84,7 +84,7 @@ test("shellBase engineering shape keeps every shell tool in the same storage and
 
 test("shellBase toolSkill markdown keeps the operational manual shape", () => {
   const tools = listShellStorageTools();
-  assert.equal(tools.length, 32);
+  assert.equal(tools.length, 33);
 
   for (const tool of tools) {
     const markdownPath = path.join(tool.storageDir, `${tool.toolId}.md`);
@@ -110,11 +110,11 @@ test("shellBase registry, handler, storage, entry, and markdown identities stay 
 
   assert.deepEqual(shellHandlerIds, storageToolIds, "builtin shell handlers must match storage-backed shell tools exactly");
   assert.deepEqual(registryShellIds, storageToolIds, "registry shell definitions must match storage-backed shell tools exactly");
-  assert.equal(new Set(shellHandlerIds).size, 32, "builtin shell handler ids must not contain duplicates");
+  assert.equal(new Set(shellHandlerIds).size, 33, "builtin shell handler ids must not contain duplicates");
 
   const builtinSource = readFileSync(builtinHandlersPath, "utf8");
   const shellImportMatches = [...builtinSource.matchAll(/from "([^"]*storagePool\/baseToolStorage\/shellBase\/([^"]+)\/bestPractice\.js)"/gu)];
-  assert.equal(shellImportMatches.length, 32, "builtinBaseToolHandlers.ts must import exactly 32 shell bestPractice handlers");
+  assert.equal(shellImportMatches.length, 33, "builtinBaseToolHandlers.ts must import exactly 33 shell bestPractice handlers");
 
   for (const tool of tools) {
     const lookup = registry.lookupHandler(tool.toolId);

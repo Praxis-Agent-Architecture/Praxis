@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access, chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -54,15 +54,42 @@ async function firstExistingPath(paths: readonly string[]): Promise<string | und
 }
 
 async function waitForFileText(filePath: string, expected: string): Promise<void> {
-  for (let index = 0; index < 40; index += 1) {
+  for (let index = 0; index < 100; index += 1) {
     const text = await readFile(filePath, "utf8").catch(() => "");
     if (text.includes(expected)) return;
     await new Promise((resolve) => {
-      setTimeout(resolve, 50);
+      setTimeout(resolve, 100);
     });
   }
   const finalText = await readFile(filePath, "utf8").catch(() => "");
   assert.match(finalText, new RegExp(expected, "u"));
+}
+
+async function waitForStdoutLine(child: ReturnType<typeof spawn>, pattern: RegExp): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    let stdout = "";
+    const timer = setTimeout(() => {
+      reject(new Error(`timed out waiting for child stdout ${pattern}`));
+    }, 3_000);
+    child.stdout?.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+      const line = stdout.split(/\r?\n/u).find((candidate) => pattern.test(candidate));
+      if (line !== undefined) {
+        clearTimeout(timer);
+        resolve(line);
+      }
+    });
+    child.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("exit", (code) => {
+      if (code !== null && code !== 0) {
+        clearTimeout(timer);
+        reject(new Error(`child exited before stdout match: ${code}`));
+      }
+    });
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -83,14 +110,14 @@ function lookupPortMethod(executor: unknown, portPath: string): unknown {
   return asRecord(namespaceValue)[method];
 }
 
-test("baseToolSupportCatalog covers the 175 builtin baseTool handlers without office TAP", () => {
+test("baseToolSupportCatalog covers the 176 builtin baseTool handlers without office TAP", () => {
   const catalog = createBaseToolSupportCatalog();
   const snapshot = snapshotBaseToolSupportCatalog();
   const catalogIds = new Set(catalog.map((entry) => entry.toolId));
 
-  assert.equal(baseToolSupportCatalogDescriptor.toolCountTarget, 175);
-  assert.equal(catalog.length, 175);
-  assert.equal(snapshot.total, 175);
+  assert.equal(baseToolSupportCatalogDescriptor.toolCountTarget, 176);
+  assert.equal(catalog.length, 176);
+  assert.equal(snapshot.total, 176);
   assert.equal(snapshot.byFamily.office, 0);
   assert.equal(catalog.some((entry) => entry.storageFamily === "officeBase"), false);
 
@@ -115,7 +142,7 @@ test("baseToolSupportCatalog covers the 175 builtin baseTool handlers without of
   assert.equal(search.requiredSupports.some((support) => support.portPath === "network.fetch"), true);
 });
 
-test("baseToolExecutorPortFactory exposes every support port required by the 175-tool catalog", () => {
+test("baseToolExecutorPortFactory exposes every support port required by the 176-tool catalog", () => {
   const catalog = createBaseToolSupportCatalog();
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-factory-port-shape",
@@ -199,6 +226,58 @@ test("baseToolExecutorPortFactory returns a complete port and stable unavailable
   const read = await executor.filesystem?.readText?.({ path: "notes.txt" });
   assert.equal(read?.ok, true);
   assert.ok(events.includes("runtime.execEngine.baseToolExecutorPort.filesystem.readText"));
+});
+
+test("baseToolExecutorPortFactory maps /workspace and rejects cwd outside allowed roots", async () => {
+  const workspace = await makeWorkspace();
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-workspace-alias",
+    sessionId: "session-factory-workspace-alias",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowFilesystemWrite: true,
+      allowShellExecution: true,
+    },
+  });
+
+  const write = await executor.filesystem?.writeText?.({
+    path: "/workspace/server.js",
+    content: "alias-ok\n",
+  });
+  assert.equal(write?.ok, true);
+  assert.equal(await readFile(path.join(workspace, "server.js"), "utf8"), "alias-ok\n");
+  if (write?.ok) {
+    assert.equal(asRecord(write.metadata).normalizedPath, path.join(workspace, "server.js"));
+    assert.equal(asRecord(write.metadata).mappingSource, "workspace-alias");
+    assert.equal(asRecord(write.metadata).pathWasMapped, true);
+  }
+
+  const pwd = await executor.shell?.run?.({ command: "pwd", cwd: "/workspace" });
+  assert.equal(pwd?.ok, true);
+  if (pwd?.ok) {
+    assert.equal(pwd.output.stdout.trim(), workspace);
+    assert.equal(asRecord(pwd.metadata).normalizedCwd, workspace);
+    assert.equal(asRecord(pwd.metadata).mappingSource, "workspace-alias");
+    assert.equal(asRecord(pwd.metadata).cwdWasMapped, true);
+  }
+
+  const tmpRejected = await executor.shell?.run?.({ command: "pwd", cwd: "/tmp" });
+  assert.equal(tmpRejected?.ok, false);
+  if (tmpRejected?.ok === false) {
+    assert.equal(tmpRejected.error.code, "CWD_REJECTED");
+    assert.equal(asRecord(tmpRejected.error.metadata).requestedCwd, "/tmp");
+    assert.equal(asRecord(tmpRejected.error.metadata).workspaceRoot, workspace);
+    assert.equal(asRecord(tmpRejected.error.metadata).suggestedCwd, workspace);
+  }
+
+  const etcRejected = await executor.filesystem?.readText?.({ path: "/etc/passwd" });
+  assert.equal(etcRejected?.ok, false);
+  if (etcRejected?.ok === false) {
+    assert.equal(etcRejected.error.code, "OUTSIDE_ALLOWED_ROOTS");
+    assert.equal(asRecord(etcRejected.error.metadata).requestedPath, "/etc/passwd");
+    assert.equal(asRecord(etcRejected.error.metadata).workspaceRoot, workspace);
+  }
 });
 
 test("baseToolExecutorPortFactory delegates injected backend adapters before unavailable fallback", async () => {
@@ -382,7 +461,7 @@ test("baseToolExecutorPortFactory routes explicit tmux keyboard text and submit 
   await execFileAsync(tmux, ["new-session", "-d", "-s", session, "-c", workspace]);
   try {
     await new Promise((resolve) => {
-      setTimeout(resolve, 150);
+      setTimeout(resolve, 300);
     });
     const executor = createRuntimeBaseToolExecutorPort({
       runtimeId: "runtime-factory-tmux-keyboard",
@@ -597,6 +676,58 @@ test("baseToolExecutorPortFactory provides governed network.fetch and shell guar
         else resolve();
       });
     });
+  }
+});
+
+test("network.fetch reports whether a localhost listener belongs to the current workspace", async (t) => {
+  const lsof = await firstExistingPath(["/usr/bin/lsof", "/usr/sbin/lsof", "/usr/local/bin/lsof"]);
+  if (lsof === undefined) {
+    t.skip("lsof is not installed on this host");
+    return;
+  }
+  const foreignWorkspace = await makeWorkspace();
+  const currentWorkspace = await makeWorkspace();
+  const serverScript = path.join(foreignWorkspace, "server.mjs");
+  await writeFile(
+    serverScript,
+    [
+      "import { createServer } from 'node:http';",
+      "const server = createServer((_request, response) => { response.end('foreign-service'); });",
+      "server.listen(0, '127.0.0.1', () => { console.log(`PORT=${server.address().port}`); });",
+      "process.on('SIGTERM', () => server.close(() => process.exit(0)));",
+    ].join("\n"),
+    "utf8",
+  );
+  const child = spawn(process.execPath, [serverScript], {
+    cwd: foreignWorkspace,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  try {
+    const line = await waitForStdoutLine(child, /^PORT=\d+$/u);
+    const port = Number(line.slice("PORT=".length));
+    const executor = createRuntimeBaseToolExecutorPort({
+      runtimeId: "runtime-factory-stale-listener",
+      sessionId: "session-factory-stale-listener",
+      policy: {
+        workspaceRoot: currentWorkspace,
+        allowedRoots: [currentWorkspace],
+        allowNetworkFetch: true,
+      },
+    });
+
+    const fetched = await executor.network?.fetch?.({ url: `http://127.0.0.1:${port}/` });
+    assert.equal(fetched?.ok, true);
+    if (fetched?.ok) {
+      const localPortProcess = asRecord(fetched.output.localPortProcess);
+      assert.equal(localPortProcess.port, port);
+      assert.equal(localPortProcess.serviceOwnership, "foreign-workspace");
+      assert.equal(localPortProcess.staleServiceRisk, true);
+      assert.match(String(localPortProcess.warning), /stale service/u);
+      const processes = localPortProcess.processes as readonly Record<string, unknown>[];
+      assert.equal(processes.some((processInfo) => processInfo.cwd === foreignWorkspace), true);
+    }
+  } finally {
+    child.kill("SIGTERM");
   }
 });
 
@@ -826,6 +957,133 @@ test("runtime factory shell.startDetached launches a governed detached shell com
     assert.equal(asRecord(result.metadata).detached, true);
   }
   await waitForFileText(marker, "detached-ok");
+});
+
+test("runtime factory shell.startBackground launches a real managed background process", async () => {
+  const workspace = await makeWorkspace();
+  const marker = path.join(workspace, "background-launched.txt");
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-start-background",
+    sessionId: "session-factory-start-background",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowProcessExecution: true,
+      allowShellExecution: true,
+    },
+    resourceLimits: { timeoutMs: 100 },
+  });
+
+  const startedAt = Date.now();
+  const result = await executor.shell?.startBackground?.({
+    command: `printf background-ok > '${marker}'; sleep 1`,
+    shell: "sh",
+    cwd: workspace,
+    jobId: "background-test",
+    monitorIntervalMs: 1000,
+    outputBufferLimitBytes: 4096,
+    captureOutput: true,
+  });
+
+  assert.equal(result?.ok, true);
+  assert.ok(Date.now() - startedAt < 900);
+  if (result?.ok) {
+    const output = asRecord(result.output);
+    assert.equal(output.status, "started");
+    assert.equal(output.backgroundHandle, "background-test");
+    assert.equal(typeof output.pid, "number");
+    assert.equal(asRecord(output.serviceLifecycle).verificationStatus, "not-run");
+  }
+  await waitForFileText(marker, "background-ok");
+});
+
+test("runtime factory shell.startServiceAndVerify reports failed health probes with artifacts and registry", async () => {
+  const workspace = await makeWorkspace();
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-service-lifecycle",
+    sessionId: "session-factory-service-lifecycle",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowProcessExecution: true,
+      allowShellExecution: true,
+    },
+    resourceLimits: { timeoutMs: 5_000 },
+  });
+
+  const result = await executor.shell?.startServiceAndVerify?.({
+    start: {
+      command: `exec ${process.execPath} -e "setInterval(() => {}, 1000)"`,
+      shell: "sh",
+      cwd: workspace,
+      serviceId: "tcp-failure-service",
+      launchMode: "background",
+      restartPolicy: "none",
+      outputBufferLimitBytes: 4096,
+      captureOutput: true,
+    },
+    verification: {
+      kind: "tcp",
+      host: "127.0.0.1",
+      port: 65530,
+      timeoutMs: 300,
+      intervalMs: 50,
+      maxAttempts: 3,
+    },
+    context: { invocationId: "call-service-lifecycle" },
+  });
+
+  assert.equal(result?.ok, true);
+  if (result?.ok) {
+    const output = asRecord(result.output);
+    assert.equal(output.status, "failed");
+    assert.equal(output.serviceStatus, "failed");
+    assert.equal(output.alive, true);
+    assert.equal(typeof output.pid, "number");
+    assert.match(String(output.failureReason), /tcp port 65530 not listening/u);
+    assert.equal(asRecord(output.health).healthy, false);
+    assert.equal(asRecord(output.health).verified, true);
+    assert.equal(typeof output.stdoutArtifactRef, "string");
+    assert.equal(typeof output.stderrArtifactRef, "string");
+    assert.equal(typeof output.registryArtifactRef, "string");
+    assert.match(await readFile(String(output.registryArtifactRef), "utf8"), /tcp-failure-service/u);
+    assert.equal(Array.isArray(output.recommendedNextActions), true);
+    try {
+      process.kill(output.pid as number, "SIGTERM");
+    } catch {
+      // Process may already have exited; the assertion above captured the lifecycle snapshot.
+    }
+  }
+});
+
+test("runtime factory shell.spawnProcess executes executable targets instead of requiring target.command", async () => {
+  const workspace = await makeWorkspace();
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-spawn-executable",
+    sessionId: "session-factory-spawn-executable",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowProcessExecution: true,
+      allowShellExecution: true,
+    },
+    resourceLimits: { timeoutMs: 5_000 },
+  });
+
+  const result = await executor.shell?.spawnProcess?.({
+    target: {
+      executable: process.execPath,
+      args: ["-e", "process.stdout.write('spawn-ok')"],
+      workingDirectory: workspace,
+    },
+    launchMode: "foreground",
+  });
+
+  assert.equal(result?.ok, true);
+  if (result?.ok) {
+    assert.equal(asRecord(result.output).exitCode, 0);
+    assert.equal(asRecord(result.output).stdout, "spawn-ok");
+  }
 });
 
 test("runtime factory executor runs process-backed ports through linux bubblewrap when prepared", async () => {

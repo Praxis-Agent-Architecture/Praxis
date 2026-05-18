@@ -183,6 +183,22 @@ function createRecordingExecutor(calls: string[]): BaseToolExecutorPort {
         calls.push("startDetached");
         return { ok: true, output: { detachedHandle: request.launchId, pid: 303 } };
       },
+      async startServiceAndVerify(request) {
+        calls.push("startServiceAndVerify");
+        return {
+          ok: true,
+          output: {
+            serviceHandle: request.start.serviceId,
+            statusSnapshot: {
+              handle: request.start.serviceId,
+              lifecycleKind: "service",
+              processState: "running",
+              verificationState: "verified",
+              verified: true,
+            },
+          },
+        };
+      },
       async terminateProcess(request) {
         calls.push("terminateProcess");
         return { ok: true, output: { processId: request.processId, signal: request.signal, force: request.force } };
@@ -381,6 +397,14 @@ test("shellBase runtime chain reaches every runtime-owned shell executor port th
       input: { target: { command: "printf ok" }, context: { ...realContext, approval: { accepted: true } } },
       expectedCall: "startDetached",
     },
+    {
+      toolId: "shell.serviceStartAndVerify",
+      input: {
+        target: { command: "printf ok", serviceId: "service-chain", verification: { kind: "command", command: "printf ok", expectedText: "ok" } },
+        context: { ...realContext, approval: { accepted: true } },
+      },
+      expectedCall: "startServiceAndVerify",
+    },
     { toolId: "shell.foregroundExecution", input: { target: { command: "printf ok" }, context: realContext }, expectedCall: /^run:sh$/u },
     {
       toolId: "shell.processSpawning",
@@ -488,6 +512,7 @@ test("shellBase runtime chain reaches every runtime-owned shell executor port th
     "enforceSandbox",
     "startBackground",
     "startDetached",
+    "startServiceAndVerify",
     "spawnProcess:foreground",
     "terminateProcess",
     "monitorExecution",

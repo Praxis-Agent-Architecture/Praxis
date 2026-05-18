@@ -54,6 +54,7 @@ export type CodeOverwriteErrorCode =
   | "APPROVAL_REQUIRED"
   | "PROVIDER_UNAVAILABLE"
   | "HASH_MISMATCH"
+  | "OUTSIDE_ALLOWED_ROOTS"
   | "PROVIDER_FAILURE";
 
 export type CodeOverwriteError = {
@@ -134,15 +135,22 @@ function failure(code: CodeOverwriteErrorCode, message: string, boundary: CodeOv
   };
 }
 
+function objectValue(value: unknown): Readonly<Record<string, unknown>> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Readonly<Record<string, unknown>>
+    : undefined;
+}
+
 function toolFailure(
   code: CodeOverwriteErrorCode,
   message: string,
   boundary: CodeOverwriteBoundary,
+  metadata?: Readonly<Record<string, unknown>>,
 ): CodeToolResult<CodeOverwriteOutput, CodeOverwriteErrorCode> {
   return {
     ok: false,
     toolId: "code.overwrite",
-    error: { code, message, boundary, safeForRuntimeInspection: true, internalDetailExposed: false },
+    error: { code, message, boundary, safeForRuntimeInspection: true, internalDetailExposed: false, ...(metadata ?? {}) },
     audit: [{ type: "basicTool.code.overwrite.rejected", toolId: "code.overwrite", invocationId: "code.overwrite", dryRun: true }],
     events: ["basicTool.code.overwrite.rejected"],
   };
@@ -286,7 +294,7 @@ export async function executeCodeOverwrite(
     return {
       ok: true,
       toolId: "code.overwrite",
-      output: { ...outputBase, actualExistingHash, bytesWritten: write.bytesWritten, applied: true, dryRun: false },
+      output: { ...outputBase, ...write, actualExistingHash, bytesWritten: write.bytesWritten, applied: true, dryRun: false },
       audit: [
         {
           type: "basicTool.code.overwrite.applied",
@@ -298,7 +306,13 @@ export async function executeCodeOverwrite(
       ],
       events: ["basicTool.code.overwrite.applied"],
     };
-  } catch {
-    return toolFailure("PROVIDER_FAILURE", providerFailureMessage("code.overwrite"), "provider");
+  } catch (error) {
+    const code = error instanceof Error && error.name === "OUTSIDE_ALLOWED_ROOTS" ? "OUTSIDE_ALLOWED_ROOTS" : "PROVIDER_FAILURE";
+    return toolFailure(
+      code,
+      error instanceof Error ? error.message : providerFailureMessage("code.overwrite"),
+      "provider",
+      objectValue(error instanceof Error ? error.cause : undefined),
+    );
   }
 }

@@ -18,7 +18,7 @@ test("raxode coding agent compiles as a full catalog application agent", () => {
   assert.equal(compiled.manifest.model.metadata?.usableInputTokens, 258_400);
   assert.equal(compiled.manifest.modelFleet.endpoints.primary?.metadata?.contextWindowTokens, 400_000);
   assert.equal(compiled.manifest.toolPolicy.profile, "standard");
-  assert.equal(compiled.manifest.harness.tools.length, 175);
+  assert.equal(compiled.manifest.harness.tools.length, 176);
 });
 
 test("raxode tui agent compiles as a tool-free structured auxiliary agent", () => {

@@ -5193,6 +5193,7 @@ function createRuntime() {
         "tracker.create",
         "shell.restricted",
         "shell.session",
+        "shell.serviceStartAndVerify",
         "test.run",
         "git.status",
         "git.diff",

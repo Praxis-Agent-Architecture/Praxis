@@ -695,6 +695,70 @@ test("shell.session adapter supports start, write, poll, and terminate", async (
   assert.equal((terminated.output as { running?: boolean }).running, false);
 });
 
+test("shell.serviceStartAndVerify adapter delegates to Praxis service lifecycle runner", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "praxis-tap-service-"));
+  const calls: unknown[] = [];
+  const adapter = createTapToolingCapabilityAdapter("shell.serviceStartAndVerify", {
+    workspaceRoot,
+    async serviceStartAndVerifyRunner(input) {
+      calls.push(input);
+      return {
+        ok: true,
+        output: {
+          serviceId: input.start.serviceId,
+          pid: 12345,
+          command: input.start.command,
+          cwd: input.start.relativeWorkspaceCwd,
+          launchMode: input.start.launchMode,
+          serviceStatus: "healthy",
+          status: "healthy",
+          alive: true,
+          healthy: true,
+          health: {
+            verified: true,
+            healthy: true,
+            status: "healthy",
+          },
+          stdoutArtifactRef: ".rax_workspace/artifacts/test/stdout.log",
+          stderrArtifactRef: ".rax_workspace/artifacts/test/stderr.log",
+          registryArtifactRef: ".rax_workspace/services/registry.jsonl",
+        },
+      };
+    },
+  });
+  const plan = createPlan({
+    capabilityKey: "shell.serviceStartAndVerify",
+    operation: "serviceStartAndVerify",
+    input: {
+      command: "node",
+      args: ["server.js"],
+      cwd: ".",
+      verification: {
+        kind: "http",
+        url: "http://127.0.0.1:3000/",
+        expectedStatus: 200,
+      },
+    },
+    timeoutMs: 30_000,
+  });
+
+  assert.equal(adapter.supports(plan), true);
+  const prepared = await adapter.prepare(plan, createLease("binding.shell.service"));
+  const result = await adapter.execute(prepared);
+
+  assert.equal(result.status, "success");
+  assert.equal((result.output as Record<string, unknown>).serviceStatus, "healthy");
+  assert.equal((result.output as Record<string, unknown>).healthy, true);
+  assert.equal(calls.length, 1);
+  const call = calls[0] as {
+    start: { command: string; cwd: string };
+    verification: Record<string, unknown>;
+  };
+  assert.equal(call.start.command, "node server.js");
+  assert.equal(call.start.cwd, workspaceRoot);
+  assert.equal(call.verification.kind, "http");
+});
+
 test("git.status and git.diff adapters inspect workspace git state in bounded form", async () => {
   const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "praxis-tap-tooling-git-"));
   await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
@@ -1659,6 +1723,7 @@ test("registerTapToolingBaseline makes B-group capabilities available to bootstr
     "code.patch",
     "shell.restricted",
     "shell.session",
+    "shell.serviceStartAndVerify",
     "test.run",
     "git.status",
     "git.diff",
@@ -1669,10 +1734,10 @@ test("registerTapToolingBaseline makes B-group capabilities available to bootstr
     "skill.doc.generate",
     "write_todos",
   ]);
-  assert.equal(result.packages.length, 18);
-  assert.equal(result.manifests.length, 18);
-  assert.equal(result.bindings.length, 18);
-  assert.equal(result.activationFactoryRefs.length, 18);
+  assert.equal(result.packages.length, 19);
+  assert.equal(result.manifests.length, 19);
+  assert.equal(result.bindings.length, 19);
+  assert.equal(result.activationFactoryRefs.length, 19);
 
   const reviewer = createTapReviewerProfile();
   assert.equal(reviewer.baselineCapabilities?.includes("repo.write"), false);

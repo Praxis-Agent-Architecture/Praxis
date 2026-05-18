@@ -210,7 +210,7 @@
 - [x] Do not delete `raxode-cli/frontend/legacy-src`.
 - [x] Do not lose current TUI visual identity.
 - [x] Do not reintroduce direct TUI-to-agentCore coupling.
-- [x] Do not handwrite 175 BaseTool wrappers.
+- [x] Do not handwrite 176 BaseTool wrappers.
 - [x] Do not make Raxode product logic part of `agentCore`.
 - [x] Do not make `applicationLayer` depend on Raxode.
 - [x] Do not fake live tool/provider success.

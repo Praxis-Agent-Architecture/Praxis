@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / baseTool executor port 工厂。
- * 核心目的：从 runtime context 构造完整 BaseToolExecutorPort，让 175 个 storage-owned baseTool handler 通过注入端口接触宿主能力。
+ * 核心目的：从 runtime context 构造完整 BaseToolExecutorPort，让 176 个 storage-owned baseTool handler 通过注入端口接触宿主能力。
  * 能力要求1：需要提供 filesystem、shell/process/git/ripgrep/network.fetch 以及 shell guard/observation 的第一批真实 runtime adapter。
  * 能力要求2：尚未实现的长连接、设备、媒体、模型原生搜索等能力必须返回稳定 PROVIDER_UNAVAILABLE。
  * 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
@@ -10,8 +10,9 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { constants as fsConstants, mkdirSync } from "node:fs";
-import { access, chmod, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants, createWriteStream, mkdirSync, readFileSync, statSync } from "node:fs";
+import { access, chmod, mkdir, readFile, readdir, readlink, rm, writeFile } from "node:fs/promises";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -20,11 +21,23 @@ import { URL } from "node:url";
 import type {
   BaseToolExecutorPort,
   BaseToolExecutorResult,
+  BaseToolShellServiceHealth,
+  BaseToolShellServiceProbe,
+  BaseToolShellServiceStatus,
+  BaseToolShellServiceStatusSnapshot,
+  BaseToolShellServiceVerification,
 } from "../../agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import {
   createMcpRuntimeAdapter,
   type McpRuntimeServerProfile,
 } from "./mcpRuntimeAdapter.js";
+import {
+  isInsideAllowedRoots,
+  normalizeAllowedRoots,
+  normalizeToolCwd,
+  normalizeWorkspacePath,
+  workspacePathMetadata,
+} from "./workspacePathPolicy.js";
 
 type ComputerUseKeyboardActionRequest = Parameters<NonNullable<NonNullable<BaseToolExecutorPort["computeruse"]>["keyboardAction"]>>[0];
 type ComputerUsePointerActionRequest = Parameters<NonNullable<NonNullable<BaseToolExecutorPort["computeruse"]>["pointerAction"]>>[0];
@@ -183,6 +196,7 @@ export const baseToolExecutorPortFactoryDescriptor = {
     "shell.spawnProcess",
     "shell.startBackground",
     "shell.startDetached",
+    "shell.startServiceAndVerify",
     "shell.terminateProcess",
     "skill.runSkill",
   ],
@@ -219,6 +233,7 @@ function failure<Output>(
   code: string,
   message: string,
   events: readonly string[] = [],
+  metadata?: Readonly<Record<string, unknown>>,
 ): BaseToolExecutorResult<Output> {
   return {
     ok: false,
@@ -226,6 +241,7 @@ function failure<Output>(
       code,
       message,
       publicSafe: true,
+      ...(metadata === undefined ? {} : { metadata }),
     },
     events,
   };
@@ -329,35 +345,71 @@ function workspaceRoot(context: RuntimeBaseToolExecutorContext): string {
 }
 
 function allowedRoots(context: RuntimeBaseToolExecutorContext): readonly string[] {
-  const roots = context.policy?.allowedRoots;
-  if (roots !== undefined && roots.length > 0) return roots.map((root) => path.resolve(root));
-  return [workspaceRoot(context)];
+  return normalizeAllowedRoots({
+    workspaceRoot: workspaceRoot(context),
+    allowedRoots: context.policy?.allowedRoots,
+  });
 }
 
 function resolveWithinAllowedRoots(context: RuntimeBaseToolExecutorContext, targetPath: string): BaseToolExecutorResult<string> {
-  const resolved = path.resolve(workspaceRoot(context), targetPath);
-  const allowed = allowedRoots(context);
-  const isAllowed = allowed.some((root) => resolved === root || resolved.startsWith(root + path.sep));
-  if (!isAllowed) {
-    return failure("SCOPE_REJECTED", "requested path is outside runtime allowed roots", [
+  const resolved = normalizeWorkspacePath(targetPath, {
+    workspaceRoot: workspaceRoot(context),
+    allowedRoots: allowedRoots(context),
+    kind: "path",
+  });
+  if (!resolved.ok) {
+    const metadata = workspacePathMetadata(resolved, "path");
+    return failure(resolved.reason, resolved.message, [
       "runtime.execEngine.baseToolExecutorPort.scope.rejected",
-    ]);
+    ], metadata);
   }
-  return success(resolved);
+  return success(resolved.normalizedPath, [], workspacePathMetadata(resolved, "path"));
 }
 
-function resolveDetachedWorkingDirectory(context: RuntimeBaseToolExecutorContext, targetPath: string | undefined): BaseToolExecutorResult<string> {
-  if (targetPath === undefined) return success(workspaceRoot(context));
-  const workspaceScoped = resolveWithinAllowedRoots(context, targetPath);
-  if (workspaceScoped.ok) return workspaceScoped;
-
-  const resolved = path.resolve(workspaceRoot(context), targetPath);
-  const tempRoot = path.resolve(tmpdir());
-  if (resolved === tempRoot || resolved.startsWith(tempRoot + path.sep)) {
-    return success(resolved);
+function resolveShellWorkingDirectory(context: RuntimeBaseToolExecutorContext, targetPath: string | undefined): BaseToolExecutorResult<string> {
+  const resolved = normalizeToolCwd(targetPath, {
+    workspaceRoot: workspaceRoot(context),
+    allowedRoots: allowedRoots(context),
+    kind: "cwd",
+  });
+  if (!resolved.ok) {
+    return failure(resolved.reason, resolved.message, [
+      "runtime.execEngine.baseToolExecutorPort.cwd.rejected",
+    ], workspacePathMetadata(resolved, "cwd"));
   }
+  return success(resolved.normalizedPath, [], workspacePathMetadata(resolved, "cwd"));
+}
 
-  return workspaceScoped;
+function resolveDetachedWorkingDirectory(
+  context: RuntimeBaseToolExecutorContext,
+  targetPath: string | undefined,
+  options: { allowOsTmpdir?: boolean } = {},
+): BaseToolExecutorResult<string> {
+  const resolved = normalizeToolCwd(targetPath, {
+    workspaceRoot: workspaceRoot(context),
+    allowedRoots: allowedRoots(context),
+    kind: "cwd",
+  });
+  if (!resolved.ok) {
+    const requestedCwd = targetPath === undefined ? undefined : path.resolve(targetPath);
+    const tmpRoot = path.resolve(tmpdir());
+    if (
+      options.allowOsTmpdir === true
+      && requestedCwd !== undefined
+      && (requestedCwd === tmpRoot || requestedCwd.startsWith(`${tmpRoot}${path.sep}`))
+    ) {
+      return success(requestedCwd, [], {
+        requestedCwd: targetPath,
+        normalizedCwd: requestedCwd,
+        cwdWasMapped: false,
+        mappingSource: "os-tmpdir",
+      });
+    }
+    return failure(resolved.reason, resolved.message, [
+      "runtime.execEngine.baseToolExecutorPort.cwd.rejected",
+    ], workspacePathMetadata(resolved, "cwd"));
+  }
+  return success(resolved.normalizedPath, [], workspacePathMetadata(resolved, "cwd"));
 }
 
 function maxOutputBytes(context: RuntimeBaseToolExecutorContext): number {
@@ -422,6 +474,640 @@ function artifactRoot(context: RuntimeBaseToolExecutorContext): string {
   return path.join(workspaceRoot(context), ".rax_workspace", "artifacts", context.sessionId.replace(/[^a-zA-Z0-9_.-]/gu, "_"));
 }
 
+function servicesRoot(context: RuntimeBaseToolExecutorContext): string {
+  return path.join(workspaceRoot(context), ".rax_workspace", "services");
+}
+
+function servicesRegistryPath(context: RuntimeBaseToolExecutorContext): string {
+  return path.join(servicesRoot(context), "registry.jsonl");
+}
+
+function safeArtifactStem(value: string): string {
+  const safe = value.replace(/[^a-zA-Z0-9_.-]/gu, "_").slice(0, 80);
+  return safe.length > 0 ? safe : "service";
+}
+
+function tailText(value: string, maxChars = 4096): string {
+  if (value.length <= maxChars) return value;
+  return value.slice(value.length - maxChars);
+}
+
+function pidAlive(pid: number | undefined): boolean {
+  if (pid === undefined || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function artifactFileBytes(filePath: string): number {
+  try {
+    return statSync(filePath).size;
+  } catch {
+    return 0;
+  }
+}
+
+function artifactTail(filePath: string, maxChars = 4096): string {
+  try {
+    return tailText(readFileSync(filePath, "utf8"), maxChars);
+  } catch {
+    return "";
+  }
+}
+
+type ManagedShellProcess = {
+  child: ReturnType<typeof spawn>;
+  pid?: number;
+  cwd: string;
+  command: string;
+  args: readonly string[];
+  launchMode: "background" | "detached" | "service";
+  stdoutArtifactRef: string;
+  stderrArtifactRef: string;
+  stdoutBytes: () => number;
+  stderrBytes: () => number;
+  lastStdout: () => string;
+  lastStderr: () => string;
+  exitCode: () => number | null;
+  alive: () => boolean;
+};
+
+function serviceHealth(input: {
+  probe?: BaseToolShellServiceProbe;
+  verified: boolean;
+  healthy: boolean;
+  status: BaseToolShellServiceStatus;
+  details?: Readonly<Record<string, unknown>>;
+}): BaseToolShellServiceHealth {
+  return {
+    probe: input.probe,
+    verified: input.verified,
+    healthy: input.healthy,
+    status: input.status,
+    checkedAt: new Date().toISOString(),
+    details: input.details,
+  };
+}
+
+function serviceVerificationProbe(verification: BaseToolShellServiceVerification | undefined): BaseToolShellServiceProbe | undefined {
+  if (verification === undefined) return undefined;
+  if (verification.kind === "process") return { type: "process" };
+  if (verification.kind === "tcp") return { type: "tcp", host: verification.host, port: verification.port };
+  if (verification.kind === "http") {
+    return {
+      type: "http",
+      url: verification.url,
+      expectedStatus: verification.expectedStatus,
+      method: verification.method,
+    };
+  }
+  if (verification.kind === "log") {
+    return {
+      type: "log",
+      pattern: verification.pattern,
+      stream: verification.stream,
+      regex: verification.regex,
+    };
+  }
+  return {
+    type: "command",
+    command: verification.command,
+    args: verification.args,
+    cwd: verification.cwd,
+    timeoutMs: verification.timeoutMs,
+  };
+}
+
+function serviceLifecycleSnapshot(
+  managed: ManagedShellProcess,
+  health: BaseToolShellServiceHealth,
+  listeningPorts: readonly number[] = [],
+): BaseToolShellServiceStatusSnapshot {
+  const alive = managed.alive();
+  const exitCode = managed.exitCode();
+  const status: BaseToolShellServiceStatus = health.status === "healthy"
+    ? "healthy"
+    : exitCode !== null
+      ? "exited"
+      : health.verified
+        ? "failed"
+        : alive
+          ? "alive"
+          : "spawned";
+  const stdoutBytes = managed.stdoutBytes();
+  const stderrBytes = managed.stderrBytes();
+  return {
+    pid: managed.pid,
+    cwd: managed.cwd,
+    command: managed.command,
+    args: managed.args,
+    launchMode: managed.launchMode,
+    alive,
+    exitCode,
+    listeningPorts,
+    lastStdout: managed.lastStdout(),
+    lastStderr: managed.lastStderr(),
+    stdoutBytes,
+    stderrBytes,
+    stdoutArtifactRef: managed.stdoutArtifactRef,
+    stderrArtifactRef: managed.stderrArtifactRef,
+    truncatedForDisplay: stdoutBytes > managed.lastStdout().length || stderrBytes > managed.lastStderr().length,
+    status,
+    health,
+  };
+}
+
+function legacyProcessLifecycleFromSnapshot(
+  snapshot: BaseToolShellServiceStatusSnapshot,
+  handle: string,
+): Readonly<Record<string, unknown>> {
+  return plainRuntimeJsonRecord({
+    kind: "runtime.processLifecycle.snapshot",
+    handle,
+    pid: snapshot.pid,
+    phase: snapshot.alive ? "started" : "released",
+    processState: snapshot.alive ? "running" : "released",
+    command: snapshot.command,
+    cwd: snapshot.cwd,
+    started: true,
+    verificationStatus: snapshot.health.verified ? snapshot.health.status : "not-run",
+    verificationReason: snapshot.health.verified
+      ? "runtime service lifecycle probe recorded a concrete health state"
+      : "generic process startup does not prove service reachability",
+    userReachability: snapshot.health.healthy ? "verified" : "not-verified",
+    nextRequiredAction: snapshot.health.healthy ? undefined : "verify",
+  });
+}
+
+function managedOutputFields(
+  snapshot: BaseToolShellServiceStatusSnapshot,
+): Readonly<Record<string, unknown>> {
+  return plainRuntimeJsonRecord({
+    pid: snapshot.pid,
+    cwd: snapshot.cwd,
+    command: snapshot.command,
+    args: snapshot.args,
+    launchMode: snapshot.launchMode,
+    alive: snapshot.alive,
+    exitCode: snapshot.exitCode,
+    listeningPorts: snapshot.listeningPorts,
+    lastStdout: snapshot.lastStdout,
+    lastStderr: snapshot.lastStderr,
+    stdoutBytes: snapshot.stdoutBytes,
+    stderrBytes: snapshot.stderrBytes,
+    stdoutArtifactRef: snapshot.stdoutArtifactRef,
+    stderrArtifactRef: snapshot.stderrArtifactRef,
+    truncatedForDisplay: snapshot.truncatedForDisplay,
+    serviceStatus: snapshot.status,
+    verificationStatus: snapshot.health.verified ? snapshot.health.status : "unverified",
+    healthy: snapshot.health.healthy,
+    health: snapshot.health,
+    statusSnapshot: snapshot,
+  });
+}
+
+async function appendServiceRegistry(
+  context: RuntimeBaseToolExecutorContext,
+  record: Readonly<Record<string, unknown>>,
+): Promise<string> {
+  const registryPath = servicesRegistryPath(context);
+  await mkdir(path.dirname(registryPath), { recursive: true });
+  await writeFile(registryPath, `${JSON.stringify(plainRuntimeJsonRecord(record))}\n`, { flag: "a" });
+  return registryPath;
+}
+
+async function startManagedShellProcess(input: {
+  context: RuntimeBaseToolExecutorContext;
+  command: string;
+  args?: readonly string[];
+  cwd: string;
+  shell?: boolean | string;
+  env?: Readonly<Record<string, string>>;
+  handle: string;
+  launchMode: "background" | "detached" | "service";
+}): Promise<BaseToolExecutorResult<ManagedShellProcess>> {
+  const root = artifactRoot(input.context);
+  await mkdir(root, { recursive: true });
+  const artifactStem = `${safeArtifactStem(input.handle)}-${randomUUID()}`;
+  const stdoutArtifactRef = path.join(root, `${artifactStem}-stdout.log`);
+  const stderrArtifactRef = path.join(root, `${artifactStem}-stderr.log`);
+  await writeFile(stdoutArtifactRef, "");
+  await writeFile(stderrArtifactRef, "");
+
+  const stdoutStream = createWriteStream(stdoutArtifactRef, { flags: "a" });
+  const stderrStream = createWriteStream(stderrArtifactRef, { flags: "a" });
+  let stdoutTail = "";
+  let stderrTail = "";
+  let stdoutBytes = 0;
+  let stderrBytes = 0;
+  let exitCode: number | null = null;
+
+  const child = spawn(input.command, [...(input.args ?? [])], {
+    cwd: input.cwd,
+    env: input.env === undefined ? undefined : { ...process.env, ...input.env },
+    shell: input.shell,
+    detached: true,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const appendChunk = (stream: "stdout" | "stderr", chunk: Buffer): void => {
+    if (stream === "stdout") {
+      stdoutBytes += chunk.byteLength;
+      stdoutTail = tailText(stdoutTail + chunk.toString("utf8"));
+      stdoutStream.write(chunk);
+      return;
+    }
+    stderrBytes += chunk.byteLength;
+    stderrTail = tailText(stderrTail + chunk.toString("utf8"));
+    stderrStream.write(chunk);
+  };
+
+  child.stdout?.on("data", (chunk: Buffer) => appendChunk("stdout", chunk));
+  child.stderr?.on("data", (chunk: Buffer) => appendChunk("stderr", chunk));
+  (child.stdout as unknown as { unref?: () => void } | undefined)?.unref?.();
+  (child.stderr as unknown as { unref?: () => void } | undefined)?.unref?.();
+  child.once("close", (code) => {
+    exitCode = code ?? 0;
+    stdoutStream.end();
+    stderrStream.end();
+  });
+  child.once("error", (error) => {
+    exitCode = 1;
+    stdoutStream.end();
+    stderrStream.end();
+    void error;
+  });
+
+  return success({
+    child,
+    pid: child.pid,
+    cwd: input.cwd,
+    command: input.command,
+    args: input.args ?? [],
+    launchMode: input.launchMode,
+    stdoutArtifactRef,
+    stderrArtifactRef,
+    stdoutBytes: () => Math.max(stdoutBytes, artifactFileBytes(stdoutArtifactRef)),
+    stderrBytes: () => Math.max(stderrBytes, artifactFileBytes(stderrArtifactRef)),
+    lastStdout: () => tailText(stdoutTail || artifactTail(stdoutArtifactRef)),
+    lastStderr: () => tailText(stderrTail || artifactTail(stderrArtifactRef)),
+    exitCode: () => exitCode,
+    alive: () => exitCode === null && pidAlive(child.pid),
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function probeTcp(host: string, port: number, timeoutMs = 500): Promise<boolean> {
+  return await new Promise((resolve) => {
+    const socket = connect({ host, port });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(false);
+    }, timeoutMs);
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      socket.end();
+      resolve(true);
+    });
+    socket.once("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+  });
+}
+
+type LocalPortListenerProcess = {
+  pid: number;
+  command?: string;
+  cwd?: string;
+  port: number;
+  cwdInsideWorkspaceRoot?: boolean;
+};
+
+type LocalPortListenerSnapshot = {
+  port: number;
+  listening: boolean;
+  workspaceRoot: string;
+  processes: readonly LocalPortListenerProcess[];
+  serviceOwnership: "not-listening" | "current-workspace" | "foreign-workspace" | "unknown";
+  staleServiceRisk: boolean;
+  warning?: string;
+};
+
+async function hostCommandStdout(command: string, args: readonly string[], timeoutMs = 750): Promise<string> {
+  return await new Promise((resolve) => {
+    const child = spawn(command, [...args], { stdio: ["ignore", "pipe", "ignore"] });
+    let stdout = "";
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      resolve(stdout);
+    }, timeoutMs);
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString("utf8");
+    });
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve("");
+    });
+    child.once("close", () => {
+      clearTimeout(timer);
+      resolve(stdout);
+    });
+  });
+}
+
+async function inspectLocalListeningPort(port: number, context: RuntimeBaseToolExecutorContext): Promise<LocalPortListenerSnapshot> {
+  const root = workspaceRoot(context);
+  const pidText = await hostCommandStdout("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"]);
+  const pids = [...new Set(pidText.split(/\s+/u)
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item > 0))];
+  const processes = await Promise.all(pids.map(async (pid): Promise<LocalPortListenerProcess> => {
+    const command = await readFile(`/proc/${pid}/comm`, "utf8")
+      .then((value) => value.trim() || undefined)
+      .catch(() => undefined);
+    const cwd = await readlink(`/proc/${pid}/cwd`).catch(() => undefined);
+    const cwdInsideWorkspaceRoot = cwd === undefined ? undefined : isInsideAllowedRoots(cwd, [root]);
+    return {
+      pid,
+      command,
+      cwd,
+      port,
+      cwdInsideWorkspaceRoot,
+    };
+  }));
+  const serviceOwnership: LocalPortListenerSnapshot["serviceOwnership"] = processes.length === 0
+    ? "not-listening"
+    : processes.some((item) => item.cwdInsideWorkspaceRoot === true)
+      ? "current-workspace"
+      : processes.some((item) => item.cwdInsideWorkspaceRoot === false)
+        ? "foreign-workspace"
+        : "unknown";
+  const staleServiceRisk = serviceOwnership === "foreign-workspace";
+  return plainRuntimeJsonRecord({
+    port,
+    listening: processes.length > 0,
+    workspaceRoot: root,
+    processes,
+    serviceOwnership,
+    staleServiceRisk,
+    warning: staleServiceRisk
+      ? "A listener exists on this port, but its cwd is outside the current workspaceRoot; this may be a stale service."
+      : undefined,
+  }) as LocalPortListenerSnapshot;
+}
+
+function localPortFromUrl(value: string): number | undefined {
+  try {
+    const parsed = new URL(value);
+    const hostname = parsed.hostname.replace(/^\[|\]$/gu, "").toLowerCase();
+    if (!["localhost", "127.0.0.1", "::1", "0.0.0.0"].includes(hostname)) return undefined;
+    if (parsed.port.length > 0) {
+      const port = Number(parsed.port);
+      return Number.isInteger(port) && port > 0 ? port : undefined;
+    }
+    if (parsed.protocol === "http:") return 80;
+    if (parsed.protocol === "https:") return 443;
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function evaluateServiceProbe(
+  verification: BaseToolShellServiceVerification | undefined,
+  managed: ManagedShellProcess,
+  context: RuntimeBaseToolExecutorContext,
+): Promise<{
+  passed: boolean;
+  status: BaseToolShellServiceStatus;
+  failureReason?: string;
+  details?: Readonly<Record<string, unknown>>;
+  listeningPorts?: readonly number[];
+}> {
+  const probe = serviceVerificationProbe(verification);
+  if (probe === undefined) {
+    return {
+      passed: false,
+      status: "unverified",
+      details: { reason: "no probe configured" },
+    };
+  }
+
+  if (probe.type === "process") {
+    const alive = managed.alive();
+    return {
+      passed: alive,
+      status: alive ? "healthy" : "exited",
+      failureReason: alive ? undefined : "process exited before health probe passed; read stderrArtifactRef",
+      details: { alive },
+    };
+  }
+
+  if (probe.type === "tcp") {
+    const host = probe.host ?? "127.0.0.1";
+    const passed = await probeTcp(host, probe.port);
+    const listener = await inspectLocalListeningPort(probe.port, context);
+    return {
+      passed,
+      status: passed ? "healthy" : managed.alive() ? "failed" : "exited",
+      failureReason: passed ? undefined : `tcp port ${probe.port} not listening after timeout`,
+      details: {
+        host,
+        port: probe.port,
+        listener,
+        serviceOwnership: listener.serviceOwnership,
+        staleServiceRisk: listener.staleServiceRisk,
+      },
+      listeningPorts: passed ? [probe.port] : [],
+    };
+  }
+
+  if (probe.type === "http") {
+    const expectedStatus = probe.expectedStatus ?? 200;
+    const localPort = localPortFromUrl(probe.url);
+    const listener = localPort === undefined ? undefined : await inspectLocalListeningPort(localPort, context);
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 1_000);
+      const response = await fetch(probe.url, {
+        method: probe.method ?? "GET",
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      const expectedText = verification?.kind === "http" ? verification.expectedText : undefined;
+      const responseText = expectedText === undefined ? undefined : await response.text();
+      const statusPassed = response.status === expectedStatus;
+      const textPassed = expectedText === undefined || responseText?.includes(expectedText) === true;
+      const passed = statusPassed && textPassed;
+      return {
+        passed,
+        status: passed ? "healthy" : "failed",
+        failureReason: passed
+          ? undefined
+          : statusPassed
+            ? "http probe response did not contain expected text"
+            : `http probe returned ${response.status}`,
+        details: {
+          url: probe.url,
+          expectedStatus,
+          actualStatus: response.status,
+          expectedText,
+          listener,
+          serviceOwnership: listener?.serviceOwnership,
+          staleServiceRisk: listener?.staleServiceRisk,
+        },
+        listeningPorts: localPort === undefined || !passed ? [] : [localPort],
+      };
+    } catch (error) {
+      return {
+        passed: false,
+        status: managed.alive() ? "failed" : "exited",
+        failureReason: `http probe failed: ${error instanceof Error ? error.message : String(error)}`,
+        details: {
+          url: probe.url,
+          expectedStatus,
+          listener,
+          serviceOwnership: listener?.serviceOwnership,
+          staleServiceRisk: listener?.staleServiceRisk,
+        },
+      };
+    }
+  }
+
+  if (probe.type === "log") {
+    const source = probe.stream === "stderr"
+      ? managed.lastStderr()
+      : probe.stream === "stdout"
+        ? managed.lastStdout()
+        : `${managed.lastStdout()}\n${managed.lastStderr()}`;
+    const passed = probe.regex === true
+      ? new RegExp(probe.pattern, "u").test(source)
+      : source.includes(probe.pattern);
+    return {
+      passed,
+      status: passed ? "healthy" : managed.alive() ? "failed" : "exited",
+      failureReason: passed ? undefined : "log pattern not observed before timeout",
+      details: { pattern: probe.pattern, stream: probe.stream ?? "both", regex: probe.regex === true },
+    };
+  }
+
+  const commandResult = await runChildProcess({
+    command: probe.command,
+    args: probe.args,
+    cwd: probe.cwd,
+    timeoutMs: probe.timeoutMs ?? 2_000,
+    shell: probe.args === undefined || probe.args.length === 0,
+    intent: "service-probe",
+  }, context, "shell.startServiceAndVerify.probe");
+  if (!commandResult.ok) {
+    return {
+      passed: false,
+      status: managed.alive() ? "failed" : "exited",
+      failureReason: commandResult.error.message,
+    };
+  }
+  const expectedText = verification?.kind === "command" ? verification.expectedText : undefined;
+  const textSource = `${commandResult.output.stdout}\n${commandResult.output.stderr}`;
+  const passed = commandResult.output.exitCode === 0 && (expectedText === undefined || textSource.includes(expectedText));
+  return {
+    passed,
+    status: passed ? "healthy" : managed.alive() ? "failed" : "exited",
+    failureReason: passed
+      ? undefined
+      : commandResult.output.exitCode === 0
+        ? "command probe output did not contain expected text"
+        : `command probe exited ${commandResult.output.exitCode}`,
+    details: {
+      exitCode: commandResult.output.exitCode,
+      stdout: tailText(commandResult.output.stdout, 1024),
+      stderr: tailText(commandResult.output.stderr, 1024),
+      expectedText,
+    },
+  };
+}
+
+function probeFromServiceVerification(verification: BaseToolShellServiceVerification): BaseToolShellServiceProbe {
+  if (verification.kind === "process") return { type: "process" };
+  if (verification.kind === "tcp") {
+    return {
+      type: "tcp",
+      host: verification.host,
+      port: verification.port,
+    };
+  }
+  if (verification.kind === "http") {
+    return {
+      type: "http",
+      url: verification.url,
+      expectedStatus: verification.expectedStatus,
+      method: verification.method,
+    };
+  }
+  if (verification.kind === "log") {
+    return {
+      type: "log",
+      pattern: verification.pattern,
+      stream: verification.stream,
+      regex: verification.regex,
+    };
+  }
+  return {
+    type: "command",
+    command: verification.command,
+    args: verification.args,
+    cwd: verification.cwd,
+    timeoutMs: verification.timeoutMs,
+  };
+}
+
+function serviceVerificationTimeoutMs(verification: BaseToolShellServiceVerification): number {
+  return verification.timeoutMs ?? 30_000;
+}
+
+function serviceVerificationIntervalMs(verification: BaseToolShellServiceVerification): number {
+  return verification.intervalMs ?? 500;
+}
+
+function serviceVerificationMaxAttempts(verification: BaseToolShellServiceVerification): number {
+  const intervalMs = serviceVerificationIntervalMs(verification);
+  return verification.maxAttempts ?? Math.max(1, Math.ceil(serviceVerificationTimeoutMs(verification) / intervalMs));
+}
+
+function recommendedNextActionsFor(input: {
+  status: BaseToolShellServiceStatus;
+  failureReason?: string;
+  stdoutArtifactRef: string;
+  stderrArtifactRef: string;
+  probe?: BaseToolShellServiceProbe;
+}): readonly string[] {
+  if (input.status === "healthy") return [];
+  const actions = [
+    `read stderrArtifactRef: ${input.stderrArtifactRef}`,
+    `read stdoutArtifactRef: ${input.stdoutArtifactRef}`,
+  ];
+  if (input.failureReason?.includes("tcp port")) {
+    actions.push("check the configured port, process cwd, and whether the service binds 127.0.0.1 or 0.0.0.0");
+  } else if (input.failureReason?.includes("http probe returned")) {
+    actions.push("inspect the service error response and application logs before reporting availability");
+  } else if (input.failureReason?.includes("log pattern")) {
+    actions.push("inspect startup logs or choose a stronger process/tcp/http/command probe");
+  } else if (input.status === "exited") {
+    actions.push("restart after fixing the startup error shown in stderr");
+  } else if (input.probe === undefined) {
+    actions.push("run shell.serviceStartAndVerify with a process, tcp, http, log, or command probe");
+  }
+  return actions;
+}
+
 async function firstExecutable(paths: readonly string[]): Promise<string | undefined> {
   for (const candidate of paths) {
     const ok = await access(candidate, fsConstants.X_OK).then(() => true).catch(() => false);
@@ -473,6 +1159,86 @@ function isDesktopLauncherRequest(request: { command: string; args?: readonly st
   return !args.some((arg) => foregroundBrowserArgs.has(arg.trim().toLowerCase()));
 }
 
+function plainStringRecord(value: unknown): Readonly<Record<string, string>> | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const output: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+    if (typeof item !== "string") return undefined;
+    output[key] = item;
+  }
+  return output;
+}
+
+function cleanStringArray(value: unknown): readonly string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && !item.includes("\0"));
+}
+
+function runtimeProcessLifecycle(input: {
+  handle: string;
+  pid?: number;
+  phase: "started" | "released";
+  processState: "running" | "released";
+  command: string;
+  cwd: string;
+  verificationReason: string;
+}): Readonly<Record<string, unknown>> {
+  return plainRuntimeJsonRecord({
+    kind: "runtime.processLifecycle.snapshot",
+    handle: input.handle,
+    pid: input.pid,
+    phase: input.phase,
+    processState: input.processState,
+    command: input.command,
+    cwd: input.cwd,
+    started: true,
+    verificationStatus: "not-run",
+    verificationReason: input.verificationReason,
+    userReachability: "not-verified",
+  });
+}
+
+function spawnTargetSpec(target: unknown): BaseToolExecutorResult<{
+  command: string;
+  args: readonly string[];
+  cwd?: string;
+  shell: boolean | string | undefined;
+  env?: Readonly<Record<string, string>>;
+  targetKind: "command" | "executable";
+}> {
+  const record = typeof target === "object" && target !== null && !Array.isArray(target)
+    ? target as Readonly<Record<string, unknown>>
+    : {};
+  const executable = typeof record.executable === "string" && record.executable.trim().length > 0
+    ? record.executable.trim()
+    : undefined;
+  const command = typeof record.command === "string" && record.command.trim().length > 0
+    ? record.command.trim()
+    : undefined;
+  if (executable === undefined && command === undefined) {
+    return failure("INVALID_REQUEST", "shell.spawnProcess target.executable or target.command is required");
+  }
+  if (executable !== undefined && command !== undefined) {
+    return failure("INVALID_REQUEST", "shell.spawnProcess accepts either target.executable or target.command, not both");
+  }
+
+  const shellValue = typeof record.shell === "string" && record.shell.trim().length > 0 ? record.shell.trim() : undefined;
+  const cwd = typeof record.workingDirectory === "string"
+    ? record.workingDirectory
+    : typeof record.cwd === "string"
+      ? record.cwd
+      : undefined;
+
+  return success({
+    command: command ?? executable ?? "",
+    args: executable === undefined ? [] : cleanStringArray(record.args),
+    cwd,
+    shell: command === undefined ? false : shellValue ?? "sh",
+    env: plainStringRecord(record.env),
+    targetKind: command === undefined ? "executable" : "command",
+  });
+}
+
 async function launchDetachedProcess(
   request: {
     command: string;
@@ -481,11 +1247,22 @@ async function launchDetachedProcess(
     shell?: boolean | string;
     env?: Readonly<Record<string, string>>;
     allowQuickExit?: boolean;
+    handle?: string;
+    lifecycleKind?: "detached" | "background";
   },
   portPath: string,
-): Promise<BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string; durationMs?: number }>> {
+): Promise<BaseToolExecutorResult<{
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  durationMs?: number;
+  pid?: number;
+  serviceLifecycle?: Readonly<Record<string, unknown>>;
+}>> {
   const startedAt = Date.now();
   const launchGraceMs = request.allowQuickExit === true ? 80 : 750;
+  const handle = request.handle ?? `${request.lifecycleKind ?? "detached"}:${randomUUID()}`;
+  const lifecycleKind = request.lifecycleKind ?? "detached";
 
   return await new Promise((resolve) => {
     let settled = false;
@@ -518,6 +1295,16 @@ async function launchDetachedProcess(
               stdout: `launched detached desktop process${child.pid === undefined ? "" : ` pid ${child.pid}`}\n`,
               stderr: "",
               durationMs: Date.now() - startedAt,
+              pid: child.pid,
+              serviceLifecycle: runtimeProcessLifecycle({
+                handle,
+                pid: child.pid,
+                phase: "released",
+                processState: "released",
+                command: request.command,
+                cwd: request.cwd,
+                verificationReason: "desktop launcher exited after handing the request to the desktop session",
+              }),
             },
             [`runtime.execEngine.baseToolExecutorPort.${portPath}.detached`],
             { detached: true, desktopLauncher: true, pid: child.pid },
@@ -539,9 +1326,21 @@ async function launchDetachedProcess(
         success(
           {
             exitCode: 0,
-            stdout: `launched detached process${child.pid === undefined ? "" : ` pid ${child.pid}`}\n`,
+            stdout: `launched detached${request.allowQuickExit === true ? " desktop" : ""} process${child.pid === undefined ? "" : ` pid ${child.pid}`}\n`,
             stderr: "",
             durationMs: Date.now() - startedAt,
+            pid: child.pid,
+            serviceLifecycle: runtimeProcessLifecycle({
+              handle,
+              pid: child.pid,
+              phase: "started",
+              processState: "running",
+              command: request.command,
+              cwd: request.cwd,
+              verificationReason: lifecycleKind === "background"
+                ? "generic background process startup does not prove the service URL is reachable"
+                : "generic detached process startup does not prove user-facing service reachability",
+            }),
           },
           [`runtime.execEngine.baseToolExecutorPort.${portPath}.detached`],
           { detached: true, desktopLauncher: request.allowQuickExit === true, pid: child.pid },
@@ -764,8 +1563,9 @@ async function runChildProcess(request: {
   env?: Readonly<Record<string, string>>;
   intent?: string;
 }, context: RuntimeBaseToolExecutorContext, portPath: string): Promise<BaseToolExecutorResult<{ exitCode: number; stdout: string; stderr: string; durationMs?: number }>> {
-  const cwdResult = request.cwd === undefined ? success(workspaceRoot(context)) : resolveWithinAllowedRoots(context, request.cwd);
+  const cwdResult = resolveShellWorkingDirectory(context, request.cwd);
   if (!cwdResult.ok) return cwdResult;
+  const cwdMetadata = cwdResult.metadata ?? {};
 
   emit(context, portPath, "runtime.execEngine.baseToolExecutorPort.process.started", {
     command: request.command,
@@ -798,7 +1598,7 @@ async function runChildProcess(request: {
       pid: detached.metadata?.pid,
       sandbox,
     });
-    return success(detached.output, detached.events, { ...(detached.metadata ?? {}), sandbox });
+    return success(detached.output, detached.events, { ...cwdMetadata, ...(detached.metadata ?? {}), sandbox });
   }
 
   return await new Promise((resolve) => {
@@ -863,6 +1663,7 @@ async function runChildProcess(request: {
           {
             stdoutTruncated: stdoutBytes > outputLimit,
             stderrTruncated: stderrBytes > outputLimit,
+            ...cwdMetadata,
             sandbox,
           },
         ),
@@ -960,6 +1761,7 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): NonN
     async readText(request) {
       const resolved = resolveWithinAllowedRoots(context, request.path);
       if (!resolved.ok) return resolved;
+      const pathMetadata = resolved.metadata ?? {};
       try {
         const bytes = await readFile(resolved.output);
         const maxBytes = request.maxBytes ?? context.resourceLimits?.maxReadBytes;
@@ -968,7 +1770,7 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): NonN
         return success({
           content: contentBytes.toString(request.encoding === "utf16le" ? "utf16le" : "utf8"),
           truncated: maxBytes !== undefined && bytes.byteLength > maxBytes,
-        });
+        }, [], pathMetadata);
       } catch (error) {
         return failure("PROVIDER_FAILURE", error instanceof Error ? error.message : "filesystem read failed");
       }
@@ -979,12 +1781,13 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): NonN
       }
       const resolved = resolveWithinAllowedRoots(context, request.path);
       if (!resolved.ok) return resolved;
+      const pathMetadata = resolved.metadata ?? {};
       try {
         await mkdir(path.dirname(resolved.output), { recursive: true });
         const encoding = request.encoding === "utf16le" ? "utf16le" : "utf8";
         await writeFile(resolved.output, request.content, { encoding });
         emit(context, "filesystem.writeText", "runtime.execEngine.baseToolExecutorPort.filesystem.writeText");
-        return success({ bytesWritten: Buffer.byteLength(request.content, encoding) });
+        return success({ bytesWritten: Buffer.byteLength(request.content, encoding) }, [], pathMetadata);
       } catch (error) {
         return failure("PROVIDER_FAILURE", error instanceof Error ? error.message : "filesystem write failed");
       }
@@ -995,10 +1798,11 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): NonN
       }
       const resolved = resolveWithinAllowedRoots(context, request.path);
       if (!resolved.ok) return resolved;
+      const pathMetadata = resolved.metadata ?? {};
       try {
         await rm(resolved.output, { recursive: request.recursive === true, force: true });
         emit(context, "filesystem.deletePath", "runtime.execEngine.baseToolExecutorPort.filesystem.deletePath");
-        return success({ deleted: true });
+        return success({ deleted: true }, [], pathMetadata);
       } catch (error) {
         return failure("PROVIDER_FAILURE", error instanceof Error ? error.message : "filesystem delete failed");
       }
@@ -1006,6 +1810,7 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): NonN
     async list(request) {
       const resolved = resolveWithinAllowedRoots(context, request.path);
       if (!resolved.ok) return resolved;
+      const pathMetadata = resolved.metadata ?? {};
       try {
         const maxEntries = request.maxEntries ?? context.resourceLimits?.maxListEntries ?? 200;
         const entries = await listDirectory(resolved.output, {
@@ -1015,7 +1820,7 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): NonN
           excludeGlobs: request.excludeGlobs,
         });
         emit(context, "filesystem.list", "runtime.execEngine.baseToolExecutorPort.filesystem.list");
-        return success({ entries });
+        return success({ entries }, [], pathMetadata);
       } catch (error) {
         return failure("PROVIDER_FAILURE", error instanceof Error ? error.message : "filesystem list failed");
       }
@@ -1102,40 +1907,126 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
     async spawnProcess(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.spawnProcess", request);
       if (delegated !== undefined) return delegated;
-      if (request.launchMode === "foreground") {
-        const target = request.target as Readonly<Record<string, unknown>>;
-        const command = typeof target.command === "string" ? target.command : undefined;
-        if (command === undefined) return failure("INVALID_REQUEST", "shell.spawnProcess target.command is required for foreground launch");
+      if (context.policy?.allowShellExecution !== true && context.policy?.allowProcessExecution !== true) {
+        return failure("GOVERNANCE_REJECTED", "runtime shell process spawning requires allowShellExecution=true or allowProcessExecution=true");
+      }
+      const targetSpec = spawnTargetSpec(request.target);
+      if (!targetSpec.ok) return targetSpec;
+      const launchMode = request.launchMode ?? "foreground";
+
+      if (launchMode === "foreground") {
         const result = await runChildProcess({
-          command,
-          args: Array.isArray(target.args) ? target.args.filter((item): item is string => typeof item === "string") : [],
-          cwd: typeof target.cwd === "string" ? target.cwd : undefined,
-          timeoutMs: typeof target.timeoutMs === "number" ? target.timeoutMs : undefined,
-          shell: false,
+          command: targetSpec.output.command,
+          args: targetSpec.output.args,
+          cwd: targetSpec.output.cwd,
+          env: targetSpec.output.env,
+          shell: targetSpec.output.shell,
           intent: "shell-process",
         }, context, "shell.spawnProcess");
         if (!result.ok) return result;
         return success(genericRuntimeOutput(context, "shell.spawnProcess", { target: request.target }, {
-          launchMode: request.launchMode,
+          launchMode,
           exitCode: result.output.exitCode,
           stdout: result.output.stdout,
           stderr: result.output.stderr,
+          serviceLifecycle: result.metadata?.sandbox === undefined ? undefined : { sandbox: result.metadata.sandbox },
         }), result.events, result.metadata);
       }
+
+      const cwdResult = resolveDetachedWorkingDirectory(context, targetSpec.output.cwd);
+      if (!cwdResult.ok) return cwdResult;
+      const spawnSpec = processCommand({
+        command: targetSpec.output.command,
+        args: targetSpec.output.args,
+        shell: targetSpec.output.shell,
+      }, context, cwdResult.output);
+      if (!spawnSpec.ok) return spawnSpec;
+      const handle = `process:${randomUUID()}`;
+      const detached = await launchDetachedProcess(
+        {
+          command: spawnSpec.output.command,
+          args: spawnSpec.output.args,
+          cwd: spawnSpec.output.cwd,
+          shell: spawnSpec.output.shell,
+          env: targetSpec.output.env,
+          allowQuickExit: isDesktopLauncherRequest({ command: targetSpec.output.command, args: targetSpec.output.args }),
+          handle,
+          lifecycleKind: launchMode === "background" ? "background" : "detached",
+        },
+        "shell.spawnProcess",
+      );
+      if (!detached.ok) return detached;
+      const sandbox = sandboxMetadata(context, spawnSpec.output.sandboxApplied);
+      const lifecycle = detached.output.serviceLifecycle;
       return success(genericRuntimeOutput(context, "shell.spawnProcess", { target: request.target }, {
-        launchMode: request.launchMode,
-        processHandle: `process:${randomUUID()}`,
-        status: "planned",
-      }));
+        launchMode,
+        processHandle: handle,
+        spawnHandle: handle,
+        status: "started",
+        pid: detached.output.pid,
+        exitCode: detached.output.exitCode,
+        stdout: detached.output.stdout,
+        stderr: "",
+        serviceLifecycle: lifecycle,
+      }), detached.events, { ...(detached.metadata ?? {}), sandbox });
     },
     async startBackground(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.startBackground", request);
       if (delegated !== undefined) return delegated;
+      if (context.policy?.allowShellExecution !== true && context.policy?.allowProcessExecution !== true) {
+        return failure("GOVERNANCE_REJECTED", "runtime background shell execution requires allowShellExecution=true or allowProcessExecution=true");
+      }
+      const cwdResult = resolveDetachedWorkingDirectory(context, request.cwd);
+      if (!cwdResult.ok) return cwdResult;
+      const spawnSpec = processCommand({ command: request.command, shell: request.shell }, context, cwdResult.output);
+      if (!spawnSpec.ok) return spawnSpec;
+
+      emit(context, "shell.startBackground", "runtime.execEngine.baseToolExecutorPort.process.background.starting", {
+        command: request.command,
+        cwd: cwdResult.output,
+        jobId: request.jobId,
+      });
+
+      const background = await startManagedShellProcess({
+        context,
+        command: spawnSpec.output.command,
+        args: spawnSpec.output.args,
+        cwd: spawnSpec.output.cwd,
+        shell: spawnSpec.output.shell,
+        handle: request.jobId,
+        launchMode: "background",
+      });
+      if (!background.ok) return background;
+      await sleep(Math.min(250, Math.max(50, request.monitorIntervalMs)));
+      background.output.child.unref();
+      const health = serviceHealth({
+        verified: false,
+        healthy: false,
+        status: "unverified",
+        details: { verificationStatus: "not-run" },
+      });
+      const snapshot = serviceLifecycleSnapshot(background.output, health);
+      const sandbox = sandboxMetadata(context, spawnSpec.output.sandboxApplied);
+      emit(context, "shell.startBackground", "runtime.execEngine.baseToolExecutorPort.process.background", {
+        command: request.command,
+        pid: snapshot.pid,
+        jobId: request.jobId,
+        sandbox,
+      });
       return success(genericRuntimeOutput(context, "shell.startBackground", { command: request.command, cwd: request.cwd }, {
         jobId: request.jobId,
+        backgroundHandle: request.jobId,
         status: "started",
         captureOutput: request.captureOutput,
-      }));
+        outputCaptureStatus: request.captureOutput ? "artifact-backed" : "disabled",
+        serviceLifecycle: legacyProcessLifecycleFromSnapshot(snapshot, request.jobId),
+        ...managedOutputFields(snapshot),
+      }), ["runtime.execEngine.baseToolExecutorPort.shell.startBackground.background"], {
+        pid: snapshot.pid,
+        sandbox,
+        stdoutArtifactRef: snapshot.stdoutArtifactRef,
+        stderrArtifactRef: snapshot.stderrArtifactRef,
+      });
     },
     async startDetached(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.startDetached", request);
@@ -1145,7 +2036,7 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
         return failure("GOVERNANCE_REJECTED", "runtime detached shell execution requires allowShellExecution=true or allowProcessExecution=true");
       }
 
-      const cwdResult = resolveDetachedWorkingDirectory(context, request.cwd);
+      const cwdResult = resolveDetachedWorkingDirectory(context, request.cwd, { allowOsTmpdir: true });
       if (!cwdResult.ok) return cwdResult;
 
       const spawnSpec = processCommand({ command: request.command, shell: request.shell }, context, cwdResult.output);
@@ -1156,21 +2047,35 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
         cwd: cwdResult.output,
       });
 
-      const detached = await launchDetachedProcess(
-        {
-          command: spawnSpec.output.command,
-          args: spawnSpec.output.args,
-          cwd: spawnSpec.output.cwd,
-          shell: spawnSpec.output.shell,
-        },
-        "shell.startDetached",
-      );
+      const detached = await startManagedShellProcess({
+        context,
+        command: spawnSpec.output.command,
+        args: spawnSpec.output.args,
+        cwd: spawnSpec.output.cwd,
+        shell: spawnSpec.output.shell,
+        handle: request.launchId,
+        launchMode: "detached",
+      });
       if (!detached.ok) return detached;
+      await sleep(750);
+      const health = serviceHealth({
+        verified: false,
+        healthy: false,
+        status: "unverified",
+        details: { verificationStatus: "not-run" },
+      });
+      const snapshot = serviceLifecycleSnapshot(detached.output, health);
+      if (snapshot.exitCode !== null) {
+        return failure("PROVIDER_FAILURE", `detached process exited during startup with code ${snapshot.exitCode}`, [
+          "runtime.execEngine.baseToolExecutorPort.shell.startDetached.failed",
+        ]);
+      }
+      detached.output.child.unref();
 
       const sandbox = sandboxMetadata(context, spawnSpec.output.sandboxApplied);
       emit(context, "shell.startDetached", "runtime.execEngine.baseToolExecutorPort.process.detached", {
         command: request.command,
-        pid: detached.metadata?.pid,
+        pid: snapshot.pid,
         sandbox,
       });
 
@@ -1179,10 +2084,158 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
         status: "started",
         restartPolicy: request.restartPolicy,
         detachedHandle: request.launchId,
-        exitCode: detached.output.exitCode,
-        stdout: detached.output.stdout,
-        stderr: detached.output.stderr,
-      }), detached.events, { ...(detached.metadata ?? {}), sandbox });
+        stdout: `launched detached process${snapshot.pid === undefined ? "" : ` pid ${snapshot.pid}`}\n`,
+        stderr: snapshot.lastStderr,
+        serviceLifecycle: legacyProcessLifecycleFromSnapshot(snapshot, request.launchId),
+        ...managedOutputFields(snapshot),
+      }), ["runtime.execEngine.baseToolExecutorPort.shell.startDetached.detached"], {
+        detached: true,
+        pid: snapshot.pid,
+        sandbox,
+        stdoutArtifactRef: snapshot.stdoutArtifactRef,
+        stderrArtifactRef: snapshot.stderrArtifactRef,
+      });
+    },
+    async startServiceAndVerify(request) {
+      const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.startServiceAndVerify", request);
+      if (delegated !== undefined) return delegated;
+
+      if (context.policy?.allowShellExecution !== true && context.policy?.allowProcessExecution !== true) {
+        return failure("GOVERNANCE_REJECTED", "runtime service lifecycle execution requires allowShellExecution=true or allowProcessExecution=true");
+      }
+
+      const { start, verification } = request;
+      const probe = serviceVerificationProbe(verification);
+      const cwdResult = resolveDetachedWorkingDirectory(context, start.cwd);
+      if (!cwdResult.ok) return cwdResult;
+      const spawnSpec = processCommand({
+        command: start.command,
+        shell: start.shell,
+      }, context, cwdResult.output);
+      if (!spawnSpec.ok) return spawnSpec;
+
+      const serviceId = start.serviceId ?? `service:${randomUUID()}`;
+      const startedAt = new Date().toISOString();
+      const service = await startManagedShellProcess({
+        context,
+        command: spawnSpec.output.command,
+        args: spawnSpec.output.args,
+        cwd: spawnSpec.output.cwd,
+        shell: spawnSpec.output.shell,
+        handle: serviceId,
+        launchMode: "service",
+      });
+      if (!service.ok) return service;
+
+      emit(context, "shell.startServiceAndVerify", "runtime.execEngine.baseToolExecutorPort.process.service.starting", {
+        command: start.command,
+        pid: service.output.pid,
+        serviceId,
+      });
+
+      const timeout = Math.max(0, verification.timeoutMs ?? 30_000);
+      const interval = Math.max(50, verification.intervalMs ?? 500);
+      const maxAttempts = Math.max(1, verification.maxAttempts ?? Math.ceil(Math.max(timeout, interval) / interval));
+      const deadline = Date.now() + timeout;
+      let attempts = 0;
+      let probeResult: Awaited<ReturnType<typeof evaluateServiceProbe>> = {
+        passed: false,
+        status: probe === undefined ? "unverified" : "spawned",
+      };
+
+      do {
+        if (probe === undefined) {
+          await sleep(Math.min(100, interval));
+          probeResult = { passed: false, status: service.output.alive() ? "unverified" : "exited" };
+          break;
+        }
+        attempts += 1;
+        probeResult = await evaluateServiceProbe(verification, service.output, context);
+        if (probeResult.passed || probeResult.status === "exited") break;
+        await sleep(interval);
+      } while (attempts < maxAttempts && Date.now() < deadline);
+
+      if (probe !== undefined && !probeResult.passed && probeResult.failureReason === undefined) {
+        probeResult = await evaluateServiceProbe(verification, service.output, context);
+      }
+
+      const status: BaseToolShellServiceStatus = probeResult.passed
+        ? "healthy"
+        : service.output.exitCode() !== null
+          ? "exited"
+          : probe === undefined
+            ? "unverified"
+            : "failed";
+      const failureReason = status === "healthy"
+        ? undefined
+        : probeResult.failureReason ?? (status === "exited"
+          ? "process exited before health probe passed; read stderrArtifactRef"
+          : probe === undefined
+            ? "no probe configured; service availability is unverified"
+            : "health probe did not pass before timeout");
+      const health = serviceHealth({
+        probe,
+        verified: probe !== undefined,
+        healthy: status === "healthy",
+        status,
+        details: probeResult.details,
+      });
+      const snapshot = serviceLifecycleSnapshot(service.output, health, probeResult.listeningPorts ?? []);
+      if (status !== "exited") {
+        service.output.child.unref();
+      }
+      const recommendedNextActions = recommendedNextActionsFor({
+        status,
+        failureReason,
+        stdoutArtifactRef: snapshot.stdoutArtifactRef,
+        stderrArtifactRef: snapshot.stderrArtifactRef,
+        probe,
+      });
+      const toolCallId = typeof request.context?.invocationId === "string" && request.context.invocationId.trim().length > 0
+        ? request.context.invocationId
+        : serviceId;
+      const registryArtifactRef = await appendServiceRegistry(context, {
+        sessionId: context.sessionId,
+        toolCallId,
+        pid: snapshot.pid,
+        cwd: snapshot.cwd,
+        command: start.command,
+        args: [],
+        launchMode: start.launchMode,
+        probe,
+        verification,
+        status,
+        health,
+        startedAt,
+        lastCheckedAt: health.checkedAt,
+        stdoutArtifactRef: snapshot.stdoutArtifactRef,
+        stderrArtifactRef: snapshot.stderrArtifactRef,
+      });
+
+      emit(context, "shell.startServiceAndVerify", `runtime.execEngine.baseToolExecutorPort.process.service.${status}`, {
+        command: start.command,
+        pid: snapshot.pid,
+        serviceId,
+        failureReason,
+      });
+
+      return success(genericRuntimeOutput(context, "shell.startServiceAndVerify", { command: start.command, cwd: cwdResult.output }, {
+        serviceId,
+        serviceHandle: serviceId,
+        status,
+        serviceStatus: status,
+        health,
+        failureReason,
+        recommendedNextActions,
+        registryArtifactRef,
+        serviceLifecycle: legacyProcessLifecycleFromSnapshot(snapshot, serviceId),
+        ...managedOutputFields(snapshot),
+      }), [`runtime.execEngine.baseToolExecutorPort.shell.startServiceAndVerify.${status}`], {
+        pid: snapshot.pid,
+        stdoutArtifactRef: snapshot.stdoutArtifactRef,
+        stderrArtifactRef: snapshot.stderrArtifactRef,
+        registryArtifactRef,
+      });
     },
     async terminateProcess(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.terminateProcess", request);
@@ -1381,6 +2434,8 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): NonNull
         return failure("GOVERNANCE_REJECTED", "runtime network.fetch requires allowNetworkFetch=true");
       }
       try {
+        const localPort = localPortFromUrl(request.url);
+        const listener = localPort === undefined ? undefined : await inspectLocalListeningPort(localPort, context);
         const response = await fetch(request.url, {
           method: request.method ?? "GET",
           headers: request.headers,
@@ -1396,7 +2451,19 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): NonNull
           headers: headersToRecord(response.headers),
           body,
           finalUrl: response.url,
-        }, ["runtime.execEngine.baseToolExecutorPort.network.fetch.finished"], { truncated: bytes.byteLength > maxBytes });
+          ...(listener === undefined ? {} : {
+            localPortProcess: listener,
+            serviceOwnership: listener.serviceOwnership,
+            staleServiceRisk: listener.staleServiceRisk,
+          }),
+        }, ["runtime.execEngine.baseToolExecutorPort.network.fetch.finished"], {
+          truncated: bytes.byteLength > maxBytes,
+          ...(listener === undefined ? {} : {
+            localPortProcess: listener,
+            serviceOwnership: listener.serviceOwnership,
+            staleServiceRisk: listener.staleServiceRisk,
+          }),
+        });
       } catch (error) {
         return failure("PROVIDER_FAILURE", error instanceof Error ? error.message : "runtime network fetch failed");
       }

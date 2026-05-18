@@ -476,6 +476,79 @@ function parseAnthropicTextResponse(raw: unknown): string {
   return textParts.join("\n").trim() || JSON.stringify(raw);
 }
 
+export function shouldRetryAnthropicWithStreaming(error: unknown): boolean {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const message = "message" in error && typeof (error as { message?: unknown }).message === "string"
+    ? (error as { message: string }).message
+    : "";
+  return /streaming is required/iu.test(message);
+}
+
+export async function collectAnthropicMessagesStreamText(stream: AsyncIterable<unknown>): Promise<Record<string, unknown>> {
+  let text = "";
+  let completedMessage: Record<string, unknown> | undefined;
+  let messageId: string | undefined;
+  let model: string | undefined;
+  let stopReason: unknown;
+  let usage: unknown;
+
+  for await (const event of stream) {
+    if (!event || typeof event !== "object") {
+      continue;
+    }
+    const record = event as Record<string, unknown>;
+    if (record.type === "message_start" && record.message && typeof record.message === "object") {
+      const message = record.message as Record<string, unknown>;
+      completedMessage = message;
+      messageId = typeof message.id === "string" ? message.id : messageId;
+      model = typeof message.model === "string" ? message.model : model;
+      usage = message.usage ?? usage;
+      continue;
+    }
+    if (record.type === "content_block_delta" && record.delta && typeof record.delta === "object") {
+      const delta = record.delta as Record<string, unknown>;
+      if (typeof delta.text === "string") {
+        text += delta.text;
+      }
+      continue;
+    }
+    if (record.type === "content_block_start" && record.content_block && typeof record.content_block === "object") {
+      const contentBlock = record.content_block as Record<string, unknown>;
+      if (typeof contentBlock.text === "string") {
+        text += contentBlock.text;
+      }
+      continue;
+    }
+    if (record.type === "message_delta") {
+      if (record.delta && typeof record.delta === "object") {
+        const delta = record.delta as Record<string, unknown>;
+        stopReason = delta.stop_reason ?? stopReason;
+      }
+      usage = record.usage ?? usage;
+    }
+  }
+
+  return {
+    ...(completedMessage ?? {}),
+    id: messageId ?? completedMessage?.id,
+    type: "message",
+    role: "assistant",
+    model: model ?? completedMessage?.model,
+    stop_reason: stopReason ?? completedMessage?.stop_reason,
+    usage: usage ?? completedMessage?.usage,
+    content: text
+      ? [
+          {
+            type: "text",
+            text,
+          },
+        ]
+      : (Array.isArray(completedMessage?.content) ? completedMessage.content : []),
+  };
+}
+
 function parseDeepMindTextResponse(raw: unknown): string {
   if (!raw || typeof raw !== "object") {
     return JSON.stringify(raw);
@@ -771,7 +844,25 @@ async function executeAnthropicInvocation(
     apiKey: config.apiKey,
     baseURL: config.baseURL,
   });
-  return client.messages.create(invocation.payload as never);
+  try {
+    const response = await client.messages.create(invocation.payload as never);
+    if (isAsyncIterable(response)) {
+      return collectAnthropicMessagesStreamText(response);
+    }
+    return response;
+  } catch (error) {
+    if (!shouldRetryAnthropicWithStreaming(error)) {
+      throw error;
+    }
+    const streamed = await client.messages.create({
+      ...(invocation.payload as Record<string, unknown>),
+      stream: true,
+    } as never);
+    if (isAsyncIterable(streamed)) {
+      return collectAnthropicMessagesStreamText(streamed);
+    }
+    return streamed;
+  }
 }
 
 async function executeDeepMindInvocation(

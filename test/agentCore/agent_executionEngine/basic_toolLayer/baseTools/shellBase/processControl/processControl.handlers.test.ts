@@ -28,6 +28,11 @@ import {
   planShellProcessTermination,
   shellProcessTerminationHandler,
 } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.js";
+import {
+  executeShellServiceStartAndVerify,
+  planShellServiceStartAndVerify,
+  shellServiceStartAndVerifyHandler,
+} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.serviceStartAndVerify.js";
 
 test("processControl handlers are mounted in the builtin baseTool registry", () => {
   const registry = createBaseToolRegistry();
@@ -38,6 +43,7 @@ test("processControl handlers are mounted in the builtin baseTool registry", () 
     shellForegroundExecutionHandler,
     shellProcessSpawningHandler,
     shellProcessTerminationHandler,
+    shellServiceStartAndVerifyHandler,
   ]) {
     const lookup = registry.lookupHandler(handler.definition.toolId);
     assert.equal(lookup.ok, true);
@@ -86,6 +92,11 @@ test("processControl dry-run does not call providers", async () => {
     executeShellForegroundExecution({ target: { command: "printf ok" }, provider }),
     executeShellProcessSpawning({ target: { executable: "node" }, provider }),
     executeShellProcessTermination({ target: { processId: 42 }, provider }),
+    executeShellServiceStartAndVerify({
+      target: { command: "npm run dev", verification: { kind: "http", url: "http://127.0.0.1:3000/" } },
+      context: { approval: { accepted: true } },
+      provider,
+    }),
   ]);
 
   assert.equal(calls, 0);
@@ -165,6 +176,7 @@ test("processControl direct bestPractice APIs reject non-record requests without
     { name: "foreground", expectedCode: "MISSING_COMMAND", run: executeShellForegroundExecution },
     { name: "spawning", expectedCode: "MISSING_TARGET", run: executeShellProcessSpawning },
     { name: "termination", expectedCode: "MISSING_PROCESS_ID", run: executeShellProcessTermination },
+    { name: "service", expectedCode: "MISSING_COMMAND", run: executeShellServiceStartAndVerify },
   ] as const;
   const inputs = [undefined, null, 1, "bad", []] as const;
 
@@ -211,6 +223,10 @@ test("processControl planners classify malformed JSON without throwing raw TypeE
     () => planShellProcessTermination({ target: { processId: "42", reason: {} } as never }),
     () => planShellProcessTermination({ target: { processId: 42, signal: 9 } as never }),
     () => planShellProcessTermination({ target: { processId: 42, force: "true" } as never }),
+    () => planShellServiceStartAndVerify({ target: { command: "ok", shell: "fish" } as never }),
+    () => planShellServiceStartAndVerify({ target: { command: "ok", verification: { kind: "http", url: 1 } } as never }),
+    () => planShellServiceStartAndVerify({ target: { command: "ok", verification: { kind: "command", command: {} } } as never }),
+    () => planShellServiceStartAndVerify({ target: { command: "ok", outputBufferLimitBytes: -1 } as never }),
   ];
 
   for (const run of cases) {
@@ -249,6 +265,11 @@ test("processControl malformed real targets reject before provider dispatch", as
     executeShellProcessTermination({
       target: { processId: "bad" } as never,
       context: { runtimeId: "runtime-1", dryRun: false, guard: { allowed: true } },
+      provider,
+    }),
+    executeShellServiceStartAndVerify({
+      target: { command: "npm run dev", verification: { kind: "http", url: 1 } } as never,
+      context: { runtimeId: "runtime-1", dryRun: false, guard: { allowed: true }, approval: { accepted: true } },
       provider,
     }),
   ]);
@@ -306,6 +327,27 @@ test("processControl real execution can call injected runtime providers", async 
     provider: async () => ({ resultEnvelope: { terminated: true, processId: 103 } }),
   });
   assert.equal(terminate.ok, true);
+
+  const service = await executeShellServiceStartAndVerify({
+    target: { command: "npm run dev", verification: { kind: "http", url: "http://127.0.0.1:3000/" } },
+    context: { runtimeId: "runtime-1", dryRun: false, guard: { allowed: true }, approval: { accepted: true } },
+    provider: async () => ({
+      resultEnvelope: {
+        serviceHandle: "service-1",
+        pid: 104,
+        statusSnapshot: {
+          handle: "service-1",
+          lifecycleKind: "service",
+          processState: "running",
+          verificationState: "verified",
+          verified: true,
+        },
+      },
+    }),
+  });
+  assert.equal(service.ok, true);
+  if (!service.ok) throw new Error("service provider should succeed");
+  assert.equal(service.output.resultEnvelope.statusSnapshot?.verified, true);
 });
 
 test("processControl real providers receive normalized requests and plain JSON envelopes", async () => {
@@ -357,6 +399,53 @@ test("processControl real providers receive normalized requests and plain JSON e
     stdio: "pipe",
   });
   assert.equal((seen[1] as { launchMode?: unknown }).launchMode, "detached");
+
+  const service = await executeShellServiceStartAndVerify({
+    target: {
+      command: "  npm run dev  ",
+      workingDirectory: "/tmp///",
+      serviceId: "dev",
+      verification: { kind: "http", url: "http://127.0.0.1:3000/", expectedStatus: 204 },
+    },
+    context: { runtimeId: "runtime-1", invocationId: "call-service", dryRun: false, guard: { accepted: true }, approval: { accepted: true } },
+    provider: async (request: { target?: { serviceId?: string; verification?: { expectedStatus?: number } } }) => {
+      seen.push(request);
+      return {
+        resultEnvelope: {
+          serviceHandle: request.target?.serviceId,
+          statusSnapshot: {
+            handle: request.target?.serviceId,
+            lifecycleKind: "service",
+            processState: "running",
+            verificationState: "verified",
+            verified: true,
+          },
+        },
+      };
+    },
+  });
+
+  assert.equal(service.ok, true);
+  assert.deepEqual((seen[2] as { target?: unknown }).target, {
+    command: "npm run dev",
+    workingDirectory: "/tmp",
+    shell: "sh",
+    serviceId: "dev",
+    launchMode: "background",
+    restartPolicy: "none",
+    outputBufferLimitBytes: 65536,
+    captureOutput: true,
+    verification: {
+      kind: "http",
+      url: "http://127.0.0.1:3000/",
+      expectedStatus: 204,
+      expectedText: undefined,
+      method: undefined,
+      timeoutMs: 30000,
+      intervalMs: 500,
+      maxAttempts: 60,
+    },
+  });
 });
 
 test("processControl providers must return explicit plain JSON runtime envelopes", async () => {
@@ -460,6 +549,33 @@ test("processControl registry handlers invoke every real provider path", async (
         },
       } satisfies BaseToolExecutorPort,
     },
+    {
+      toolId: "shell.serviceStartAndVerify",
+      input: {
+        target: { command: "npm run dev", verification: { kind: "http", url: "http://127.0.0.1:3000/" } },
+        context: { dryRun: false, guard: { allowed: true }, approval: { accepted: true } },
+      },
+      executor: {
+        shell: {
+          async startServiceAndVerify(request) {
+            return {
+              ok: true as const,
+              output: {
+                serviceHandle: request.start.serviceId,
+                status: "healthy",
+                statusSnapshot: {
+                  handle: request.start.serviceId,
+                  lifecycleKind: "service",
+                  processState: "running",
+                  verificationState: "verified",
+                  verified: true,
+                },
+              },
+            };
+          },
+        },
+      } satisfies BaseToolExecutorPort,
+    },
   ];
 
   for (const testCase of cases) {
@@ -475,7 +591,7 @@ test("processControl registry handlers invoke every real provider path", async (
       executor: testCase.executor,
     });
 
-    assert.equal(result.ok, true);
+    assert.equal(result.ok, true, testCase.toolId);
     if (!result.ok) throw new Error(`${testCase.toolId} registry handler invocation should succeed`);
     assert.equal((result.output as { providerCalled?: boolean }).providerCalled, true);
   }
@@ -505,6 +621,23 @@ test("processControl real execution can call host runtime process ports", async 
         calls.push(`terminate:${request.processId}:${request.signal}`);
         return { ok: true, output: { operation: "terminate-process", processId: request.processId, signal: request.signal, force: request.force } };
       },
+      async startServiceAndVerify(request) {
+        calls.push(`service:${request.start.serviceId}:${request.verification.kind}`);
+        return {
+          ok: true,
+          output: {
+            serviceHandle: request.start.serviceId,
+            status: "healthy",
+            statusSnapshot: {
+              handle: request.start.serviceId,
+              lifecycleKind: "service",
+              processState: "running",
+              verificationState: "verified",
+              verified: true,
+            },
+          },
+        };
+      },
     },
   };
 
@@ -518,6 +651,12 @@ test("processControl real execution can call host runtime process ports", async 
   assert.equal(background.ok, true);
   if (!background.ok) throw new Error("background host port should succeed");
   assert.equal(background.output.resultEnvelope.backgroundHandle, "dev-server");
+  assert.equal(background.output.resultEnvelope.serviceStatus, "started");
+  assert.equal(background.output.resultEnvelope.verificationStatus, "unverified");
+  assert.equal(
+    (background.output.resultEnvelope.serviceLifecycle as { nextRequiredAction?: string } | undefined)?.nextRequiredAction,
+    "verify",
+  );
 
   const detached = await executeShellDetachedExecution({
     target: { command: "node server.js", launchId: "server" },
@@ -525,6 +664,9 @@ test("processControl real execution can call host runtime process ports", async 
     executor,
   });
   assert.equal(detached.ok, true);
+  if (!detached.ok) throw new Error("detached host port should succeed");
+  assert.equal(detached.output.resultEnvelope.serviceStatus, "started");
+  assert.equal(detached.output.resultEnvelope.verificationStatus, "unverified");
 
   const foreground = await executeShellForegroundExecution({
     target: { command: "printf ok" },
@@ -535,10 +677,14 @@ test("processControl real execution can call host runtime process ports", async 
 
   const spawn = await executeShellProcessSpawning({
     target: { executable: "node", args: ["--version"] },
+    launchMode: "background",
     context,
     executor,
   });
   assert.equal(spawn.ok, true);
+  if (!spawn.ok) throw new Error("spawn host port should succeed");
+  assert.equal(spawn.output.resultEnvelope.serviceStatus, "started");
+  assert.equal(spawn.output.resultEnvelope.verificationStatus, "unverified");
 
   const terminate = await executeShellProcessTermination({
     target: { processId: 203, signal: "SIGTERM" },
@@ -547,11 +693,19 @@ test("processControl real execution can call host runtime process ports", async 
   });
   assert.equal(terminate.ok, true);
 
+  const service = await executeShellServiceStartAndVerify({
+    target: { command: "npm run dev", serviceId: "dev-service", verification: { kind: "http", url: "http://127.0.0.1:3000/" } },
+    context,
+    executor,
+  });
+  assert.equal(service.ok, true);
+
   assert.deepEqual(calls, [
     "background:dev-server",
     "detached:server",
     "run:sh",
-    "spawn:foreground",
+    "spawn:background",
     "terminate:203:SIGTERM",
+    "service:dev-service:http",
   ]);
 });

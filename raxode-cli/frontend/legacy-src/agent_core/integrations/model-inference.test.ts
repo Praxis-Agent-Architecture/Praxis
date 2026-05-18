@@ -3,11 +3,13 @@ import test from "node:test";
 
 import {
   buildOpenAIProviderMetadata,
+  collectAnthropicMessagesStreamText,
   collectOpenAIChatCompletionsStreamText,
   collectOpenAIResponsesStreamText,
   isOpenAITextResponseEmpty,
   omitResponsesMetadataForGatewayRetry,
   parseOpenAITextResponse,
+  shouldRetryAnthropicWithStreaming,
   shouldRetryOpenAIResponsesOnTransientGateway,
   shouldRetryOpenAIResponsesOnRateLimit,
   shouldRetryOpenAIResponsesWithoutMetadata,
@@ -284,4 +286,42 @@ test("collectOpenAIChatCompletionsStreamText rebuilds text from chat completion 
       finish_reason: "stop",
     },
   ]);
+});
+
+test("shouldRetryAnthropicWithStreaming detects long non-streaming request errors", () => {
+  assert.equal(shouldRetryAnthropicWithStreaming({
+    message: "Streaming is required for operations that may take longer than 10 minutes.",
+  }), true);
+  assert.equal(shouldRetryAnthropicWithStreaming({
+    message: "invalid api key",
+  }), false);
+});
+
+test("collectAnthropicMessagesStreamText rebuilds assistant text from message events", async () => {
+  async function* events() {
+    yield {
+      type: "message_start",
+      message: {
+        id: "msg-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-compatible",
+        content: [],
+      },
+    };
+    yield { type: "content_block_delta", delta: { type: "text_delta", text: "PA" } };
+    yield { type: "content_block_delta", delta: { type: "text_delta", text: "SS" } };
+    yield { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 2 } };
+  }
+
+  const result = await collectAnthropicMessagesStreamText(events());
+
+  assert.equal(result.id, "msg-1");
+  assert.deepEqual(result.content, [
+    {
+      type: "text",
+      text: "PASS",
+    },
+  ]);
+  assert.equal(result.stop_reason, "end_turn");
 });

@@ -73,7 +73,7 @@ export type BaseToolHandlerLookupResult =
 
 export const baseToolRegistryDescriptor = {
   registry: "agentCore.basicTool.registry",
-  builtinToolCountTarget: 175,
+  builtinToolCountTarget: 176,
   supportsCustomTools: true,
   derivesToolSkillFromMarkdownDocs: true,
   agentCoreOwnsRealExecution: false,

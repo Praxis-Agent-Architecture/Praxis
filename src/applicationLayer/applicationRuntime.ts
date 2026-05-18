@@ -819,7 +819,9 @@ function summarizeShellToolInput(toolCall: AgentToolCallRecord): string | undefi
   const { command, cwd } = shellCommandFromArguments(toolCall);
   const executionId = stringValue(args.executionId) ?? stringValue(args.launchId);
   if (command) {
-    const verb = toolCall.toolId === "shell.detachedExecution" || toolCall.toolId === "shell.backgroundExecution"
+    const verb = toolCall.toolId === "shell.serviceStartAndVerify"
+      ? "Starting and verifying"
+      : toolCall.toolId === "shell.detachedExecution" || toolCall.toolId === "shell.backgroundExecution"
       ? "Launching"
       : "Running";
     return `${verb} ${truncateMiddle(command, 180)}${cwd ? ` in ${cwd}` : ""}`;
@@ -896,15 +898,76 @@ function summarizeShellToolOutputForHumans(toolCall: AgentToolCallRecord, output
   const command = stringValue(output?.command)
     ?? stringValue(target?.command)
     ?? shellCommandFromArguments(toolCall).command;
-  const exitCode = numberValue(output?.exitCode);
-  const stdout = stringValue(output?.stdout);
-  const stderr = stringValue(output?.stderr);
+  const exitCode = numberValue(output?.exitCode) ?? numberValue(resultEnvelope?.exitCode);
+  const stdout = stringValue(output?.stdout) ?? stringValue(resultEnvelope?.stdout);
+  const stderr = stringValue(output?.stderr) ?? stringValue(resultEnvelope?.stderr);
   const planned = booleanValue(resultEnvelope?.planned);
-  const handle = stringValue(resultEnvelope?.detachedHandle) ?? stringValue(target?.launchId);
+  const lifecycle = objectValue(resultEnvelope?.serviceLifecycle);
+  const statusSnapshot = objectValue(resultEnvelope?.statusSnapshot) ?? objectValue(output?.statusSnapshot);
+  const handle = stringValue(statusSnapshot?.handle)
+    ?? stringValue(resultEnvelope?.detachedHandle)
+    ?? stringValue(resultEnvelope?.backgroundHandle)
+    ?? stringValue(resultEnvelope?.spawnHandle)
+    ?? stringValue(resultEnvelope?.processHandle)
+    ?? stringValue(resultEnvelope?.serviceHandle)
+    ?? stringValue(lifecycle?.handle)
+    ?? stringValue(target?.serviceId)
+    ?? stringValue(target?.launchId)
+    ?? stringValue(target?.jobId);
+  const processState = stringValue(statusSnapshot?.processState) ?? stringValue(resultEnvelope?.serviceStatus);
+  const verificationStatus = stringValue(statusSnapshot?.verificationState) ?? stringValue(lifecycle?.verificationStatus);
+  const userReachability = stringValue(lifecycle?.userReachability);
+  const health = objectValue(resultEnvelope?.health);
+  const healthStatus = stringValue(health?.status);
+  const healthy = booleanValue(resultEnvelope?.healthy) ?? booleanValue(health?.healthy);
+  const failureReason = stringValue(resultEnvelope?.failureReason);
+  const stderrArtifactRef = stringValue(resultEnvelope?.stderrArtifactRef);
+  const snapshotVerified = booleanValue(statusSnapshot?.verified);
+  const verified = healthy === true || snapshotVerified === true || verificationStatus === "verified" || verificationStatus === "healthy" || userReachability === "verified";
+  const pid = numberValue(statusSnapshot?.pid) ?? numberValue(resultEnvelope?.pid) ?? numberValue(resultEnvelope?.processId) ?? numberValue(lifecycle?.processId);
+  const verification = objectValue(target?.verification);
+  const url = stringValue(statusSnapshot?.url) ?? stringValue(verification?.url);
   const lines: string[] = [];
 
-  if (toolCall.toolId === "shell.detachedExecution" || toolCall.toolId === "shell.backgroundExecution") {
-    lines.push(`${planned ? "Planned launch" : "Launched"}${command ? `: ${truncateMiddle(command, 160)}` : ""}${handle ? ` (${handle})` : ""}`);
+  if (toolCall.toolId === "shell.serviceStartAndVerify") {
+    const label = planned
+      ? "Planned service start"
+      : verified
+        ? "Service verified"
+        : failureReason !== undefined || healthStatus === "failed" || verificationStatus === "failed" || processState === "failed"
+          ? "Service verification failed"
+          : "Service verification pending";
+    lines.push(`${label}${command ? `: ${truncateMiddle(command, 160)}` : ""}${handle ? ` (${handle})` : ""}${url ? ` ${url}` : ""}`);
+    if (!planned && (pid !== undefined || verificationStatus !== undefined || processState !== undefined)) {
+      lines.push(
+        [
+          pid !== undefined ? `pid ${pid}` : undefined,
+          processState !== undefined ? `process ${processState}` : undefined,
+          healthStatus !== undefined ? `health ${healthStatus}` : verificationStatus !== undefined ? `verification ${verificationStatus}` : undefined,
+          failureReason !== undefined ? truncateMiddle(failureReason, 160) : undefined,
+        ].filter((item): item is string => item !== undefined).join(", "),
+      );
+    }
+    if (!planned && stderrArtifactRef) lines.push(`stderr artifact: ${truncateMiddle(stderrArtifactRef, 180)}`);
+  } else if (
+    toolCall.toolId === "shell.detachedExecution"
+    || toolCall.toolId === "shell.backgroundExecution"
+    || (toolCall.toolId === "shell.processSpawning" && stringValue(resultEnvelope?.status) === "started")
+    || verificationStatus !== undefined
+  ) {
+    const launchLabel = verificationStatus !== undefined && verificationStatus !== "verified"
+      ? "Launched, not verified"
+      : planned ? "Planned launch" : "Launched";
+    lines.push(`${launchLabel}${command ? `: ${truncateMiddle(command, 160)}` : ""}${handle ? ` (${handle})` : ""}`);
+    if (!planned && (verificationStatus !== undefined || userReachability !== undefined || pid !== undefined)) {
+      lines.push(
+        [
+          pid !== undefined ? `pid ${pid}` : undefined,
+          verificationStatus !== undefined ? `verification ${verificationStatus}` : undefined,
+          userReachability !== undefined ? `reachability ${userReachability}` : undefined,
+        ].filter((item): item is string => item !== undefined).join(", "),
+      );
+    }
   } else if (exitCode !== undefined) {
     lines.push(`Command completed with exit ${exitCode}${command ? `: ${truncateMiddle(command, 120)}` : ""}`);
   } else {
@@ -1212,7 +1275,7 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
     const message = stringValue(errorRecord?.message) ?? stringValue(toolCall.error);
     const code = stringValue(errorRecord?.code);
     return [
-      message ? `失败：${message}` : `失败：${toolCall.toolId} did not complete.`,
+      message ? `失败：${toolCall.toolId}: ${message}` : `失败：${toolCall.toolId} did not complete.`,
       ...(code ? [`原因码：${code}`] : []),
     ].slice(0, 3);
   }
@@ -1290,6 +1353,13 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
   const outputTarget = objectValue(output?.target);
   const envelope = objectValue(output?.resultEnvelope) ?? output;
   const providerMetadata = objectValue(output?.providerMetadata);
+  const serviceLifecycle = objectValue(envelope?.serviceLifecycle);
+  const health = objectValue(envelope?.health);
+  const error = objectValue(toolCall.error);
+  const contextAuditMetadata = objectValue(objectValue(args.context)?.auditMetadata);
+  const workspacePathNormalization = objectValue(output?.workspacePathNormalization)
+    ?? objectValue(contextAuditMetadata?.workspacePathNormalization)
+    ?? error;
   const targetPaths = [
     ...stringArrayValue(args.targetPaths),
     ...stringArrayValue(args.paths),
@@ -1322,11 +1392,43 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
     matchCount: countFromArrays(output?.matches, envelope?.matches),
     outputCount: countFromArrays(output?.documents, objectValue(output?.preparedInvocation)?.resources),
     mountCount: countFromArrays(objectValue(output?.activation)?.mounts),
+    processId: numberValue(envelope?.pid) ?? numberValue(envelope?.processId) ?? numberValue(serviceLifecycle?.processId),
+    processStatus: stringValue(envelope?.status),
+    processHandle: firstStringValue(envelope?.detachedHandle, envelope?.backgroundHandle, envelope?.spawnHandle, envelope?.processHandle),
+    alive: booleanValue(envelope?.alive),
+    serviceStatus: firstStringValue(envelope?.serviceStatus, serviceLifecycle?.status, envelope?.status, health?.status),
+    healthy: booleanValue(envelope?.healthy) ?? booleanValue(health?.healthy),
+    verificationStatus: firstStringValue(envelope?.verificationStatus, serviceLifecycle?.verificationStatus, health?.status),
+    serviceHandle: firstStringValue(envelope?.serviceHandle, serviceLifecycle?.handle, envelope?.detachedHandle, envelope?.backgroundHandle, envelope?.spawnHandle, envelope?.processHandle),
+    nextRequiredAction: firstStringValue(envelope?.nextRequiredAction, serviceLifecycle?.nextRequiredAction),
+    serviceLifecyclePhase: stringValue(serviceLifecycle?.phase),
+    serviceProcessState: stringValue(serviceLifecycle?.processState),
+    serviceVerificationStatus: stringValue(serviceLifecycle?.verificationStatus),
+    serviceReachability: stringValue(serviceLifecycle?.userReachability),
+    failureReason: stringValue(envelope?.failureReason),
+    stdoutArtifactRef: stringValue(envelope?.stdoutArtifactRef),
+    stderrArtifactRef: stringValue(envelope?.stderrArtifactRef),
+    registryArtifactRef: stringValue(envelope?.registryArtifactRef),
+    recommendedNextActions: stringArrayValue(envelope?.recommendedNextActions),
+    workspaceRoot: firstStringValue(workspacePathNormalization?.workspaceRoot, error?.workspaceRoot, output?.workspaceRoot, args.workspaceRoot, objectValue(args.context)?.workspaceRoot),
+    allowedRoots: unknownArrayValue(workspacePathNormalization?.allowedRoots).length > 0
+      ? unknownArrayValue(workspacePathNormalization?.allowedRoots)
+      : undefined,
+    requestedCwd: firstStringValue(workspacePathNormalization?.requestedCwd, error?.requestedCwd, output?.requestedCwd),
+    normalizedCwd: firstStringValue(workspacePathNormalization?.normalizedCwd, error?.normalizedCwd, output?.normalizedCwd),
+    requestedPath: firstStringValue(workspacePathNormalization?.requestedPath, error?.requestedPath, output?.requestedPath),
+    normalizedPath: firstStringValue(workspacePathNormalization?.normalizedPath, error?.normalizedPath, output?.normalizedPath),
+    cwdWasMapped: typeof workspacePathNormalization?.cwdWasMapped === "boolean" ? workspacePathNormalization.cwdWasMapped : output?.cwdWasMapped,
+    pathWasMapped: typeof workspacePathNormalization?.pathWasMapped === "boolean" ? workspacePathNormalization.pathWasMapped : output?.pathWasMapped,
+    mappingSource: firstStringValue(workspacePathNormalization?.mappingSource, output?.mappingSource),
+    suggestedCwd: firstStringValue(workspacePathNormalization?.suggestedCwd, output?.suggestedCwd),
+    serviceOwnership: firstStringValue(output?.serviceOwnership, providerMetadata?.serviceOwnership),
+    staleServiceRisk: typeof output?.staleServiceRisk === "boolean" ? output.staleServiceRisk : providerMetadata?.staleServiceRisk,
     imageCount: toolCall.toolId.includes("Image") || toolCall.toolId.includes("Screenshot") || firstStringValue(output?.imagePath, output?.artifactId) ? 1 : undefined,
     mimeType: firstStringValue(output?.mimeType, objectValue(output?.artifact)?.mimeType),
     codeAdditions: changeLineStats?.codeAdditions,
     codeDeletions: changeLineStats?.codeDeletions,
-    errorCode: stringValue(objectValue(toolCall.error)?.code),
+    errorCode: stringValue(error?.code),
   });
 }
 

@@ -17,6 +17,7 @@ import { shellBackgroundExecutionHandler } from "../../../../storagePool/baseToo
 import { shellDetachedExecutionHandler } from "../../../../storagePool/baseToolStorage/shellBase/processControl/shell.detachedExecution/bestPractice.js";
 import { shellForegroundExecutionHandler } from "../../../../storagePool/baseToolStorage/shellBase/processControl/shell.foregroundExecution/bestPractice.js";
 import { shellProcessSpawningHandler } from "../../../../storagePool/baseToolStorage/shellBase/processControl/shell.processSpawning/bestPractice.js";
+import { shellServiceStartAndVerifyHandler } from "../../../../storagePool/baseToolStorage/shellBase/processControl/shell.serviceStartAndVerify/bestPractice.js";
 import { shellProcessTerminationHandler } from "../../../../storagePool/baseToolStorage/shellBase/processControl/shell.processTermination/bestPractice.js";
 import { executionMonitoringHandler } from "../../../../storagePool/baseToolStorage/shellBase/shellInteraction/shell.executionMonitoring/bestPractice.js";
 import { interactiveControlHandler } from "../../../../storagePool/baseToolStorage/shellBase/shellInteraction/shell.interactiveControl/bestPractice.js";
@@ -194,6 +195,7 @@ export const builtinBaseToolHandlers = [
   shellDetachedExecutionHandler,
   shellForegroundExecutionHandler,
   shellProcessSpawningHandler,
+  shellServiceStartAndVerifyHandler,
   shellProcessTerminationHandler,
   executionMonitoringHandler,
   interactiveControlHandler,

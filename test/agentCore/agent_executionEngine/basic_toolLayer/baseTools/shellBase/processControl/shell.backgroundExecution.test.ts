@@ -38,6 +38,16 @@ test("planShellBackgroundExecution creates a monitorable dry-run background job"
   assert.equal(result.output.backgroundContract.monitorableByRuntime, true);
   assert.equal(result.output.backgroundContract.cancellationRequired, true);
   assert.equal(result.output.resultEnvelope.backgroundHandle, "dev-server");
+  assert.deepEqual(result.output.resultEnvelope.statusSnapshot, {
+    handle: "dev-server",
+    lifecycleKind: "background",
+    processState: "planned",
+    verificationState: "not-requested",
+    verified: false,
+    command: "npm run dev",
+    cwd: "/repo/app",
+    summary: "background process launch is planned; service reachability has not been verified",
+  });
   assert.equal(result.output.dryRun, true);
   assert.equal(result.output.executionBlocked, true);
   assert.equal(result.output.unsafeSideEffects, false);

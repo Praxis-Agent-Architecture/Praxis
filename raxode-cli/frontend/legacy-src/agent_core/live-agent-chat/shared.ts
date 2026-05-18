@@ -2438,6 +2438,37 @@ export function summarizeToolOutputForCore(
     }, null, 2);
   }
 
+  if (capabilityKey === "shell.serviceStartAndVerify") {
+    return JSON.stringify({
+      capabilityKey,
+      serviceId: normalized?.serviceId,
+      pid: normalized?.pid,
+      cwd: normalized?.cwd,
+      command: normalized?.command,
+      launchMode: normalized?.launchMode,
+      status: normalized?.status,
+      serviceStatus: normalized?.serviceStatus,
+      alive: normalized?.alive,
+      healthy: normalized?.healthy,
+      health: trimStructuredValue(normalized?.health, 2_500),
+      failureReason: normalized?.failureReason,
+      recommendedNextActions: trimStructuredValue(normalized?.recommendedNextActions, 1_500),
+      listeningPorts: trimStructuredValue(normalized?.listeningPorts, 1_000),
+      stdoutBytes: normalized?.stdoutBytes,
+      stderrBytes: normalized?.stderrBytes,
+      lastStdout: typeof normalized?.lastStdout === "string"
+        ? maybeExcerptText(normalized.lastStdout, 1_500, preserveBody)
+        : undefined,
+      lastStderr: typeof normalized?.lastStderr === "string"
+        ? maybeExcerptText(normalized.lastStderr, 1_500, preserveBody)
+        : undefined,
+      stdoutArtifactRef: normalized?.stdoutArtifactRef,
+      stderrArtifactRef: normalized?.stderrArtifactRef,
+      registryArtifactRef: normalized?.registryArtifactRef,
+      truncatedForDisplay: normalized?.truncatedForDisplay,
+    }, null, 2);
+  }
+
   if (capabilityKey === "search.ground" || capabilityKey === "search.web") {
     const sources = Array.isArray(normalized?.sources)
       ? normalized.sources.slice(0, 6)
@@ -3552,6 +3583,26 @@ export function summarizeCapabilityRequestForLog(request: CoreCapabilityRequest)
     ];
     const cwd = readString(input.cwd) ?? readString(input.workdir) ?? readString(input.dir_path) ?? ".";
     return summarizeForLog(`${command}${args.length > 0 ? ` ${args.join(" ")}` : ""} @ ${cwd}`);
+  }
+
+  if (request.capabilityKey === "shell.serviceStartAndVerify") {
+    const start = input.start && typeof input.start === "object" && !Array.isArray(input.start)
+      ? input.start as Record<string, unknown>
+      : input;
+    const commandArray = readStringArray(start.command);
+    const command = commandArray?.[0] ?? readString(start.command) ?? "(missing command)";
+    const args = [
+      ...(commandArray?.slice(1) ?? []),
+      ...(readStringArray(start.args) ?? []),
+    ];
+    const cwd = readString(start.cwd) ?? readString(start.workdir) ?? readString(start.dir_path) ?? ".";
+    const verification = input.verification && typeof input.verification === "object" && !Array.isArray(input.verification)
+      ? input.verification as Record<string, unknown>
+      : input.probe && typeof input.probe === "object" && !Array.isArray(input.probe)
+        ? input.probe as Record<string, unknown>
+        : {};
+    const probeKind = readString(verification.kind) ?? readString(verification.type) ?? "probe";
+    return summarizeForLog(`${command}${args.length > 0 ? ` ${args.join(" ")}` : ""} @ ${cwd} verify=${probeKind}`);
   }
 
   if (request.capabilityKey === "search.ground" || request.capabilityKey === "search.web") {

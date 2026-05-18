@@ -23,6 +23,7 @@ import {
   describeShellWorkspaceWrite,
   shellWorkspaceWriteGuardMessage,
 } from "../../_shared/workspaceWriteGuard.js";
+import { plannedLifecycleStatusSnapshot } from "../_shared/serviceLifecycle.js";
 
 export type ShellBackgroundExecutionPermission = ShellProcessSpawningPermission;
 
@@ -122,6 +123,7 @@ export type ShellBackgroundExecutionOutput = {
     planned?: true;
     backgroundHandle?: string;
     pid?: number;
+    statusSnapshot?: Readonly<Record<string, unknown>>;
   };
 };
 
@@ -431,6 +433,14 @@ export function planShellBackgroundExecution(request: ShellBackgroundExecutionRe
       resultEnvelope: {
         planned: true,
         backgroundHandle: target.jobId,
+        statusSnapshot: plannedLifecycleStatusSnapshot({
+          handle: target.jobId,
+          lifecycleKind: "background",
+          verificationState: "not-requested",
+          command: target.command,
+          cwd: target.workingDirectory,
+          summary: "background process launch is planned; service reachability has not been verified",
+        }),
       },
     },
     audit: [

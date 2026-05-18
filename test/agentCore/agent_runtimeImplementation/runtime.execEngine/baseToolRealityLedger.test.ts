@@ -14,11 +14,11 @@ test("baseToolRealityLedger covers all mounted storage-owned tools with canonica
   const snapshot = snapshotBaseToolRealityLedger();
   const ledgerIds = new Set(ledger.map((entry) => entry.toolId));
 
-  assert.equal(ledger.length, 175);
-  assert.equal(snapshot.total, 175);
-  assert.equal(snapshot.expectedTotal, 175);
+  assert.equal(ledger.length, 176);
+  assert.equal(snapshot.total, 176);
+  assert.equal(snapshot.expectedTotal, 176);
   assert.equal(snapshot.byFamily.office, 0);
-  assert.equal(snapshot.byStorage.canonical, 175);
+  assert.equal(snapshot.byStorage.canonical, 176);
 
   for (const handler of builtinBaseToolHandlers) {
     assert.equal(ledgerIds.has(handler.definition.toolId), true, handler.definition.toolId);
@@ -37,8 +37,8 @@ test("baseToolRealityLedger covers all mounted storage-owned tools with canonica
   assert.equal(codeRead.liveStatus, "notProven");
   assert.equal(codeRead.developerReadiness, "usableWithApproval");
 
-  assert.equal(snapshot.stageCounts.mounted, 175);
-  assert.equal(snapshot.stageCounts.contractReady, 175);
+  assert.equal(snapshot.stageCounts.mounted, 176);
+  assert.equal(snapshot.stageCounts.contractReady, 176);
 });
 
 test("baseToolRealityLedger distinguishes host-ready ports from adapter-required ports", () => {

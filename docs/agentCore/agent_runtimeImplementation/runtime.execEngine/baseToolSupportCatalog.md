@@ -11,7 +11,7 @@
 
 ## 2. 文件职责
 
-这个文件负责把已经进入 `builtinBaseToolHandlers` 的 175 个 baseTool handler 汇总成 runtime 可检查的支持目录。
+这个文件负责把已经进入 `builtinBaseToolHandlers` 的 176 个 baseTool handler 汇总成 runtime 可检查的支持目录。
 
 它不重新分类工具，不按 `BaseToolExecutorPort` namespace 建第二套工具层，而是读取每个 handler definition 中来自 `dependencies.ts` 的合同，形成 `family/group/toolId -> required support -> readiness` 的稳定视图。
 
@@ -20,7 +20,7 @@
 - 原始文件名：`baseToolSupportCatalog.ts`。
 - 命名片段：`base` / `Tool` / `Support` / `Catalog`。
 - 工程含义：这是 runtime 中 `runtime.execEngine` 表面下的 baseTool 支持目录，服务运行时检查、调试、治理和挂载解释。
-- 第一实现重点：先证明 175 个 handler 都能被目录收纳，且 `officeBase` 不混入本轮 baseTool 口径。
+- 第一实现重点：先证明 176 个 handler 都能被目录收纳，且 `officeBase` 不混入本轮 baseTool 口径。
 - 边界提醒：runtime 是承托面，不应吞并 executionEngine、modelAdapter、interfaceAdapter 的内部实现。
 
 ## 3. 目录语义
@@ -32,7 +32,7 @@
 
 - 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / baseTool 支持目录。
 - 核心目的：按 storage-owned baseTool 的 family/group/toolId 和 dependencies.ts 合同生成 runtime 支持视图。
-- 能力要求1：需要覆盖已经进入 builtinBaseToolHandlers 的 175 个 baseTool handler。
+- 能力要求1：需要覆盖已经进入 builtinBaseToolHandlers 的 176 个 baseTool handler。
 - 能力要求2：需要把 BaseToolExecutorPort 视为底层宿主能力插座，而不是新的 baseTool 分类法。
 - 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
 - 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
@@ -40,7 +40,7 @@
 
 ## 5. 需要提供的能力
 
-- 生成 175 个 builtin baseTool handler 的 runtime support catalog。
+- 生成 176 个 builtin baseTool handler 的 runtime support catalog。
 - 按 storage family、group、toolId 暴露分类，不把 executor port 当分类主轴。
 - 从 handler definition dependencies 中提取 runtime support、permission、provider carrier、host dependency。
 - 给每个支持项标记 `available`、`unavailable`、`disabled`、`requiresApproval` 或 `notImplemented`。
@@ -92,8 +92,8 @@
 ## 11. 不应该做什么
 
 - 不要直接执行工具。
-- 不要生成 175 个手写 wrapper。
-- 不要把 `officeBase` TAP 能力混入本轮 175 baseTool catalog。
+- 不要生成 176 个手写 wrapper。
+- 不要把 `officeBase` TAP 能力混入本轮 176 baseTool catalog。
 - 不要让 port namespace 替代 `family/group/toolId` 的 storage 分类。
 
 ## 12. 最小实现建议
@@ -106,7 +106,7 @@
 
 ## 13. 最小测试建议
 
-- 验证 catalog 总数为 175。
+- 验证 catalog 总数为 176。
 - 验证没有 `office` family。
 - 验证每个 builtin handler 都有 catalog entry。
 - 验证 `shell.commandExecution`、`git.getRepositoryStatus`、`code.read`、`search.fetch` 等典型工具能提取正确 support。

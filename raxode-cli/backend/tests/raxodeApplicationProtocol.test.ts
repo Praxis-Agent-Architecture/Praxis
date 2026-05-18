@@ -49,8 +49,8 @@ test("raxode stdio application server speaks application JSONL protocol", async 
   const ready = await waitForLine(lines, (line) => line.type === "application.ready") as {
     view?: { tools?: { mounted?: number; total?: number } };
   };
-  assert.equal(ready.view?.tools?.mounted, 175);
-  assert.equal(ready.view?.tools?.total, 175);
+  assert.equal(ready.view?.tools?.mounted, 176);
+  assert.equal(ready.view?.tools?.total, 176);
 
   input.write(`${JSON.stringify({
     type: "application.command",

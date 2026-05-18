@@ -40,7 +40,7 @@ Do not use this plan to:
 - implement TAP/CMP/MP/multiagent concrete strategy;
 - invent final DSL syntax;
 - implement full remote rax package distribution;
-- rewrite the 175 BaseTool handlers;
+- rewrite the 176 BaseTool handlers;
 - bypass `createBaseToolRegistry().lookupHandler`;
 - turn PromptPack into a provider payload builder;
 - turn MainLoop into arbitrary user JS execution;
@@ -58,7 +58,7 @@ Do not use this plan to:
 | 4 | PromptPack Formal Layer | PromptPack becomes the governed internal context package |
 | 5 | MainLoop/CoreLogic Formal Layer | Kernel turn loop records through mainLoop/coreLogic contracts |
 | 6 | ModelDecision Layer | Provider output has one interpretation contract |
-| 7 | BaseTool Runtime Governance | 175 tools are governed, observable, and policy-aware |
+| 7 | BaseTool Runtime Governance | 176 tools are governed, observable, and policy-aware |
 | 8 | Session/State/Event/Approval Core | Runs are resumable, observable, and controllable |
 | 9 | Runtime Kernel Closure | Kernel becomes a clean orchestrator over formal surfaces |
 | 10 | Inspection/Debug/SelfRepair Contracts | Framework can be inspected like a developer tool |
@@ -122,7 +122,7 @@ This snapshot is repo-grounded from the Phase 0-2 pass and remains as the readin
 - Kernel entry path: `PraxisRuntimeKernel.run(agent, task)` compiles first, then calls `runManifest`; `runManifest` creates a session, records state/events/invocations, receives text input, builds a promptPack bridge, lowers it, invokes model runtime, interprets `ModelDecision`, invokes mounted BaseTools, records `MainLoopStepRecord`, and returns `AgentRunResult`.
 - Model live slice: `runtime.modelAdapter/modelInvocationRuntime.ts` can dry-run by default and can call the injected `codex_responses` provider path when governance/auth/provider caller allow it.
 - BaseTool live slice: `runtime.execEngine/baseToolRuntimeMount.ts` keeps the canonical chain `adaptRuntimeToolInvocation -> bridgeExecEngineInvocation -> createBaseToolRegistry().lookupHandler -> BaseToolHandler.invoke({ executor }) -> BaseToolExecutorPort.*`.
-- BaseTool runtime support: `baseToolSupportCatalog.ts` covers the current 175 builtin baseTool handlers excluding office TAP, and `baseToolExecutorPortFactory.ts` provides real host-backed support for the current safe subset plus stable unavailable boundaries for unimplemented providers.
+- BaseTool runtime support: `baseToolSupportCatalog.ts` covers the current 176 builtin baseTool handlers excluding office TAP, and `baseToolExecutorPortFactory.ts` provides real host-backed support for the current safe subset plus stable unavailable boundaries for unimplemented providers.
 - Session/state/event persistence: `runtimeSessionStateEventStore.ts` has in-memory and SQLite stores for sessions, states, events, and invocations with public-safe JSON.
 - Text IO v1: `IOTransceiver/inputReceiver/textReceiver.ts` and output exposers have governed, tested contracts that feed the current kernel path.
 
@@ -539,7 +539,7 @@ fail
 
 ### Purpose
 
-Make all 175 BaseTools governed, observable, and policy-aware through the existing mount chain.
+Make all 176 BaseTools governed, observable, and policy-aware through the existing mount chain.
 
 ### Canonical Chain
 
@@ -569,7 +569,7 @@ runtime request
 
 ### Task Checklist
 
-- [x] Confirm 175-tool catalog coverage.
+- [x] Confirm 176-tool catalog coverage.
 - [x] Add policy lookup by family/group/toolId.
 - [x] Map tool risk to safe/risky/dangerous.
 - [x] Implement standard profile behavior.

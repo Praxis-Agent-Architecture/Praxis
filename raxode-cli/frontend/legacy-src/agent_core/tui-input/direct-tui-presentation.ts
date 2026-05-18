@@ -496,7 +496,9 @@ function summarizeShellToolPreview(input: {
     if (workspaceWriteReason !== undefined) {
       return shellWorkspaceWriteBlockedLine(workspaceWriteReason);
     }
-    const verb = input.toolId === "shell.detachedExecution" || input.toolId === "shell.backgroundExecution"
+    const verb = input.toolId === "shell.serviceStartAndVerify"
+      ? "Starting and verifying"
+      : input.toolId === "shell.detachedExecution" || input.toolId === "shell.backgroundExecution"
       ? "Launching"
       : "Running";
     return `${verb} ${truncatePreviewText(command, 180)}${cwd ? ` in ${cwd}` : ""}`;

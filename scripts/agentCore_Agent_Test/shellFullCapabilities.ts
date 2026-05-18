@@ -110,6 +110,7 @@ export const shellLiveToolCases: readonly ShellLiveToolCase[] = [
   { toolId: "shell.scriptExecution", userPrompt: "调用 shell.scriptExecution 执行 printf ok 脚本。", input: { script: "printf ok", language: "sh", context: realContext }, expectedCall: /^run:sh$/u },
   { toolId: "shell.backgroundExecution", userPrompt: "调用 shell.backgroundExecution 启动一个 runtime-owned background job。", input: { target: { command: "printf ok" }, context: realContext }, expectedCall: "startBackground" },
   { toolId: "shell.detachedExecution", userPrompt: "调用 shell.detachedExecution 启动一个 runtime-owned detached job。", input: { target: { command: "printf ok" }, context: { ...realContext, approval: { accepted: true } } }, expectedCall: "startDetached" },
+  { toolId: "shell.serviceStartAndVerify", userPrompt: "调用 shell.serviceStartAndVerify 启动并验证一个 runtime-owned local service。", input: { target: { command: "printf ok", serviceId: "service-live", verification: { kind: "command", command: "printf ok", expectedText: "ok" } }, context: { ...realContext, approval: { accepted: true } } }, expectedCall: "startServiceAndVerify" },
   { toolId: "shell.foregroundExecution", userPrompt: "调用 shell.foregroundExecution 前台执行 printf ok。", input: { target: { command: "printf ok" }, context: realContext }, expectedCall: /^run:sh$/u },
   { toolId: "shell.processSpawning", userPrompt: "调用 shell.processSpawning 生成一个 node --version 进程计划。", input: { target: { executable: "node", args: ["--version"] }, context: realContext }, expectedCall: "spawnProcess:foreground" },
   { toolId: "shell.processTermination", userPrompt: "调用 shell.processTermination 终止测试进程 304。", input: { target: { processId: 304, signal: "SIGTERM" }, context: realContext }, expectedCall: "terminateProcess" },
@@ -274,6 +275,22 @@ export function createFullShellExecutor(workspaceRoot: string, calls: string[] =
       async startDetached(request) {
         calls.push("startDetached");
         return { ok: true, output: { detachedHandle: request.launchId, pid: 303, command: request.command } };
+      },
+      async startServiceAndVerify(request) {
+        calls.push("startServiceAndVerify");
+        return {
+          ok: true,
+          output: {
+            serviceHandle: request.start.serviceId,
+            statusSnapshot: {
+              handle: request.start.serviceId,
+              lifecycleKind: "service",
+              processState: "running",
+              verificationState: "verified",
+              verified: true,
+            },
+          },
+        };
       },
       async terminateProcess(request) {
         calls.push("terminateProcess");

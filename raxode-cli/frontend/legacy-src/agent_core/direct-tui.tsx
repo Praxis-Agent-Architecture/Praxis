@@ -417,6 +417,16 @@ interface LiveLogRecord {
     mimeType?: string;
     codeAdditions?: number;
     codeDeletions?: number;
+    processId?: number;
+    alive?: boolean;
+    serviceStatus?: string;
+    healthy?: boolean;
+    verificationStatus?: string;
+    serviceHandle?: string;
+    failureReason?: string;
+    stdoutArtifactRef?: string;
+    stderrArtifactRef?: string;
+    registryArtifactRef?: string;
   };
   output?: unknown;
   error?: unknown;
@@ -6424,6 +6434,23 @@ function resolveGenericFamilyMetadataLines(
   const commitHash = typeof metadataRecord.commitHash === "string"
     ? compactRuntimeText(metadataRecord.commitHash as string)
     : undefined;
+  const serviceStatus = typeof metadataRecord.serviceStatus === "string"
+    ? compactRuntimeText(metadataRecord.serviceStatus as string)
+    : undefined;
+  const verificationStatus = typeof metadataRecord.verificationStatus === "string"
+    ? compactRuntimeText(metadataRecord.verificationStatus as string)
+    : undefined;
+  const processId = typeof metadataRecord.processId === "number" && Number.isFinite(metadataRecord.processId)
+    ? metadataRecord.processId
+    : undefined;
+  const alive = typeof metadataRecord.alive === "boolean" ? metadataRecord.alive : undefined;
+  const healthy = typeof metadataRecord.healthy === "boolean" ? metadataRecord.healthy : undefined;
+  const failureReason = typeof metadataRecord.failureReason === "string"
+    ? compactRuntimeText(metadataRecord.failureReason as string)
+    : undefined;
+  const stderrArtifactRef = typeof metadataRecord.stderrArtifactRef === "string"
+    ? compactRuntimeText(metadataRecord.stderrArtifactRef as string)
+    : undefined;
   const outcomeKind = record.familyOutcomeKind ?? resolveFamilyOutcomeKind(record.status);
   const failureLikeOutcome = outcomeKind === "failed"
     || outcomeKind === "blocked"
@@ -6633,6 +6660,17 @@ function resolveGenericFamilyMetadataLines(
     case "browser":
     case "repo":
       pushPathSummary();
+      if (familyKey === "shell" && (serviceStatus || verificationStatus || healthy !== undefined)) {
+        lines.push(`Service: ${serviceStatus ?? verificationStatus ?? "unverified"}${healthy !== undefined ? `, healthy ${healthy}` : ""}`);
+      }
+      if (familyKey === "shell" && processId !== undefined) {
+        lines.push(`PID: ${processId}${alive === false ? " exited" : ""}`);
+      }
+      if (familyKey === "shell" && failureReason) {
+        lines.push(`Reason: ${failureReason}`);
+      } else if (familyKey === "shell" && stderrArtifactRef && resultSummaryText.includes("failed")) {
+        lines.push(`Logs: ${stderrArtifactRef}`);
+      }
       break;
     case "git":
       if (branchName) {

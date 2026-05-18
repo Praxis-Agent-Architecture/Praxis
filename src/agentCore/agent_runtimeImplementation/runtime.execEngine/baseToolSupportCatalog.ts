@@ -1,7 +1,7 @@
 /*
  * 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / baseTool 支持目录。
  * 核心目的：按 storage-owned baseTool 的 family/group/toolId 和 dependencies.ts 合同生成 runtime 支持视图。
- * 能力要求1：需要覆盖已经进入 builtinBaseToolHandlers 的 175 个 baseTool handler。
+ * 能力要求1：需要覆盖已经进入 builtinBaseToolHandlers 的 176 个 baseTool handler。
  * 能力要求2：需要把 BaseToolExecutorPort 视为底层宿主能力插座，而不是新的 baseTool 分类法。
  * 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
@@ -474,7 +474,7 @@ export const baseToolSupportCatalogDescriptor = {
   surface: "runtime.execEngine.baseToolSupportCatalog",
   catalogSource: "agentCore.basicTool.builtinBaseToolHandlers.definition.dependencies",
   classificationAxis: "storage-family-group-toolId",
-  toolCountTarget: 175,
+  toolCountTarget: 176,
   excludesOfficialTapOfficeBase: true,
   executorPortIsSupportPrimitive: true,
   preflightDecision: "blocks-missing-runtime-executor-support",

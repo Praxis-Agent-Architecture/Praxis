@@ -17,9 +17,123 @@ export type BaseToolExecutorResult<Output = unknown> =
         code: string;
         message: string;
         publicSafe: true;
+        metadata?: Readonly<Record<string, unknown>>;
       };
       events?: readonly string[];
     };
+
+export type BaseToolShellLaunchMode = "foreground" | "background" | "detached" | "service";
+
+export type BaseToolShellServiceStatus =
+  | "spawned"
+  | "alive"
+  | "healthy"
+  | "unverified"
+  | "exited"
+  | "failed";
+
+export type BaseToolShellServiceProbe =
+  | {
+      type: "process";
+    }
+  | {
+      type: "tcp";
+      host?: string;
+      port: number;
+    }
+  | {
+      type: "http";
+      url: string;
+      expectedStatus?: number;
+      method?: "GET" | "HEAD" | "POST";
+    }
+  | {
+      type: "log";
+      pattern: string;
+      stream?: "stdout" | "stderr" | "both";
+      regex?: boolean;
+    }
+  | {
+      type: "command";
+      command: string;
+      args?: readonly string[];
+      cwd?: string;
+      timeoutMs?: number;
+    };
+
+export type BaseToolShellServiceVerification =
+  | {
+      kind: "process";
+      timeoutMs?: number;
+      intervalMs?: number;
+      maxAttempts?: number;
+    }
+  | {
+      kind: "tcp";
+      host?: string;
+      port: number;
+      timeoutMs?: number;
+      intervalMs?: number;
+      maxAttempts?: number;
+    }
+  | {
+      kind: "http";
+      url: string;
+      expectedStatus?: number;
+      expectedText?: string;
+      method?: "GET" | "HEAD" | "POST";
+      timeoutMs?: number;
+      intervalMs?: number;
+      maxAttempts?: number;
+    }
+  | {
+      kind: "log";
+      pattern: string;
+      stream?: "stdout" | "stderr" | "both";
+      regex?: boolean;
+      timeoutMs?: number;
+      intervalMs?: number;
+      maxAttempts?: number;
+    }
+  | {
+      kind: "command";
+      command: string;
+      args?: readonly string[];
+      cwd?: string;
+      expectedText?: string;
+      timeoutMs?: number;
+      intervalMs?: number;
+      maxAttempts?: number;
+    };
+
+export type BaseToolShellServiceHealth = {
+  probe?: BaseToolShellServiceProbe;
+  verified: boolean;
+  healthy: boolean;
+  status: BaseToolShellServiceStatus;
+  checkedAt: string;
+  details?: Readonly<Record<string, unknown>>;
+};
+
+export type BaseToolShellServiceStatusSnapshot = {
+  pid?: number;
+  cwd: string;
+  command: string;
+  args: readonly string[];
+  launchMode: BaseToolShellLaunchMode;
+  alive: boolean;
+  exitCode: number | null;
+  listeningPorts: readonly number[];
+  lastStdout: string;
+  lastStderr: string;
+  stdoutBytes: number;
+  stderrBytes: number;
+  stdoutArtifactRef: string;
+  stderrArtifactRef: string;
+  truncatedForDisplay: boolean;
+  status: BaseToolShellServiceStatus;
+  health: BaseToolShellServiceHealth;
+};
 
 export type BaseToolFilesystemExecutor = {
   readText?(request: {
@@ -119,6 +233,20 @@ export type BaseToolShellExecutor = {
     stdoutLogPath?: string;
     stderrLogPath?: string;
     restartPolicy: "none" | "on-failure";
+    context?: Readonly<Record<string, unknown>>;
+  }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
+  startServiceAndVerify?(request: {
+    start: {
+      command: string;
+      shell: "sh" | "bash" | "zsh";
+      cwd?: string;
+      serviceId: string;
+      launchMode: "background" | "detached";
+      restartPolicy: "none" | "on-failure";
+      outputBufferLimitBytes: number;
+      captureOutput: boolean;
+    };
+    verification: BaseToolShellServiceVerification;
     context?: Readonly<Record<string, unknown>>;
   }): Promise<BaseToolExecutorResult<Readonly<Record<string, unknown>>>>;
   terminateProcess?(request: {
@@ -452,6 +580,7 @@ export type BaseToolNetworkExecutor = {
       headers: Readonly<Record<string, string>>;
       body: string;
       finalUrl?: string;
+      localPortProcess?: Readonly<Record<string, unknown>>;
     }>
   >;
   search?(request: {

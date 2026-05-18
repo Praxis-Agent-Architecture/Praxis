@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / BaseTool 真实能力账本。
- * 核心目的：按 family/group/toolId 解释 175 个 storage-owned BaseTool 当前到底是 mounted、host-ready、adapter-required 还是未证明。
+ * 核心目的：按 family/group/toolId 解释 176 个 storage-owned BaseTool 当前到底是 mounted、host-ready、adapter-required 还是未证明。
  * 边界：只做检查、解释和 inspect 数据，不定义工具语义，不绕过 registry/handler/executor 链。
  */
 

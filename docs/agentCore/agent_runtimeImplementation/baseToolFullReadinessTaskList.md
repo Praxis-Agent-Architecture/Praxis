@@ -2,7 +2,7 @@
 
 本文是 `agentCore` / `BaseTool` 后续收尾的总纲清单。
 
-目标不是继续证明“工具已经挂载”，而是把 175 个 BaseTool 推进到真实可用：
+目标不是继续证明“工具已经挂载”，而是把 176 个 BaseTool 推进到真实可用：
 
 ```text
 mounted
@@ -19,19 +19,19 @@ mounted
 
 ## 0. 验收口径
 
-- [x] 175 个 BaseTool 都必须可被 runtime registry 找到。
-- [x] 175 个 BaseTool 都必须能 lower 成 provider 可接受的 tool schema。
-- [x] 175 个 BaseTool 都必须能被模型在自然语言任务中正确选择或被工具上下文展开机制引导选择。
-- [x] 175 个 BaseTool 都必须进入 runtime governance、sandbox、dependency、approval、session/state/event 主链。
-- [x] 175 个 BaseTool 都必须有真实 smoke 或可解释失败。
+- [x] 176 个 BaseTool 都必须可被 runtime registry 找到。
+- [x] 176 个 BaseTool 都必须能 lower 成 provider 可接受的 tool schema。
+- [x] 176 个 BaseTool 都必须能被模型在自然语言任务中正确选择或被工具上下文展开机制引导选择。
+- [x] 176 个 BaseTool 都必须进入 runtime governance、sandbox、dependency、approval、session/state/event 主链。
+- [x] 176 个 BaseTool 都必须有真实 smoke 或可解释失败。
 - [x] fullstack 模式下，所有工具要么真实成功，要么返回 public-safe、可修复、可审计的失败。
-- [x] `npm run test:agentCore:all-tools-matrix` 最终应达到 `matrixCoverage.covered=175`、`missing=0`。
+- [x] `npm run test:agentCore:all-tools-matrix` 最终应达到 `matrixCoverage.covered=176`、`missing=0`。
 
 当前基线：
 
 ```text
-catalog total: 175
-strict smoke covered: 175
+catalog total: 176
+strict smoke covered: 176
 strict smoke missing: 0
 missing families: none
 matrix scripts: shell 32, git 35, code 29, skill 6, omni 14, computeruse 32, search 4, mcp 23
@@ -40,14 +40,14 @@ matrix scripts: shell 32, git 35, code 29, skill 6, omni 14, computeruse 32, sea
 最新验证：
 
 - `npm run typecheck` 通过。
-- `npm run test:agentCore:all-tools-matrix` 通过，`catalog.total=175`、`matrixCoverage.covered=175`、`missing=0`，分族 smoke 为 shell 32/32、git 35/35、code 29/29、skill 6/6、omni 14/14、computeruse 32/32、search 4/4、mcp 23/23。
+- `npm run test:agentCore:all-tools-matrix` 通过，`catalog.total=176`、`matrixCoverage.covered=176`、`missing=0`，分族 smoke 为 shell 33/33、git 35/35、code 29/29、skill 6/6、omni 14/14、computeruse 32/32、search 4/4、mcp 23/23。
 - `npm run test:agentCore` 通过，`tests=2471`、`pass=2469`、`fail=0`、`skipped=2`。
 - `git diff --check` 通过。
 - `AGENTCORE_CODEX_AUTH_FILE="$HOME/.codex/auth.json" AGENTCORE_CODEX_MODEL="gpt-5.5" AGENTCORE_CODEX_REASONING_EFFORT="low" OPENAI_AGENTCORE_MAX_OUTPUT_TOKENS="1200" npm run chat:realtest:fullstack -- --all-testable --policy=permissive --verbose` 真实 live 对话通过；`providerTools=enabled`，模型自然语言触发 `shell.commandExecution` 与 `code.read`，最终记录 `modelCalls=3`、`toolCalls=2`、`events=165`。
 
 ## 1. Tool Context Folding
 
-工具上下文不应一次性粗暴塞入 175 个完整说明，也不应只给模型一组冷冰冰的 tool schema。需要建立可展开、可回收、可加权的工具说明树。
+工具上下文不应一次性粗暴塞入 176 个完整说明，也不应只给模型一组冷冰冰的 tool schema。需要建立可展开、可回收、可加权的工具说明树。
 
 ### 1.1 说明树结构
 
@@ -81,7 +81,7 @@ skillBase.md
 
 ### 1.2 暴露模式
 
-- [x] 支持 `allOpen`：175 个工具全部展开。
+- [x] 支持 `allOpen`：176 个工具全部展开。
 - [x] 支持 `autoFolded`：全部工具折叠，模型通过展开工具逐层打开。
 - [x] 支持 `manualCoarse`：开发者按 family/group 粗粒度选择。
 - [x] 支持 `manualFine`：开发者按 toolId 细粒度选择。
@@ -351,7 +351,7 @@ Sandbox 不能只停留在 `hostObserved` 声明。
 
 ## 11. Realtest / CLI
 
-- [x] `rax test fullstack --all-testable` 默认全测 175 个工具。
+- [x] `rax test fullstack --all-testable` 默认全测 176 个工具。
 - [x] fullstack 输出完整 `tool reality report`。
 - [x] 按 family/group/tool 展开 readiness。
 - [x] minimal 只测 selected tools。
@@ -359,7 +359,7 @@ Sandbox 不能只停留在 `hostObserved` 声明。
 - [x] live 对话验收：所有 selected/fullstack tools 要么成功，要么可解释失败。
 - [x] 每族至少一条自然语言 dialogue gate：code、shell、git、search、mcp、omni、computeruse、skill。
 
-验证：`bin/rax test realtest/fullstack --all-testable --json` 输出 `toolReadiness.total=175`、`ready=175`、每个 tool 带 `family/group/stages/dependencyStatus/executorSupport`；`bin/rax test realtest/minimal --json` 输出 selected tool readiness `total=2`；`node --import tsx --test test/agentCore/rax_packageManager/raxBuildInit.test.ts` 覆盖 `rax test --all-testable reports the full 175 BaseTool readiness matrix`。
+验证：`bin/rax test realtest/fullstack --all-testable --json` 输出 `toolReadiness.total=176`、`ready=176`、每个 tool 带 `family/group/stages/dependencyStatus/executorSupport`；`bin/rax test realtest/minimal --json` 输出 selected tool readiness `total=2`；`node --import tsx --test test/agentCore/rax_packageManager/raxBuildInit.test.ts` 覆盖 `rax test --all-testable reports the full 176 BaseTool readiness matrix`。
 
 live 验证：`AGENTCORE_CODEX_AUTH_FILE="$HOME/.codex/auth.json" AGENTCORE_CODEX_MODEL="gpt-5.5" AGENTCORE_CODEX_REASONING_EFFORT="low" OPENAI_AGENTCORE_MAX_OUTPUT_TOKENS="1200" npm run chat:realtest:fullstack -- --all-testable --policy=permissive --verbose`；模型在自然语言任务中主动调用 `shell.commandExecution` 定位仓库，再调用 `code.read` 读取 `package.json`，工具结果回填后总结出 `chat:realtest:minimal` 与 `chat:realtest:fullstack`。
 
@@ -405,7 +405,7 @@ live 验证：`AGENTCORE_CODEX_AUTH_FILE="$HOME/.codex/auth.json" AGENTCORE_CODE
 4. Text fallback 收口。
 5. Dependency false-positive 修正。
 6. Sandbox/governance 与工具主链联动。
-7. 清零 63 个 strict smoke 缺口。已完成：`matrixCoverage.covered=175`、`missing=0`。
+7. 清零 63 个 strict smoke 缺口。已完成：`matrixCoverage.covered=176`、`missing=0`。
 8. realtest/fullstack 全量 reality report。
 9. Codex live natural-language dialogue gates。
 10. Claude/Gemini schema fixture 和后续 live 扩展。
@@ -424,7 +424,7 @@ git diff --check
 并且：
 
 ```text
-matrixCoverage.covered = 175
+matrixCoverage.covered = 176
 matrixCoverage.missing = 0
 fullstack selected/all-testable tools all success or public-safe explainable failure
 Codex live provider can naturally call tools and receive provider-native tool results

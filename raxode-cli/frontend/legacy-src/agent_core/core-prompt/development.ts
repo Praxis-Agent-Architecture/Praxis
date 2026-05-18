@@ -235,6 +235,7 @@ export function createCoreCapabilityWindowLines(input: {
       "The registered TAP capability window below is already available for direct use.",
       "Do not ask the user to manually approve, manually run commands, or paste local command output when a matching registered capability already exists.",
       "Do not describe yourself as unable to act when the capability window already contains a fitting tool.",
+      "For service/process/daemon/dev-server/local-worker startup tasks, prefer shell.serviceStartAndVerify over raw shell launch and do not treat spawned as healthy.",
       "If the user asks what you can do, what abilities are in the TAP pool, or asks for a capability introduction, answer directly from the registered capability inventory below instead of calling a tool.",
       "Do not use MCP capabilities merely to inspect your own already-registered TAP inventory.",
     ];
@@ -244,6 +245,7 @@ export function createCoreCapabilityWindowLines(input: {
     "These registered capabilities are already available for direct use in this CLI.",
     "Do not ask the user to approve, to run local commands themselves, or to paste command output when a fitting capability already exists.",
     "Do not say you cannot act if the capability window already contains a matching tool.",
+    "For service/process/daemon/dev-server/local-worker startup tasks, prefer shell.serviceStartAndVerify over raw shell launch and only report availability when serviceStatus is healthy or health.healthy is true.",
     "If the user asks what you can do, what abilities you have, or what is currently in the TAP pool, answer directly from the available capability inventory instead of calling any tool.",
     "Do not use mcp.* just to inspect your own registered inventory.",
   ];
@@ -349,10 +351,12 @@ export function createCoreBoundedOutputLines(input: {
   if (input.mode === "user_input") {
     return [
       "When using shell.restricted, prefer bounded output. Avoid commands that dump an entire large tree or huge raw search results in one go.",
+      "When starting long-lived local services, prefer shell.serviceStartAndVerify so the result exposes spawned/alive/healthy/unverified/exited/failed and artifact refs.",
     ];
   }
   return [
     "For shell.restricted and test.run, prefer bounded output and avoid commands likely to dump an entire large repository or massive raw result in one step.",
+    "When starting long-lived local services, prefer shell.serviceStartAndVerify so the result exposes spawned/alive/healthy/unverified/exited/failed and artifact refs.",
   ];
 }
 

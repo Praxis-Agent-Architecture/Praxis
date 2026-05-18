@@ -33,6 +33,8 @@ await executeShellBackgroundExecution({
 
 Dry-run never calls a provider. Real execution requires an affirmative runtime guard and an injected or host runtime provider. Runtime/TAP owns approval, sandbox, sudo policy, session ownership, process lifecycle, background/detached handles, termination decisions, and output streams; this baseTool only validates JSON input, shapes a normalized provider request, dispatches to the runtime provider, and accepts only explicit non-planned plain JSON runtime envelopes.
 
+For service launches, a successful background envelope means the runtime accepted and started a managed process. It is not proof that a service/process/daemon/dev server/local worker is usable. Runtime envelopes should include a structured snapshot: `pid`, `cwd`, `command`, `args`, `launchMode`, `alive`, `exitCode`, `listeningPorts`, bounded stdout/stderr tails, byte counts, `stdoutArtifactRef`, `stderrArtifactRef`, and `truncatedForDisplay`. Full health checks belong in `shell.serviceStartAndVerify`.
+
 ## Returns
 
 Returns a public-safe `ShellToolResult` with `output`, `audit`, and `events` on success, or a classified error such as `GOVERNANCE_REJECTED`, `PROVIDER_UNAVAILABLE`, or `PROVIDER_REJECTED`.
@@ -53,3 +55,4 @@ const result = await executeShellBackgroundExecution({
 - Do not treat `dryRun: false` as approval.
 - Do not leak internal provider errors without mapping them to public-safe error codes.
 - Do not return Node child process objects or raw process handles; return only runtime-owned envelopes or stable handle IDs.
+- Do not describe a background launch as a usable service until `shell.serviceStartAndVerify` or an equivalent health probe reports `healthy`.

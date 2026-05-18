@@ -19,6 +19,7 @@ import {
   stringValue,
   trimmedString,
 } from "../_shared/processControlJson.js";
+import { plannedLifecycleStatusSnapshot } from "../_shared/serviceLifecycle.js";
 
 export type ShellDetachedExecutionPermission = ShellProcessSpawningPermission;
 
@@ -119,6 +120,7 @@ export type ShellDetachedExecutionOutput = {
     planned?: true;
     detachedHandle?: string;
     pid?: number;
+    statusSnapshot?: Readonly<Record<string, unknown>>;
   };
 };
 
@@ -410,6 +412,14 @@ export function planShellDetachedExecution(request: ShellDetachedExecutionReques
       resultEnvelope: {
         planned: true,
         detachedHandle: target.launchId,
+        statusSnapshot: plannedLifecycleStatusSnapshot({
+          handle: target.launchId,
+          lifecycleKind: "detached",
+          verificationState: "not-requested",
+          command: target.command,
+          cwd: target.workingDirectory,
+          summary: "detached process launch is planned; service reachability has not been verified",
+        }),
       },
     },
     audit: [
