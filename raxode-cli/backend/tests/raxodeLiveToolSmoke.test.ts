@@ -56,7 +56,7 @@ const cases = [
   {
     name: "code.read",
     prompt: "请实际调用 code.read 读取 package.json，只回答里面的 name 字段值。",
-    expected: "@praxis-ai/framework",
+    expected: "@praxis-ai/praxis",
   },
   {
     name: "search.fetch",

@@ -1,4 +1,4 @@
-import type { RuntimeApprovalResolver } from "@praxis-ai/framework";
+import type { RuntimeApprovalResolver } from "@praxis-ai/praxis";
 
 export const raxodeApprovalResolver: RuntimeApprovalResolver = async (approval) => ({
   status: "pending",

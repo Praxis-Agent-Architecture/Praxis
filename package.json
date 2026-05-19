@@ -1,5 +1,5 @@
 {
-  "name": "@praxis-ai/framework",
+  "name": "@praxis-ai/praxis",
   "version": "0.1.0",
   "private": false,
   "type": "module",
@@ -20,16 +20,20 @@
   },
   "files": [
     "bin",
-    "docs",
-    "memory",
     "raxode-cli",
-    "realtest/README.md",
-    "realtest/minimal",
-    "realtest/fullstack",
     "scripts",
     "src",
     "LICENSE",
-    "tsconfig.json"
+    "tsconfig.json",
+    "!**/.raxode",
+    "!**/.raxode/**",
+    "!**/memory/generated",
+    "!**/memory/generated/**",
+    "!**/reports",
+    "!**/reports/**",
+    "!**/tests",
+    "!**/tests/**",
+    "!**/*.test.ts"
   ],
   "engines": {
     "node": ">=22"

@@ -1,5 +1,5 @@
-import { praxis } from "@praxis-ai/framework";
-import type { ModelEndpointSpec, ModelFleetSpec, ModelSpec } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
+import type { ModelEndpointSpec, ModelFleetSpec, ModelSpec } from "@praxis-ai/praxis";
 import { createModelMetadataRecord } from "../../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 
 import type { NormalizedRaxodeTuiOptions } from "./options.js";

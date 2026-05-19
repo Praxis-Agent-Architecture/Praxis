@@ -1,4 +1,4 @@
-import type { AgentIdentity } from "@praxis-ai/framework";
+import type { AgentIdentity } from "@praxis-ai/praxis";
 
 import RaxodeCodingAgent from "../codingAgent/agent.js";
 

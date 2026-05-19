@@ -1,5 +1,5 @@
-import { praxis } from "@praxis-ai/framework";
-import type { HarnessSpec } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
+import type { HarnessSpec } from "@praxis-ai/praxis";
 
 import type { NormalizedRaxodeOptions } from "../config/raxodeOptions.js";
 import { createRaxodeToolSet } from "../tools/toolSet.js";

@@ -680,7 +680,7 @@ export const interfaceAdapter = Object.freeze({
  * 白话：这是最省心的开发者入口。用户可以只写：
  *
  * ```ts
- * import { praxis } from "@praxis-ai/framework";
+ * import { praxis } from "@praxis-ai/praxis";
  * ```
  *
  * 然后用 `praxis.AgentArchetype`、`praxis.prompt.append`、

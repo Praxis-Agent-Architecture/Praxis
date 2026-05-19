@@ -1,4 +1,4 @@
-import { praxis } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
 import type {
   AgentIdentity,
   BaseToolPolicyMatrixSpec,
@@ -10,7 +10,7 @@ import type {
   SessionSpec,
   StatePlaneSpec,
   StorageSpec,
-} from "@praxis-ai/framework";
+} from "@praxis-ai/praxis";
 
 import { createRaxodeTuiIdentity } from "./config/identity.js";
 import { createRaxodeTuiModel, createRaxodeTuiModelFleet } from "./config/modelFleet.js";

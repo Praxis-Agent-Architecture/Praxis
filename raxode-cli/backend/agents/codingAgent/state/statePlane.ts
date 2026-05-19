@@ -1,5 +1,5 @@
-import { praxis } from "@praxis-ai/framework";
-import type { StatePlaneSpec } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
+import type { StatePlaneSpec } from "@praxis-ai/praxis";
 
 export function createRaxodeStatePlane(): StatePlaneSpec {
   return praxis.statePlane({

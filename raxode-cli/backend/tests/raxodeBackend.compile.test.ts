@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { praxis } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
 
 import RaxodeCodingAgent from "../agents/codingAgent/agent.js";
 import RaxodeTuiAgent from "../agents/tuiAgent/agent.js";

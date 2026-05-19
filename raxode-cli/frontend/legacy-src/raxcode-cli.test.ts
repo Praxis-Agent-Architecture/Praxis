@@ -33,7 +33,7 @@ test("resolveRaxodeLaunchPlan uses tsx and source entrypoints in dev/source mode
   await mkdir(path.join(moduleDir, "agent_core"), { recursive: true });
   await mkdir(path.join(rootDir, "node_modules", ".bin"), { recursive: true });
   await mkdir(workspaceDir, { recursive: true });
-  await writeFile(path.join(rootDir, "package.json"), "{\"name\":\"@praxis-ai/framework\"}\n", "utf8");
+  await writeFile(path.join(rootDir, "package.json"), "{\"name\":\"@praxis-ai/praxis\"}\n", "utf8");
   await writeFile(path.join(rootDir, "node_modules", ".bin", "tsx"), "", "utf8");
   await writeFile(path.join(moduleDir, "agent_core", "direct-tui.tsx"), "", "utf8");
   await writeFile(path.join(moduleDir, "agent_core", "live-agent-chat.ts"), "", "utf8");

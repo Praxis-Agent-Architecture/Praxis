@@ -1,5 +1,5 @@
-import { praxis } from "@praxis-ai/framework";
-import type { BaseToolPolicyMatrixSpec } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
+import type { BaseToolPolicyMatrixSpec } from "@praxis-ai/praxis";
 
 import type { RaxodePolicyProfile } from "../config/raxodeOptions.js";
 

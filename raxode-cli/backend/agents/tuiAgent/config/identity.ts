@@ -1,4 +1,4 @@
-import type { AgentIdentity } from "@praxis-ai/framework";
+import type { AgentIdentity } from "@praxis-ai/praxis";
 
 export function createRaxodeTuiIdentity(): AgentIdentity {
   return {

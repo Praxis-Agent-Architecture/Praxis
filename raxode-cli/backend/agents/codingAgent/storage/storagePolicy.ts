@@ -1,5 +1,5 @@
-import { praxis } from "@praxis-ai/framework";
-import type { SessionSpec, StorageSpec } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
+import type { SessionSpec, StorageSpec } from "@praxis-ai/praxis";
 
 import type { NormalizedRaxodeOptions } from "../config/raxodeOptions.js";
 

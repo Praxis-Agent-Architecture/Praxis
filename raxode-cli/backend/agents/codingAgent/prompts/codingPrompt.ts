@@ -1,4 +1,4 @@
-import { praxis } from "@praxis-ai/framework";
+import { praxis } from "@praxis-ai/praxis";
 
 const promptRoot = "raxode-cli/backend/agents/codingAgent/prompts";
 

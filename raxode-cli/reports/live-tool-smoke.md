@@ -16,7 +16,7 @@ The script runs `./bin/raxode-cli --process --json --live --permission bapr ...`
 | --- | --- | --- |
 | shell | `shell.commandExecution` | `pwd` returns `/home/proview/Desktop/Praxis_series/Praxis_org` |
 | git | `git.getRepositoryStatus` | final answer mentions `porcelain` status |
-| code | `code.read` | `package.json` name resolves to `@praxis-ai/framework` |
+| code | `code.read` | `package.json` name resolves to `@praxis-ai/praxis` |
 | search | `search.fetch` | `https://example.com` title resolves to `Example` |
 | skill | `skill.ripgrep` | search for `PraxisApplicationRuntime` returns a repository file path |
 | computeruse | `computeruse.fullscreenScreenshot` | returns either a screenshot artifact id or a real saved `screenshot-*.png` path that exists on disk |
