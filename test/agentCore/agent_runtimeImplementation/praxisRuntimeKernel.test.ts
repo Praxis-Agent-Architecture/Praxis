@@ -1965,6 +1965,7 @@ test("PraxisRuntimeKernel.runManifest grants shell executionMonitoring runtime p
   assert.equal(grantedPermissions?.includes("shell:execution:monitor"), true);
 });
 
+
 test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for replanning", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-tool-failure-"));
 
@@ -2192,6 +2193,7 @@ test("PraxisRuntimeKernel.runManifest lets an approval resolver continue a model
   }
 
   let calls = 0;
+  const providerBodies: unknown[] = [];
   const store = createInMemorySessionStateEventStore();
   const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-model-approval-resolved", store }).run(new ApprovalAgent(), "ask approval", {
     sessionId: "session-model-approval-resolved",
@@ -2203,8 +2205,9 @@ test("PraxisRuntimeKernel.runManifest lets an approval resolver continue a model
       resolvedBy: "unit-test",
       reason: `approved ${approval.approvalId}`,
     }),
-    providerCaller: async () => {
+    providerCaller: async (envelope) => {
       calls += 1;
+      providerBodies.push(envelope.body);
       if (calls === 1) {
         return {
           output: [{
@@ -2229,6 +2232,21 @@ test("PraxisRuntimeKernel.runManifest lets an approval resolver continue a model
   assert.equal(result.finalOutput, "approval resolved and run continued");
   assert.equal(result.state.approvals[0]?.status, "approved");
   assert.equal(result.state.approvals[0]?.interfaceSurface, "test-harness");
+  const secondProviderBody = providerBodies[1] as {
+    input?: readonly { type?: string; call_id?: string; output?: string; role?: string; content?: unknown }[];
+  };
+  const secondProviderInput = secondProviderBody.input ?? [];
+  const nativeFunctionCallIndex = secondProviderInput.findIndex((item) => item.type === "function_call");
+  const nativeToolResultIndex = secondProviderInput.findIndex((item) => item.type === "function_call_output");
+  const dynamicPromptIndex = secondProviderInput.findIndex((item) => item.role === "user");
+  const nativeFunctionCall = secondProviderInput[nativeFunctionCallIndex];
+  const nativeToolResult = secondProviderInput[nativeToolResultIndex];
+  assert.equal(nativeFunctionCall?.call_id, "approval-call-1");
+  assert.equal(nativeToolResultIndex > nativeFunctionCallIndex, true);
+  assert.equal(dynamicPromptIndex > nativeToolResultIndex, true);
+  assert.equal(nativeToolResult?.call_id, "approval-call-1");
+  assert.match(nativeToolResult?.output ?? "", /"status":"approved"/u);
+  assert.match(nativeToolResult?.output ?? "", /runtime\.continue/u);
 });
 
 test("PraxisRuntimeKernel.runManifest maps approval resolver failures to public-safe pending surface result", async () => {
