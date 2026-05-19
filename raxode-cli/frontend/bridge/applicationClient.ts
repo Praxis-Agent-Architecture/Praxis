@@ -5,6 +5,8 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type {
@@ -34,6 +36,21 @@ function backendServerPath(): string {
   return fileURLToPath(new URL("../../backend/application/stdioApplicationServer.ts", import.meta.url));
 }
 
+function resolveTsxLoader(startDir: string): string | null {
+  let current = resolve(startDir);
+  while (true) {
+    const candidate = resolve(current, "node_modules/tsx/dist/loader.mjs");
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+    const parent = dirname(current);
+    if (parent === current) {
+      return null;
+    }
+    current = parent;
+  }
+}
+
 function parseProtocolLine(line: string): PraxisApplicationProtocolMessage | undefined {
   const trimmed = line.trim();
   if (!trimmed) return undefined;
@@ -57,9 +74,11 @@ function spawnApplicationBackend(options: {
   command?: string;
   args?: readonly string[];
 } = {}): ChildProcessWithoutNullStreams {
+  const serverPath = backendServerPath();
+  const tsxLoader = resolveTsxLoader(dirname(serverPath));
   return spawn(
     options.command ?? process.execPath,
-    options.args ?? ["--import", "tsx", backendServerPath()],
+    options.args ?? ["--import", tsxLoader ?? "tsx", serverPath],
     {
       cwd: options.cwd ?? process.cwd(),
       stdio: ["pipe", "pipe", "pipe"],

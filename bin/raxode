@@ -9,4 +9,12 @@ while [ -h "$PRG" ]; do
   esac
 done
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$PRG")" && pwd)
-exec node --import tsx "$SCRIPT_DIR/../raxode-cli/frontend/legacy-src/raxcode-cli.ts" "$@"
+TSX_LOADER="$SCRIPT_DIR/../node_modules/tsx/dist/loader.mjs"
+if [ ! -f "$TSX_LOADER" ]; then
+  TSX_LOADER="$SCRIPT_DIR/../../../tsx/dist/loader.mjs"
+fi
+if [ ! -f "$TSX_LOADER" ]; then
+  echo "Raxode could not locate the bundled tsx loader. Please reinstall the package." >&2
+  exit 1
+fi
+exec node --import "$TSX_LOADER" "$SCRIPT_DIR/../raxode-cli/frontend/legacy-src/raxcode-cli.ts" "$@"

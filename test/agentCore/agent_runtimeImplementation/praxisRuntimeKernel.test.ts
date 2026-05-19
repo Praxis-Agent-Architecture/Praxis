@@ -2098,6 +2098,104 @@ test("PraxisRuntimeKernel.runManifest grants shell executionMonitoring runtime p
   assert.equal(grantedPermissions?.includes("shell:execution:monitor"), true);
 });
 
+test("PraxisRuntimeKernel.runManifest grants shell serviceStartAndVerify runtime permission", async () => {
+  class ShellServiceAgent extends PraxisAgent {
+    identity = "agent.shell-service";
+    model = model("gpt-5.4", { carrierId: "carrier.shell-service" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("shell.serviceStartAndVerify")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const baseExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-shell-service",
+    sessionId: "session-shell-service",
+  });
+  const executor = {
+    ...baseExecutor,
+    shell: {
+      ...baseExecutor.shell,
+      async startServiceAndVerify(request: {
+        start: {
+          command: string;
+          serviceId: string;
+        };
+        verification: Readonly<Record<string, unknown>>;
+      }) {
+        return {
+          ok: true as const,
+          output: {
+            serviceHandle: request.start.serviceId,
+            serviceStatus: "healthy",
+            verificationStatus: "healthy",
+            health: { healthy: true, status: "healthy" },
+            statusSnapshot: {
+              command: request.start.command,
+              verified: true,
+              healthy: true,
+              serviceStatus: "healthy",
+              verification: request.verification,
+            },
+          },
+        };
+      },
+    },
+  };
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-service" }).run(
+    new ShellServiceAgent(),
+    "start and verify service",
+    {
+      sessionId: "session-shell-service",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "shell.serviceStartAndVerify",
+              call_id: "shell-service-call",
+              arguments: JSON.stringify({
+                target: {
+                  command: "npm start",
+                  verification: { kind: "process", maxAttempts: 1 },
+                },
+                context: {
+                  grantedPermissions: ["tool.execute"],
+                },
+              }),
+            }],
+          };
+        }
+        return { output_text: "service is healthy" };
+      },
+      now: () => "2026-05-15T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.doesNotMatch(JSON.stringify(result.toolCalls[0]?.output), /PERMISSION_DENIED/u);
+  const grantedPermissions = (result.toolCalls[0]?.arguments as { context?: { grantedPermissions?: readonly string[] } } | undefined)
+    ?.context
+    ?.grantedPermissions;
+  assert.equal(grantedPermissions?.includes("shell:service:verify"), true);
+});
+
 test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for replanning", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-tool-failure-"));
 
@@ -2325,6 +2423,7 @@ test("PraxisRuntimeKernel.runManifest lets an approval resolver continue a model
   }
 
   let calls = 0;
+  const providerBodies: unknown[] = [];
   const store = createInMemorySessionStateEventStore();
   const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-model-approval-resolved", store }).run(new ApprovalAgent(), "ask approval", {
     sessionId: "session-model-approval-resolved",
@@ -2336,8 +2435,9 @@ test("PraxisRuntimeKernel.runManifest lets an approval resolver continue a model
       resolvedBy: "unit-test",
       reason: `approved ${approval.approvalId}`,
     }),
-    providerCaller: async () => {
+    providerCaller: async (envelope) => {
       calls += 1;
+      providerBodies.push(envelope.body);
       if (calls === 1) {
         return {
           output: [{
@@ -2362,6 +2462,21 @@ test("PraxisRuntimeKernel.runManifest lets an approval resolver continue a model
   assert.equal(result.finalOutput, "approval resolved and run continued");
   assert.equal(result.state.approvals[0]?.status, "approved");
   assert.equal(result.state.approvals[0]?.interfaceSurface, "test-harness");
+  const secondProviderBody = providerBodies[1] as {
+    input?: readonly { type?: string; call_id?: string; output?: string; role?: string; content?: unknown }[];
+  };
+  const secondProviderInput = secondProviderBody.input ?? [];
+  const nativeFunctionCallIndex = secondProviderInput.findIndex((item) => item.type === "function_call");
+  const nativeToolResultIndex = secondProviderInput.findIndex((item) => item.type === "function_call_output");
+  const dynamicPromptIndex = secondProviderInput.findIndex((item) => item.role === "user");
+  const nativeFunctionCall = secondProviderInput[nativeFunctionCallIndex];
+  const nativeToolResult = secondProviderInput[nativeToolResultIndex];
+  assert.equal(nativeFunctionCall?.call_id, "approval-call-1");
+  assert.equal(nativeToolResultIndex > nativeFunctionCallIndex, true);
+  assert.equal(dynamicPromptIndex > nativeToolResultIndex, true);
+  assert.equal(nativeToolResult?.call_id, "approval-call-1");
+  assert.match(nativeToolResult?.output ?? "", /"status":"approved"/u);
+  assert.match(nativeToolResult?.output ?? "", /runtime\.continue/u);
 });
 
 test("PraxisRuntimeKernel.runManifest maps approval resolver failures to public-safe pending surface result", async () => {

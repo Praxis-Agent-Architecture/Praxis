@@ -606,7 +606,7 @@ const shellRuntimePermissionHintsByToolId: Record<string, readonly string[]> = {
   "shell.promptHandling": ["shell:prompt:handle"],
   "shell.sandboxEnforcement": ["shell:sandbox"],
   "shell.scriptGeneration": ["shell:script:generate"],
-  "shell.serviceStartAndVerify": ["shell:process:service", "shell:process:background"],
+  "shell.serviceStartAndVerify": ["shell:service:verify", "shell:process:service", "shell:process:background"],
   "shell.sessionDetection": ["shell:session:detect", "shell:process:read"],
   "shell.shellLifecycleManagement": ["shell:lifecycle:manage"],
   "shell.shellProcessManagement": ["shell:process:manage"],
@@ -4850,6 +4850,36 @@ export class PraxisRuntimeKernel {
             }),
           });
           if (approval.status === "approved") {
+            const providerCallId = typeof decision.metadata.callId === "string" && decision.metadata.callId.trim().length > 0
+              ? decision.metadata.callId.trim()
+              : undefined;
+            if (providerCallId !== undefined) {
+              observations.push(createObservationMaterial({
+                observationId: `${sessionId}:observation:${providerCallId}:approval`,
+                source: "runtime",
+                status: "completed",
+                title: "Runtime approval resolved",
+                summary: approval.reason ?? "model approval request was approved",
+                refs: [providerCallId, decision.decisionId, approval.envelope.approvalId],
+                payload: {
+                  status: approval.status,
+                  reason: approval.reason,
+                  approvalId: approval.envelope.approvalId,
+                  requestedScopes: approval.envelope.requestedScopes,
+                  riskLevel: approval.envelope.riskLevel,
+                },
+                trustLevel: "runtimeFact",
+                metadata: metadataRecord({
+                  toolCallId: providerCallId,
+                  toolId: "praxis.request.approval",
+                  providerToolName: "praxis_request_approval",
+                  observationStatus: "completed",
+                  runtimeDecision: "requestApproval",
+                  approvalId: approval.envelope.approvalId,
+                  approvalStatus: approval.status,
+                }),
+              }));
+            }
             return { ok: true, continueLoop: true, events: approval.events };
           }
           const error = kernelError("APPROVAL_REQUIRED", decision.approvalRequest?.reason ?? "model requested approval", "tool");
