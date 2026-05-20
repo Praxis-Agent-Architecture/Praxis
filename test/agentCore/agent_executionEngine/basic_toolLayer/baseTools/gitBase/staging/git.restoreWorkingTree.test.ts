@@ -6,10 +6,10 @@ import {
   gitRestoreWorkingTreeDescriptor,
   parseGitRestoreWorkingTreeResult,
   planGitRestoreWorkingTree,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.restoreWorkingTree.md",
   testFileUrl: import.meta.url,
 });

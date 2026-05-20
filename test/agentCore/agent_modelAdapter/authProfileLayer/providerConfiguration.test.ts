@@ -8,7 +8,7 @@ import {
   createRaxodeSecret,
   maskRaxodeSecret,
   resolveRaxodeProviderRequestUrl,
-} from "../../../../src/agentCore_modelAdapter/authProfileLayer/providerConfiguration.js";
+} from "../../../../src/modelAdapter/authProfileLayer/providerConfiguration.js";
 
 test("providerConfiguration resolves provider roots and literal URLs for supported endpoint shapes", () => {
   const messages = resolveRaxodeProviderRequestUrl({

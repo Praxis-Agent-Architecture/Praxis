@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { evaluateBaseToolRuntimeGovernance } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.js";
-import type { BaseToolSupportCatalogEntry } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
-import { sandbox, toolPolicies } from "../../../../src/agentCore_runtimeImplementation/runtimeAgentManifest.js";
+import { evaluateBaseToolRuntimeGovernance } from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.js";
+import type { BaseToolSupportCatalogEntry } from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
+import { sandbox, toolPolicies } from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.md",
   testFileUrl: import.meta.url,
 });

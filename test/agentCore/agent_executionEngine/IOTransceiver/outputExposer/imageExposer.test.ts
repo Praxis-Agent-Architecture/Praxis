@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { exposeImageOutput } from "../../../../../src/agentCore_executionEngine/IOTransceiver/outputExposer/imageExposer.js";
+import { exposeImageOutput } from "../../../../../src/executionEngine/IOTransceiver/outputExposer/imageExposer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/IOTransceiver/outputExposer/imageExposer.ts",
+  sourcePath: "src/executionEngine/IOTransceiver/outputExposer/imageExposer.ts",
   docPath: "docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/imageExposer.md",
   testFileUrl: import.meta.url,
 });

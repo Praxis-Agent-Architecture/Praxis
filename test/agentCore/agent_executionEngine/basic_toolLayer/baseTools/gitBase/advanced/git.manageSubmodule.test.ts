@@ -2,17 +2,17 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitManageSubmodule,
   gitManageSubmoduleDescriptor,
   parseGitManageSubmoduleResult,
   planGitManageSubmodule,
   planManageSubmodule,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageSubmodule.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageSubmodule.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageSubmodule.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageSubmodule.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageSubmodule.md",
   testFileUrl: import.meta.url,
 });

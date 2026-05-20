@@ -1,6 +1,6 @@
 # code.lsp_formatRange
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_formatRange.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_formatRange.ts`
 
 ## 1. 文件位置
 

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { lowerPromptForModelAdapter } from "../../../../src/agentCore_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
+import { lowerPromptForModelAdapter } from "../../../../src/runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.md",
   testFileUrl: import.meta.url,
 });

@@ -1,6 +1,6 @@
 # customInterfaceRuntimeBridge
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.interfaceAdapter/customInterfaceRuntimeBridge.ts`
+> 对应源码：`src/runtimeImplementation/runtime.interfaceAdapter/customInterfaceRuntimeBridge.ts`
 
 ## 1. 文件位置
 

@@ -11,16 +11,16 @@
 import type {
   BaseToolFamily,
   BaseToolInvokeResult,
-} from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import type { BaseToolExecutorPort } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import {
   BaseToolRegistry,
   createBaseToolRegistry,
-} from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   adaptRuntimeToolInvocation,
   type BasicToolAdapterFamily,
-} from "../../agentCore_executionEngine/basic_toolLayer/invocationAdapter.js";
+} from "../../executionEngine/basic_toolLayer/invocationAdapter.js";
 import {
   bridgeExecEngineInvocation,
 } from "./execEngineInvocationBridge.js";

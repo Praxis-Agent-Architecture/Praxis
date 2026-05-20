@@ -7,8 +7,8 @@ import {
   inspectShellEnvironment,
   shellEnvironmentInspectionHandler,
   shellEnvironmentInspectionDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { executeShellEnvironmentInspection as executeShellEnvironmentInspectionBestPractice } from "../../../../../../../src/storagePool/baseToolStorage/shellBase/shellDetection/shell.environmentInspection/bestPractice.js";
 
 type ShellEnvironmentExecutionResult = Awaited<ReturnType<typeof executeShellEnvironmentInspection>>;
@@ -30,7 +30,7 @@ async function assertEnvironmentInputError(
 }
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.md",
   testFileUrl: import.meta.url,
 });

@@ -1,6 +1,6 @@
 # git.manageBranch
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageBranch.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.manageBranch.ts`
 
 ## 1. 文件位置
 

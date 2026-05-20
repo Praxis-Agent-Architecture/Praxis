@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   runtimeOperationBusDescriptor,
   submitRuntimeOperation,
-} from "../../../src/agentCore_runtimeImplementation/runtimeOperationBus.js";
+} from "../../../src/runtimeImplementation/runtimeOperationBus.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtimeOperationBus.ts",
+  sourcePath: "src/runtimeImplementation/runtimeOperationBus.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeOperationBus.md",
   testFileUrl: import.meta.url,
 });

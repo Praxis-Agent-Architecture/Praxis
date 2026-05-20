@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   inspectRuntimeModule,
   runtimeModuleInspectorDescriptor,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.inspection/runtimeModuleInspector.js";
+} from "../../../../src/runtimeImplementation/runtime.inspection/runtimeModuleInspector.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.inspection/runtimeModuleInspector.ts",
+  sourcePath: "src/runtimeImplementation/runtime.inspection/runtimeModuleInspector.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeModuleInspector.md",
   testFileUrl: import.meta.url,
 });

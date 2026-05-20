@@ -7,8 +7,8 @@ import {
   executeShellSessionDetection,
   shellSessionDetectionHandler,
   shellSessionDetectionDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { executeShellSessionDetection as executeShellSessionDetectionBestPractice } from "../../../../../../../src/storagePool/baseToolStorage/shellBase/shellDetection/shell.sessionDetection/bestPractice.js";
 
 type ShellSessionExecutionResult = Awaited<ReturnType<typeof executeShellSessionDetection>>;
@@ -30,7 +30,7 @@ async function assertSessionInputError(
 }
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.md",
   testFileUrl: import.meta.url,
 });

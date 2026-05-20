@@ -1,6 +1,6 @@
 # ephemeralProcedure
 
-> 对应源码：`src/agentCore_executionEngine/coreLogic/ephemeralProcedure.ts`
+> 对应源码：`src/executionEngine/coreLogic/ephemeralProcedure.ts`
 
 ## 1. 文件位置
 

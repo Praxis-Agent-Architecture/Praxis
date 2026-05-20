@@ -6,12 +6,12 @@ import {
   codeSearchRipgrepDescriptor,
   type CodeSearchRipgrepExecutor,
   planCodeSearchRipgrep,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.js";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { createHostExecutorCodeSearchRipgrepProvider } from "../../../../../../../src/storagePool/baseToolStorage/codeBase/explore/code.search_Ripgrep/dependencies.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.md",
   testFileUrl: import.meta.url,
 });

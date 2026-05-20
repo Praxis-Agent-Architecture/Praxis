@@ -1,6 +1,6 @@
 # invocationEnvelope
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.ts`
+> 对应源码：`src/runtimeImplementation/runtime.invocationMethod/invocationEnvelope.ts`
 
 ## 1. 文件位置
 

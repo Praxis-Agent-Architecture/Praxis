@@ -7,34 +7,34 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-import type { BaseToolDependencyDeclaration } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolDependencyDeclaration } from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import {
   declarationsFromLspProfile,
   resolveLspDependency,
-} from "../../agentCore_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
+} from "../../executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
 import {
   manageToolDependencies,
   type ToolDependencyDeclaration,
   type ToolDependencyProbe,
   type ToolDependencyReport,
-} from "../../agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
+} from "../../executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
 import {
   planToolDependencyIteration,
   type ToolDependencyIterationPlan,
   type ToolDependencyRefreshStep,
-} from "../../agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyIterationManager.js";
+} from "../../executionEngine/basic_toolLayer/toolDependency/dependencyIterationManager.js";
 import {
   ensureDependencyAvailable,
   type EnsureDependencyAvailableResult,
-} from "../../agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyInstaller.js";
+} from "../../executionEngine/basic_toolLayer/toolDependency/dependencyInstaller.js";
 import {
   lookupDependencySource,
   managedBinDir,
   planDependencyInstallation,
   type ToolDependencyProbeCommand,
   type ToolDependencySourceEntry,
-} from "../../agentCore_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.js";
-import { readManagedDependencyRecord } from "../../agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyManagedState.js";
+} from "../../executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.js";
+import { readManagedDependencyRecord } from "../../executionEngine/basic_toolLayer/toolDependency/dependencyManagedState.js";
 import {
   createBaseToolSupportCatalog,
   type BaseToolRuntimeReadinessPreflight,

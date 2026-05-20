@@ -1,6 +1,6 @@
 # baseToolRuntimeGovernance
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.ts`
+> 对应源码：`src/runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.ts`
 
 ## 1. 文件位置
 

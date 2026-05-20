@@ -1,6 +1,6 @@
 # tapInterface
 
-> 对应源码：`src/agentCore_interfaceAdapter/basic_interfaceLayer/tapInterface.ts`
+> 对应源码：`src/interfaceAdapter/basic_interfaceLayer/tapInterface.ts`
 
 ## 1. 文件位置
 

@@ -1,6 +1,6 @@
 # modelCapabilityBridge
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.modelAdapter/modelCapabilityBridge.ts`
+> 对应源码：`src/runtimeImplementation/runtime.modelAdapter/modelCapabilityBridge.ts`
 
 ## 1. 文件位置
 

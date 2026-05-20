@@ -1,6 +1,6 @@
 # runtimeAccessSession
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.ts`
+> 对应源码：`src/runtimeImplementation/runtime.managementPlane/runtimeAccessSession.ts`
 
 ## 1. 文件位置
 

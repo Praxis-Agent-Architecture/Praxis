@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { planDebugReplayHook } from "../../../../src/agentCore_runtimeImplementation/runtime.debug/debugReplayHook.js";
+import { planDebugReplayHook } from "../../../../src/runtimeImplementation/runtime.debug/debugReplayHook.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.debug/debugReplayHook.ts",
+  sourcePath: "src/runtimeImplementation/runtime.debug/debugReplayHook.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.debug/debugReplayHook.md",
   testFileUrl: import.meta.url,
 });

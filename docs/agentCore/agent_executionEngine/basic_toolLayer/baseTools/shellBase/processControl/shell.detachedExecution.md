@@ -1,6 +1,6 @@
 # shell.detachedExecution
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.ts`
 
 ## 1. 文件位置
 

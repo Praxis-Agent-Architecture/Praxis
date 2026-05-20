@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   adaptationDecisionSurfaceDescriptor,
   decideAdaptationSurface,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.js";
+} from "../../../../src/runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.ts",
+  sourcePath: "src/runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.md",
   testFileUrl: import.meta.url,
 });

@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   generateShellScriptPlan,
   shellScriptGenerationDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.scriptGeneration.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.scriptGeneration.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.scriptGeneration.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.scriptGeneration.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.scriptGeneration.md",
   testFileUrl: import.meta.url,
 });

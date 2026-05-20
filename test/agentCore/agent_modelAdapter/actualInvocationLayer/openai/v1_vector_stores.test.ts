@@ -6,10 +6,10 @@ import {
   OPENAI_V1_VECTOR_STORES_ENDPOINT,
   classifyOpenAIV1VectorStoresProviderError,
   invokeOpenAIV1VectorStores,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_vector_stores.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_vector_stores.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_vector_stores.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_vector_stores.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_vector_stores.md",
   testFileUrl: import.meta.url,
 });

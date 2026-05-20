@@ -1,6 +1,6 @@
 # externalCommandReceiver
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.externalControl/externalCommandReceiver.ts`
+> 对应源码：`src/runtimeImplementation/runtime.externalControl/externalCommandReceiver.ts`
 
 ## 1. 文件位置
 

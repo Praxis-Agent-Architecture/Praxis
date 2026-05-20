@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import test from "node:test";
 
-import type { BaseToolDefinition } from "../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolDefinition } from "../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import {
   baseToolRegistryDescriptor,
   createBaseToolRegistry,
   loadBuiltinBaseToolDefinitions,
-} from "../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
 test("baseTool registry discovers the active builtin tool files with markdown toolSkill references", () => {
   const definitions = loadBuiltinBaseToolDefinitions();

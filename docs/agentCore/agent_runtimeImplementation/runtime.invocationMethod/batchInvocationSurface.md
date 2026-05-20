@@ -1,6 +1,6 @@
 # batchInvocationSurface
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.ts`
+> 对应源码：`src/runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.ts`
 
 ## 1. 文件位置
 

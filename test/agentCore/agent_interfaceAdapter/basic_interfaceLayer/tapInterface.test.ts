@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineTapInterfaceBoundary } from "../../../../src/agentCore_interfaceAdapter/basic_interfaceLayer/tapInterface.js";
+import { defineTapInterfaceBoundary } from "../../../../src/interfaceAdapter/basic_interfaceLayer/tapInterface.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_interfaceAdapter/basic_interfaceLayer/tapInterface.ts",
+  sourcePath: "src/interfaceAdapter/basic_interfaceLayer/tapInterface.ts",
   docPath: "docs/agentCore/agent_interfaceAdapter/basic_interfaceLayer/tapInterface.md",
   testFileUrl: import.meta.url,
 });

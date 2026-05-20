@@ -1,6 +1,6 @@
 # shell.capabilityDetection
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.ts`
 
 ## Runtime Contract Snapshot
 

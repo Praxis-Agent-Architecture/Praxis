@@ -1,29 +1,29 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpPing,
   mcpPingHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.ping.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.ping.js";
 import {
   executeMcpHealthCheck,
   mcpHealthCheckHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/monitoring/mcp.healthCheck.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/monitoring/mcp.healthCheck.js";
 import {
   executeMcpListResources,
   mcpListResourcesHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.listResources.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.listResources.js";
 import {
   executeMcpResourceRead,
   mcpReadResourceHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.js";
 import {
   executeMcpToolsList,
   mcpListToolsHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.listTools.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.listTools.js";
 
 type MappedTool = {
   toolId: "mcp.listTools" | "mcp.listResources" | "mcp.readResource" | "mcp.ping" | "mcp.healthCheck";

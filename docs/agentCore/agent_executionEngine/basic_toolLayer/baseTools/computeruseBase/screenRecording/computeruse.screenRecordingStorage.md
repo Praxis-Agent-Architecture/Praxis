@@ -1,6 +1,6 @@
 # computeruse.screenRecordingStorage
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.screenRecordingStorage.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.screenRecordingStorage.ts`
 > Storage ToolSkill：`src/storagePool/baseToolStorage/computeruseBase/screenRecording/computeruse.screenRecordingStorage/computeruse.screenRecordingStorage.md`
 
 ## 1. 文件位置

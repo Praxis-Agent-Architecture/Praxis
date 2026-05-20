@@ -1,6 +1,6 @@
 # customInterfaceManager
 
-> 对应源码：`src/agentCore_interfaceAdapter/custom_interfaceLayer/customInterfaceManager.ts`
+> 对应源码：`src/interfaceAdapter/custom_interfaceLayer/customInterfaceManager.ts`
 
 ## 1. 文件位置
 

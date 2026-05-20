@@ -1,6 +1,6 @@
 # governanceRuleEvaluator
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.governancePlane/governanceRuleEvaluator.ts`
+> 对应源码：`src/runtimeImplementation/runtime.governancePlane/governanceRuleEvaluator.ts`
 
 ## 1. 文件位置
 

@@ -8,11 +8,11 @@ import {
   shellCommandValidationHandler,
   shellCommandValidationDescriptor,
   validateShellCommandSafety,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.commandValidation.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.commandValidation.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.commandValidation.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.commandValidation.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.commandValidation.md",
   testFileUrl: import.meta.url,
 });

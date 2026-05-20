@@ -1,6 +1,6 @@
 # adaptiveRuntime
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptiveRuntime.ts`
+> 对应源码：`src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveRuntime.ts`
 
 ## 1. 文件位置
 

@@ -1,6 +1,6 @@
 # git.showGitObjectDetails
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.ts`
 
 ## 1. 文件位置
 

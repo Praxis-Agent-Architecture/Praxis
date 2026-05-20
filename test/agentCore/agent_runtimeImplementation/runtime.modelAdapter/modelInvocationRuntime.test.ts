@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { createApiKeyAuthEnvelope } from "../../../../src/agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createChatGPTCodexAuthEnvelope } from "../../../../src/agentCore_modelAdapter/authProfileLayer/codexAuth.js";
-import { createCredentialRef } from "../../../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
+import { createApiKeyAuthEnvelope } from "../../../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { createChatGPTCodexAuthEnvelope } from "../../../../src/modelAdapter/authProfileLayer/codexAuth.js";
+import { createCredentialRef } from "../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
 import {
   invokeModelThroughRuntime,
   planModelInvocation,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
+} from "../../../../src/runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   OPENAI_V1_BATCHES_ENDPOINT,
   invokeOpenAiV1Batches,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_batches.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_batches.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_batches.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_batches.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_batches.md",
   testFileUrl: import.meta.url,
 });

@@ -1,6 +1,6 @@
 # computeruse.keyboardSubmitInput
 
-对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/keyboardEmulation/computeruse.keyboardSubmitInput.ts`
+对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/keyboardEmulation/computeruse.keyboardSubmitInput.ts`
 
 ## 1. 文件位置
 

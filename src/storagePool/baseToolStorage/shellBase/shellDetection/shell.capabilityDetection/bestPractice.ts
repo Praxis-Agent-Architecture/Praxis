@@ -3,8 +3,8 @@
  * 核心目的：比较三家来源实践，并给 baseTools 入口提供稳定的 Shell 能力探测调用面。
  */
 
-import type { BaseToolExecutorPort } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { anthropicShellCapabilityDetectionPractice } from "./anthropic.js";
 import { deepmindShellCapabilityDetectionPractice } from "./deepmind.js";
 import { openaiShellCapabilityDetectionPractice } from "./openai.js";

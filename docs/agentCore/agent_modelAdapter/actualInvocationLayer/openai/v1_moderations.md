@@ -1,6 +1,6 @@
 # v1_moderations
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_moderations.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_moderations.ts`
 
 ## 1. 文件位置
 

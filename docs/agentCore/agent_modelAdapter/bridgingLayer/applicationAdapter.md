@@ -1,6 +1,6 @@
 # applicationAdapter
 
-> 对应源码：`src/agentCore_modelAdapter/bridgingLayer/applicationAdapter.ts`
+> 对应源码：`src/modelAdapter/bridgingLayer/applicationAdapter.ts`
 
 ## 1. 文件位置
 

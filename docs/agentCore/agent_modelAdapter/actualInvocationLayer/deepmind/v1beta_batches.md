@@ -1,6 +1,6 @@
 # v1beta_batches
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_batches.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/deepmind/v1beta_batches.ts`
 
 ## 1. 文件位置
 

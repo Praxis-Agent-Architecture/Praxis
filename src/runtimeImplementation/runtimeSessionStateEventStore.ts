@@ -8,7 +8,7 @@
  * 实现提示：先落最小 append/read 合同，再等待更完整状态机和动作原语审计。
  */
 
-import type { MainLoopStepRecord } from "../agentCore_executionEngine/coreLogic/mainLoop.js";
+import type { MainLoopStepRecord } from "../executionEngine/coreLogic/mainLoop.js";
 
 export type RuntimeSessionRecord = {
   sessionId: string;

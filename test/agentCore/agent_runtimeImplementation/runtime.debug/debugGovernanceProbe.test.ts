@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { probeDebugGovernance } from "../../../../src/agentCore_runtimeImplementation/runtime.debug/debugGovernanceProbe.js";
+import { probeDebugGovernance } from "../../../../src/runtimeImplementation/runtime.debug/debugGovernanceProbe.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.debug/debugGovernanceProbe.ts",
+  sourcePath: "src/runtimeImplementation/runtime.debug/debugGovernanceProbe.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.debug/debugGovernanceProbe.md",
   testFileUrl: import.meta.url,
 });

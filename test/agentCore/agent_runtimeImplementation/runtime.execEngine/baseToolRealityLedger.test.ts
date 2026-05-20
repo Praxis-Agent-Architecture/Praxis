@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { builtinBaseToolHandlers } from "../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
-import { createRuntimeBaseToolExecutorPort } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import { builtinBaseToolHandlers } from "../../../../src/executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
+import { createRuntimeBaseToolExecutorPort } from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   createBaseToolRealityLedger,
   inspectBaseToolReality,
   snapshotBaseToolRealityLedger,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+} from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 
 test("baseToolRealityLedger covers all mounted storage-owned tools with canonical storage files", () => {
   const ledger = createBaseToolRealityLedger();

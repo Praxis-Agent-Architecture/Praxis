@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import {
   capabilitySelectionPanelDescriptor,
   createCapabilitySelectionPanel,
-} from "../../../../src/agentCore_modelAdapter/abstractionLayer/capabilitySelectionPanel.js";
+} from "../../../../src/modelAdapter/abstractionLayer/capabilitySelectionPanel.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/abstractionLayer/capabilitySelectionPanel.ts",
+  sourcePath: "src/modelAdapter/abstractionLayer/capabilitySelectionPanel.ts",
   docPath: "docs/agentCore/agent_modelAdapter/abstractionLayer/capabilitySelectionPanel.md",
   testFileUrl: import.meta.url,
 });

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { createExecEngineRuntime } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/execEngineRuntime.js";
+import { createExecEngineRuntime } from "../../../../src/runtimeImplementation/runtime.execEngine/execEngineRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/execEngineRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/execEngineRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineRuntime.md",
   testFileUrl: import.meta.url,
 });

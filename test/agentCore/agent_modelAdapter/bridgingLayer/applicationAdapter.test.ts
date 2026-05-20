@@ -5,11 +5,11 @@ import test from "node:test";
 import {
   applicationAdapterDescriptor,
   createApplicationModelAdapter,
-} from "../../../../src/agentCore_modelAdapter/bridgingLayer/applicationAdapter.js";
-import type { ApplicationBridgeCandidate } from "../../../../src/agentCore_modelAdapter/bridgingLayer/applicationCompatibilityCheck.js";
+} from "../../../../src/modelAdapter/bridgingLayer/applicationAdapter.js";
+import type { ApplicationBridgeCandidate } from "../../../../src/modelAdapter/bridgingLayer/applicationCompatibilityCheck.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/bridgingLayer/applicationAdapter.ts",
+  sourcePath: "src/modelAdapter/bridgingLayer/applicationAdapter.ts",
   docPath: "docs/agentCore/agent_modelAdapter/bridgingLayer/applicationAdapter.md",
   testFileUrl: import.meta.url,
 });

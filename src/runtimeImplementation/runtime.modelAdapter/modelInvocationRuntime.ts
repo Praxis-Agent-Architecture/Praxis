@@ -12,30 +12,30 @@ import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
 } from "./modelAdapterRuntime.js";
-import type { AuthEnvelope } from "../../agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
+import type { AuthEnvelope } from "../../modelAdapter/authProfileLayer/authEnvelope.js";
 import {
   invokeChatGPTCodexResponses,
-} from "../../agentCore_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+} from "../../modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
 import type {
   OpenAIV1ResponsesProviderCaller,
   OpenAIV1ResponsesResult,
   OpenAIV1ResponsesUsage,
-} from "../../agentCore_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+} from "../../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import {
   invokeOpenAIV1Responses,
-} from "../../agentCore_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+} from "../../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import {
   invokeOpenAiV1ChatCompletions,
   type OpenAiV1ChatCompletionsInvocationResult,
   type OpenAiV1ChatCompletionsProviderCaller,
   type OpenAiV1ChatCompletionsUsage,
-} from "../../agentCore_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
+} from "../../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import {
   invokeAnthropicV1Messages,
   type AnthropicV1MessagesInvocationResult,
   type AnthropicV1MessagesProviderCaller,
   type AnthropicV1MessagesUsage,
-} from "../../agentCore_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+} from "../../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
 
 export type ModelInvocationRuntimeMode = "single" | "stream" | "batch" | (string & {});
 

@@ -1,6 +1,6 @@
 # mcp.stream
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.stream.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.stream.ts`
 
 ## 1. 文件位置
 

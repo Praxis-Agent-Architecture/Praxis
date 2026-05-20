@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpConnect,
   mcpConnectHandler,
   planMcpConnect,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.js";
 import {
   executeMcpDisconnect,
   mcpDisconnectHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.disconnect.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.disconnect.js";
 
 type LifecycleTool = {
   toolId: "mcp.connect" | "mcp.disconnect";

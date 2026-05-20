@@ -1,6 +1,6 @@
 # code.benchmark
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/testCode/code.benchmark.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/testCode/code.benchmark.ts`
 
 ## 1. 文件位置
 

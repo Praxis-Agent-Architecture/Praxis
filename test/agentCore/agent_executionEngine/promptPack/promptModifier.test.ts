@@ -5,14 +5,14 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import {
   BASIC_CORE_PROMPT_MATERIAL_ID,
   definePromptPack,
-} from "../../../../src/agentCore_executionEngine/promptPack/promptDefiner.js";
+} from "../../../../src/executionEngine/promptPack/promptDefiner.js";
 import {
   modifyPromptMaterials,
   promptModifierDescriptor,
-} from "../../../../src/agentCore_executionEngine/promptPack/promptModifier.js";
+} from "../../../../src/executionEngine/promptPack/promptModifier.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/promptPack/promptModifier.ts",
+  sourcePath: "src/executionEngine/promptPack/promptModifier.ts",
   docPath: "docs/agentCore/agent_executionEngine/promptPack/promptModifier.md",
   testFileUrl: import.meta.url,
 });

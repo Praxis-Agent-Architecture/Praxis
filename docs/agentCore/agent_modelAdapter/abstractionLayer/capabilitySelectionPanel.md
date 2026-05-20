@@ -1,6 +1,6 @@
 # capabilitySelectionPanel
 
-> 对应源码：`src/agentCore_modelAdapter/abstractionLayer/capabilitySelectionPanel.ts`
+> 对应源码：`src/modelAdapter/abstractionLayer/capabilitySelectionPanel.ts`
 
 ## 1. 文件位置
 

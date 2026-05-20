@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { createCredentialRef } from "../../../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
-import { registerProviderCarriers } from "../../../../src/agentCore_runtimeImplementation/runtime.modelAdapter/providerCarrierRegistry.js";
+import { createCredentialRef } from "../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
+import { registerProviderCarriers } from "../../../../src/runtimeImplementation/runtime.modelAdapter/providerCarrierRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.modelAdapter/providerCarrierRegistry.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modelAdapter/providerCarrierRegistry.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/providerCarrierRegistry.md",
   testFileUrl: import.meta.url,
 });

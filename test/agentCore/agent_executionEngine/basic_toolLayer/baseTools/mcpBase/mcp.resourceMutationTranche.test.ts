@@ -1,22 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpCreateResource,
   mcpCreateResourceHandler,
   planMcpCreateResource,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.createResource.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.createResource.js";
 import {
   executeMcpDeleteResource,
   mcpDeleteResourceHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.deleteResource.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.deleteResource.js";
 import {
   executeMcpResourceUpdate,
   mcpUpdateResourceHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.updateResource.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.updateResource.js";
 
 type ResourceMutationTool = {
   toolId: "mcp.createResource" | "mcp.updateResource" | "mcp.deleteResource";

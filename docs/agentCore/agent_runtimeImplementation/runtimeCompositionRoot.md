@@ -1,6 +1,6 @@
 # runtimeCompositionRoot
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtimeCompositionRoot.ts`
+> 对应源码：`src/runtimeImplementation/runtimeCompositionRoot.ts`
 
 ## 1. 文件位置
 

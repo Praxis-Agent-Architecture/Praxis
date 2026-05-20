@@ -1,6 +1,6 @@
 # v1_fine_tuning_jobs
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_jobs.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_jobs.ts`
 
 ## 1. 文件位置
 

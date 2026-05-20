@@ -2,16 +2,16 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitManageWorktree,
   parseGitManageWorktreeResult,
   planGitManageWorktree,
   planGitWorktreeManagement,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.md",
   testFileUrl: import.meta.url,
 });

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   baseTools,
   listBaseToolDeveloperCatalog,
   toolSets,
   tryBaseToolById,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+} from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
 
 test("baseToolDeveloperCatalog exposes all registered tools without requiring handwritten family/group", () => {
   const catalog = listBaseToolDeveloperCatalog();

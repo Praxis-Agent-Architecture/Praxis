@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeWindowScreenshotCore,
   planWindowScreenshot,
   windowScreenshotDescriptor,
   windowScreenshotHandler,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.windowScreenshot.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.windowScreenshot.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../../..");
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.windowScreenshot.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.windowScreenshot.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.windowScreenshot.md",
   testFileUrl: import.meta.url,
 });

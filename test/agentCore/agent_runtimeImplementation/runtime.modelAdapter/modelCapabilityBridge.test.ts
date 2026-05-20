@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { bridgeModelCapabilities } from "../../../../src/agentCore_runtimeImplementation/runtime.modelAdapter/modelCapabilityBridge.js";
+import { bridgeModelCapabilities } from "../../../../src/runtimeImplementation/runtime.modelAdapter/modelCapabilityBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.modelAdapter/modelCapabilityBridge.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modelAdapter/modelCapabilityBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelCapabilityBridge.md",
   testFileUrl: import.meta.url,
 });

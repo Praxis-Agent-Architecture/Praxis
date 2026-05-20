@@ -138,7 +138,7 @@ The tracked verification surface is:
 
 ```bash
 node --import tsx --test \
-  src/agentCore_modelAdapter/authProfileLayer/providerConfiguration.test.ts \
+  src/modelAdapter/authProfileLayer/providerConfiguration.test.ts \
   raxode-cli/frontend/legacy-src/runtime-paths.test.ts \
   raxode-cli/frontend/legacy-src/raxode-login-wizard.test.ts \
   raxode-cli/frontend/legacy-src/raxcode-cli.test.ts \

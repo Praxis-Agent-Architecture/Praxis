@@ -1,6 +1,6 @@
 # intermediateMapper
 
-> 对应源码：`src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateMapper.ts`
+> 对应源码：`src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateMapper.ts`
 
 ## 1. 文件位置
 

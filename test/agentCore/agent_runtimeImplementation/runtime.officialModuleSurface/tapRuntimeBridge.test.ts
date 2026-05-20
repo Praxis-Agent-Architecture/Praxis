@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createTapRuntimeBridge } from "../../../../src/agentCore_runtimeImplementation/runtime.officialModuleSurface/tapRuntimeBridge.js";
+import { createTapRuntimeBridge } from "../../../../src/runtimeImplementation/runtime.officialModuleSurface/tapRuntimeBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.officialModuleSurface/tapRuntimeBridge.ts",
+  sourcePath: "src/runtimeImplementation/runtime.officialModuleSurface/tapRuntimeBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/tapRuntimeBridge.md",
   testFileUrl: import.meta.url,
 });

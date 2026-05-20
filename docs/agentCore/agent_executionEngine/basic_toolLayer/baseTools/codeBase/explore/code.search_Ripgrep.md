@@ -1,6 +1,6 @@
 # code.search_Ripgrep
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.search_Ripgrep.ts`
 
 ## 1. 文件位置
 

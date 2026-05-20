@@ -11,11 +11,11 @@ import type {
   BaseToolDependencyDeclaration,
   BaseToolFamily,
   BaseToolRiskLevel,
-} from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+} from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import {
   createBaseToolRegistry,
   baseToolRegistryDescriptor,
-} from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   baseToolExecutorPortFactoryDescriptor,
   listRuntimeBaseToolImplementedPortPaths,

@@ -1,6 +1,6 @@
 # modeSwitchController
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.modeExposure/modeSwitchController.ts`
+> 对应源码：`src/runtimeImplementation/runtime.modeExposure/modeSwitchController.ts`
 
 ## 1. 文件位置
 

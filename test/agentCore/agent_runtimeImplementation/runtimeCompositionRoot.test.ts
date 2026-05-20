@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createRuntimeCompositionRoot } from "../../../src/agentCore_runtimeImplementation/runtimeCompositionRoot.js";
+import { createRuntimeCompositionRoot } from "../../../src/runtimeImplementation/runtimeCompositionRoot.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtimeCompositionRoot.ts",
+  sourcePath: "src/runtimeImplementation/runtimeCompositionRoot.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeCompositionRoot.md",
   testFileUrl: import.meta.url,
 });

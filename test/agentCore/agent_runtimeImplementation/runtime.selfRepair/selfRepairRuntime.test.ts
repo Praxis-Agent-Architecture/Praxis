@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   runSelfRepairRuntime,
   selfRepairRuntimeDescriptor,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.js";
+} from "../../../../src/runtimeImplementation/runtime.selfRepair/selfRepairRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.selfRepair/selfRepairRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.md",
   testFileUrl: import.meta.url,
 });

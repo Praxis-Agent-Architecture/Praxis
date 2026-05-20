@@ -5,10 +5,10 @@ import {
   OPENAI_V1_IMAGES_VARIATIONS_ENDPOINT,
   classifyOpenAIV1ImagesVariationsProviderError,
   invokeOpenAIV1ImagesVariations,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_images_variations.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_images_variations.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_images_variations.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_images_variations.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_variations.md",
   testFileUrl: import.meta.url,
 });

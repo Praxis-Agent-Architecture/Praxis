@@ -1,6 +1,6 @@
 # v1_images_variations
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_images_variations.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_images_variations.ts`
 
 ## 1. 文件位置
 

@@ -26,7 +26,7 @@ import type {
   BaseToolShellServiceStatus,
   BaseToolShellServiceStatusSnapshot,
   BaseToolShellServiceVerification,
-} from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import {
   createMcpRuntimeAdapter,
   type McpRuntimeServerProfile,

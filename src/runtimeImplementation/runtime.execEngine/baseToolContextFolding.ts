@@ -6,7 +6,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 
-import type { PromptPackMaterialDraft } from "../../agentCore_executionEngine/promptPack/promptDefiner.js";
+import type { PromptPackMaterialDraft } from "../../executionEngine/promptPack/promptDefiner.js";
 import type { AgentManifest, ToolSpec } from "../runtimeAgentManifest.js";
 import { createBaseToolRealityLedger } from "./baseToolRealityLedger.js";
 

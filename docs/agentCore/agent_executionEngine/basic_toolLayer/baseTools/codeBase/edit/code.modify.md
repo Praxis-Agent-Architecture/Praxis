@@ -1,6 +1,6 @@
 # code.modify
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.modify.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.modify.ts`
 
 ## 1. 文件位置
 

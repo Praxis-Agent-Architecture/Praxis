@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   adaptRuntimeToolInvocation,
   basicToolInvocationAdapterDescriptor,
-} from "../../../../src/agentCore_executionEngine/basic_toolLayer/invocationAdapter.js";
+} from "../../../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/invocationAdapter.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/invocationAdapter.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.md",
   testFileUrl: import.meta.url,
 });

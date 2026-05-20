@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   captureShellOutput,
   shellOutputCaptureDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.outputCapture.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.outputCapture.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.outputCapture.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.outputCapture.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.outputCapture.md",
   testFileUrl: import.meta.url,
 });

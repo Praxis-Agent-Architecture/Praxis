@@ -1,6 +1,6 @@
 # v1_messages_batches
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/anthropic/v1_messages_batches.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/anthropic/v1_messages_batches.ts`
 
 ## 1. 文件位置
 

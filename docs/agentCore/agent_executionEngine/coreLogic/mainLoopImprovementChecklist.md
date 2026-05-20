@@ -1,6 +1,6 @@
 # MainLoop Improvement Checklist
 
-> 对应源码：`src/agentCore_executionEngine/coreLogic/mainLoop.ts`
+> 对应源码：`src/executionEngine/coreLogic/mainLoop.ts`
 >
 > 目标：把 MainLoop 从“正式合同层 + Kernel 兼容桥”推进为 agentCore 的真实执行身体。
 >

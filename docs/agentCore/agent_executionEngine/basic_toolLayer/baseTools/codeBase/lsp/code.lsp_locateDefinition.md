@@ -1,6 +1,6 @@
 # code.lsp_locateDefinition
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateDefinition.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateDefinition.ts`
 
 ## 1. 文件位置
 

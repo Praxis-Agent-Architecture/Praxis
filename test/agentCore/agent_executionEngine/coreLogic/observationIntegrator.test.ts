@@ -13,10 +13,10 @@ import {
   DEFAULT_TOOL_RESULT_SIZE_POLICY,
   createFallbackMemoryRef,
   createObservationMaterial,
-} from "../../../../src/agentCore_executionEngine/coreLogic/observationIntegrator.js";
+} from "../../../../src/executionEngine/coreLogic/observationIntegrator.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/observationIntegrator.ts",
+  sourcePath: "src/executionEngine/coreLogic/observationIntegrator.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/observationIntegrator.md",
   testFileUrl: import.meta.url,
 });

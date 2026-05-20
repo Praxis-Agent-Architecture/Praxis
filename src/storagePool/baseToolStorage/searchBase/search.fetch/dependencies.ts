@@ -1,5 +1,5 @@
-import type { BaseToolDependencyDeclaration } from "../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import type { BaseToolExecutorPort } from "../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolDependencyDeclaration } from "../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import type { SearchFetchExecutor } from "./core.js";
 
 export type SearchFetchPracticeProviderName = "openai" | "anthropic" | "deepmind" | "praxis-native";

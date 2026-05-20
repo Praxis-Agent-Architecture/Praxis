@@ -5,14 +5,14 @@ import path from "node:path";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../agentCoreContractTestHelper.js";
-import { createMainLoopStepRecord } from "../../../src/agentCore_executionEngine/coreLogic/mainLoop.js";
+import { createMainLoopStepRecord } from "../../../src/executionEngine/coreLogic/mainLoop.js";
 import {
   createInMemorySessionStateEventStore,
   createSqliteSessionStateEventStore,
-} from "../../../src/agentCore_runtimeImplementation/runtimeSessionStateEventStore.js";
+} from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtimeSessionStateEventStore.ts",
+  sourcePath: "src/runtimeImplementation/runtimeSessionStateEventStore.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeSessionStateEventStore.md",
   testFileUrl: import.meta.url,
 });

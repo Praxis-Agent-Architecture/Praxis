@@ -1,6 +1,6 @@
 # runtimeCapabilityContract
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.contractSurface/runtimeCapabilityContract.ts`
+> 对应源码：`src/runtimeImplementation/runtime.contractSurface/runtimeCapabilityContract.ts`
 
 ## 1. 文件位置
 

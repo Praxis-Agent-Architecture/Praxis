@@ -1,6 +1,6 @@
 # applicationRuntimeContext
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.applicationSurface/applicationRuntimeContext.ts`
+> 对应源码：`src/runtimeImplementation/runtime.applicationSurface/applicationRuntimeContext.ts`
 
 ## 1. 文件位置
 

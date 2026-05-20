@@ -1,6 +1,6 @@
 # computeruse.fullscreenScreenshot
 
-对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.fullscreenScreenshot.ts`
+对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.fullscreenScreenshot.ts`
 
 ## 1. 文件位置
 

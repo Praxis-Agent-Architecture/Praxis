@@ -5,12 +5,12 @@ import test from "node:test";
 import {
   OPENAI_V1_CHAT_COMPLETIONS_ENDPOINT,
   invokeOpenAiV1ChatCompletions,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
-import { createApiKeyAuthEnvelope } from "../../../../../src/agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createCredentialRef } from "../../../../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
+import { createApiKeyAuthEnvelope } from "../../../../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { createCredentialRef } from "../../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_chat_completions.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.md",
   testFileUrl: import.meta.url,
 });

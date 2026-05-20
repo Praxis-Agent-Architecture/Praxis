@@ -1,6 +1,6 @@
 # adaptiveProviderFallback
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptiveProviderFallback.ts`
+> 对应源码：`src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveProviderFallback.ts`
 
 ## 1. 文件位置
 

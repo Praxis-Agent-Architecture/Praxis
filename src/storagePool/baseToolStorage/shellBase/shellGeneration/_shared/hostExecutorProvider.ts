@@ -1,6 +1,6 @@
 import type {
   BaseToolExecutorResult,
-} from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 
 export function isShellGenerationRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

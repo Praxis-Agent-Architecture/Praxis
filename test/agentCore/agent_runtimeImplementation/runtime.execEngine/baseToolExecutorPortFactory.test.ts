@@ -8,33 +8,33 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
-import { builtinBaseToolHandlers } from "../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
+import { builtinBaseToolHandlers } from "../../../../src/executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { invokeMountedBaseTool } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
+import { invokeMountedBaseTool } from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
 import {
   baseToolExecutorPortFactoryDescriptor,
   createRuntimeBaseToolExecutorPort,
   listRuntimeBaseToolImplementedPortPaths,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
-import { sandbox } from "../../../../src/agentCore_runtimeImplementation/runtimeAgentManifest.js";
-import { prepareSandboxRuntime } from "../../../../src/agentCore_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+} from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import { sandbox } from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
+import { prepareSandboxRuntime } from "../../../../src/runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
   baseToolSupportCatalogDescriptor,
   createBaseToolSupportCatalog,
   evaluateBaseToolRuntimeReadiness,
   snapshotBaseToolSupportCatalog,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
+} from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 
 const execFileAsync = promisify(execFile);
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.md",
   testFileUrl: import.meta.url,
 });
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.md",
   testFileUrl: import.meta.url,
 });

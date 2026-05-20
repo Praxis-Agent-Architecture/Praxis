@@ -1,18 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpSubscribe,
   mcpSubscribeHandler,
   planMcpSubscribe,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.js";
 import {
   executeMcpUnsubscribe,
   mcpUnsubscribeHandler,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.unsubscribe.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.unsubscribe.js";
 
 type SubscriptionTool = {
   toolId: "mcp.subscribe" | "mcp.unsubscribe";

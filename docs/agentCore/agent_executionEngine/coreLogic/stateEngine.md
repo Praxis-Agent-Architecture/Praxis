@@ -1,6 +1,6 @@
 # stateEngine
 
-> 对应源码：`src/agentCore_executionEngine/coreLogic/stateEngine.ts`
+> 对应源码：`src/executionEngine/coreLogic/stateEngine.ts`
 
 ## 1. 文件位置
 

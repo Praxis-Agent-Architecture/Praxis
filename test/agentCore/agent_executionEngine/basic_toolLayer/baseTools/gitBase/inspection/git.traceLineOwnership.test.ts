@@ -7,10 +7,10 @@ import {
   parseGitTraceLineOwnership,
   planTraceLineOwnership,
   traceLineOwnershipDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.traceLineOwnership.md",
   testFileUrl: import.meta.url,
 });

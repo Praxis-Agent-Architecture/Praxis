@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { advanceAgentExecutionState } from "../../../../src/agentCore_executionEngine/coreLogic/stateEngine.js";
+import { advanceAgentExecutionState } from "../../../../src/executionEngine/coreLogic/stateEngine.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/stateEngine.ts",
+  sourcePath: "src/executionEngine/coreLogic/stateEngine.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/stateEngine.md",
   testFileUrl: import.meta.url,
 });

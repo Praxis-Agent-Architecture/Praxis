@@ -5,11 +5,11 @@ import test from "node:test";
 import {
   customFormatCapabilityIndicatorDescriptor,
   indicateCustomFormatCapability,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.js";
-import { receiveCustomFormatCapability } from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.js";
+import { receiveCustomFormatCapability } from "../../../../../src/modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityIndicator.md",
   testFileUrl: import.meta.url,
 });

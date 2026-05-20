@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   mcpSubscribeDescriptor,
   planMcpSubscribe,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.md",
   testFileUrl: import.meta.url,
 });

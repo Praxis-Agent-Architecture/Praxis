@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   monitorShellExecution,
   shellExecutionMonitoringDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.executionMonitoring.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.executionMonitoring.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.executionMonitoring.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.executionMonitoring.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.executionMonitoring.md",
   testFileUrl: import.meta.url,
 });

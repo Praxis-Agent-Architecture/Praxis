@@ -1,6 +1,6 @@
 # mcp.updateResource
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.updateResource.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.updateResource.ts`
 
 ## 1. 文件位置
 

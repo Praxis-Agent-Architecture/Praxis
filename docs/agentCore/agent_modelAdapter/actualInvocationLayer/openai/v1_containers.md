@@ -1,6 +1,6 @@
 # v1_containers
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_containers.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_containers.ts`
 
 ## 1. 文件位置
 

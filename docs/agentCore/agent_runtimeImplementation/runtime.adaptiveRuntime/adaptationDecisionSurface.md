@@ -1,6 +1,6 @@
 # adaptationDecisionSurface
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.ts`
+> 对应源码：`src/runtimeImplementation/runtime.adaptiveRuntime/adaptationDecisionSurface.ts`
 
 ## 1. 文件位置
 

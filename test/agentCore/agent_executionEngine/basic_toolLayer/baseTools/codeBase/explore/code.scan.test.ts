@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   codeScanDescriptor,
   planCodeScan,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.scan.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.scan.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.scan.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.scan.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.scan.md",
   testFileUrl: import.meta.url,
 });
@@ -101,7 +101,7 @@ test("planCodeScan defaults to first-level entries", async () => {
     dryRun: false,
     scanner: () => [
       { path: "src/agentCore/", kind: "directory" },
-      { path: "src/agentCore_executionEngine/", kind: "directory" },
+      { path: "src/executionEngine/", kind: "directory" },
       { path: "src/DSLCore/", kind: "directory" },
       { path: "src/DSLCore/DSL_runtimeImplementation/", kind: "directory" },
     ],
@@ -111,7 +111,7 @@ test("planCodeScan defaults to first-level entries", async () => {
   if (!result.ok) throw new Error("expected first-level scan result");
   assert.deepEqual(result.output?.entries.map((entry) => entry.path), [
     "src/agentCore/",
-    "src/agentCore_executionEngine/",
+    "src/executionEngine/",
     "src/DSLCore/",
   ]);
 });

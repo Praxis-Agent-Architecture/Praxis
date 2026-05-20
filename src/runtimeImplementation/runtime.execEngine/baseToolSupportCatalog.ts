@@ -12,9 +12,9 @@ import type {
   BaseToolDefinition,
   BaseToolDependencyDeclaration,
   BaseToolFamily,
-} from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import type { BaseToolExecutorPort } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { builtinBaseToolHandlers } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
+} from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { builtinBaseToolHandlers } from "../../executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
 
 export type BaseToolRuntimeSupportStatus =
   | "available"

@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   createOfficialPoolRuntimeBridge,
   officialPoolRuntimeBridgeDescriptor,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.interfaceAdapter/officialPoolRuntimeBridge.js";
+} from "../../../../src/runtimeImplementation/runtime.interfaceAdapter/officialPoolRuntimeBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.interfaceAdapter/officialPoolRuntimeBridge.ts",
+  sourcePath: "src/runtimeImplementation/runtime.interfaceAdapter/officialPoolRuntimeBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/officialPoolRuntimeBridge.md",
   testFileUrl: import.meta.url,
 });

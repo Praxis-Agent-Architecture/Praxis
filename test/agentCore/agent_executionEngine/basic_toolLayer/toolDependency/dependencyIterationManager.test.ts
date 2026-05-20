@@ -1,14 +1,14 @@
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { manageToolDependencies } from "../../../../../src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
+import { manageToolDependencies } from "../../../../../src/executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
 import {
   planToolDependencyIteration,
   toolDependencyIterationManagerDescriptor,
-} from "../../../../../src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyIterationManager.js";
+} from "../../../../../src/executionEngine/basic_toolLayer/toolDependency/dependencyIterationManager.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyIterationManager.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/toolDependency/dependencyIterationManager.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyIterationManager.md",
   testFileUrl: import.meta.url,
 });

@@ -10,8 +10,8 @@
 
 import { createHash } from "node:crypto";
 
-import type { CredentialRef } from "../agentCore_modelAdapter/authProfileLayer/credentialRef.js";
-import type { ProviderReasoningConfig } from "../agentCore_modelAdapter/providerAccessLayer/providerCarrier.js";
+import type { CredentialRef } from "../modelAdapter/authProfileLayer/credentialRef.js";
+import type { ProviderReasoningConfig } from "../modelAdapter/providerAccessLayer/providerCarrier.js";
 import { createBaseToolSupportCatalog } from "./runtime.execEngine/baseToolSupportCatalog.js";
 
 export type AgentIdentity = string | {

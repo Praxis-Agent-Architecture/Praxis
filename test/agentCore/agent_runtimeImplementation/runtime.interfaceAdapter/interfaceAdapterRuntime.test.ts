@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createInterfaceAdapterRuntime } from "../../../../src/agentCore_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
+import { createInterfaceAdapterRuntime } from "../../../../src/runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.md",
   testFileUrl: import.meta.url,
 });

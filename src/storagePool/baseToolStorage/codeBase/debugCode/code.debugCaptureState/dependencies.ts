@@ -1,5 +1,5 @@
-import type { BaseToolDependencyDeclaration } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import type { BaseToolExecutorPort } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolDependencyDeclaration } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import type { CodeDebugCaptureStateProvider } from "./core.js";
 export type CodeDebugCaptureStatePracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";
 export type CodeDebugCaptureStateDependencies = { executor?: BaseToolExecutorPort; provider?: CodeDebugCaptureStateProvider };

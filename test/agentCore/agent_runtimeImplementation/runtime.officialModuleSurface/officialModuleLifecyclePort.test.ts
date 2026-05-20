@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planOfficialModuleLifecycleTransition } from "../../../../src/agentCore_runtimeImplementation/runtime.officialModuleSurface/officialModuleLifecyclePort.js";
+import { planOfficialModuleLifecycleTransition } from "../../../../src/runtimeImplementation/runtime.officialModuleSurface/officialModuleLifecyclePort.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.officialModuleSurface/officialModuleLifecyclePort.ts",
+  sourcePath: "src/runtimeImplementation/runtime.officialModuleSurface/officialModuleLifecyclePort.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleLifecyclePort.md",
   testFileUrl: import.meta.url,
 });

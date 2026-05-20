@@ -1,6 +1,6 @@
 # videoExposer
 
-> 对应源码：`src/agentCore_executionEngine/IOTransceiver/outputExposer/videoExposer.ts`
+> 对应源码：`src/executionEngine/IOTransceiver/outputExposer/videoExposer.ts`
 
 ## 1. 文件位置
 

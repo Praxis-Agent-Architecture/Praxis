@@ -5,10 +5,10 @@ import {
   OPENAI_V1_ORGANIZATION_CERTIFICATES_ENDPOINT,
   classifyOpenAIV1OrganizationCertificatesProviderError,
   invokeOpenAIV1OrganizationCertificates,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_certificates.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_organization_certificates.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_certificates.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_organization_certificates.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_certificates.md",
   testFileUrl: import.meta.url,
 });

@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeRectangularSelectionScreenRecordingCore,
   planRectangularSelectionScreenRecording,
   rectangularSelectionScreenRecordingDescriptor,
   rectangularSelectionScreenRecordingHandler,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../../..");
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.md",
   testFileUrl: import.meta.url,
 });
@@ -311,7 +311,7 @@ test("computeruse.rectangularSelectionScreenRecording keeps canonical storage sh
   const entryText = readFileSync(
     path.join(
       repoRoot,
-      "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.ts",
+      "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.ts",
     ),
     "utf8",
   );

@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   planShellInteractiveControl,
   shellInteractiveControlDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.md",
   testFileUrl: import.meta.url,
 });

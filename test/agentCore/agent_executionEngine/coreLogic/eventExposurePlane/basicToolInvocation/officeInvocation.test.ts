@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   exposeOfficeInvocationEvent,
   officeInvocationDescriptor,
-} from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.js";
+} from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/officeInvocation.md",
   testFileUrl: import.meta.url,
 });

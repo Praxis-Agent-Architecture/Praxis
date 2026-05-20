@@ -1,6 +1,6 @@
 # moduleGovernanceBridge
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.governancePlane/moduleGovernanceBridge.ts`
+> 对应源码：`src/runtimeImplementation/runtime.governancePlane/moduleGovernanceBridge.ts`
 
 ## 1. 文件位置
 

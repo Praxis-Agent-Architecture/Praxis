@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { decideTextToolFallback } from "../../../src/agentCore_runtimeImplementation/runtime.execEngine/textFallbackPolicy.js";
+import { decideTextToolFallback } from "../../../src/runtimeImplementation/runtime.execEngine/textFallbackPolicy.js";
 
 test("text fallback does not run after provider-native tool calls", () => {
   const decision = decideTextToolFallback({

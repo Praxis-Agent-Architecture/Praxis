@@ -1,6 +1,6 @@
 # v1_audio_voice_consents
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_audio_voice_consents.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_audio_voice_consents.ts`
 
 ## 1. 文件位置
 

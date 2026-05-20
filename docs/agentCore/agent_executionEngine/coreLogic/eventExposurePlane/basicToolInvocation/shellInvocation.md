@@ -1,6 +1,6 @@
 # shellInvocation
 
-> 对应源码：`src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/shellInvocation.ts`
+> 对应源码：`src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/shellInvocation.ts`
 
 ## 1. 文件位置
 

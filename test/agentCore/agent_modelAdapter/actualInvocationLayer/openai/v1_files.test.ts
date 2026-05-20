@@ -6,10 +6,10 @@ import {
   OPENAI_V1_FILES_ENDPOINT,
   classifyOpenAIV1FilesProviderError,
   invokeOpenAIV1Files,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_files.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_files.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_files.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_files.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_files.md",
   testFileUrl: import.meta.url,
 });

@@ -4,8 +4,8 @@
  * 边界：这里只生成 ToolSpec，不执行工具、不定义工具语义、不替代 BaseTool registry。
  */
 
-import type { BaseToolFamily, BaseToolRiskLevel } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import { createBaseToolRegistry } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolFamily, BaseToolRiskLevel } from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import { createBaseToolRegistry } from "../../executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { tool, tools, type ToolSpec } from "../runtimeAgentManifest.js";
 import {
   createBaseToolRealityLedger,

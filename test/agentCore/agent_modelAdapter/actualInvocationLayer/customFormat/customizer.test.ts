@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   customFormatCustomizerDescriptor,
   prepareCustomFormatInvocation,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/customFormat/customizer.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/customFormat/customizer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/customFormat/customizer.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/customFormat/customizer.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customizer.md",
   testFileUrl: import.meta.url,
 });

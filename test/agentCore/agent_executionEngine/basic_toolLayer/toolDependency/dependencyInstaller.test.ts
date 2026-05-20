@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { ensureDependencyAvailable } from "../../../../../src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyInstaller.js";
+import { ensureDependencyAvailable } from "../../../../../src/executionEngine/basic_toolLayer/toolDependency/dependencyInstaller.js";
 
 test("ensureDependencyAvailable installs a trusted managed dependency and writes managed state", async () => {
   const managedRoot = await mkdtemp(path.join(tmpdir(), "praxis-tool-deps-"));

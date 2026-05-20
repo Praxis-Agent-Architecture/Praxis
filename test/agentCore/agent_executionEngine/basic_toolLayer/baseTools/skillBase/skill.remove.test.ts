@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSkillRemove, skillRemoveHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/skillBase/skill.remove.js";
+import { planSkillRemove, skillRemoveHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/skillBase/skill.remove.js";
 
 test("skill.remove returns guarded dry-run removal plan", async () => {
   const result = await planSkillRemove({ target: { skillId: "repo-auditor", registryRoot: "/workspace/.agents/skills", mode: "purge" }, context: { allowedRoots: ["/workspace/.agents/skills"] } });

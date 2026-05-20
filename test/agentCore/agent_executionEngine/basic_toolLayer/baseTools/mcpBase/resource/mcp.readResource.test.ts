@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   mcpReadResourceDescriptor,
   planMcpResourceRead,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.md",
   testFileUrl: import.meta.url,
 });

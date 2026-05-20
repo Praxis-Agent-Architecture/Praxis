@@ -1,16 +1,16 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import type { BaseToolExecutorPort } from "../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/agentCore_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { invokeChatGPTCodexResponses } from "../../src/agentCore_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import { resolveAuthEnvelope } from "../../src/agentCore_modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/agentCore_modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/agentCore_modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/agentCore_modelAdapter/providerAccessLayer/transportCaller.js";
-import { bridgeExecEngineInvocation } from "../../src/agentCore_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
+import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
+import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
+import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
+import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 const args = process.argv.slice(2);
 const argSet = new Set(args);

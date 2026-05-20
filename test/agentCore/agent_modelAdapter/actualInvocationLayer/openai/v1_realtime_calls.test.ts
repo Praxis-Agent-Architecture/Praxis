@@ -6,10 +6,10 @@ import {
   OPENAI_V1_REALTIME_CALLS_ENDPOINT,
   classifyOpenAIV1RealtimeCallsProviderError,
   invokeOpenAIV1RealtimeCalls,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_realtime_calls.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_realtime_calls.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_realtime_calls.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_realtime_calls.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_realtime_calls.md",
   testFileUrl: import.meta.url,
 });

@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { assemblePromptPack } from "../../../../src/agentCore_executionEngine/promptPack/promptAssembler.js";
-import { definePromptPack } from "../../../../src/agentCore_executionEngine/promptPack/promptDefiner.js";
-import { mapPromptMaterials } from "../../../../src/agentCore_executionEngine/promptPack/promptMapper.js";
+import { assemblePromptPack } from "../../../../src/executionEngine/promptPack/promptAssembler.js";
+import { definePromptPack } from "../../../../src/executionEngine/promptPack/promptDefiner.js";
+import { mapPromptMaterials } from "../../../../src/executionEngine/promptPack/promptMapper.js";
 import {
   providePromptPackInput,
   promptProviderDescriptor,
-} from "../../../../src/agentCore_executionEngine/promptPack/promptProvider.js";
+} from "../../../../src/executionEngine/promptPack/promptProvider.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/promptPack/promptProvider.ts",
+  sourcePath: "src/executionEngine/promptPack/promptProvider.ts",
   docPath: "docs/agentCore/agent_executionEngine/promptPack/promptProvider.md",
   testFileUrl: import.meta.url,
 });

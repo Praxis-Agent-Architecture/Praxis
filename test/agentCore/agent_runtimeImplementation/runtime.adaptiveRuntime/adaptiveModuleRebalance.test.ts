@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { planAdaptiveModuleRebalance } from "../../../../src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptiveModuleRebalance.js";
+import { planAdaptiveModuleRebalance } from "../../../../src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveModuleRebalance.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptiveModuleRebalance.ts",
+  sourcePath: "src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveModuleRebalance.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveModuleRebalance.md",
   testFileUrl: import.meta.url,
 });

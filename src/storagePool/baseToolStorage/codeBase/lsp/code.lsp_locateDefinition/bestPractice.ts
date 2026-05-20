@@ -8,8 +8,8 @@ import type {
   BaseToolHandler,
   BaseToolInvokeRequest,
   BaseToolInvokeResult,
-} from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import type { BaseToolExecutorPort } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { anthropicLspLocateDefinitionPractice } from "./anthropic.js";
 import { deepmindLspLocateDefinitionPractice } from "./deepmind.js";
 import {

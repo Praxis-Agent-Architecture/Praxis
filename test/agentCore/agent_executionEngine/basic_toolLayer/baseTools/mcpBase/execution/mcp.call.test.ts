@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpCall,
   mcpCallDescriptor,
   mcpCallHandler,
   planMcpCall,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.call.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.call.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.call.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.call.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.call.md",
   testFileUrl: import.meta.url,
 });

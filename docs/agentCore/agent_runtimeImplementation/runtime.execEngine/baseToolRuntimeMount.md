@@ -1,6 +1,6 @@
 # baseToolRuntimeMount
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.ts`
+> 对应源码：`src/runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.ts`
 
 ## 1. 文件位置
 

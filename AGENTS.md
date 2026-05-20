@@ -23,7 +23,7 @@
 ## Repository Layout
 
 - `src/` 是 Praxis framework/runtime 源码。
-- `doctor/` 是内建诊断应用项目，服务于 `rax devdoctor`。
+- `src/devdoctor/` 是内建诊断应用项目，服务于 `rax devdoctor`。
 - `examples/minimal` 是最小公开 API 样板。
 - `examples/fullstack` 是对齐 Raxode 后端形态的完整 application/backend 样板。
 - `examples/scripts` 是围绕 examples 的简易前端、live chat、tool lab 和矩阵检查入口。
@@ -32,7 +32,7 @@
 
 ## Packaging
 
-- `examples/` 和 `doctor/` 是开发者验证表面，应进入 npm 包。
+- `examples/` 和 `src/devdoctor/` 是开发者验证表面，应进入 npm 包。
 - 顶层 `automations/` 是维护表面，不作为 runtime API 发给用户。
 - license 口径是 `AGPL-3.0-only`；不要把 MIT 文案写回 `LICENSE` 或 package metadata。
 

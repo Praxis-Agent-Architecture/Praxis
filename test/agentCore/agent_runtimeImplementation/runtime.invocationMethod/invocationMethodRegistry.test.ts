@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { createInvocationMethodRegistry } from "../../../../src/agentCore_runtimeImplementation/runtime.invocationMethod/invocationMethodRegistry.js";
+import { createInvocationMethodRegistry } from "../../../../src/runtimeImplementation/runtime.invocationMethod/invocationMethodRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.invocationMethod/invocationMethodRegistry.ts",
+  sourcePath: "src/runtimeImplementation/runtime.invocationMethod/invocationMethodRegistry.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationMethodRegistry.md",
   testFileUrl: import.meta.url,
 });

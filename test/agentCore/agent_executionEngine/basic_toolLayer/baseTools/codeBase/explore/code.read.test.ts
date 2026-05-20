@@ -6,10 +6,10 @@ import {
   codeReadDescriptor,
   type CodeReadProvider,
   planCodeRead,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.read.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.read.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.read.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.read.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.read.md",
   testFileUrl: import.meta.url,
 });

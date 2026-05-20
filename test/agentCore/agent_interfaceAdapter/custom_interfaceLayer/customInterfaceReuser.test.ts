@@ -1,11 +1,11 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defineCustomInterface } from "../../../../src/agentCore_interfaceAdapter/custom_interfaceLayer/customInterfaceDefiner.js";
-import { planCustomInterfaceReuse } from "../../../../src/agentCore_interfaceAdapter/custom_interfaceLayer/customInterfaceReuser.js";
+import { defineCustomInterface } from "../../../../src/interfaceAdapter/custom_interfaceLayer/customInterfaceDefiner.js";
+import { planCustomInterfaceReuse } from "../../../../src/interfaceAdapter/custom_interfaceLayer/customInterfaceReuser.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_interfaceAdapter/custom_interfaceLayer/customInterfaceReuser.ts",
+  sourcePath: "src/interfaceAdapter/custom_interfaceLayer/customInterfaceReuser.ts",
   docPath: "docs/agentCore/agent_interfaceAdapter/custom_interfaceLayer/customInterfaceReuser.md",
   testFileUrl: import.meta.url,
 });

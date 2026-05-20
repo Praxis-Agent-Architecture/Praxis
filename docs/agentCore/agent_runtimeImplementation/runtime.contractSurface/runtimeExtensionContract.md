@@ -1,6 +1,6 @@
 # runtimeExtensionContract
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.contractSurface/runtimeExtensionContract.ts`
+> 对应源码：`src/runtimeImplementation/runtime.contractSurface/runtimeExtensionContract.ts`
 
 ## 1. 文件位置
 

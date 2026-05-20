@@ -1,6 +1,6 @@
 # externalControlPort
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.externalControl/externalControlPort.ts`
+> 对应源码：`src/runtimeImplementation/runtime.externalControl/externalControlPort.ts`
 
 ## 1. 文件位置
 

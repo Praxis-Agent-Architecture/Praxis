@@ -73,20 +73,20 @@ Get a repo-grounded map before editing. The output should distinguish real live 
 
 ### Read Targets
 
-- `src/agentCore_runtimeImplementation/runtimeAgentManifest.ts`
-- `src/agentCore_runtimeImplementation/praxisRuntimeKernel.ts`
-- `src/agentCore_runtimeImplementation/runtime.modelAdapter/`
-- `src/agentCore_runtimeImplementation/runtime.execEngine/`
-- `src/agentCore_runtimeImplementation/runtime.governancePlane/`
-- `src/agentCore_runtimeImplementation/runtimeSessionStateEventStore.ts`
-- `src/agentCore_executionEngine/IOTransceiver/`
-- `src/agentCore_executionEngine/promptPack/`
-- `src/agentCore_executionEngine/coreLogic/`
-- `src/agentCore_executionEngine/basic_toolLayer/`
-- `src/agentCore_runtimeImplementation/runtime.inspection/`
-- `src/agentCore_runtimeImplementation/runtime.debug/`
-- `src/agentCore_runtimeImplementation/runtime.selfRepair/`
-- `src/agentCore_runtimeImplementation/runtime.officialModuleSurface/`
+- `src/runtimeImplementation/runtimeAgentManifest.ts`
+- `src/runtimeImplementation/praxisRuntimeKernel.ts`
+- `src/runtimeImplementation/runtime.modelAdapter/`
+- `src/runtimeImplementation/runtime.execEngine/`
+- `src/runtimeImplementation/runtime.governancePlane/`
+- `src/runtimeImplementation/runtimeSessionStateEventStore.ts`
+- `src/executionEngine/IOTransceiver/`
+- `src/executionEngine/promptPack/`
+- `src/executionEngine/coreLogic/`
+- `src/executionEngine/basic_toolLayer/`
+- `src/runtimeImplementation/runtime.inspection/`
+- `src/runtimeImplementation/runtime.debug/`
+- `src/runtimeImplementation/runtime.selfRepair/`
+- `src/runtimeImplementation/runtime.officialModuleSurface/`
 
 ### Task Checklist
 
@@ -371,12 +371,12 @@ user request
 
 ### Key Files
 
-- `src/agentCore_executionEngine/promptPack/promptDefiner.ts`
-- `src/agentCore_executionEngine/promptPack/promptAssembler.ts`
-- `src/agentCore_executionEngine/promptPack/promptModifier.ts`
-- `src/agentCore_executionEngine/promptPack/promptProvider.ts`
-- `src/agentCore_runtimeImplementation/runtime.execEngine/bindPromptPack.ts`
-- `src/agentCore_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.ts`
+- `src/executionEngine/promptPack/promptDefiner.ts`
+- `src/executionEngine/promptPack/promptAssembler.ts`
+- `src/executionEngine/promptPack/promptModifier.ts`
+- `src/executionEngine/promptPack/promptProvider.ts`
+- `src/runtimeImplementation/runtime.execEngine/bindPromptPack.ts`
+- `src/runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.ts`
 
 ### Task Checklist
 
@@ -456,13 +456,13 @@ metadata
 
 ### Key Files
 
-- `src/agentCore_executionEngine/coreLogic/mainLoop.ts`
-- `src/agentCore_executionEngine/coreLogic/stateEngine.ts`
-- `src/agentCore_executionEngine/coreLogic/modelDecision.ts`
-- `src/agentCore_executionEngine/coreLogic/ephemeralProcedure.ts`
-- `src/agentCore_executionEngine/coreLogic/observationIntegrator.ts`
-- `src/agentCore_runtimeImplementation/runtime.execEngine/bindCoreLogic.ts`
-- `src/agentCore_runtimeImplementation/praxisRuntimeKernel.ts`
+- `src/executionEngine/coreLogic/mainLoop.ts`
+- `src/executionEngine/coreLogic/stateEngine.ts`
+- `src/executionEngine/coreLogic/modelDecision.ts`
+- `src/executionEngine/coreLogic/ephemeralProcedure.ts`
+- `src/executionEngine/coreLogic/observationIntegrator.ts`
+- `src/runtimeImplementation/runtime.execEngine/bindCoreLogic.ts`
+- `src/runtimeImplementation/praxisRuntimeKernel.ts`
 
 ### Task Checklist
 

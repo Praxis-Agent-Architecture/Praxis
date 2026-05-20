@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planRuntimeRollback } from "../../../../src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeRollbackController.js";
+import { planRuntimeRollback } from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeRollbackController.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeRollbackController.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/runtimeRollbackController.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeRollbackController.md",
   testFileUrl: import.meta.url,
 });

@@ -11,7 +11,7 @@ import {
   loadApplicationProject,
 } from "../../src/applicationLayer/index.js";
 
-const DOCTOR_PROJECT = "doctor";
+const DOCTOR_PROJECT = "src/devdoctor";
 
 test("applicationLayer loads a Praxis application project descriptor", async () => {
   const loaded = await loadApplicationProject(DOCTOR_PROJECT);
@@ -19,7 +19,7 @@ test("applicationLayer loads a Praxis application project descriptor", async () 
   if (!loaded.ok) return;
   assert.equal(loaded.project.projectId, "praxis.doctor");
   assert.equal(loaded.project.applicationId, "application.praxis.doctor");
-  assert.equal(loaded.project.agentEntryPath.endsWith("doctor/praxis.agent.ts"), true);
+  assert.equal(loaded.project.agentEntryPath.endsWith("src/devdoctor/praxis.agent.ts"), true);
   assert.equal(loaded.project.agentEntries.primary?.agentId, "agent.praxis.doctor");
 });
 

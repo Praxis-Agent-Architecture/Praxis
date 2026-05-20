@@ -1,6 +1,6 @@
 # v1beta_models_generateContent
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.ts`
 
 ## 1. 文件位置
 

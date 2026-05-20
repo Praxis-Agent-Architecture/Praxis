@@ -6,10 +6,10 @@ import {
   applicationCompatibilityCheckDescriptor,
   checkApplicationModelCompatibility,
   type ApplicationBridgeCandidate,
-} from "../../../../src/agentCore_modelAdapter/bridgingLayer/applicationCompatibilityCheck.js";
+} from "../../../../src/modelAdapter/bridgingLayer/applicationCompatibilityCheck.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/bridgingLayer/applicationCompatibilityCheck.ts",
+  sourcePath: "src/modelAdapter/bridgingLayer/applicationCompatibilityCheck.ts",
   docPath: "docs/agentCore/agent_modelAdapter/bridgingLayer/applicationCompatibilityCheck.md",
   testFileUrl: import.meta.url,
 });

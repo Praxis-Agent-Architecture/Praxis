@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { governRuntimeResources } from "../../../../src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.js";
+import { governRuntimeResources } from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.md",
   testFileUrl: import.meta.url,
 });

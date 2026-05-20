@@ -1,4 +1,4 @@
-import type { BaseToolHandler } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolHandler } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
 import { createLspFormatRangePlan as createLspFormatRangePlanCore, type LspFormatRangeRequest } from "./core.js";
 import { formatRangeWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeTextEdit } from "../_shared/runtime.js";

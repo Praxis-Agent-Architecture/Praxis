@@ -1,6 +1,6 @@
 # runtimeStateContract
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.contractSurface/runtimeStateContract.ts`
+> 对应源码：`src/runtimeImplementation/runtime.contractSurface/runtimeStateContract.ts`
 
 ## 1. 文件位置
 

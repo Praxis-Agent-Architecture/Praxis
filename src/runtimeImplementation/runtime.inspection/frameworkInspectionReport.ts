@@ -4,13 +4,13 @@
  * 边界：只做 inspect/debug/selfRepair contract，不执行模型、工具、官方模块策略或修复动作。
  */
 
-import type { MainLoopStepRecord } from "../../agentCore_executionEngine/coreLogic/mainLoop.js";
-import type { PromptPackCachePlan } from "../../agentCore_executionEngine/promptPack/promptAssembler.js";
+import type { MainLoopStepRecord } from "../../executionEngine/coreLogic/mainLoop.js";
+import type { PromptPackCachePlan } from "../../executionEngine/promptPack/promptAssembler.js";
 import {
   lowerPraxisToolsForProvider,
   normalizeProviderInputSchema,
   type ProviderToolSchemaFamily,
-} from "../../agentCore_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 import type { RuntimeFaultSignal } from "../runtime.selfRepair/faultClassifier.js";
 import {
   createBaseToolRealityLedger,

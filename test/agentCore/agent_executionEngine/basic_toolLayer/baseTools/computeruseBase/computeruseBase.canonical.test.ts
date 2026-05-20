@@ -3,10 +3,10 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { bridgeExecEngineInvocation } from "../../../../../../src/agentCore_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { adaptRuntimeToolInvocation } from "../../../../../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import { bridgeExecEngineInvocation } from "../../../../../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../..");
@@ -220,7 +220,7 @@ test("computeruseBase canonical starter tools keep storage shape and explicit en
 
     const entryPath = path.join(
       repoRoot,
-      "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase",
+      "src/executionEngine/basic_toolLayer/baseTools/computeruseBase",
       tool.group,
       tool.id + ".ts",
     );
@@ -259,7 +259,7 @@ test("computeruse screenshot entry remains the only invocation surface while Lin
     if (!lookup.ok) continue;
 
     assert.equal(
-      lookup.handler.definition.sourcePath?.endsWith(`src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/${tool.id}.ts`),
+      lookup.handler.definition.sourcePath?.endsWith(`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/${tool.id}.ts`),
       true,
       tool.id + " must publish the computeruseBase entry as its invocation path",
     );

@@ -1,19 +1,19 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitRepositoryStatus,
   type GitGetRepositoryStatusOutput,
   parseGitRepositoryStatus,
   planGitRepositoryStatusRead,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getRepositoryStatus.js";
-import { adaptRuntimeToolInvocation } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { bridgeExecEngineInvocation } from "../../../../../../../src/agentCore_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getRepositoryStatus.js";
+import { adaptRuntimeToolInvocation } from "../../../../../../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import { bridgeExecEngineInvocation } from "../../../../../../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getRepositoryStatus.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getRepositoryStatus.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getRepositoryStatus.md",
   testFileUrl: import.meta.url,
 });

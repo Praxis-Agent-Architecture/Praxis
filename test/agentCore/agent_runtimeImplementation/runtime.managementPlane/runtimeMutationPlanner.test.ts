@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planRuntimeMutation } from "../../../../src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.js";
+import { planRuntimeMutation } from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.md",
   testFileUrl: import.meta.url,
 });

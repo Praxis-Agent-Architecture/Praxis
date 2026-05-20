@@ -1,6 +1,6 @@
 # governanceViolationReporter
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.ts`
+> 对应源码：`src/runtimeImplementation/runtime.governancePlane/governanceViolationReporter.ts`
 
 ## 1. 文件位置
 

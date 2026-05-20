@@ -1,6 +1,6 @@
 # runtimeResourceGovernor
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.ts`
+> 对应源码：`src/runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.ts`
 
 ## 1. 文件位置
 

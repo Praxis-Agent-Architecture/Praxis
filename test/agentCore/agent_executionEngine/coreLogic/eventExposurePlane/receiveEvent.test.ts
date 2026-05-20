@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   receiveEventDescriptor,
   receiveExecutionEvent,
-} from "../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/receiveEvent.js";
+} from "../../../../../src/executionEngine/coreLogic/eventExposurePlane/receiveEvent.js";
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/receiveEvent.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/receiveEvent.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/receiveEvent.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import {
   DEEPMIND_V1BETA_MODELS_STREAM_GENERATE_CONTENT_ENDPOINT,
   classifyDeepMindV1BetaModelsStreamGenerateContentProviderError,
   invokeDeepMindV1BetaModelsStreamGenerateContent,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_streamGenerateContent.md",
   testFileUrl: import.meta.url,
 });

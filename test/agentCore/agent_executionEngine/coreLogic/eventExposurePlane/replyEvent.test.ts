@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { exposeReplyEvent } from "../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/replyEvent.js";
+import { exposeReplyEvent } from "../../../../../src/executionEngine/coreLogic/eventExposurePlane/replyEvent.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/replyEvent.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/replyEvent.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/replyEvent.md",
   testFileUrl: import.meta.url,
 });

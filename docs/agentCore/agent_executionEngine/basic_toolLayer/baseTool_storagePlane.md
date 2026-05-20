@@ -1,6 +1,6 @@
 # baseTool_storagePlane
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTool_storagePlane.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTool_storagePlane.ts`
 
 ## 1. 文件位置
 

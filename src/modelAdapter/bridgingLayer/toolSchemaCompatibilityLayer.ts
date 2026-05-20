@@ -6,7 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
-import type { AgentManifest } from "../../agentCore_runtimeImplementation/runtimeAgentManifest.js";
+import type { AgentManifest } from "../../runtimeImplementation/runtimeAgentManifest.js";
 
 export type ProviderToolSchemaFamily =
   | "openaiResponses"

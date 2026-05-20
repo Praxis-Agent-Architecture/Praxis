@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   planSearchEngineQuery,
   searchEngineBaseToolDefinition,
   searchEngineDescriptor,
   type SearchEngineExecutor,
   type SearchEngineOutput,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.js";
 import {
   createHostExecutorSearchEngineProvider,
   createRuntimeSearchEngineProvider,
@@ -19,7 +19,7 @@ import {
 } from "../../../../../../src/storagePool/baseToolStorage/searchBase/search.searchEngine/dependencies.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.md",
   testFileUrl: import.meta.url,
 });

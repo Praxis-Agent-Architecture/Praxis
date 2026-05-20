@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   exposeMcpInvocationEvent,
   mcpInvocationDescriptor,
-} from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.js";
+} from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/mcpInvocation.md",
   testFileUrl: import.meta.url,
 });

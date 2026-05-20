@@ -5,10 +5,10 @@ import {
   OPENAI_V1_ORGANIZATION_AUDIT_LOGS_ENDPOINT,
   classifyOpenAIV1OrganizationAuditLogsProviderError,
   invokeOpenAIV1OrganizationAuditLogs,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_audit_logs.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_organization_audit_logs.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_audit_logs.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_organization_audit_logs.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_audit_logs.md",
   testFileUrl: import.meta.url,
 });

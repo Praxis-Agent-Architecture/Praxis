@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   classifyRuntimeFault,
   runtimeFaultClassifierDescriptor,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.selfRepair/faultClassifier.js";
+} from "../../../../src/runtimeImplementation/runtime.selfRepair/faultClassifier.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.selfRepair/faultClassifier.ts",
+  sourcePath: "src/runtimeImplementation/runtime.selfRepair/faultClassifier.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/faultClassifier.md",
   testFileUrl: import.meta.url,
 });

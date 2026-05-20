@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSkillSummarize, skillSummarizeHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/skillBase/skill.summarize.js";
+import { planSkillSummarize, skillSummarizeHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/skillBase/skill.summarize.js";
 
 test("skill.summarize builds model-visible metadata from excerpts", async () => {
   const result = await planSkillSummarize({ target: { skillId: "repo-auditor", sourceExcerpts: [{ heading: "SKILL.md", content: "---\nname: repo-auditor\ndescription: Audit repos\n---\n# Body" }] } });

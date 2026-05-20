@@ -1,6 +1,6 @@
 # code.lsp_completeCode
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_completeCode.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_completeCode.ts`
 
 ## 1. 文件位置
 

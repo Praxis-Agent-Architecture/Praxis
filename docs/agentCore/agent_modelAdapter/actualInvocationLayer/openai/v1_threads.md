@@ -1,6 +1,6 @@
 # v1_threads
 
-> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_threads.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_threads.ts`
 
 ## 1. 文件位置
 

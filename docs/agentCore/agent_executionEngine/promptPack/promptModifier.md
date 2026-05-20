@@ -1,6 +1,6 @@
 # promptModifier
 
-> 对应源码：`src/agentCore_executionEngine/promptPack/promptModifier.ts`
+> 对应源码：`src/executionEngine/promptPack/promptModifier.ts`
 
 ## 1. 文件位置
 

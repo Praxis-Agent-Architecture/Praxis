@@ -5,10 +5,10 @@ import {
   OPENAI_V1_MODERATIONS_ENDPOINT,
   classifyOpenAIV1ModerationsProviderError,
   invokeOpenAIV1Moderations,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_moderations.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_moderations.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_moderations.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_moderations.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_moderations.md",
   testFileUrl: import.meta.url,
 });

@@ -1,19 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpCache,
   mcpCacheHandler,
   planMcpCache,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.js";
 import {
   executeMcpCacheInvalidation,
   mcpInvalidateCacheHandler,
   planMcpCacheInvalidation,
-} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.invalidateCache.js";
+} from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.invalidateCache.js";
 
 type CacheTool = {
   toolId: "mcp.cache" | "mcp.invalidateCache";

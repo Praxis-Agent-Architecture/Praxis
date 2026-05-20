@@ -5,10 +5,10 @@ import {
   createRuntimeAccessSession,
   isRuntimeAccessSessionActive,
   runtimeAccessSessionDescriptor,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+} from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/runtimeAccessSession.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.md",
   testFileUrl: import.meta.url,
 });

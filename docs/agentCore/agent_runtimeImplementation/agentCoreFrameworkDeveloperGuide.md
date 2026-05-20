@@ -3,8 +3,8 @@
 > Source paths:
 >
 > - `src/agentCore/index.ts`
-> - `src/agentCore_runtimeImplementation/runtimeAgentManifest.ts`
-> - `src/agentCore_runtimeImplementation/praxisRuntimeKernel.ts`
+> - `src/runtimeImplementation/runtimeAgentManifest.ts`
+> - `src/runtimeImplementation/praxisRuntimeKernel.ts`
 
 ## 1. What AgentCore Is
 

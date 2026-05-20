@@ -1,6 +1,6 @@
 # harnessReceiverInterface
 
-> 对应源码：`src/agentCore_modelAdapter/abstractionLayer/harnessReceiverInterface.ts`
+> 对应源码：`src/modelAdapter/abstractionLayer/harnessReceiverInterface.ts`
 
 ## 1. 文件位置
 

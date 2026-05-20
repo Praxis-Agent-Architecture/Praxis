@@ -6,10 +6,10 @@ import path from "node:path";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../agentCoreContractTestHelper.js";
-import { createApiKeyAuthEnvelope } from "../../../src/agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createChatGPTCodexAuthEnvelope } from "../../../src/agentCore_modelAdapter/authProfileLayer/codexAuth.js";
-import { createCredentialRef } from "../../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
-import { createRuntimeBaseToolExecutorPort } from "../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import { createApiKeyAuthEnvelope } from "../../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { createChatGPTCodexAuthEnvelope } from "../../../src/modelAdapter/authProfileLayer/codexAuth.js";
+import { createCredentialRef } from "../../../src/modelAdapter/authProfileLayer/credentialRef.js";
+import { createRuntimeBaseToolExecutorPort } from "../../../src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   PraxisAgent,
   compileAgent,
@@ -23,12 +23,12 @@ import {
   tool,
   toolPolicies,
   tools,
-} from "../../../src/agentCore_runtimeImplementation/runtimeAgentManifest.js";
-import { createPraxisRuntimeKernel } from "../../../src/agentCore_runtimeImplementation/praxisRuntimeKernel.js";
-import { createInMemorySessionStateEventStore } from "../../../src/agentCore_runtimeImplementation/runtimeSessionStateEventStore.js";
+} from "../../../src/runtimeImplementation/runtimeAgentManifest.js";
+import { createPraxisRuntimeKernel } from "../../../src/runtimeImplementation/praxisRuntimeKernel.js";
+import { createInMemorySessionStateEventStore } from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/praxisRuntimeKernel.ts",
+  sourcePath: "src/runtimeImplementation/praxisRuntimeKernel.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.md",
   testFileUrl: import.meta.url,
 });

@@ -1,6 +1,6 @@
 # git.manageRemote
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.manageRemote.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.manageRemote.ts`
 
 ## 1. 文件位置
 

@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { constrainCustomInterfaceRules } from "../../../../src/agentCore_interfaceAdapter/custom_interfaceLayer/customInterfaceRuleConstrainer.js";
+import { constrainCustomInterfaceRules } from "../../../../src/interfaceAdapter/custom_interfaceLayer/customInterfaceRuleConstrainer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_interfaceAdapter/custom_interfaceLayer/customInterfaceRuleConstrainer.ts",
+  sourcePath: "src/interfaceAdapter/custom_interfaceLayer/customInterfaceRuleConstrainer.ts",
   docPath: "docs/agentCore/agent_interfaceAdapter/custom_interfaceLayer/customInterfaceRuleConstrainer.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   receiveTextInput,
   textInputReceiverDescriptor,
-} from "../../../../../src/agentCore_executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
+} from "../../../../../src/executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/IOTransceiver/inputReceiver/textReceiver.ts",
+  sourcePath: "src/executionEngine/IOTransceiver/inputReceiver/textReceiver.ts",
   docPath: "docs/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/textReceiver.md",
   testFileUrl: import.meta.url,
 });

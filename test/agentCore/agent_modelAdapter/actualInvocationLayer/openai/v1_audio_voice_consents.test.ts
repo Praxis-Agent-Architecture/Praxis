@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   createOpenAIAudioVoiceConsentInvocation,
   openAIAudioVoiceConsentsDescriptor,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_audio_voice_consents.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_audio_voice_consents.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_audio_voice_consents.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_audio_voice_consents.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_voice_consents.md",
   testFileUrl: import.meta.url,
 });

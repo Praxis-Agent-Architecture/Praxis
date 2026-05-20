@@ -1,6 +1,6 @@
 # Praxis Doctor Project
 
-`doctor/` is the built-in diagnostic application project used by `rax devdoctor`.
+`src/devdoctor/` is the built-in diagnostic application project used by `rax devdoctor`.
 
 It is intentionally small:
 

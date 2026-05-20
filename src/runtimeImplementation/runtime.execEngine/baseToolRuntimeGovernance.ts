@@ -8,7 +8,7 @@
  * 实现提示：先输出稳定 governance decision，再由 Kernel 负责 approval envelope、event/session persistence 和实际 mount 调用。
  */
 
-import type { BaseToolRiskLevel } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolRiskLevel } from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import type {
   BaseToolPolicyDecision,
   BaseToolPolicyMatrixSpec,

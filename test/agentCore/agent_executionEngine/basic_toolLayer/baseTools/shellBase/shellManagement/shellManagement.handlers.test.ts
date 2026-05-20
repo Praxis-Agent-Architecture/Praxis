@@ -1,23 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeShellLifecycleManagement,
   shellLifecycleManagementHandler,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellLifecycleManagement.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellLifecycleManagement.js";
 import {
   executeShellProcessManagement,
   shellProcessManagementHandler,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellProcessManagement.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellProcessManagement.js";
 import {
   executeShellResourceManagement,
   shellResourceManagementHandler,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellResourceManagement.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellResourceManagement.js";
 import {
   executeShellSessionManagement,
   shellSessionManagementHandler,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellSessionManagement.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellSessionManagement.js";
 
 const shellManagementExecuteCases = [
   {

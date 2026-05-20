@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   behaviorExposureRuntimeDescriptor,
   createBehaviorExposureRuntime,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.js";
+} from "../../../../src/runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.md",
   testFileUrl: import.meta.url,
 });

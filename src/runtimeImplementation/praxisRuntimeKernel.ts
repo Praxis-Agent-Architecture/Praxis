@@ -8,19 +8,19 @@
  * 实现提示：先提供可测试纵向闭环，再由用户监督 promptPack 与 mainLoop/coreLogic 的正式设计。
  */
 
-import type { AuthEnvelope } from "../agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
+import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { OpenAIV1ResponsesProviderCaller } from "../agentCore_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import type { OpenAiV1ChatCompletionsProviderCaller } from "../agentCore_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
-import type { AnthropicV1MessagesProviderCaller } from "../agentCore_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
+import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
 import {
   isDeepSeekV4Model,
   mapDeepSeekV4ReasoningEffort,
-} from "../agentCore_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
+} from "../modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import {
   createProviderToolMappings,
   lowerProviderToolResult,
@@ -30,10 +30,10 @@ import {
   type ProviderToolResultEnvelope,
   type ProviderToolNameMapping,
   type ProviderToolSchemaFamily,
-} from "../agentCore_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
-import type { BaseToolExecutorPort } from "../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { receiveTextInput } from "../agentCore_executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
-import { exposeTextOutput } from "../agentCore_executionEngine/IOTransceiver/outputExposer/textExposer.js";
+} from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+import type { BaseToolExecutorPort } from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { receiveTextInput } from "../executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
+import { exposeTextOutput } from "../executionEngine/IOTransceiver/outputExposer/textExposer.js";
 import {
   createMainLoopStepRecord,
   decideMainLoopFinalAcceptance,
@@ -43,24 +43,24 @@ import {
   type MainLoopRunnerError,
   type MainLoopTurnRecord,
   type MainLoopStepRecord,
-} from "../agentCore_executionEngine/coreLogic/mainLoop.js";
+} from "../executionEngine/coreLogic/mainLoop.js";
 import {
   interpretModelDecision,
-} from "../agentCore_executionEngine/coreLogic/modelDecision.js";
+} from "../executionEngine/coreLogic/modelDecision.js";
 import {
   type EphemeralProcedurePlan,
   type EphemeralProcedureStep,
-} from "../agentCore_executionEngine/coreLogic/ephemeralProcedure.js";
+} from "../executionEngine/coreLogic/ephemeralProcedure.js";
 import {
   createObservationMaterial,
   DEFAULT_OBSERVATION_TURN_INLINE_BUDGET_BYTES,
   type RuntimeObservationMaterial,
-} from "../agentCore_executionEngine/coreLogic/observationIntegrator.js";
-import type { StandardPromptPack } from "../agentCore_executionEngine/promptPack/promptAssembler.js";
+} from "../executionEngine/coreLogic/observationIntegrator.js";
+import type { StandardPromptPack } from "../executionEngine/promptPack/promptAssembler.js";
 import {
   type PromptPackMaterialDraft,
   type PromptPackSegmentKind,
-} from "../agentCore_executionEngine/promptPack/promptDefiner.js";
+} from "../executionEngine/promptPack/promptDefiner.js";
 import {
   createRuntimeBaseToolExecutorPort,
   listRuntimeBaseToolImplementedPortPaths,
@@ -106,8 +106,8 @@ import {
 import {
   approvalInterfaceEnvelope,
   type InterfaceEnvelope,
-} from "../agentCore_interfaceAdapter/interfaceEnvelope.js";
-import type { ToolDependencyProbe } from "../agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
+} from "../interfaceAdapter/interfaceEnvelope.js";
+import type { ToolDependencyProbe } from "../executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
 import {
   createInMemorySessionStateEventStore,
   createSqliteSessionStateEventStore,

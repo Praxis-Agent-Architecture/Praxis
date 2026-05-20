@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   ANTHROPIC_V1_MESSAGES_COUNT_TOKENS_ENDPOINT,
   invokeAnthropicV1MessagesCountTokens,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/anthropic/v1_messages_count_tokens.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/anthropic/v1_messages_count_tokens.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/anthropic/v1_messages_count_tokens.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/anthropic/v1_messages_count_tokens.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages_count_tokens.md",
   testFileUrl: import.meta.url,
 });

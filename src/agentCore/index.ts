@@ -32,12 +32,12 @@ import {
   toolPolicies,
   tools,
   validateAgentManifest,
-} from "../agentCore_runtimeImplementation/runtimeAgentManifest.js";
+} from "../runtimeImplementation/runtimeAgentManifest.js";
 import {
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
   sandboxRuntimeProviderDescriptor,
-} from "../agentCore_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
@@ -45,13 +45,13 @@ import {
   managementInterfaceEnvelope,
   repairInterfaceEnvelope,
   stateInterfaceEnvelope,
-} from "../agentCore_interfaceAdapter/interfaceEnvelope.js";
+} from "../interfaceAdapter/interfaceEnvelope.js";
 import {
   createInterfaceAdapterRuntime,
-} from "../agentCore_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
+} from "../runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
 import {
   bindBasicInterfaceLayer,
-} from "../agentCore_runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
+} from "../runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
 import {
   applyRaxStorageInitPlan,
   createAndApplyStoragePlaneRuntime,
@@ -60,30 +60,30 @@ import {
   planRaxStorageInit,
   resolveRaxHome,
   resolveRaxWorkspace,
-} from "../agentCore_runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
+} from "../runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 import {
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
-} from "../agentCore_runtimeImplementation/praxisRuntimeKernel.js";
+} from "../runtimeImplementation/praxisRuntimeKernel.js";
 import {
   createInMemorySessionStateEventStore,
-} from "../agentCore_runtimeImplementation/runtimeSessionStateEventStore.js";
+} from "../runtimeImplementation/runtimeSessionStateEventStore.js";
 import {
   createFrameworkInspectionReport,
-} from "../agentCore_runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
+} from "../runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
 import {
   baseToolDeveloperCatalogDescriptor,
   baseTools,
   listBaseToolDeveloperCatalog,
   toolSets,
   tryBaseToolById,
-} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+} from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
 import {
   baseToolRealityLedgerDescriptor,
   createBaseToolRealityLedger,
   inspectBaseToolReality,
   snapshotBaseToolRealityLedger,
-} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+} from "../runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 import {
   adjudicateRuntimeDecision,
   analyzeMainLoopCacheHealth,
@@ -118,17 +118,17 @@ import {
   resolveMainLoopBudgetExhaustion,
   runMainLoop,
   selectMainLoopModel,
-} from "../agentCore_executionEngine/coreLogic/mainLoop.js";
+} from "../executionEngine/coreLogic/mainLoop.js";
 import {
   interpretModelDecision,
-} from "../agentCore_executionEngine/coreLogic/modelDecision.js";
+} from "../executionEngine/coreLogic/modelDecision.js";
 import {
   assemblePromptPack,
-} from "../agentCore_executionEngine/promptPack/promptAssembler.js";
+} from "../executionEngine/promptPack/promptAssembler.js";
 import {
   createFallbackMemoryRef,
   createObservationMaterial,
-} from "../agentCore_executionEngine/coreLogic/observationIntegrator.js";
+} from "../executionEngine/coreLogic/observationIntegrator.js";
 
 export {
   PromptPack,
@@ -195,7 +195,7 @@ export {
   type StorageSpec,
   type ToolSpec,
   type ToolPolicyCustomInput,
-} from "../agentCore_runtimeImplementation/runtimeAgentManifest.js";
+} from "../runtimeImplementation/runtimeAgentManifest.js";
 
 export {
   adjudicateRuntimeDecision,
@@ -297,7 +297,7 @@ export {
   type RuntimeAdjudicationRequest,
   type UserTurn,
   type UserTurnStatus,
-} from "../agentCore_executionEngine/coreLogic/mainLoop.js";
+} from "../executionEngine/coreLogic/mainLoop.js";
 
 export {
   interpretModelDecision,
@@ -305,7 +305,7 @@ export {
   type ModelDecisionFailure,
   type ModelDecisionKind,
   type ModelDecisionToolCall,
-} from "../agentCore_executionEngine/coreLogic/modelDecision.js";
+} from "../executionEngine/coreLogic/modelDecision.js";
 
 export {
   DEFAULT_OBSERVATION_COMPRESSION_POLICY,
@@ -325,7 +325,7 @@ export {
   type RuntimeObservationMaterial,
   type SummaryAgentRef,
   type ToolResultSizePolicy,
-} from "../agentCore_executionEngine/coreLogic/observationIntegrator.js";
+} from "../executionEngine/coreLogic/observationIntegrator.js";
 
 export {
   createEphemeralProcedureExecutionState,
@@ -343,7 +343,7 @@ export {
   type EphemeralProcedureStepExecutionStatus,
   type EphemeralProcedureValidationError,
   type EphemeralProcedureValidationResult,
-} from "../agentCore_executionEngine/coreLogic/ephemeralProcedure.js";
+} from "../executionEngine/coreLogic/ephemeralProcedure.js";
 
 export {
   assemblePromptPack,
@@ -353,14 +353,14 @@ export {
   type PromptPackSegmentCachePolicy,
   type PromptPackSegmentStability,
   type StandardPromptPack,
-} from "../agentCore_executionEngine/promptPack/promptAssembler.js";
+} from "../executionEngine/promptPack/promptAssembler.js";
 
 export {
   PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
   PROMPT_PACK_SEGMENT_KINDS,
   inferPromptPackSegmentKind,
   type PromptPackSegmentKind,
-} from "../agentCore_executionEngine/promptPack/promptDefiner.js";
+} from "../executionEngine/promptPack/promptDefiner.js";
 
 export {
   createSandboxRuntimeProvider,
@@ -374,7 +374,7 @@ export {
   type SandboxRuntimeProviderProbe,
   type SandboxRuntimeProviderStatus,
   type SandboxRuntimeSmokeResult,
-} from "../agentCore_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 
 export {
   approvalInterfaceEnvelope,
@@ -388,7 +388,7 @@ export {
   type InterfaceEnvelopeSurface,
   type InterfaceEnvelopeValidationErrorCode,
   type InterfaceEnvelopeValidationResult,
-} from "../agentCore_interfaceAdapter/interfaceEnvelope.js";
+} from "../interfaceAdapter/interfaceEnvelope.js";
 
 export {
   bindBasicInterfaceLayer,
@@ -397,7 +397,7 @@ export {
   type BasicInterfaceLayerBindingRequest,
   type BasicInterfaceLayerBindingResult,
   type BasicInterfaceRef,
-} from "../agentCore_runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
+} from "../runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
 
 export {
   createInterfaceAdapterRuntime,
@@ -408,7 +408,7 @@ export {
   type InterfaceAdapterRuntimeRequest,
   type InterfaceAdapterRuntimeResult,
   type InterfaceAdapterRuntimeSurface,
-} from "../agentCore_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
+} from "../runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.js";
 
 export {
   applyRaxStorageInitPlan,
@@ -433,12 +433,12 @@ export {
   type StoragePlaneRuntime,
   type StoragePlaneRuntimeInput,
   type StoragePlaneRuntimeResult,
-} from "../agentCore_runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
+} from "../runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 
 export {
   type BaseToolExecutorPort,
   type BaseToolExecutorResult,
-} from "../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 
 export {
   PraxisRuntimeKernel,
@@ -455,13 +455,13 @@ export {
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
-} from "../agentCore_runtimeImplementation/praxisRuntimeKernel.js";
+} from "../runtimeImplementation/praxisRuntimeKernel.js";
 
 export {
   createInMemorySessionStateEventStore,
   type RuntimeSessionSnapshot,
   type RuntimeSessionStateEventStore,
-} from "../agentCore_runtimeImplementation/runtimeSessionStateEventStore.js";
+} from "../runtimeImplementation/runtimeSessionStateEventStore.js";
 
 export {
   bindRaxodeRoleModel,
@@ -483,7 +483,7 @@ export {
   type RaxodeSecret,
   type RaxodeSecretResult,
   type RaxodeUrlMode,
-} from "../agentCore_modelAdapter/authProfileLayer/providerConfiguration.js";
+} from "../modelAdapter/authProfileLayer/providerConfiguration.js";
 
 export {
   createFrameworkInspectionReport,
@@ -495,7 +495,7 @@ export {
   type FrameworkProviderReadinessInput,
   type FrameworkPromptPackPreviewInput,
   type FrameworkToolReadinessInput,
-} from "../agentCore_runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
+} from "../runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
 
 export {
   baseToolDeveloperCatalogDescriptor,
@@ -507,7 +507,7 @@ export {
   type BaseToolDeveloperLookupResult,
   type BaseToolSpecInput,
   type CodingToolSetOptions,
-} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+} from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
 
 export {
   baseToolRealityLedgerDescriptor,
@@ -528,12 +528,12 @@ export {
   type BaseToolRealityLedgerSnapshot,
   type BaseToolRegistryMountStatus,
   type BaseToolStorageRealityStatus,
-} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+} from "../runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 
 export {
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
-} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolContextFolding.js";
+} from "../runtimeImplementation/runtime.execEngine/baseToolContextFolding.js";
 
 export {
   createProviderToolMappings,
@@ -555,7 +555,7 @@ export {
   type PraxisToolDeclaration,
   type PraxisToolProviderKind,
   type RaiseProviderToolCallsRequest,
-} from "../agentCore_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 
 /**
  * Recommended developer authoring boxes.

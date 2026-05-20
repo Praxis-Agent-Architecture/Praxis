@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   receiveVideoInput,
   videoInputReceiverDescriptor,
-} from "../../../../../src/agentCore_executionEngine/IOTransceiver/inputReceiver/videoReceiver.js";
+} from "../../../../../src/executionEngine/IOTransceiver/inputReceiver/videoReceiver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/IOTransceiver/inputReceiver/videoReceiver.ts",
+  sourcePath: "src/executionEngine/IOTransceiver/inputReceiver/videoReceiver.ts",
   docPath: "docs/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/videoReceiver.md",
   testFileUrl: import.meta.url,
 });

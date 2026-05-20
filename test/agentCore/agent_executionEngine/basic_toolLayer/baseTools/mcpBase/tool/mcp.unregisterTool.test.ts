@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planMcpToolUnregistration } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.js";
+import { planMcpToolUnregistration } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.md",
   testFileUrl: import.meta.url,
 });

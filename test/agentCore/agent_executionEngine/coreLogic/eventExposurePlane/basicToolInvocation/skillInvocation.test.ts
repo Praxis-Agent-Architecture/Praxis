@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { exposeSkillInvocationEvent } from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.js";
+import { exposeSkillInvocationEvent } from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.md",
   testFileUrl: import.meta.url,
 });

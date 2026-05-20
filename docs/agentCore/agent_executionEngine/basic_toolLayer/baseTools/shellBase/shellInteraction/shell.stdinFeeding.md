@@ -1,6 +1,6 @@
 # shell.stdinFeeding
 
-> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.ts`
 
 ## 1. 文件位置
 

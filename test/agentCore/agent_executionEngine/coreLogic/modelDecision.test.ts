@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { interpretModelDecision } from "../../../../src/agentCore_executionEngine/coreLogic/modelDecision.js";
+import { interpretModelDecision } from "../../../../src/executionEngine/coreLogic/modelDecision.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/coreLogic/modelDecision.ts",
+  sourcePath: "src/executionEngine/coreLogic/modelDecision.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/modelDecision.md",
   testFileUrl: import.meta.url,
 });

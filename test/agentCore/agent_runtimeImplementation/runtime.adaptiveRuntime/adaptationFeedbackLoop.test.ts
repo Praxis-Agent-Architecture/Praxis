@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   adaptationFeedbackLoopDescriptor,
   runAdaptationFeedbackLoop,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.js";
+} from "../../../../src/runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.ts",
+  sourcePath: "src/runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationFeedbackLoop.md",
   testFileUrl: import.meta.url,
 });

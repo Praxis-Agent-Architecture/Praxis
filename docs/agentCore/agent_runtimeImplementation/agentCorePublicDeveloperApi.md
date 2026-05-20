@@ -147,10 +147,10 @@ rax test agents/mainAgent.ts --export MainAgent --sandbox=linuxBubblewrap
 
 普通开发者不应依赖这些路径作为稳定 API：
 
-- `src/agentCore_runtimeImplementation/runtime.execEngine/*`
-- `src/agentCore_runtimeImplementation/runtime.modelAdapter/*`
-- `src/agentCore_runtimeImplementation/runtime.governancePlane/*`
-- `src/agentCore_runtimeImplementation/runtime.officialModuleSurface/*`
-- `src/agentCore_executionEngine/basic_toolLayer/baseTools/*`
+- `src/runtimeImplementation/runtime.execEngine/*`
+- `src/runtimeImplementation/runtime.modelAdapter/*`
+- `src/runtimeImplementation/runtime.governancePlane/*`
+- `src/runtimeImplementation/runtime.officialModuleSurface/*`
+- `src/executionEngine/basic_toolLayer/baseTools/*`
 
 这些文件可以被 framework 内部、官方模块 bridge、测试和调试使用，但不作为用户 authoring 主入口。

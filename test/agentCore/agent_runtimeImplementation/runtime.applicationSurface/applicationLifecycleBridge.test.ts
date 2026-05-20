@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { planApplicationLifecycleBridge } from "../../../../src/agentCore_runtimeImplementation/runtime.applicationSurface/applicationLifecycleBridge.js";
+import { planApplicationLifecycleBridge } from "../../../../src/runtimeImplementation/runtime.applicationSurface/applicationLifecycleBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.applicationSurface/applicationLifecycleBridge.ts",
+  sourcePath: "src/runtimeImplementation/runtime.applicationSurface/applicationLifecycleBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationLifecycleBridge.md",
   testFileUrl: import.meta.url,
 });

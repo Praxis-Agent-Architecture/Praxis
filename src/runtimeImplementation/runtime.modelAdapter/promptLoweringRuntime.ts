@@ -15,7 +15,7 @@ import type {
 import type {
   ProviderCacheHintPlan,
   ProviderToolDeclarationBundle,
-} from "../../agentCore_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 
 export type PromptLoweringMaterialKind =
   | "system"

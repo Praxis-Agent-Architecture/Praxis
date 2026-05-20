@@ -150,7 +150,7 @@ function defaultDevdoctorDir(): string {
 }
 
 function bundledDoctorProjectPath(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../doctor");
+  return path.dirname(fileURLToPath(import.meta.url));
 }
 
 async function pathExists(pathname: string): Promise<boolean> {

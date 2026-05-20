@@ -1,5 +1,5 @@
-import type { BaseToolExecutorPort } from "../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { anthropicSkillManagementPractice } from "./anthropic.js";
 import { deepmindSkillManagementPractice } from "./deepmind.js";
 import { openaiSkillManagementPractice } from "./openai.js";

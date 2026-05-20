@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import {
   planShellForegroundExecution,
   shellForegroundExecutionDescriptor,
-} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.md",
   testFileUrl: import.meta.url,
 });

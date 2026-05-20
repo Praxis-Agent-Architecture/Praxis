@@ -6,10 +6,10 @@ import {
   dependencySourceRegistryDescriptor,
   lookupDependencySource,
   planDependencyInstallation,
-} from "../../../../../src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.js";
+} from "../../../../../src/executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencySourceRegistry.md",
   testFileUrl: import.meta.url,
 });

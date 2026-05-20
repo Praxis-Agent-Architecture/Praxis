@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   OPENAI_V1_REALTIME_TRANSCRIPTION_SESSIONS_ENDPOINT,
   invokeOpenAIV1RealtimeTranscriptionSessions,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_realtime_transcription_sessions.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_realtime_transcription_sessions.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_realtime_transcription_sessions.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_realtime_transcription_sessions.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_realtime_transcription_sessions.md",
   testFileUrl: import.meta.url,
 });

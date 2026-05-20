@@ -1,6 +1,6 @@
 # codeInvocation
 
-> 对应源码：`src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.ts`
+> 对应源码：`src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.ts`
 
 ## 1. 文件位置
 

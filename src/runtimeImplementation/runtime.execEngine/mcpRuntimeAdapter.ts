@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 
-import type { BaseToolExecutorPort, BaseToolExecutorResult } from "../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolExecutorPort, BaseToolExecutorResult } from "../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 
 type JsonObject = Record<string, unknown>;
 

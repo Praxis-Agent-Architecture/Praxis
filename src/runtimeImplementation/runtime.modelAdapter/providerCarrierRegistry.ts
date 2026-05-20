@@ -15,8 +15,8 @@ import type {
 import type {
   ProviderCachePolicy,
   ProviderReasoningConfig,
-} from "../../agentCore_modelAdapter/providerAccessLayer/providerCarrier.js";
-import type { CredentialRef } from "../../agentCore_modelAdapter/authProfileLayer/credentialRef.js";
+} from "../../modelAdapter/providerAccessLayer/providerCarrier.js";
+import type { CredentialRef } from "../../modelAdapter/authProfileLayer/credentialRef.js";
 
 export type ProviderCarrierKind =
   | "openai"

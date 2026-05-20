@@ -1,6 +1,6 @@
 # outputInterfaceFormat
 
-> 对应源码：`src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.ts`
+> 对应源码：`src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.ts`
 
 ## 1. 文件位置
 

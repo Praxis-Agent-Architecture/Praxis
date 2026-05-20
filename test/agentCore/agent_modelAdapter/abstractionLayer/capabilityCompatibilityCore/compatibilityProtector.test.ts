@@ -2,13 +2,13 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { protectCapabilityCompatibility } from "../../../../../src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/compatibilityProtector.js";
-import { extractInterfaceCapabilities } from "../../../../../src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceCapabilityExtraction.js";
-import { extractInterfaceFormats } from "../../../../../src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.js";
-import { evaluateInterfaceScope } from "../../../../../src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceScope.js";
+import { protectCapabilityCompatibility } from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/compatibilityProtector.js";
+import { extractInterfaceCapabilities } from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceCapabilityExtraction.js";
+import { extractInterfaceFormats } from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.js";
+import { evaluateInterfaceScope } from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceScope.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/compatibilityProtector.ts",
+  sourcePath: "src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/compatibilityProtector.ts",
   docPath: "docs/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/compatibilityProtector.md",
   testFileUrl: import.meta.url,
 });

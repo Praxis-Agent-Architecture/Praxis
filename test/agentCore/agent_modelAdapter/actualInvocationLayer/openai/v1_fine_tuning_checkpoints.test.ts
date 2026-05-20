@@ -6,10 +6,10 @@ import {
   OPENAI_V1_FINE_TUNING_CHECKPOINTS_ENDPOINT,
   classifyOpenAIV1FineTuningCheckpointsProviderError,
   invokeOpenAIV1FineTuningCheckpoints,
-} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_fine_tuning_checkpoints.md",
   testFileUrl: import.meta.url,
 });

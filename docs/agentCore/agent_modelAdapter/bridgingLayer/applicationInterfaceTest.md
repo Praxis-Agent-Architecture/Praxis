@@ -1,6 +1,6 @@
 # applicationInterfaceTest
 
-> 对应源码：`src/agentCore_modelAdapter/bridgingLayer/applicationInterfaceTest.ts`
+> 对应源码：`src/modelAdapter/bridgingLayer/applicationInterfaceTest.ts`
 
 ## 1. 文件位置
 

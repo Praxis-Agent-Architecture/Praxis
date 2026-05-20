@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   bindCoreLogic,
   createRuntimeExecEngineBinding,
-} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/bindCoreLogic.js";
+} from "../../../../src/runtimeImplementation/runtime.execEngine/bindCoreLogic.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/bindCoreLogic.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/bindCoreLogic.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/bindCoreLogic.md",
   testFileUrl: import.meta.url,
 });

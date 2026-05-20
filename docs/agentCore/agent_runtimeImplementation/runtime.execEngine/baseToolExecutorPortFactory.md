@@ -1,6 +1,6 @@
 # baseToolExecutorPortFactory
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.ts`
+> 对应源码：`src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.ts`
 
 核心目的：从 runtime context 构造完整 BaseToolExecutorPort，让 176 个 storage-owned baseTool handler 通过注入端口接触宿主能力。
 

@@ -1,6 +1,6 @@
 # interfaceAdapterRuntime
 
-> 对应源码：`src/agentCore_runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.ts`
+> 对应源码：`src/runtimeImplementation/runtime.interfaceAdapter/interfaceAdapterRuntime.ts`
 
 ## 1. 文件位置
 
