@@ -1,2 +1,0 @@
-import { createHostExecutorCodeDebugRunProvider, type CodeDebugRunProviderPractice } from "./dependencies.js";
-export const deepmindCodeDebugRunPractice: CodeDebugRunProviderPractice = { providerName: "deepmind", source: { kind: "cli", label: "Gemini CLI debug run intent practice" }, directCliSupport: true, sideEffectPolicy: "runtime-governed", notes: ["Translate debug-run intent into code.debugRun while runtime manages the live debug session."], createProvider: ({ provider, executor }) => provider ?? createHostExecutorCodeDebugRunProvider(executor) };
