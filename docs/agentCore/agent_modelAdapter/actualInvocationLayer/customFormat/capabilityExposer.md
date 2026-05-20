@@ -1,6 +1,6 @@
 # capabilityExposer
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityExposer.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/customFormat/capabilityExposer.ts`
 
 ## 1. 文件位置
 

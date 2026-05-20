@@ -6,12 +6,12 @@ import {
   classifyOpenAIV1ResponsesProviderError,
   extractOpenAIV1ResponsesUsage,
   invokeOpenAIV1Responses,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import { createApiKeyAuthEnvelope } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createCredentialRef } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import { createApiKeyAuthEnvelope } from "../../../../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { createCredentialRef } from "../../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_responses.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.md",
   testFileUrl: import.meta.url,
 });

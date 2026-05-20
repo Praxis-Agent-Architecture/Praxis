@@ -1,6 +1,6 @@
 # v1_organization_admin_api_keys
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_admin_api_keys.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_organization_admin_api_keys.ts`
 
 ## 1. 文件位置
 

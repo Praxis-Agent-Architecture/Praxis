@@ -2,15 +2,15 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { generateShellCommand } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.js";
-import { buildShellExecutionGuard } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.executionGuard.js";
+import { generateShellCommand } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.js";
+import { buildShellExecutionGuard } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.executionGuard.js";
 import {
   constructShellInvocation,
   shellInvocationConstructionDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.invocationConstruction.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.invocationConstruction.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.invocationConstruction.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.invocationConstruction.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.invocationConstruction.md",
   testFileUrl: import.meta.url,
 });

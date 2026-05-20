@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bindCustomInterfaceLayer } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/bindCustomInterfaceLayer.js";
+import { bindCustomInterfaceLayer } from "../../../../src/runtimeImplementation/runtime.interfaceAdapter/bindCustomInterfaceLayer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/bindCustomInterfaceLayer.ts",
+  sourcePath: "src/runtimeImplementation/runtime.interfaceAdapter/bindCustomInterfaceLayer.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/bindCustomInterfaceLayer.md",
   testFileUrl: import.meta.url,
 });

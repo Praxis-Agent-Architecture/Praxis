@@ -1,6 +1,6 @@
 # git.initializeRepository
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.ts`
 
 ## 1. 文件位置
 

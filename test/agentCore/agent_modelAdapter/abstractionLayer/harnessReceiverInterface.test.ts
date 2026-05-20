@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import {
   harnessReceiverInterfaceDescriptor,
   receiveHarnessReceiverInterface,
-} from "../../../../src/agentCore/agent_modelAdapter/abstractionLayer/harnessReceiverInterface.js";
+} from "../../../../src/modelAdapter/abstractionLayer/harnessReceiverInterface.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/abstractionLayer/harnessReceiverInterface.ts",
+  sourcePath: "src/modelAdapter/abstractionLayer/harnessReceiverInterface.ts",
   docPath: "docs/agentCore/agent_modelAdapter/abstractionLayer/harnessReceiverInterface.md",
   testFileUrl: import.meta.url,
 });

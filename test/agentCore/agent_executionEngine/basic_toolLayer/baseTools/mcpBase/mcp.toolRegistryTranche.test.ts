@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { executeMcpToolRegistration } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.registerTool.js";
-import { executeMcpToolUnregistration } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.js";
-import { executeMcpToolUpdate } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.updateTool.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { executeMcpToolRegistration } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.registerTool.js";
+import { executeMcpToolUnregistration } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.js";
+import { executeMcpToolUpdate } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.updateTool.js";
 
 const acceptedContext = (overrides: Record<string, unknown> = {}) => ({
   dryRun: false,

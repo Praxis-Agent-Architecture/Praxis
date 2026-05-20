@@ -5,15 +5,15 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import {
   assemblePromptPack,
   promptAssemblerDescriptor,
-} from "../../../../src/agentCore/agent_executionEngine/promptPack/promptAssembler.js";
+} from "../../../../src/executionEngine/promptPack/promptAssembler.js";
 import {
   BASIC_CORE_PROMPT_MATERIAL_ID,
   PROMPT_PACK_SEGMENT_KINDS,
   definePromptPack,
-} from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
+} from "../../../../src/executionEngine/promptPack/promptDefiner.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/promptPack/promptAssembler.ts",
+  sourcePath: "src/executionEngine/promptPack/promptAssembler.ts",
   docPath: "docs/agentCore/agent_executionEngine/promptPack/promptAssembler.md",
   testFileUrl: import.meta.url,
 });

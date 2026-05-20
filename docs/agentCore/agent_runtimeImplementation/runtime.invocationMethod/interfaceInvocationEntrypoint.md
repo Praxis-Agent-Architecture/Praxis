@@ -1,6 +1,6 @@
 # interfaceInvocationEntrypoint
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.ts`
+> 对应源码：`src/runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.ts`
 
 ## 1. 文件位置
 

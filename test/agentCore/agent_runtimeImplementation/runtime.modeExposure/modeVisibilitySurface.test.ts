@@ -1,14 +1,14 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildExecutionModeRegistry } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.js";
+import { buildExecutionModeRegistry } from "../../../../src/runtimeImplementation/runtime.modeExposure/executionModeRegistry.js";
 import {
   exposeRuntimeModeVisibility,
   modeVisibilitySurfaceCapability,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.js";
+} from "../../../../src/runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.md",
   testFileUrl: import.meta.url,
 });

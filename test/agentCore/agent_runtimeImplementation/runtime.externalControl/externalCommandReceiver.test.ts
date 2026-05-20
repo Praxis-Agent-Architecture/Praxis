@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   externalCommandReceiverDescriptor,
   receiveExternalCommand,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalCommandReceiver.js";
+} from "../../../../src/runtimeImplementation/runtime.externalControl/externalCommandReceiver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalCommandReceiver.ts",
+  sourcePath: "src/runtimeImplementation/runtime.externalControl/externalCommandReceiver.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.externalControl/externalCommandReceiver.md",
   testFileUrl: import.meta.url,
 });

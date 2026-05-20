@@ -65,7 +65,7 @@ test("devdoctor runs a local application project and records inspectable artifac
 
 test("devdoctor can diagnose a standard applicationLayer REST backend", async () => {
   const devdoctorDir = await mkdtemp(path.join(os.tmpdir(), "praxis-devdoctor-rest-"));
-  const created = await createApplicationProjectRuntime("doctor", {
+  const created = await createApplicationProjectRuntime("src/devdoctor", {
     now: () => new Date().toISOString(),
   });
   assert.equal(created.ok, true);
@@ -102,7 +102,7 @@ test("devdoctor can diagnose a standard applicationLayer REST backend", async ()
 
 test("devdoctor can diagnose a standard applicationLayer WebSocket backend", async () => {
   const devdoctorDir = await mkdtemp(path.join(os.tmpdir(), "praxis-devdoctor-ws-"));
-  const created = await createApplicationProjectRuntime("doctor", {
+  const created = await createApplicationProjectRuntime("src/devdoctor", {
     now: () => new Date().toISOString(),
   });
   assert.equal(created.ok, true);

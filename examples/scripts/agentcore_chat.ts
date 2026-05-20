@@ -6,14 +6,14 @@ import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { OpenAIV1ResponsesProviderCaller } from "../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import { invokeChatGPTCodexResponses } from "../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import type { AuthEnvelope } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { resolveAuthEnvelope } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/agentCore/agent_modelAdapter/providerAccessLayer/transportCaller.js";
+import type { OpenAIV1ResponsesProviderCaller } from "../../src/modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+import type { AuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
+import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
+import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
+import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
 import {
   createFullShellExecutor,
   invokeShellToolThroughRuntimeChain,
@@ -21,20 +21,20 @@ import {
   shellLiveToolCases,
   shellLiveToolIds,
 } from "./shellFullCapabilities.js";
-import { providePromptPackInput } from "../../src/agentCore/agent_executionEngine/promptPack/promptProvider.js";
-import { mountAgentApplication } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
-import { createAgentApplicationRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
-import { createAgentRuntimeClient } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeClient.js";
-import { createAgentRuntime } from "../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.js";
-import { bindPromptPack } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindPromptPack.js";
-import { createAgentInvocationEntrypoint } from "../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.js";
-import { createInvocationResultSurface } from "../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationResultSurface.js";
-import { openModelInvocationEntrypoint } from "../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
-import { planModelInvocation } from "../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
-import { lowerPromptForModelAdapter } from "../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
-import { createRuntimeBaseToolExecutorPort } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
-import { invokeMountedBaseTool } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
-import { decideTextToolFallback } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/textFallbackPolicy.js";
+import { providePromptPackInput } from "../../src/executionEngine/promptPack/promptProvider.js";
+import { mountAgentApplication } from "../../src/runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
+import { createAgentApplicationRuntime } from "../../src/runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
+import { createAgentRuntimeClient } from "../../src/runtimeImplementation/runtime.applicationSurface/agentRuntimeClient.js";
+import { createAgentRuntime } from "../../src/runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.js";
+import { bindPromptPack } from "../../src/runtimeImplementation/runtime.execEngine/bindPromptPack.js";
+import { createAgentInvocationEntrypoint } from "../../src/runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.js";
+import { createInvocationResultSurface } from "../../src/runtimeImplementation/runtime.invocationMethod/invocationResultSurface.js";
+import { openModelInvocationEntrypoint } from "../../src/runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
+import { planModelInvocation } from "../../src/runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
+import { lowerPromptForModelAdapter } from "../../src/runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
+import { createRuntimeBaseToolExecutorPort } from "../../src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import { invokeMountedBaseTool } from "../../src/runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
+import { decideTextToolFallback } from "../../src/runtimeImplementation/runtime.execEngine/textFallbackPolicy.js";
 import { praxis, type AgentManifest, type RuntimeApprovalResolver } from "../../src/agentCore/index.js";
 
 type ChatMessage = {

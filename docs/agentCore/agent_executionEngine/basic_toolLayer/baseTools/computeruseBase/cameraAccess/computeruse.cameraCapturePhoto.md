@@ -1,6 +1,6 @@
 # computeruse.cameraCapturePhoto
 
-对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraCapturePhoto.ts`
+对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraCapturePhoto.ts`
 
 ## 1. 文件位置
 

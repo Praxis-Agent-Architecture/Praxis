@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { executeShellExecutionMonitoring } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.executionMonitoring.js";
-import { executeShellInteractiveControl } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.js";
-import { captureShellOutput, executeShellOutputCapture } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.outputCapture.js";
-import { executeShellPromptHandling } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.promptHandling.js";
-import { executeShellStdinFeeding } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { executeShellExecutionMonitoring } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.executionMonitoring.js";
+import { executeShellInteractiveControl } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.js";
+import { captureShellOutput, executeShellOutputCapture } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.outputCapture.js";
+import { executeShellPromptHandling } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.promptHandling.js";
+import { executeShellStdinFeeding } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.js";
 
 const validInputs = {
   "shell.executionMonitoring": {

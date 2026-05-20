@@ -1,14 +1,14 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRuntimeAccessSession } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+import { createRuntimeAccessSession } from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
 import {
   managementCommandRouterDescriptor,
   routeManagementCommand,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/managementCommandRouter.js";
+} from "../../../../src/runtimeImplementation/runtime.managementPlane/managementCommandRouter.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.managementPlane/managementCommandRouter.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/managementCommandRouter.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/managementCommandRouter.md",
   testFileUrl: import.meta.url,
 });

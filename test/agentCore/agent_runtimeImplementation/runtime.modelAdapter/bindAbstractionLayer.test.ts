@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { bindAbstractionLayer } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.js";
+import { bindAbstractionLayer } from "../../../../src/runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindAbstractionLayer.md",
   testFileUrl: import.meta.url,
 });

@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   exposeTapInvocationEvent,
   tapInvocationDescriptor,
-} from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/tapInvocation.js";
+} from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/tapInvocation.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/tapInvocation.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/tapInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/tapInvocation.md",
   testFileUrl: import.meta.url,
 });

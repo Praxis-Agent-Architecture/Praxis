@@ -1,6 +1,6 @@
 # bindBasicToolLayer
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.ts`
+> 对应源码：`src/runtimeImplementation/runtime.execEngine/bindBasicToolLayer.ts`
 
 ## 1. 文件位置
 

@@ -1,6 +1,6 @@
 # tapRuntimeBridge
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/tapRuntimeBridge.ts`
+> 对应源码：`src/runtimeImplementation/runtime.officialModuleSurface/tapRuntimeBridge.ts`
 
 ## 1. 文件位置
 

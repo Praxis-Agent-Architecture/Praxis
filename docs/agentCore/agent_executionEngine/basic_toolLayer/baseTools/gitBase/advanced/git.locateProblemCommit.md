@@ -1,6 +1,6 @@
 # git.locateProblemCommit
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.locateProblemCommit.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.locateProblemCommit.ts`
 > 对应实现：`src/storagePool/baseToolStorage/gitBase/advanced/git.locateProblemCommit/`
 
 ## 1. 文件位置

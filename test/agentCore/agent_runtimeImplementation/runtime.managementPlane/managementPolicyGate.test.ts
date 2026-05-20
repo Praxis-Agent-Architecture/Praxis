@@ -1,14 +1,14 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRuntimeAccessSession } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+import { createRuntimeAccessSession } from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
 import {
   evaluateManagementPolicyGate,
   managementPolicyGateDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/managementPolicyGate.js";
+} from "../../../../src/runtimeImplementation/runtime.managementPlane/managementPolicyGate.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.managementPlane/managementPolicyGate.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/managementPolicyGate.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/managementPolicyGate.md",
   testFileUrl: import.meta.url,
 });

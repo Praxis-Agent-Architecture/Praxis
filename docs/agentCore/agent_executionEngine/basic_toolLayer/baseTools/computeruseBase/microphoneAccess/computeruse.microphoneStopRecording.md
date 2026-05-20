@@ -1,6 +1,6 @@
 # computeruse.microphoneStopRecording
 
-对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording.ts`
+对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/microphoneAccess/computeruse.microphoneStopRecording.ts`
 
 ## 1. 文件位置
 

@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { executeCodeDelete } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.delete.js";
-import { executeCodeFormat } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.format.js";
-import { executeCodeModify } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.modify.js";
-import { executeCodeOverwrite } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.overwrite.js";
-import { executeCodeReplaceFile } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.replaceFile.js";
-import { adaptRuntimeToolInvocation } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { bridgeExecEngineInvocation } from "../../../../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { executeCodeDelete } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.delete.js";
+import { executeCodeFormat } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.format.js";
+import { executeCodeModify } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.modify.js";
+import { executeCodeOverwrite } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.overwrite.js";
+import { executeCodeReplaceFile } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.replaceFile.js";
+import { adaptRuntimeToolInvocation } from "../../../../../../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import { bridgeExecEngineInvocation } from "../../../../../../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 type ChainInvokeResult = {
   ok: boolean;

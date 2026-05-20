@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   planShellStdinFeeding,
   shellStdinFeedingDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.stdinFeeding.md",
   testFileUrl: import.meta.url,
 });

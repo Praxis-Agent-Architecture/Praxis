@@ -1,6 +1,6 @@
 # git.resetStagingOrCommit
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.ts`
 
 ## 1. 文件位置
 

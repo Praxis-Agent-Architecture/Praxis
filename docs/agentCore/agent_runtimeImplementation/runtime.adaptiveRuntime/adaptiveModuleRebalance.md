@@ -1,6 +1,6 @@
 # adaptiveModuleRebalance
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveModuleRebalance.ts`
+> 对应源码：`src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveModuleRebalance.ts`
 
 ## 1. 文件位置
 

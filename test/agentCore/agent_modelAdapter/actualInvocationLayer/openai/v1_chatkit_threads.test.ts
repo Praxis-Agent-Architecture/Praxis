@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   OPENAI_V1_CHATKIT_THREADS_ENDPOINT,
   invokeOpenAiV1ChatkitThreads,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chatkit_threads.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_chatkit_threads.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chatkit_threads.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_chatkit_threads.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chatkit_threads.md",
   testFileUrl: import.meta.url,
 });

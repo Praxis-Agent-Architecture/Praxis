@@ -7,10 +7,10 @@ import {
   getWorkingTreeDiffDescriptor,
   parseGitWorkingTreeDiff,
   planGetWorkingTreeDiff,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getWorkingTreeDiff.md",
   testFileUrl: import.meta.url,
 });

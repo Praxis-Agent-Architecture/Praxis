@@ -1,6 +1,6 @@
 # imageReceiver
 
-> 对应源码：`src/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/imageReceiver.ts`
+> 对应源码：`src/executionEngine/IOTransceiver/inputReceiver/imageReceiver.ts`
 
 ## 1. 文件位置
 

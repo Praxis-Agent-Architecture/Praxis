@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { exposeTextOutput } from "../../../../../src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/textExposer.js";
+import { exposeTextOutput } from "../../../../../src/executionEngine/IOTransceiver/outputExposer/textExposer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/textExposer.ts",
+  sourcePath: "src/executionEngine/IOTransceiver/outputExposer/textExposer.ts",
   docPath: "docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/textExposer.md",
   testFileUrl: import.meta.url,
 });

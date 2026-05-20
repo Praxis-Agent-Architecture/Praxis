@@ -3,8 +3,8 @@
  * 核心目的：比较三家来源实践，并给 baseTools 入口提供稳定的 Shell 调用对象执行调用面。
  */
 
-import type { BaseToolExecutorPort } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { anthropicShellInvocationExecutionPractice } from "./anthropic.js";
 import { deepmindShellInvocationExecutionPractice } from "./deepmind.js";
 import { openaiShellInvocationExecutionPractice } from "./openai.js";

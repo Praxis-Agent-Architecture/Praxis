@@ -8,11 +8,11 @@ import {
   selectShellSandboxEnforcementPractice,
   shellSandboxEnforcementDescriptor,
   shellSandboxEnforcementHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.sandboxEnforcement.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.sandboxEnforcement.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.sandboxEnforcement.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.sandboxEnforcement.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.sandboxEnforcement.md",
   testFileUrl: import.meta.url,
 });

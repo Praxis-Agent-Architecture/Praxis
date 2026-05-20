@@ -6,10 +6,10 @@ import {
   DEEPMIND_V1BETA_FILE_SEARCH_STORES_ENDPOINT,
   classifyDeepmindV1BetaFileSearchStoresProviderError,
   invokeDeepmindV1BetaFileSearchStores,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_fileSearchStores.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/deepmind/v1beta_fileSearchStores.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_fileSearchStores.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/deepmind/v1beta_fileSearchStores.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_fileSearchStores.md",
   testFileUrl: import.meta.url,
 });

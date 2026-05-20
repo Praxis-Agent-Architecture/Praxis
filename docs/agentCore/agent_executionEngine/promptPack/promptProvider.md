@@ -1,6 +1,6 @@
 # promptProvider
 
-> 对应源码：`src/agentCore/agent_executionEngine/promptPack/promptProvider.ts`
+> 对应源码：`src/executionEngine/promptPack/promptProvider.ts`
 
 ## 1. 文件位置
 

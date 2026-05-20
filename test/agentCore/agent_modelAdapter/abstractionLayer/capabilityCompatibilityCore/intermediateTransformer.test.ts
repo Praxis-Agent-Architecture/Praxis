@@ -5,16 +5,16 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   mapIntermediateCapabilityCompatibility,
   type IntermediateCompatibilityMapping,
-} from "../../../../../src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateMapper.js";
+} from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateMapper.js";
 import {
   intermediateTransformerDescriptor,
   transformIntermediateCompatibility,
-} from "../../../../../src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateTransformer.js";
-import { defineOutputInterfaceCapabilities } from "../../../../../src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceCapability.js";
-import { defineOutputInterfaceFormats } from "../../../../../src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.js";
+} from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateTransformer.js";
+import { defineOutputInterfaceCapabilities } from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceCapability.js";
+import { defineOutputInterfaceFormats } from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateTransformer.ts",
+  sourcePath: "src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateTransformer.ts",
   docPath: "docs/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateTransformer.md",
   testFileUrl: import.meta.url,
 });

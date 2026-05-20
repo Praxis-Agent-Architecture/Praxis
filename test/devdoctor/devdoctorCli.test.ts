@@ -11,7 +11,7 @@ import {
 import { runRaxCli } from "../../src/rax_packageManager/raxCli.js";
 
 const REPO_ROOT = path.resolve(new URL("../..", import.meta.url).pathname);
-const DOCTOR_PROJECT = path.join(REPO_ROOT, "doctor");
+const DOCTOR_PROJECT = path.join(REPO_ROOT, "src/devdoctor");
 
 test("rax devdoctor runs a local applicationLayer backend and records artifacts", async () => {
   const devdoctorDir = await mkdtemp(path.join(os.tmpdir(), "praxis-devdoctor-"));

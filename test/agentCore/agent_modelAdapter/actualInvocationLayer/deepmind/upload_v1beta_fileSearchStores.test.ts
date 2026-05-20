@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   deepMindUploadV1BetaFileSearchStoresDescriptor,
   planDeepMindUploadV1BetaFileSearchStores,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.md",
   testFileUrl: import.meta.url,
 });

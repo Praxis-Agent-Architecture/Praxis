@@ -8,11 +8,11 @@ import {
   selectShellScriptExecutionPractice,
   shellScriptExecutionHandler,
   shellScriptExecutionDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.scriptExecution.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.scriptExecution.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.scriptExecution.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.scriptExecution.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.scriptExecution.md",
   testFileUrl: import.meta.url,
 });

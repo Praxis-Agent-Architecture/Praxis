@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import {
   codeFormatDescriptor,
   planCodeFormat,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.format.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.format.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.format.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.format.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.format.md",
   testFileUrl: import.meta.url,
 });

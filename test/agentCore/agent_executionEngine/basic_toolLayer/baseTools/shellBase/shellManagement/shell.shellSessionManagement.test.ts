@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planShellSessionManagement } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellSessionManagement.js";
+import { planShellSessionManagement } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellSessionManagement.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellSessionManagement.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellSessionManagement.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellSessionManagement.md",
   testFileUrl: import.meta.url,
 });

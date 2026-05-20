@@ -5,12 +5,12 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   createOpenAIAudioTranscriptionInvocation,
   openAIAudioTranscriptionsDescriptor,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_transcriptions.js";
-import { createApiKeyAuthEnvelope } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createCredentialRef } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_audio_transcriptions.js";
+import { createApiKeyAuthEnvelope } from "../../../../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { createCredentialRef } from "../../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_transcriptions.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_audio_transcriptions.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_transcriptions.md",
   testFileUrl: import.meta.url,
 });

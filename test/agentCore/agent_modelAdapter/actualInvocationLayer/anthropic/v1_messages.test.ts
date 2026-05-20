@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   ANTHROPIC_V1_MESSAGES_ENDPOINT,
   invokeAnthropicV1Messages,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/anthropic/v1_messages.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.md",
   testFileUrl: import.meta.url,
 });

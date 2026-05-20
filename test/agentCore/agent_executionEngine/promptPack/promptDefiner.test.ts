@@ -9,10 +9,10 @@ import {
   PROMPT_PACK_SEGMENT_KINDS,
   definePromptPack,
   promptPackDefinerDescriptor,
-} from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
+} from "../../../../src/executionEngine/promptPack/promptDefiner.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/promptPack/promptDefiner.ts",
+  sourcePath: "src/executionEngine/promptPack/promptDefiner.ts",
   docPath: "docs/agentCore/agent_executionEngine/promptPack/promptDefiner.md",
   testFileUrl: import.meta.url,
 });

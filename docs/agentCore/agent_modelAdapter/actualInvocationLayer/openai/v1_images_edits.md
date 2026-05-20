@@ -1,6 +1,6 @@
 # v1_images_edits
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_edits.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_images_edits.ts`
 
 ## 1. 文件位置
 

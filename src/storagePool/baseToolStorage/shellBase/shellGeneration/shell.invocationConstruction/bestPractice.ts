@@ -1,5 +1,5 @@
-import type { BaseToolHandler, BaseToolInvokeResult } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import type { BaseToolExecutorPort } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler, BaseToolInvokeResult } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { anthropicShellInvocationConstructionPractice } from "./anthropic.js";
 import { deepmindShellInvocationConstructionPractice } from "./deepmind.js";
 import { openaiShellInvocationConstructionPractice } from "./openai.js";

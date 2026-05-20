@@ -23,12 +23,12 @@ import {
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
 } from "../agentCore/index.js";
-import type { OpenAIV1ResponsesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import type { OpenAiV1ChatCompletionsProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
-import type { AnthropicV1MessagesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
-import { invokeChatGPTCodexResponses } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import type { AuthEnvelope } from "../agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { resolveProviderModelMetadata } from "../agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
+import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
+import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import { invokeChatGPTCodexResponses } from "../modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
+import { resolveProviderModelMetadata } from "../modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import type {
   PraxisApplicationCommand,
   PraxisApplicationCommandResult,

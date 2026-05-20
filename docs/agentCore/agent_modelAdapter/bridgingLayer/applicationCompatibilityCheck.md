@@ -1,6 +1,6 @@
 # applicationCompatibilityCheck
 
-> 对应源码：`src/agentCore/agent_modelAdapter/bridgingLayer/applicationCompatibilityCheck.ts`
+> 对应源码：`src/modelAdapter/bridgingLayer/applicationCompatibilityCheck.ts`
 
 ## 1. 文件位置
 

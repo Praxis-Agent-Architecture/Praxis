@@ -2,16 +2,16 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitPullRemoteChanges,
   parseGitPullRemoteChangesResult,
   planGitPullRemoteChanges,
   planGitRemotePull,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.md",
   testFileUrl: import.meta.url,
 });

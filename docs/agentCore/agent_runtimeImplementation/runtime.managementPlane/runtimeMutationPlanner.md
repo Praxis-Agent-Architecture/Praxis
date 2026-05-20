@@ -1,6 +1,6 @@
 # runtimeMutationPlanner
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.ts`
+> 对应源码：`src/runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.ts`
 
 ## 1. 文件位置
 

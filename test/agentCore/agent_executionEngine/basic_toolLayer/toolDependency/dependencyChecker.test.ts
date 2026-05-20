@@ -6,10 +6,10 @@ import {
   basicToolDependencyCheckerDescriptor,
   checkBasicToolDependencies,
   planBasicToolDependencyProbe,
-} from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.js";
+} from "../../../../../src/executionEngine/basic_toolLayer/toolDependency/dependencyChecker.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/toolDependency/dependencyChecker.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.md",
   testFileUrl: import.meta.url,
 });

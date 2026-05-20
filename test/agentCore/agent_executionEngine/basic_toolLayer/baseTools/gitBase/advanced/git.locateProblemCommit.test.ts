@@ -2,8 +2,8 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitLocateProblemCommit,
   locateProblemCommitDescriptor,
@@ -12,10 +12,10 @@ import {
   planLocateProblemCommit,
   type GitLocateProblemCommitContext,
   type GitLocateProblemCommitOutput,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.locateProblemCommit.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.locateProblemCommit.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.locateProblemCommit.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.locateProblemCommit.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.locateProblemCommit.md",
   testFileUrl: import.meta.url,
 });

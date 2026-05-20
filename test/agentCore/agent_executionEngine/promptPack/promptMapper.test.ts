@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { assemblePromptPack } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptAssembler.js";
-import { definePromptPack } from "../../../../src/agentCore/agent_executionEngine/promptPack/promptDefiner.js";
+import { assemblePromptPack } from "../../../../src/executionEngine/promptPack/promptAssembler.js";
+import { definePromptPack } from "../../../../src/executionEngine/promptPack/promptDefiner.js";
 import {
   mapPromptMaterials,
   promptMapperDescriptor,
-} from "../../../../src/agentCore/agent_executionEngine/promptPack/promptMapper.js";
+} from "../../../../src/executionEngine/promptPack/promptMapper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/promptPack/promptMapper.ts",
+  sourcePath: "src/executionEngine/promptPack/promptMapper.ts",
   docPath: "docs/agentCore/agent_executionEngine/promptPack/promptMapper.md",
   testFileUrl: import.meta.url,
 });

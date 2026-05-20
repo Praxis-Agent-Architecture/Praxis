@@ -1,6 +1,6 @@
 # reuseInvoker
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/reuseInvoker.ts`
+> 对应源码：`src/executionEngine/coreLogic/reuseInvoker.ts`
 
 ## 1. 文件位置
 

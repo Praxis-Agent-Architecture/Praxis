@@ -1,6 +1,6 @@
 # capabilityExposureRuntime
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/capabilityExposureRuntime.ts`
+> 对应源码：`src/runtimeImplementation/runtime.capabilityExposure/capabilityExposureRuntime.ts`
 
 ## 1. 文件位置
 

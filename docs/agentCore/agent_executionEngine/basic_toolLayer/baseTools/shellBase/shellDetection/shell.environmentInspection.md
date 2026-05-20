@@ -1,6 +1,6 @@
 # shell.environmentInspection
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.ts`
 
 ## Runtime Contract Snapshot
 

@@ -4,9 +4,9 @@ import test from "node:test";
 import {
   CHATGPT_CODEX_RESPONSES_BASE_URL,
   invokeChatGPTCodexResponses,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import { createChatGPTCodexAuthEnvelope } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/codexAuth.js";
-import { createCredentialRef } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+import { createChatGPTCodexAuthEnvelope } from "../../../../../src/modelAdapter/authProfileLayer/codexAuth.js";
+import { createCredentialRef } from "../../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
 
 function codexAuthEnvelope() {
   const ref = createCredentialRef({

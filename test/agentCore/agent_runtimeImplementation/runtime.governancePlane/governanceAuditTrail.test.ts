@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { recordGovernanceAuditTrail } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceAuditTrail.js";
+import { recordGovernanceAuditTrail } from "../../../../src/runtimeImplementation/runtime.governancePlane/governanceAuditTrail.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceAuditTrail.ts",
+  sourcePath: "src/runtimeImplementation/runtime.governancePlane/governanceAuditTrail.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceAuditTrail.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   codeDebugCaptureStateDescriptor,
   planCodeDebugCaptureState,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCaptureState.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCaptureState.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCaptureState.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCaptureState.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCaptureState.md",
   testFileUrl: import.meta.url,
 });

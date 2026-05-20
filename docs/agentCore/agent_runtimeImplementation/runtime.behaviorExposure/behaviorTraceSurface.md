@@ -1,6 +1,6 @@
 # behaviorTraceSurface
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.ts`
+> 对应源码：`src/runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.ts`
 
 ## 1. 文件位置
 

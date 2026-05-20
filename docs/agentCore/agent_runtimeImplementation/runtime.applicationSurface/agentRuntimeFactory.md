@@ -1,6 +1,6 @@
 # agentRuntimeFactory
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.ts`
+> 对应源码：`src/runtimeImplementation/runtime.applicationSurface/agentRuntimeFactory.ts`
 
 ## 1. 文件位置
 

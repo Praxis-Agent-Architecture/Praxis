@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   planShellDetachedExecution,
   shellDetachedExecutionDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.md",
   testFileUrl: import.meta.url,
 });

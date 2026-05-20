@@ -1,6 +1,6 @@
 # code.lsp_inspectDiagnostics
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_inspectDiagnostics.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_inspectDiagnostics.ts`
 
 ## 1. 文件位置
 

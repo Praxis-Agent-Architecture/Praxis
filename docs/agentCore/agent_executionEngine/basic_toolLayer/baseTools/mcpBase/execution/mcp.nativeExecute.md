@@ -1,6 +1,6 @@
 # mcp.nativeExecute
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.nativeExecute.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.nativeExecute.ts`
 
 ## 1. 文件位置
 

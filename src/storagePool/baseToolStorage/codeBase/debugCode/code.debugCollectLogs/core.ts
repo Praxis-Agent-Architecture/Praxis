@@ -1,4 +1,4 @@
-import type { BaseToolDebugLogEntry } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolDebugLogEntry } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import type { CodeToolAuditEvent, CodeToolResult } from "../../_shared/baseToolAdapter.js";
 
 export type CodeDebugCollectLogsBoundary = "input" | "contract" | "governance" | "scope" | "provider";

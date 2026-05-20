@@ -1,6 +1,6 @@
 # shell.executionGuard
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.executionGuard.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.executionGuard.ts`
 
 ## 1. 文件位置
 

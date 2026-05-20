@@ -1,6 +1,6 @@
 # bindIOTransceiver
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindIOTransceiver.ts`
+> 对应源码：`src/runtimeImplementation/runtime.execEngine/bindIOTransceiver.ts`
 
 ## 1. 文件位置
 

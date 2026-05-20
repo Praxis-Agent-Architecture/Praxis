@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSkillIteration, skillIterateHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.iterate.js";
+import { planSkillIteration, skillIterateHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/skillBase/skill.iterate.js";
 
 test("skill.iterate returns dry-run patch envelope", async () => {
   const result = await planSkillIteration({

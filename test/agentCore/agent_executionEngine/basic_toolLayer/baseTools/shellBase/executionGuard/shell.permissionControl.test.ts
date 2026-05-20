@@ -8,11 +8,11 @@ import {
   selectShellPermissionControlPractice,
   shellPermissionControlDescriptor,
   shellPermissionControlHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.permissionControl.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.permissionControl.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.permissionControl.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.permissionControl.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.permissionControl.md",
   testFileUrl: import.meta.url,
 });

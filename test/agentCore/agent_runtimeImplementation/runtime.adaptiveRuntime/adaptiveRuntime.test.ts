@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import {
   DEFAULT_ADAPTIVE_RUNTIME_ACTIONS,
   planAdaptiveRuntimeAdjustment,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveRuntime.js";
+} from "../../../../src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveRuntime.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import {
   codeOverwriteDescriptor,
   planCodeOverwrite,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.overwrite.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.overwrite.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.overwrite.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.overwrite.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.overwrite.md",
   testFileUrl: import.meta.url,
 });

@@ -1,6 +1,6 @@
 # omni.generateImage
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.generateImage.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.generateImage.ts`
 
 ## 1. 文件位置
 

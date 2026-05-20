@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   customFormatCapabilityReceiverDescriptor,
   receiveCustomFormatCapability,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.md",
   testFileUrl: import.meta.url,
 });

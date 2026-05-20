@@ -1,6 +1,6 @@
 # shell.interactiveControl
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/shellInteraction/shell.interactiveControl.ts`
 
 ## 1. 文件位置
 

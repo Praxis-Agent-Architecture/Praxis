@@ -1,6 +1,6 @@
 # computeruse.windowScreenRecording
 
-对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.ts`
+对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.ts`
 
 ## 1. 文件位置
 

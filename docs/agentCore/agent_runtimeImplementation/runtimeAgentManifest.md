@@ -1,6 +1,6 @@
 # runtimeAgentManifest
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.ts`
+> 对应源码：`src/runtimeImplementation/runtimeAgentManifest.ts`
 
 ## 1. 文件位置
 

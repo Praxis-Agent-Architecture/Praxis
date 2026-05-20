@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   planShellLifecycleManagement,
   shellLifecycleManagementDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellLifecycleManagement.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellLifecycleManagement.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellLifecycleManagement.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellLifecycleManagement.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellLifecycleManagement.md",
   testFileUrl: import.meta.url,
 });

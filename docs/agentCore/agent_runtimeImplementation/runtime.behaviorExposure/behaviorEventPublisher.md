@@ -1,6 +1,6 @@
 # behaviorEventPublisher
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.ts`
+> 对应源码：`src/runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.ts`
 
 ## 1. 文件位置
 

@@ -1,6 +1,6 @@
 # behaviorExposureRuntime
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.ts`
+> 对应源码：`src/runtimeImplementation/runtime.behaviorExposure/behaviorExposureRuntime.ts`
 
 ## 1. 文件位置
 

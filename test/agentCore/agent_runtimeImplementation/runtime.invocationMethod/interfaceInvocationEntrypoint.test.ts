@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInterfaceInvocationEntrypoint } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.js";
+import { createInterfaceInvocationEntrypoint } from "../../../../src/runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.ts",
+  sourcePath: "src/runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/interfaceInvocationEntrypoint.md",
   testFileUrl: import.meta.url,
 });

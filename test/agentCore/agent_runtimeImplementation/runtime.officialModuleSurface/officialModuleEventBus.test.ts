@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createOfficialModuleEventBus, type OfficialModuleEvent } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleEventBus.js";
+import { createOfficialModuleEventBus, type OfficialModuleEvent } from "../../../../src/runtimeImplementation/runtime.officialModuleSurface/officialModuleEventBus.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleEventBus.ts",
+  sourcePath: "src/runtimeImplementation/runtime.officialModuleSurface/officialModuleEventBus.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleEventBus.md",
   testFileUrl: import.meta.url,
 });

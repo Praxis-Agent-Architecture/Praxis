@@ -1,6 +1,6 @@
 # mpInterface
 
-> 对应源码：`src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/mpInterface.ts`
+> 对应源码：`src/interfaceAdapter/basic_interfaceLayer/mpInterface.ts`
 
 ## 1. 文件位置
 

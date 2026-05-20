@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planMcpCache } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.js";
+import { planMcpCache } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/cache/mcp.cache.md",
   testFileUrl: import.meta.url,
 });

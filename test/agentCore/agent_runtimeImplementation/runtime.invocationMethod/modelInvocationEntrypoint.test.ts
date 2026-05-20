@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { openModelInvocationEntrypoint } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
+import { openModelInvocationEntrypoint } from "../../../../src/runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.ts",
+  sourcePath: "src/runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.md",
   testFileUrl: import.meta.url,
 });

@@ -1,6 +1,6 @@
 # git.manageWorktree
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/advanced/git.manageWorktree.ts`
 
 ## 1. 文件位置
 

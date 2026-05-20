@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { exposeKillSubAgentEvent } from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.js";
+import { exposeKillSubAgentEvent } from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/killSubAgent.md",
   testFileUrl: import.meta.url,
 });

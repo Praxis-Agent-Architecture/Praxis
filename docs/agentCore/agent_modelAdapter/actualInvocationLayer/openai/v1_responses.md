@@ -1,6 +1,6 @@
 # v1_responses
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/openai/v1_responses.ts`
 
 ## 1. 文件位置
 

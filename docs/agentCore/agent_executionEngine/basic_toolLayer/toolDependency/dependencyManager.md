@@ -1,6 +1,6 @@
 # dependencyManager
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyManager.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/toolDependency/dependencyManager.ts`
 
 ## 1. 文件位置
 

@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planMcpConnect } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.js";
+import { planMcpConnect } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.md",
   testFileUrl: import.meta.url,
 });

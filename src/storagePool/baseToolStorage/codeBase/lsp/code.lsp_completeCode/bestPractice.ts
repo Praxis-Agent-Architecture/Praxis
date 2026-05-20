@@ -1,8 +1,8 @@
-import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolHandler } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import {
   type BaseToolLspCompletionItem,
   type BaseToolLspPosition,
-} from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import {
   baseToolInvokeFailure,
   baseToolInvokeSuccess,

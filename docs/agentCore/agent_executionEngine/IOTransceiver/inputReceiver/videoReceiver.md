@@ -1,6 +1,6 @@
 # videoReceiver
 
-> 对应源码：`src/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/videoReceiver.ts`
+> 对应源码：`src/executionEngine/IOTransceiver/inputReceiver/videoReceiver.ts`
 
 ## 1. 文件位置
 

@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planMcpDeleteResource } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.deleteResource.js";
+import { planMcpDeleteResource } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.deleteResource.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.deleteResource.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.deleteResource.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.deleteResource.md",
   testFileUrl: import.meta.url,
 });

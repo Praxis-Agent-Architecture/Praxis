@@ -1,6 +1,6 @@
 # computeruse.checkboxConfirm
 
-对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.checkboxConfirm.ts`
+对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.checkboxConfirm.ts`
 
 ## 1. 文件位置
 

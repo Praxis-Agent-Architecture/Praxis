@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   behaviorEventPublisherDescriptor,
   publishBehaviorEvent,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.js";
+} from "../../../../src/runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.ts",
+  sourcePath: "src/runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.md",
   testFileUrl: import.meta.url,
 });

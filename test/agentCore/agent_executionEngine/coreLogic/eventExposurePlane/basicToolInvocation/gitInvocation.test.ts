@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHe
 import {
   exposeGitInvocationEvent,
   gitInvocationDescriptor,
-} from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.js";
+} from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/gitInvocation.md",
   testFileUrl: import.meta.url,
 });

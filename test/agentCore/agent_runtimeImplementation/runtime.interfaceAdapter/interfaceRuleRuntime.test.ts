@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   evaluateInterfaceRuleRuntime,
   interfaceRuleRuntimeDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/interfaceRuleRuntime.js";
+} from "../../../../src/runtimeImplementation/runtime.interfaceAdapter/interfaceRuleRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/interfaceRuleRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.interfaceAdapter/interfaceRuleRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/interfaceRuleRuntime.md",
   testFileUrl: import.meta.url,
 });

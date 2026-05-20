@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { bindBridgingLayer } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.js";
+import { bindBridgingLayer } from "../../../../src/runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindBridgingLayer.md",
   testFileUrl: import.meta.url,
 });

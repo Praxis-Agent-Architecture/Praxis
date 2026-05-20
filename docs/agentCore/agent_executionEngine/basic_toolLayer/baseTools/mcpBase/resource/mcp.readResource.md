@@ -1,6 +1,6 @@
 # mcp.readResource
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.readResource.ts`
 
 ## 1. 文件位置
 

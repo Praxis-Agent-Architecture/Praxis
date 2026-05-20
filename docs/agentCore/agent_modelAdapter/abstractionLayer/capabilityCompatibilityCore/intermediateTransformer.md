@@ -1,6 +1,6 @@
 # intermediateTransformer
 
-> 对应源码：`src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateTransformer.ts`
+> 对应源码：`src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/intermediateTransformer.ts`
 
 ## 1. 文件位置
 

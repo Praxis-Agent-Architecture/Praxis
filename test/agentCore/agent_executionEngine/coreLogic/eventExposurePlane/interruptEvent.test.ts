@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { exposeInterruptEvent } from "../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/interruptEvent.js";
+import { exposeInterruptEvent } from "../../../../../src/executionEngine/coreLogic/eventExposurePlane/interruptEvent.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/interruptEvent.ts",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/interruptEvent.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/interruptEvent.md",
   testFileUrl: import.meta.url,
 });

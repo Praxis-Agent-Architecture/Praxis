@@ -1,6 +1,6 @@
 # runtimeOperatorConsole
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.ts`
+> 对应源码：`src/runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.ts`
 
 ## 1. 文件位置
 

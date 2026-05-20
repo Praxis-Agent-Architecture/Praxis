@@ -7,10 +7,10 @@ import {
   lowerProviderToolResult,
   normalizeProviderInputSchema,
   raiseProviderToolCalls,
-} from "../../../../src/agentCore/agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../../../../src/modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 import {
   tool,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
+} from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
 import {
   codeOverwriteBaseToolDefinition,
 } from "../../../../src/storagePool/baseToolStorage/codeBase/edit/code.overwrite/bestPractice.js";

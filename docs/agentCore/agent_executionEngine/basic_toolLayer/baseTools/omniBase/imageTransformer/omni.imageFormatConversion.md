@@ -1,6 +1,6 @@
 # omni.imageFormatConversion
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.imageFormatConversion.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.imageFormatConversion.ts`
 
 ## 1. 文件位置
 

@@ -1,6 +1,6 @@
 # mcp.registerTool
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.registerTool.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.registerTool.ts`
 
 ## 1. 文件位置
 

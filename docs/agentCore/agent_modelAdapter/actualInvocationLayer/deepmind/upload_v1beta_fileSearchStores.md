@@ -1,6 +1,6 @@
 # upload_v1beta_fileSearchStores
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/deepmind/upload_v1beta_fileSearchStores.ts`
 
 ## 1. 文件位置
 

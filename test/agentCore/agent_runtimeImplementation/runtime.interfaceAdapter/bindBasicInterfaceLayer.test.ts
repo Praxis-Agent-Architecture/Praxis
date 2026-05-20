@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bindBasicInterfaceLayer } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
+import { bindBasicInterfaceLayer } from "../../../../src/runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.ts",
+  sourcePath: "src/runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/bindBasicInterfaceLayer.md",
   testFileUrl: import.meta.url,
 });

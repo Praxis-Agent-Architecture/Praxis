@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { extractInterfaceFormats } from "../../../../../src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.js";
+import { extractInterfaceFormats } from "../../../../../src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.ts",
+  sourcePath: "src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.ts",
   docPath: "docs/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.md",
   testFileUrl: import.meta.url,
 });

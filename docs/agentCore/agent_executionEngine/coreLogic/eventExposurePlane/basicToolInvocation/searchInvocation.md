@@ -1,6 +1,6 @@
 # searchInvocation
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.ts`
+> 对应源码：`src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/searchInvocation.ts`
 
 ## 1. 文件位置
 

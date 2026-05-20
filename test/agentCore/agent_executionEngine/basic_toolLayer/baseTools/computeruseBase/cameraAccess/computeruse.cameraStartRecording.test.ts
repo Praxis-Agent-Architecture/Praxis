@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   cameraStartRecordingDescriptor,
   cameraStartRecordingHandler,
   executeCameraStartRecordingCore,
   planCameraStartRecording,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../../..");
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.md",
   testFileUrl: import.meta.url,
 });
@@ -287,7 +287,7 @@ test("computeruse.cameraStartRecording keeps canonical storage shape and operati
   assert.equal(existsSync(path.join(repoRoot, "src/storagePool/baseToolStorage/computeruseBase/cameraAccess/computeruse.cameraStartRecording.ts")), false);
 
   const entryText = readFileSync(
-    path.join(repoRoot, "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.ts"),
+    path.join(repoRoot, "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.ts"),
     "utf8",
   );
   assert.doesNotMatch(entryText, /export\s+\*\s+from/u);

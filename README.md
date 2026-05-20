@@ -37,10 +37,10 @@ The repository keeps runnable framework examples and diagnostics in separate pla
 - `examples/minimal`: smallest public-API agent example.
 - `examples/fullstack`: application-shaped backend example aligned with Raxode-style integration.
 - `examples/scripts`: example frontends, live chat, tool labs, and live matrix runners for the examples.
-- `doctor`: built-in diagnostic project used by `rax devdoctor`.
+- `src/devdoctor`: built-in diagnostic project used by `rax devdoctor`.
 - `automations`: repository maintenance automation only, such as build and dist helpers.
 
-`examples/` and `doctor/` are included in the npm package because they are part of the developer verification surface. Top-level `automations/` is repository maintenance surface and is not shipped as runtime API.
+`examples/` and `src/devdoctor/` are included in the npm package because they are part of the developer verification surface. Top-level `automations/` is repository maintenance surface and is not shipped as runtime API.
 
 ## CLI
 

@@ -1,6 +1,6 @@
 # observationIntegrator
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/observationIntegrator.ts`
+> 对应源码：`src/executionEngine/coreLogic/observationIntegrator.ts`
 
 ## 1. 文件位置
 

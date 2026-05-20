@@ -2,15 +2,15 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitInitializeRepository,
   gitInitializeRepositoryDescriptor,
   planGitRepositoryInitialization,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/repository/git.initializeRepository.md",
   testFileUrl: import.meta.url,
 });

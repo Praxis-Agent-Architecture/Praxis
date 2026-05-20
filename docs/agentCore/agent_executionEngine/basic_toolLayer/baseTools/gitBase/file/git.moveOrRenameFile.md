@@ -1,6 +1,6 @@
 # git.moveOrRenameFile
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.moveOrRenameFile.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/file/git.moveOrRenameFile.ts`
 
 ## 1. 文件位置
 

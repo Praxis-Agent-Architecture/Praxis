@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveRuntimeAuthority } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.js";
+import { resolveRuntimeAuthority } from "../../../../src/runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.ts",
+  sourcePath: "src/runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.md",
   testFileUrl: import.meta.url,
 });

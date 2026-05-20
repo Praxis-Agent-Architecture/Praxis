@@ -9,7 +9,7 @@ import {
   createStoragePlaneRuntime,
   resolveRaxHome,
   resolveRaxWorkspace,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
+} from "../../../../src/runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 
 test("resolveRaxHome defaults to ~/.rax without creating directories", () => {
   const result = resolveRaxHome({ homeDir: "/tmp/praxis-home" });

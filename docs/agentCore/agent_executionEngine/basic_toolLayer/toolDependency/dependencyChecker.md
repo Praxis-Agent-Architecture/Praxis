@@ -1,6 +1,6 @@
 # dependencyChecker
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyChecker.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/toolDependency/dependencyChecker.ts`
 
 ## 1. 文件位置
 

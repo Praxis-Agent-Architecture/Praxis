@@ -1,18 +1,18 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitMergeBranch,
   gitMergeBranchHandler,
   parseGitMergeBranchResult,
   planGitBranchMerge,
   type GitMergeBranchOutput,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.mergeBranch.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.mergeBranch.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.mergeBranch.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.mergeBranch.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/branch/git.mergeBranch.md",
   testFileUrl: import.meta.url,
 });

@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { exposeAudioOutput } from "../../../../../src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/audioExposer.js";
+import { exposeAudioOutput } from "../../../../../src/executionEngine/IOTransceiver/outputExposer/audioExposer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/IOTransceiver/outputExposer/audioExposer.ts",
+  sourcePath: "src/executionEngine/IOTransceiver/outputExposer/audioExposer.ts",
   docPath: "docs/agentCore/agent_executionEngine/IOTransceiver/outputExposer/audioExposer.md",
   testFileUrl: import.meta.url,
 });

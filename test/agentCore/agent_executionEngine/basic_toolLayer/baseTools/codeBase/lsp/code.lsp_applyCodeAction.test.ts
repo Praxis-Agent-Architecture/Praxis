@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   lspApplyCodeActionDescriptor,
   planLspApplyCodeAction,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_applyCodeAction.md",
   testFileUrl: import.meta.url,
 });

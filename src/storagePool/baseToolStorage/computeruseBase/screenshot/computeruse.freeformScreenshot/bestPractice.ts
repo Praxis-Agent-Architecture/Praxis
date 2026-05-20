@@ -1,5 +1,5 @@
-import type { BaseToolExecutorPort } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolHandler } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import {
   buildComputerUsePracticeAuditMetadata,
   createComputerUseBaseToolDefinition,
@@ -171,7 +171,7 @@ export const freeformScreenshotBaseToolDefinition = createComputerUseBaseToolDef
   },
   metadata: {
     invocationEntryPath:
-      "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.freeformScreenshot.ts",
+      "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.freeformScreenshot.ts",
     runtimeProviderDependencies: {
       linux: ["runtime.desktop.screenshotProvider.linux"],
     },

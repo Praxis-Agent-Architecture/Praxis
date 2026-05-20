@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   createRepairStrategyRegistry,
   runtimeRepairStrategyRegistryDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairStrategyRegistry.js";
+} from "../../../../src/runtimeImplementation/runtime.selfRepair/repairStrategyRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairStrategyRegistry.ts",
+  sourcePath: "src/runtimeImplementation/runtime.selfRepair/repairStrategyRegistry.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairStrategyRegistry.md",
   testFileUrl: import.meta.url,
 });

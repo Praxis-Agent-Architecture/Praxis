@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolExecutorPort } from "../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import {
   baseToolRuntimeMountDescriptor,
   invokeMountedBaseTool,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
+} from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.md",
   testFileUrl: import.meta.url,
 });

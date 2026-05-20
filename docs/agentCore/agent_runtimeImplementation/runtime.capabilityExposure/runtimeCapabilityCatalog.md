@@ -1,6 +1,6 @@
 # runtimeCapabilityCatalog
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.ts`
+> 对应源码：`src/runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.ts`
 
 ## 1. 文件位置
 

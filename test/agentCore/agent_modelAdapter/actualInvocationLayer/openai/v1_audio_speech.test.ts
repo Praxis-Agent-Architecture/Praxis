@@ -5,10 +5,10 @@ import {
   OPENAI_V1_AUDIO_SPEECH_ENDPOINT,
   classifyOpenAIV1AudioSpeechProviderError,
   invokeOpenAIV1AudioSpeech,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_speech.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_audio_speech.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_speech.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_audio_speech.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_audio_speech.md",
   testFileUrl: import.meta.url,
 });

@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   lspExplainSymbolDescriptor,
   planLspSymbolExplanation,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_explainSymbol.md",
   testFileUrl: import.meta.url,
 });

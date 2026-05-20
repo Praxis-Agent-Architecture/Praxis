@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeFullscreenScreenRecordingCore,
   fullscreenScreenRecordingDescriptor,
   fullscreenScreenRecordingHandler,
   planFullscreenScreenRecording,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../../..");
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.md",
   testFileUrl: import.meta.url,
 });
@@ -291,7 +291,7 @@ test("computeruse.fullscreenScreenRecording keeps canonical storage shape and op
   );
 
   const entryText = readFileSync(
-    path.join(repoRoot, "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.ts"),
+    path.join(repoRoot, "src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.ts"),
     "utf8",
   );
   assert.doesNotMatch(entryText, /export\s+\*\s+from/u);

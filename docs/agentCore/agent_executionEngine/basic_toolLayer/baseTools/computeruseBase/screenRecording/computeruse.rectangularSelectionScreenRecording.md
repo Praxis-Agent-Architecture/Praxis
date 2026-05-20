@@ -1,6 +1,6 @@
 # computeruse.rectangularSelectionScreenRecording
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording.ts`
 > Storage ToolSkill：`src/storagePool/baseToolStorage/computeruseBase/screenRecording/computeruse.rectangularSelectionScreenRecording/computeruse.rectangularSelectionScreenRecording.md`
 
 ## 1. 文件位置

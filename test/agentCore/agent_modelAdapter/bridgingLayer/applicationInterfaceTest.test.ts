@@ -5,15 +5,15 @@ import test from "node:test";
 import {
   createApplicationModelAdapter,
   type ApplicationModelAdapter,
-} from "../../../../src/agentCore/agent_modelAdapter/bridgingLayer/applicationAdapter.js";
-import type { ApplicationBridgeCandidate } from "../../../../src/agentCore/agent_modelAdapter/bridgingLayer/applicationCompatibilityCheck.js";
+} from "../../../../src/modelAdapter/bridgingLayer/applicationAdapter.js";
+import type { ApplicationBridgeCandidate } from "../../../../src/modelAdapter/bridgingLayer/applicationCompatibilityCheck.js";
 import {
   applicationInterfaceTestDescriptor,
   runApplicationModelInterfaceProbe,
-} from "../../../../src/agentCore/agent_modelAdapter/bridgingLayer/applicationInterfaceTest.js";
+} from "../../../../src/modelAdapter/bridgingLayer/applicationInterfaceTest.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/bridgingLayer/applicationInterfaceTest.ts",
+  sourcePath: "src/modelAdapter/bridgingLayer/applicationInterfaceTest.ts",
   docPath: "docs/agentCore/agent_modelAdapter/bridgingLayer/applicationInterfaceTest.md",
   testFileUrl: import.meta.url,
 });

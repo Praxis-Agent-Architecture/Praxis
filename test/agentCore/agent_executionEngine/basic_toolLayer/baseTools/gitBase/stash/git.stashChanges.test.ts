@@ -7,10 +7,10 @@ import {
   parseGitStashChangesResult,
   planGitStashChanges,
   type GitStashChangesProvider,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.stashChanges.md",
   testFileUrl: import.meta.url,
 });

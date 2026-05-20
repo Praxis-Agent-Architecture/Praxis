@@ -1,17 +1,17 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyRuntimeFault } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/faultClassifier.js";
-import { buildRuntimeRepairPlan } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairPlanBuilder.js";
+import { classifyRuntimeFault } from "../../../../src/runtimeImplementation/runtime.selfRepair/faultClassifier.js";
+import { buildRuntimeRepairPlan } from "../../../../src/runtimeImplementation/runtime.selfRepair/repairPlanBuilder.js";
 import {
   reportRepairResult,
   runtimeRepairResultReporterDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairResultReporter.js";
-import { guardRepairRollback } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairRollbackGuard.js";
-import { runRepairSandbox } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairSandboxRunner.js";
+} from "../../../../src/runtimeImplementation/runtime.selfRepair/repairResultReporter.js";
+import { guardRepairRollback } from "../../../../src/runtimeImplementation/runtime.selfRepair/repairRollbackGuard.js";
+import { runRepairSandbox } from "../../../../src/runtimeImplementation/runtime.selfRepair/repairSandboxRunner.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairResultReporter.ts",
+  sourcePath: "src/runtimeImplementation/runtime.selfRepair/repairResultReporter.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairResultReporter.md",
   testFileUrl: import.meta.url,
 });

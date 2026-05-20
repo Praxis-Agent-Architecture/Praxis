@@ -1,6 +1,6 @@
 # notifyParentAgent
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.ts`
+> 对应源码：`src/executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.ts`
 
 ## 1. 文件位置
 

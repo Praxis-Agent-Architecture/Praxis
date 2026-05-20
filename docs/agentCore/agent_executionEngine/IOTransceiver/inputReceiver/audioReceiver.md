@@ -1,6 +1,6 @@
 # audioReceiver
 
-> 对应源码：`src/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/audioReceiver.ts`
+> 对应源码：`src/executionEngine/IOTransceiver/inputReceiver/audioReceiver.ts`
 
 ## 1. 文件位置
 

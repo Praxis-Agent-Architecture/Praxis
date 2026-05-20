@@ -1,6 +1,6 @@
 # invocationAdapter
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/invocationAdapter.ts`
 
 ## 1. 文件位置
 

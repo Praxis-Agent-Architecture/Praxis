@@ -2,16 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { createApiKeyAuthEnvelope } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createChatGPTCodexAuthEnvelope } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/codexAuth.js";
-import { createCredentialRef } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+import { createApiKeyAuthEnvelope } from "../../../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { createChatGPTCodexAuthEnvelope } from "../../../../src/modelAdapter/authProfileLayer/codexAuth.js";
+import { createCredentialRef } from "../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
 import {
   invokeModelThroughRuntime,
   planModelInvocation,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
+} from "../../../../src/runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.md",
   testFileUrl: import.meta.url,
 });
@@ -305,4 +305,61 @@ test("invokeModelThroughRuntime dispatches Anthropic messages route", async () =
   assert.equal(result.usage?.source, "anthropic.messages.usage");
   assert.equal(result.usage?.inputTokens, 8);
   assert.equal(result.usage?.outputTokens, 4);
+});
+
+test("providerRoute metadata selects ChatGPT Codex responses lowering", async () => {
+  let capturedBody: Record<string, unknown> | undefined;
+
+  const result = await invokeModelThroughRuntime({
+    runtimeId: "runtime.chatgpt-codex.test",
+    caller: { kind: "test", id: "agent.test" },
+    loweredPrompt: { loweringId: "lowering.test", materialRefs: ["prompt.test"] },
+    capability: { capabilityId: "capability.test", kind: "responses" },
+    carrier: {
+      carrierId: "carrier.raxode.coding.primary",
+      provider: "openai",
+      endpointShape: "responses",
+      baseURL: "https://chatgpt.com/backend-api/codex",
+      metadata: { providerRoute: "chatgpt_codex_responses" },
+    },
+    providerBody: {
+      model: "gpt-5.5",
+      input: [{ role: "user", content: "你好" }],
+      max_output_tokens: 1024,
+      stream: true,
+    },
+    auth: {
+      kind: "oauth",
+      present: true,
+      headerPlan: [{ name: "authorization", value: "Bearer sk-...", redacted: true }],
+      queryPlan: [],
+      credentialRef: {
+        kind: "openai",
+        id: "credential.test",
+        provider: "openai",
+        credentialType: "openai_api_key",
+        source: { kind: "injected", label: "test" },
+        publicSafe: true,
+      },
+      publicSafe: true,
+    },
+    dryRun: false,
+    allowProviderCall: true,
+    governance: { accepted: true },
+    contract: { accepted: true },
+    providerCaller: async (request) => {
+      capturedBody = request.body as Record<string, unknown>;
+      return {
+        status: 200,
+        headers: {},
+        body: { id: "resp.test", output: [] },
+        providerRawShapePromoted: false,
+        publicSafe: true,
+      };
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(capturedBody?.store, false);
+  assert.equal("max_output_tokens" in (capturedBody ?? {}), false);
 });

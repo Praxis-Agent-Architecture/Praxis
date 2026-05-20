@@ -1,6 +1,6 @@
 # applicationLifecycleBridge
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationLifecycleBridge.ts`
+> 对应源码：`src/runtimeImplementation/runtime.applicationSurface/applicationLifecycleBridge.ts`
 
 ## 1. 文件位置
 

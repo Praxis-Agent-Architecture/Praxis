@@ -1,6 +1,6 @@
 # debugReplayHook
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.debug/debugReplayHook.ts`
+> 对应源码：`src/runtimeImplementation/runtime.debug/debugReplayHook.ts`
 
 ## 1. 文件位置
 

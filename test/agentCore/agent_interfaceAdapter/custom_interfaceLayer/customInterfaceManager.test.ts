@@ -1,11 +1,11 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { defineCustomInterface } from "../../../../src/agentCore/agent_interfaceAdapter/custom_interfaceLayer/customInterfaceDefiner.js";
-import { createCustomInterfaceManager } from "../../../../src/agentCore/agent_interfaceAdapter/custom_interfaceLayer/customInterfaceManager.js";
+import { defineCustomInterface } from "../../../../src/interfaceAdapter/custom_interfaceLayer/customInterfaceDefiner.js";
+import { createCustomInterfaceManager } from "../../../../src/interfaceAdapter/custom_interfaceLayer/customInterfaceManager.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_interfaceAdapter/custom_interfaceLayer/customInterfaceManager.ts",
+  sourcePath: "src/interfaceAdapter/custom_interfaceLayer/customInterfaceManager.ts",
   docPath: "docs/agentCore/agent_interfaceAdapter/custom_interfaceLayer/customInterfaceManager.md",
   testFileUrl: import.meta.url,
 });

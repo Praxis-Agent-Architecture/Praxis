@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { bindPromptPack } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindPromptPack.js";
+import { bindPromptPack } from "../../../../src/runtimeImplementation/runtime.execEngine/bindPromptPack.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindPromptPack.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/bindPromptPack.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/bindPromptPack.md",
   testFileUrl: import.meta.url,
 });

@@ -1,6 +1,6 @@
 # shell.commandValidation
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.commandValidation.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/executionGuard/shell.commandValidation.ts`
 
 ## 1. 文件位置
 

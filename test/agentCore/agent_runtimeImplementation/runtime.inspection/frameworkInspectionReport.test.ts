@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createMainLoopStepRecord } from "../../../../src/agentCore/agent_executionEngine/coreLogic/mainLoop.js";
+import { createMainLoopStepRecord } from "../../../../src/executionEngine/coreLogic/mainLoop.js";
 import {
   PraxisAgent,
   compileAgent,
@@ -12,7 +12,7 @@ import {
   tool,
   tools,
 } from "../../../../src/agentCore/index.js";
-import { createFrameworkInspectionReport } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
+import { createFrameworkInspectionReport } from "../../../../src/runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
 
 class InspectableAgent extends PraxisAgent {
   identity = "agent.inspectable";

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { selectAdaptiveCapability } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveCapabilitySelector.js";
+import { selectAdaptiveCapability } from "../../../../src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveCapabilitySelector.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveCapabilitySelector.ts",
+  sourcePath: "src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveCapabilitySelector.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveCapabilitySelector.md",
   testFileUrl: import.meta.url,
 });

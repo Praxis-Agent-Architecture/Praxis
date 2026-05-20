@@ -1,6 +1,6 @@
 # shell.scriptExecution
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.scriptExecution.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.scriptExecution.ts`
 
 ## 1. 文件位置
 

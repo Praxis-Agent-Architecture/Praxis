@@ -7,10 +7,10 @@ import {
   gitResetStagingOrCommitDescriptor,
   parseGitResetStagingOrCommitResult,
   planGitStagingOrCommitReset,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/staging/git.resetStagingOrCommit.md",
   testFileUrl: import.meta.url,
 });

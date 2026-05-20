@@ -5,10 +5,10 @@ import {
   OPENAI_V1_ORGANIZATION_COSTS_ENDPOINT,
   classifyOpenAIV1OrganizationCostsProviderError,
   createOpenAIV1OrganizationCostsInvocation,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_costs.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_organization_costs.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_costs.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_organization_costs.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_costs.md",
   testFileUrl: import.meta.url,
 });

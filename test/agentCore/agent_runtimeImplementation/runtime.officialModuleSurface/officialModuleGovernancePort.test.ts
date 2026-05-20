@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { requestOfficialModuleGovernance } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleGovernancePort.js";
+import { requestOfficialModuleGovernance } from "../../../../src/runtimeImplementation/runtime.officialModuleSurface/officialModuleGovernancePort.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleGovernancePort.ts",
+  sourcePath: "src/runtimeImplementation/runtime.officialModuleSurface/officialModuleGovernancePort.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleGovernancePort.md",
   testFileUrl: import.meta.url,
 });

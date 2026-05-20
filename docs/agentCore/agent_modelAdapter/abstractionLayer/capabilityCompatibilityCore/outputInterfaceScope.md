@@ -1,6 +1,6 @@
 # outputInterfaceScope
 
-> 对应源码：`src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceScope.ts`
+> 对应源码：`src/modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceScope.ts`
 
 ## 1. 文件位置
 

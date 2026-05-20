@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import {
   createEphemeralProcedureExecutionState,
   normalizeEphemeralProcedurePlan,
-} from "../../../../src/agentCore/agent_executionEngine/coreLogic/ephemeralProcedure.js";
+} from "../../../../src/executionEngine/coreLogic/ephemeralProcedure.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/ephemeralProcedure.ts",
+  sourcePath: "src/executionEngine/coreLogic/ephemeralProcedure.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/ephemeralProcedure.md",
   testFileUrl: import.meta.url,
 });

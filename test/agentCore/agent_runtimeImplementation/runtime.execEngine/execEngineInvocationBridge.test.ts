@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { bridgeExecEngineInvocation } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import { bridgeExecEngineInvocation } from "../../../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.ts",
+  sourcePath: "src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.md",
   testFileUrl: import.meta.url,
 });

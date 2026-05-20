@@ -1,6 +1,6 @@
 # mcp.connect
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/mcpBase/connection/mcp.connect.ts`
 
 ## 1. 文件位置
 

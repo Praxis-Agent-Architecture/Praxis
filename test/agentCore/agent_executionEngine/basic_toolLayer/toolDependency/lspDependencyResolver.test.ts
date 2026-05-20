@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   declarationsFromLspProfile,
   resolveLspDependency,
-} from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
+} from "../../../../../src/executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/lspDependencyResolver.md",
   testFileUrl: import.meta.url,
 });

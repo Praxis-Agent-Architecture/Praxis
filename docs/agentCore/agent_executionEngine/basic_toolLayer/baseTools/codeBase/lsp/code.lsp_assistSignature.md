@@ -1,6 +1,6 @@
 # code.lsp_assistSignature
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.ts`
 
 ## 1. 文件位置
 

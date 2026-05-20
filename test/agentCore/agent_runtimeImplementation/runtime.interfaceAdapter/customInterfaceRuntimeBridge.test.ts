@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createCustomInterfaceRuntimeBridge } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/customInterfaceRuntimeBridge.js";
+import { createCustomInterfaceRuntimeBridge } from "../../../../src/runtimeImplementation/runtime.interfaceAdapter/customInterfaceRuntimeBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/customInterfaceRuntimeBridge.ts",
+  sourcePath: "src/runtimeImplementation/runtime.interfaceAdapter/customInterfaceRuntimeBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.interfaceAdapter/customInterfaceRuntimeBridge.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   basicToolInvocationStrategyDescriptor,
   selectBasicToolInvocationStrategy,
-} from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/invocationStrategy.js";
+} from "../../../../src/executionEngine/basic_toolLayer/invocationStrategy.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/invocationStrategy.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/invocationStrategy.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/invocationStrategy.md",
   testFileUrl: import.meta.url,
 });

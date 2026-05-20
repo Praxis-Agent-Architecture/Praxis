@@ -1,6 +1,6 @@
 # mcp.subscribe
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/mcpBase/subscription/mcp.subscribe.ts`
 
 ## 1. 文件位置
 

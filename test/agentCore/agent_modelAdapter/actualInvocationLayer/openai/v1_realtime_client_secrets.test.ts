@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   OPENAI_V1_REALTIME_CLIENT_SECRETS_ENDPOINT,
   invokeOpenAIV1RealtimeClientSecrets,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_realtime_client_secrets.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_realtime_client_secrets.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_realtime_client_secrets.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_realtime_client_secrets.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_realtime_client_secrets.md",
   testFileUrl: import.meta.url,
 });

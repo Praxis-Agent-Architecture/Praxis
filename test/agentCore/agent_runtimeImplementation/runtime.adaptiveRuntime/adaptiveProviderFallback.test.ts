@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { planAdaptiveProviderFallback } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveProviderFallback.js";
+import { planAdaptiveProviderFallback } from "../../../../src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveProviderFallback.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveProviderFallback.ts",
+  sourcePath: "src/runtimeImplementation/runtime.adaptiveRuntime/adaptiveProviderFallback.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveProviderFallback.md",
   testFileUrl: import.meta.url,
 });

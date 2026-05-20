@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   codeReplaceFileDescriptor,
   planCodeReplaceFile,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.replaceFile.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.replaceFile.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.replaceFile.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.replaceFile.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.replaceFile.md",
   testFileUrl: import.meta.url,
 });

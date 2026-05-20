@@ -1,6 +1,6 @@
 # customInterfaceRuleConstrainer
 
-> 对应源码：`src/agentCore/agent_interfaceAdapter/custom_interfaceLayer/customInterfaceRuleConstrainer.ts`
+> 对应源码：`src/interfaceAdapter/custom_interfaceLayer/customInterfaceRuleConstrainer.ts`
 
 ## 1. 文件位置
 

@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildRuntimeDependencyGraph } from "../../../src/agentCore/agent_runtimeImplementation/runtimeDependencyGraph.js";
+import { buildRuntimeDependencyGraph } from "../../../src/runtimeImplementation/runtimeDependencyGraph.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtimeDependencyGraph.ts",
+  sourcePath: "src/runtimeImplementation/runtimeDependencyGraph.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeDependencyGraph.md",
   testFileUrl: import.meta.url,
 });

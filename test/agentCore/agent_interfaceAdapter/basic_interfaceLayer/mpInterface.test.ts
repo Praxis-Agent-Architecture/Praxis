@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineMpInterfaceBoundary } from "../../../../src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/mpInterface.js";
+import { defineMpInterfaceBoundary } from "../../../../src/interfaceAdapter/basic_interfaceLayer/mpInterface.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/mpInterface.ts",
+  sourcePath: "src/interfaceAdapter/basic_interfaceLayer/mpInterface.ts",
   docPath: "docs/agentCore/agent_interfaceAdapter/basic_interfaceLayer/mpInterface.md",
   testFileUrl: import.meta.url,
 });

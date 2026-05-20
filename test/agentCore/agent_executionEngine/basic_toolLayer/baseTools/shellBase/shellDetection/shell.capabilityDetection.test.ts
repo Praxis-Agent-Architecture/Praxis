@@ -7,8 +7,8 @@ import {
   planShellCapabilityDetection,
   shellCapabilityDetectionHandler,
   shellCapabilityDetectionDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { executeShellCapabilityDetection as executeShellCapabilityDetectionBestPractice } from "../../../../../../../src/storagePool/baseToolStorage/shellBase/shellDetection/shell.capabilityDetection/bestPractice.js";
 
 type ShellCapabilityExecutionResult = Awaited<ReturnType<typeof executeShellCapabilityDetection>>;
@@ -30,7 +30,7 @@ async function assertCapabilityInputError(
 }
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.md",
   testFileUrl: import.meta.url,
 });

@@ -1,18 +1,18 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyRuntimeFault } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/faultClassifier.js";
+import { classifyRuntimeFault } from "../../../../src/runtimeImplementation/runtime.selfRepair/faultClassifier.js";
 import {
   gateRuntimeRepairAction,
   runtimeRepairActionGateDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.js";
+} from "../../../../src/runtimeImplementation/runtime.selfRepair/repairActionGate.js";
 import {
   buildRuntimeRepairPlan,
   type RuntimeRepairPlan,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairPlanBuilder.js";
+} from "../../../../src/runtimeImplementation/runtime.selfRepair/repairPlanBuilder.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.ts",
+  sourcePath: "src/runtimeImplementation/runtime.selfRepair/repairActionGate.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.md",
   testFileUrl: import.meta.url,
 });

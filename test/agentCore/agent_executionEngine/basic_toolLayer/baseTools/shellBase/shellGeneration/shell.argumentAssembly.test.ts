@@ -6,10 +6,10 @@ import {
   assembleShellArguments,
   quoteShellArgument,
   shellArgumentAssemblyDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.md",
   testFileUrl: import.meta.url,
 });

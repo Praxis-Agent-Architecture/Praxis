@@ -1,6 +1,6 @@
 # code.delete
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.delete.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/edit/code.delete.ts`
 
 ## 1. 文件位置
 

@@ -3,11 +3,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { BaseToolExecutorPort } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { bridgeExecEngineInvocation } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
-import { createMcpRuntimeAdapter } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
+import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import { createMcpRuntimeAdapter } from "../../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
 
 const args = process.argv.slice(2);
 const argSet = new Set(args);

@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpNativeExecute,
   mcpNativeExecuteDescriptor,
   mcpNativeExecuteHandler,
   planMcpNativeExecute,
   type McpNativeExecuteProviderRequest,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.nativeExecute.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.nativeExecute.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.nativeExecute.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.nativeExecute.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.nativeExecute.md",
   testFileUrl: import.meta.url,
 });

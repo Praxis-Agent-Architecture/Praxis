@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openRuntimeOperatorConsole } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.js";
+import { openRuntimeOperatorConsole } from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.md",
   testFileUrl: import.meta.url,
 });

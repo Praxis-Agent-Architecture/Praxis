@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { publishBehaviorEvent } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.js";
+import { publishBehaviorEvent } from "../../../../src/runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.js";
 import {
   behaviorTraceSurfaceDescriptor,
   createBehaviorTraceSurface,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.js";
+} from "../../../../src/runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.ts",
+  sourcePath: "src/runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorTraceSurface.md",
   testFileUrl: import.meta.url,
 });

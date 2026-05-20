@@ -5,10 +5,10 @@ import {
   executeGitCommitHistory,
   parseGitCommitHistory,
   planGitCommitHistoryRead,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getCommitHistory.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getCommitHistory.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getCommitHistory.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getCommitHistory.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getCommitHistory.md",
   testFileUrl: import.meta.url,
 });

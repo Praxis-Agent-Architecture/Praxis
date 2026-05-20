@@ -1,6 +1,6 @@
 # code.debugCollectLogs
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCollectLogs.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCollectLogs.ts`
 
 ## 1. 文件位置
 

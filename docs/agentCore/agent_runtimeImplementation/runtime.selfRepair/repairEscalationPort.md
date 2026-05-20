@@ -1,6 +1,6 @@
 # repairEscalationPort
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairEscalationPort.ts`
+> 对应源码：`src/runtimeImplementation/runtime.selfRepair/repairEscalationPort.ts`
 
 ## 1. 文件位置
 

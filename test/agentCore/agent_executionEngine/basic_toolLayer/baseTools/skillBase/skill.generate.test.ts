@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSkillGeneration, skillGenerateHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.generate.js";
+import { planSkillGeneration, skillGenerateHandler } from "../../../../../../src/executionEngine/basic_toolLayer/baseTools/skillBase/skill.generate.js";
 
 test("skill.generate returns dry-run plan without provider", async () => {
   const result = await planSkillGeneration({

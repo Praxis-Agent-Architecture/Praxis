@@ -1,6 +1,6 @@
 # TAP_statusDetector
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_statusDetector.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_statusDetector.ts`
 
 ## 1. 文件位置
 

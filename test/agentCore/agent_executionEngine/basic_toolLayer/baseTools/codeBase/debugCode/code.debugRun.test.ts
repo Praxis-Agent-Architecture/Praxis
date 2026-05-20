@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   codeDebugRunDescriptor,
   planCodeDebugRun,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugRun.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugRun.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugRun.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugRun.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugRun.md",
   testFileUrl: import.meta.url,
 });

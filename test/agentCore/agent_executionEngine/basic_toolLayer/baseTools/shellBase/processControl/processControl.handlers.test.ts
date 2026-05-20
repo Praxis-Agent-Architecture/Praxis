@@ -1,38 +1,38 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeShellBackgroundExecution,
   planShellBackgroundExecution,
   shellBackgroundExecutionHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.js";
 import {
   executeShellDetachedExecution,
   planShellDetachedExecution,
   shellDetachedExecutionHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.detachedExecution.js";
 import {
   executeShellForegroundExecution,
   planShellForegroundExecution,
   shellForegroundExecutionHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.foregroundExecution.js";
 import {
   executeShellProcessSpawning,
   planShellProcessSpawn,
   shellProcessSpawningHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processSpawning.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processSpawning.js";
 import {
   executeShellProcessTermination,
   planShellProcessTermination,
   shellProcessTerminationHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.js";
 import {
   executeShellServiceStartAndVerify,
   planShellServiceStartAndVerify,
   shellServiceStartAndVerifyHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.serviceStartAndVerify.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.serviceStartAndVerify.js";
 
 test("processControl handlers are mounted in the builtin baseTool registry", () => {
   const registry = createBaseToolRegistry();

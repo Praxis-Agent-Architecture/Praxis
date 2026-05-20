@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   planShellProcessManagement,
   shellProcessManagementDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellProcessManagement.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellProcessManagement.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellProcessManagement.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellProcessManagement.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellProcessManagement.md",
   testFileUrl: import.meta.url,
 });

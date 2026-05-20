@@ -6,10 +6,10 @@ import {
   OPENAI_V1_VIDEOS_CHARACTERS_ENDPOINT,
   classifyOpenAIV1VideosCharactersProviderError,
   invokeOpenAIV1VideosCharacters,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_videos_characters.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_videos_characters.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_videos_characters.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_videos_characters.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_videos_characters.md",
   testFileUrl: import.meta.url,
 });

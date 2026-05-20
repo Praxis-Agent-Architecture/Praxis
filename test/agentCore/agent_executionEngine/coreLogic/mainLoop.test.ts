@@ -42,10 +42,10 @@ import {
   runMainLoop,
   runMainLoopRunner,
   selectMainLoopModel,
-} from "../../../../src/agentCore/agent_executionEngine/coreLogic/mainLoop.js";
+} from "../../../../src/executionEngine/coreLogic/mainLoop.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/mainLoop.ts",
+  sourcePath: "src/executionEngine/coreLogic/mainLoop.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/mainLoop.md",
   testFileUrl: import.meta.url,
 });

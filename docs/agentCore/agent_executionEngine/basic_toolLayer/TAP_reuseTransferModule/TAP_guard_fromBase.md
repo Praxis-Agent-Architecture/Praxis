@@ -1,6 +1,6 @@
 # TAP_guard_fromBase
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_guard_fromBase.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_guard_fromBase.ts`
 
 ## 1. 文件位置
 

@@ -5,10 +5,10 @@ import {
   OPENAI_V1_IMAGES_EDITS_ENDPOINT,
   classifyOpenAIV1ImagesEditsProviderError,
   invokeOpenAIV1ImagesEdits,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_edits.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_images_edits.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_edits.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_images_edits.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_edits.md",
   testFileUrl: import.meta.url,
 });

@@ -1,4 +1,4 @@
-import type { BaseToolDebugStackFrame, BaseToolDebugVariable } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolDebugStackFrame, BaseToolDebugVariable } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import type { CodeToolAuditEvent, CodeToolResult } from "../../_shared/baseToolAdapter.js";
 
 export type CodeDebugCaptureStateBoundary = "input" | "contract" | "governance" | "scope" | "provider";

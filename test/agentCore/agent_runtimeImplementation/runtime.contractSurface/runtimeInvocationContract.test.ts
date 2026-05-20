@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { defineRuntimeInvocationContract } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.contractSurface/runtimeInvocationContract.js";
+import { defineRuntimeInvocationContract } from "../../../../src/runtimeImplementation/runtime.contractSurface/runtimeInvocationContract.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.contractSurface/runtimeInvocationContract.ts",
+  sourcePath: "src/runtimeImplementation/runtime.contractSurface/runtimeInvocationContract.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.contractSurface/runtimeInvocationContract.md",
   testFileUrl: import.meta.url,
 });

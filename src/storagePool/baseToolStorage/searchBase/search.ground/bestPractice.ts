@@ -1,14 +1,14 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import type { BaseToolExecutorPort } from "../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolExecutorPort } from "../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import type {
   BaseToolDefinition,
   BaseToolHandler,
   BaseToolInvokeRequest,
   BaseToolInvokeResult,
   BaseToolSchemaLike,
-} from "../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+} from "../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { anthropicSearchGroundPractice } from "./anthropic.js";
 import { deepmindSearchGroundPractice } from "./deepmind.js";
 import { openaiSearchGroundPractice } from "./openai.js";

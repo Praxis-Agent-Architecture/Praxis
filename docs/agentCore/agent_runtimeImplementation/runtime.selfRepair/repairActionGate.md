@@ -1,6 +1,6 @@
 # repairActionGate
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.ts`
+> 对应源码：`src/runtimeImplementation/runtime.selfRepair/repairActionGate.ts`
 
 ## 1. 文件位置
 

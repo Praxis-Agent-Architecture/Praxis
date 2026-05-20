@@ -1,6 +1,6 @@
 # omni.generateVideo
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.generateVideo.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.generateVideo.ts`
 
 ## 1. 文件位置
 

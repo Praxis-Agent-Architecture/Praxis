@@ -1,6 +1,6 @@
 # v1beta_models_predict
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predict.ts`
+> 对应源码：`src/modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predict.ts`
 
 ## 1. 文件位置
 

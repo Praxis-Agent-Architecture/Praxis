@@ -1,6 +1,6 @@
 # computeruse.keyboardInputEmulation
 
-对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/keyboardEmulation/computeruse.keyboardInputEmulation.ts`
+对应源码：`src/executionEngine/basic_toolLayer/baseTools/computeruseBase/keyboardEmulation/computeruse.keyboardInputEmulation.ts`
 
 ## 1. 文件位置
 

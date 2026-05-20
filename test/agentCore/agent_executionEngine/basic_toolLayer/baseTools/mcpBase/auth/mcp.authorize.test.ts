@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { planMcpAuthorize } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.js";
+import { planMcpAuthorize } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.md",
   testFileUrl: import.meta.url,
 });

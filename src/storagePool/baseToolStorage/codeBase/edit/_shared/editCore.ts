@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { BaseToolLspTextEdit } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolLspTextEdit } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 
 export type CodeEditGate = {
   accepted?: boolean;

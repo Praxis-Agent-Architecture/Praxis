@@ -1,4 +1,4 @@
-import type { BaseToolInvokeRequest } from '../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js';
+import type { BaseToolInvokeRequest } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import {
   buildOmniPracticeAuditMetadata,
   createOmniBaseToolDefinition,

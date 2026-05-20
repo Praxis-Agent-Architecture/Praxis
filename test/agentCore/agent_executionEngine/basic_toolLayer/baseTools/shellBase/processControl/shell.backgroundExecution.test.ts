@@ -2,14 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   planShellBackgroundExecution,
   shellBackgroundExecutionDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.js";
+} from "../../../../../../../src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.ts",
+  sourcePath: "src/executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.backgroundExecution.md",
   testFileUrl: import.meta.url,
 });

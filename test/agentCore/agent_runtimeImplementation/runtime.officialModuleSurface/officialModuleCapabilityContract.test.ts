@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   DEFAULT_OFFICIAL_MODULE_CAPABILITY_GRANTS,
   defineOfficialModuleCapabilityContract,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleCapabilityContract.js";
+} from "../../../../src/runtimeImplementation/runtime.officialModuleSurface/officialModuleCapabilityContract.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleCapabilityContract.ts",
+  sourcePath: "src/runtimeImplementation/runtime.officialModuleSurface/officialModuleCapabilityContract.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/officialModuleCapabilityContract.md",
   testFileUrl: import.meta.url,
 });

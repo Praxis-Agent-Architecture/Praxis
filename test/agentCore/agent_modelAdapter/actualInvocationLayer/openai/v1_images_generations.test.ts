@@ -5,12 +5,12 @@ import {
   OPENAI_V1_IMAGES_GENERATIONS_ENDPOINT,
   classifyOpenAIV1ImagesGenerationsProviderError,
   invokeOpenAIV1ImagesGenerations,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.js";
-import { createApiKeyAuthEnvelope } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createCredentialRef } from "../../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/openai/v1_images_generations.js";
+import { createApiKeyAuthEnvelope } from "../../../../../src/modelAdapter/authProfileLayer/authEnvelope.js";
+import { createCredentialRef } from "../../../../../src/modelAdapter/authProfileLayer/credentialRef.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/openai/v1_images_generations.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_images_generations.md",
   testFileUrl: import.meta.url,
 });

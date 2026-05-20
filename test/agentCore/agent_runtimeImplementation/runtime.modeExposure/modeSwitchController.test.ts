@@ -1,14 +1,14 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildExecutionModeRegistry } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.js";
+import { buildExecutionModeRegistry } from "../../../../src/runtimeImplementation/runtime.modeExposure/executionModeRegistry.js";
 import {
   modeSwitchControllerCapability,
   planRuntimeModeSwitch,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeSwitchController.js";
+} from "../../../../src/runtimeImplementation/runtime.modeExposure/modeSwitchController.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeSwitchController.ts",
+  sourcePath: "src/runtimeImplementation/runtime.modeExposure/modeSwitchController.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeSwitchController.md",
   testFileUrl: import.meta.url,
 });

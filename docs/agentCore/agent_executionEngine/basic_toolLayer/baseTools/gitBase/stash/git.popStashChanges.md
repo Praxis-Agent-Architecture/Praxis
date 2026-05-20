@@ -1,6 +1,6 @@
 # git.popStashChanges
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.popStashChanges.ts`
 > 对应实现：`src/storagePool/baseToolStorage/gitBase/stash/git.popStashChanges/`
 
 ## 1. 文件位置

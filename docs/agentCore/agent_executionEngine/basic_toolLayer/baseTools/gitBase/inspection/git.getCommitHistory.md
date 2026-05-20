@@ -1,6 +1,6 @@
 # git.getCommitHistory
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getCommitHistory.ts`
+> 对应源码：`src/executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.getCommitHistory.ts`
 
 ## 1. 文件位置
 

@@ -1,5 +1,5 @@
-import type { BaseToolExecutorPort } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import type { BaseToolDependencyDeclaration } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolExecutorPort } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolDependencyDeclaration } from "../../../../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import type { GitManageRemoteContext, GitManageRemoteProvider, GitManageRemoteProviderRequest } from "./core.js";
 
 export type GitManageRemotePracticeProviderName = "anthropic" | "openai" | "deepmind" | "praxis-native";

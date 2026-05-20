@@ -1,15 +1,15 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRuntimeAccessSession } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
-import { evaluateManagementPolicyGate } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/managementPolicyGate.js";
+import { createRuntimeAccessSession } from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+import { evaluateManagementPolicyGate } from "../../../../src/runtimeImplementation/runtime.managementPlane/managementPolicyGate.js";
 import {
   createRuntimeGovernanceBridgeEnvelope,
   runtimeGovernanceBridgeDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.js";
+} from "../../../../src/runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.ts",
+  sourcePath: "src/runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.md",
   testFileUrl: import.meta.url,
 });

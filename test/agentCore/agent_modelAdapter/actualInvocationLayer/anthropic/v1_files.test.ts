@@ -6,10 +6,10 @@ import {
   ANTHROPIC_V1_FILES_ENDPOINT,
   classifyAnthropicV1FilesProviderError,
   invokeAnthropicV1Files,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_files.js";
+} from "../../../../../src/modelAdapter/actualInvocationLayer/anthropic/v1_files.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_files.ts",
+  sourcePath: "src/modelAdapter/actualInvocationLayer/anthropic/v1_files.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_files.md",
   testFileUrl: import.meta.url,
 });
