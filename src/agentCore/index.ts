@@ -463,27 +463,13 @@ export {
   type RuntimeSessionStateEventStore,
 } from "../runtimeImplementation/runtimeSessionStateEventStore.js";
 
+export * from "../modelAdapter/index.js";
 export {
-  bindRaxodeRoleModel,
-  createRaxodeModelEntry,
-  createRaxodeProviderProfile,
-  createRaxodeSecret,
-  maskRaxodeSecret,
-  resolveRaxodeProviderRequestUrl,
-  type RaxodeEndpointShape,
-  type RaxodeModelEntry,
-  type RaxodeModelEntryResult,
-  type RaxodeProviderConfigurationError,
-  type RaxodeProviderProfile,
-  type RaxodeProviderProfileResult,
-  type RaxodeProviderRequestUrlPlan,
-  type RaxodeProviderRequestUrlResult,
-  type RaxodeRoleBinding,
-  type RaxodeRoleBindingResult,
-  type RaxodeSecret,
-  type RaxodeSecretResult,
-  type RaxodeUrlMode,
-} from "../modelAdapter/authProfileLayer/providerConfiguration.js";
+  invokeRaxModelThroughRuntime,
+  type RaxModelRuntimeInvokeMode,
+  type RaxModelRuntimeRequest,
+  type RaxModelRuntimeResult,
+} from "../runtimeImplementation/runtime.modelAdapter/raxModelRequestRuntime.js";
 
 export {
   createFrameworkInspectionReport,
@@ -534,28 +520,6 @@ export {
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
 } from "../runtimeImplementation/runtime.execEngine/baseToolContextFolding.js";
-
-export {
-  createProviderToolMappings,
-  createPraxisToolDeclarations,
-  lowerPraxisToolsForProvider,
-  lowerProviderToolResult,
-  normalizeProviderInputSchema,
-  providerToolName,
-  raiseProviderToolCalls,
-  type LowerProviderToolResultRequest,
-  type LowerPraxisToolsForProviderRequest,
-  type ProviderCacheHintPlan,
-  type ProviderToolCallEnvelope,
-  type ProviderToolDeclarationBundle,
-  type ProviderToolNameMapping,
-  type ProviderToolResultContentBlock,
-  type ProviderToolResultEnvelope,
-  type ProviderToolSchemaFamily,
-  type PraxisToolDeclaration,
-  type PraxisToolProviderKind,
-  type RaiseProviderToolCallsRequest,
-} from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 
 /**
  * Recommended developer authoring boxes.

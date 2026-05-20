@@ -1,22 +1,13 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
-import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
+import { callModelAdapterPrompt } from "./modelAdapterPromptClient.js";
 import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 const args = process.argv.slice(2);
 const argSet = new Set(args);
-const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
-  ?? path.join(process.env.CODEX_HOME ?? path.join(process.env.HOME ?? "", ".codex"), "auth.json");
-const chatgptCodexClientVersion = process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0";
 const model = process.env.AGENTCORE_CODEX_MODEL ?? process.env.OPENAI_SMOKE_MODEL ?? "gpt-5.5";
 const reasoningEffort =
   process.env.AGENTCORE_CODEX_REASONING_EFFORT ??
@@ -319,53 +310,6 @@ function fakeGitOutput(gitArgs: readonly string[]): { exitCode: number; stdout: 
   return { exitCode: 0, stdout: "", stderr: "" };
 }
 
-function extractSseText(text: string): string {
-  const deltas: string[] = [];
-  const completed: string[] = [];
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("data:")) continue;
-    const payload = line.slice("data:".length).trim();
-    if (payload.length === 0 || payload === "[DONE]") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(payload) as unknown;
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
-    const record = parsed as Record<string, unknown>;
-    if (typeof record.delta === "string") deltas.push(record.delta);
-    if (record.type === "response.completed" && record.response !== undefined) {
-      const responseText = extractResponseText(record.response);
-      if (responseText.trim().length > 0) completed.push(responseText);
-    }
-  }
-  return deltas.join("").trim() || completed.join("\n").trim();
-}
-
-function extractResponseText(response: unknown): string {
-  if (typeof response === "string") return extractSseText(response) || response;
-  if (typeof response !== "object" || response === null) return String(response);
-  const record = response as Record<string, unknown>;
-  if (typeof record.output_text === "string" && record.output_text.trim().length > 0) return record.output_text.trim();
-  const outputValue = record.output;
-  if (Array.isArray(outputValue)) {
-    const parts: string[] = [];
-    for (const item of outputValue) {
-      if (typeof item !== "object" || item === null) continue;
-      const contentValue = (item as Record<string, unknown>).content;
-      if (!Array.isArray(contentValue)) continue;
-      for (const content of contentValue) {
-        if (typeof content !== "object" || content === null) continue;
-        const text = (content as Record<string, unknown>).text ?? (content as Record<string, unknown>).output_text;
-        if (typeof text === "string" && text.trim().length > 0) parts.push(text.trim());
-      }
-    }
-    if (parts.length > 0) return parts.join("\n");
-  }
-  return JSON.stringify(response, null, 2);
-}
-
 function parseJsonObject(text: string): unknown {
   const trimmed = text.trim();
   const fenced = /```(?:json)?\s*([\s\S]*?)```/iu.exec(trimmed);
@@ -395,86 +339,7 @@ function normalizeGitToolCall(value: unknown): GitLiveToolCall | undefined {
 }
 
 async function callResponsesApi(prompt: string, instructions: string): Promise<string> {
-  const credentialRef = createCredentialRef({
-    id: "agentcore-git-live-matrix-chatgpt-codex",
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) throw new Error(JSON.stringify(credentialRef.error));
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) throw new Error(JSON.stringify(auth.error));
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: "chatgpt-codex.responses.agentcore-git-live-matrix",
-    model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: "praxis-agentcore-git-live-matrix",
-    clientVersion: chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) throw new Error(JSON.stringify(carrier.error));
-
-  const caller = createProviderCaller({ transport: fetchProviderTransport, authMaterial: auth.resolved.privateMaterial, timeoutMs: 60_000 });
-  const result = await invokeChatGPTCodexResponses({
-    operation: "create",
-    baseUrl: carrier.carrier.baseURL,
-    auth: auth.resolved.envelope,
-    runtime: {
-      runtimeId: "agentcore-git-live-matrix-runtime",
-      invocationId: `agentcore-git-live-matrix-${Date.now()}`,
-      callerId: "agentcore-git-live-matrix",
-    },
-    governance: { accepted: true },
-    dryRun: false,
-    caller,
-    headers: { "content-type": "application/json" },
-    clientName: "praxis-agentcore-git-live-matrix",
-    clientVersion: chatgptCodexClientVersion,
-    expectResponseObject: false,
-    body: { model, instructions, input: prompt, reasoning: { effort: reasoningEffort }, max_output_tokens: maxOutputTokens },
-  });
-  if (!result.ok) throw new Error(JSON.stringify(result.error));
-  return extractResponseText(result.response.raw);
-}
-
-async function invokeGitToolThroughRuntimeChain(
-  toolCall: GitLiveToolCall,
-  executor: BaseToolExecutorPort,
-): Promise<{ ok: boolean; toolId: string; output?: unknown; error?: { code: string; publicSafe?: true } }> {
-  const toolCallId = `${toolCall.tool}:git-live-matrix`;
-  const runtimeId = "agentcore-git-live-matrix-runtime";
-  const sessionId = "agentcore-git-live-matrix-session";
-  const adapted = adaptRuntimeToolInvocation({
-    context: { runtimeId, sessionId, invocationId: toolCallId },
-    toolId: toolCall.tool,
-    operation: toolCall.tool,
-    arguments: toolCall.arguments,
-    resourceLimits: { timeoutMs: 10_000, maxOutputBytes: 16_000 },
-  });
-  if (!adapted.ok) return { ok: false, toolId: toolCall.tool, error: adapted.error };
-  const bridged = bridgeExecEngineInvocation({
-    runtimeId,
-    caller: { kind: "application", id: "agentcore-git-live-matrix", sessionId },
-    invocation: { invocationId: toolCallId, kind: "tool", target: toolCall.tool, payload: adapted.invocation, auditRef: adapted.invocation.audit.event },
-    runtimeReady: true,
-  });
-  if (!bridged.ok) return { ok: false, toolId: toolCall.tool, error: bridged.error };
-  const lookup = createBaseToolRegistry().lookupHandler(toolCall.tool);
-  if (!lookup.ok) return { ok: false, toolId: toolCall.tool, error: lookup.error };
-  return lookup.handler.invoke({ toolCallId, runtimeId, sessionId, input: toolCall.arguments, executor });
-}
-
-function toolCallFromCase(testCase: GitLiveCase): GitLiveToolCall {
-  return { tool: testCase.toolId, arguments: testCase.input };
-}
-
-function expectedCallsSeen(expectedCalls: readonly string[], calls: readonly string[]): boolean {
-  return expectedCalls.every((expectedCall) => calls.includes(expectedCall));
+  return await callModelAdapterPrompt(prompt, instructions, { model, reasoningEffort, maxOutputTokens });
 }
 
 function truncateText(value: unknown, maxChars = 700): string {

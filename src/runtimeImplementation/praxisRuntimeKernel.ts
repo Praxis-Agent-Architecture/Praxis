@@ -8,19 +8,12 @@
  * 实现提示：先提供可测试纵向闭环，再由用户监督 promptPack 与 mainLoop/coreLogic 的正式设计。
  */
 
-import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
-import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
-import {
-  isDeepSeekV4Model,
-  mapDeepSeekV4ReasoningEffort,
-} from "../modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
+import type { RaxAuthRef, RaxModelClient } from "../modelAdapter/index.js";
 import {
   createProviderToolMappings,
   lowerProviderToolResult,
@@ -30,7 +23,7 @@ import {
   type ProviderToolResultEnvelope,
   type ProviderToolNameMapping,
   type ProviderToolSchemaFamily,
-} from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../modelAdapter/toolBridge/providerToolLowering.js";
 import type { BaseToolExecutorPort } from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { receiveTextInput } from "../executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
 import { exposeTextOutput } from "../executionEngine/IOTransceiver/outputExposer/textExposer.js";
@@ -158,11 +151,8 @@ export type PraxisRuntimeKernelError = {
 export type PraxisRuntimeKernelOptions = {
   runtimeId?: string;
   sessionId?: string;
-  auth?: AuthEnvelope;
-  providerCaller?: OpenAIV1ResponsesProviderCaller;
-  openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
-  openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
-  anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
+  auth?: RaxAuthRef;
+  modelClient?: RaxModelClient;
   allowPreviousResponseId?: boolean;
   previousProviderResponse?: {
     responseId: string;
@@ -2851,6 +2841,20 @@ function buildOpenAIChatCompletionsBodyFromPromptPack(
   };
 }
 
+function isDeepSeekV4Model(model: string): boolean {
+  return /^deepseek-(chat|reasoner|v4)/iu.test(model);
+}
+
+function mapDeepSeekV4ReasoningEffort(effort: string | undefined): { thinking: Readonly<Record<string, unknown>>; outputConfig?: Readonly<Record<string, unknown>> } | undefined {
+  if (effort === undefined || effort.length === 0) return undefined;
+  return {
+    thinking: {
+      type: "enabled",
+      budget_tokens: effort === "high" || effort === "xhigh" ? 8192 : effort === "medium" ? 4096 : 2048,
+    },
+  };
+}
+
 function buildAnthropicMessagesBodyFromPromptPack(
   manifest: AgentManifest,
   promptPack: StandardPromptPack,
@@ -4406,21 +4410,17 @@ export class PraxisRuntimeKernel {
           provider: manifest.model.provider,
           endpointShape: manifest.model.endpointShape,
           baseURL: manifest.model.baseURL,
+          model: manifest.model.model,
           metadata: manifest.model.metadata,
         },
         mode: "single",
         dryRun,
         allowProviderCall: options.allowProviderCall ?? manifest.harness.policy.allowProviderCall ?? !dryRun,
         auth: options.auth,
-        providerCaller: options.providerCaller,
-        openaiResponsesCaller: options.openaiResponsesCaller,
-        openaiChatCompletionsCaller: options.openaiChatCompletionsCaller,
-        anthropicMessagesCaller: options.anthropicMessagesCaller,
+        modelClient: options.modelClient,
         providerBody,
         governance: { accepted: true },
         contract: { accepted: true },
-        clientName: manifest.model.clientName,
-        clientVersion: manifest.model.clientVersion,
       });
       const modelUsage = modelResult.ok && modelResult.usage
         ? {
@@ -4430,7 +4430,7 @@ export class PraxisRuntimeKernel {
           totalTokens: modelResult.usage.totalTokens,
           cachedInputTokens: "cachedInputTokens" in modelResult.usage ? modelResult.usage.cachedInputTokens : undefined,
           source: modelResult.usage.source,
-          estimated: modelResult.usage.estimated,
+          estimated: modelResult.usage.estimated ?? false,
         }
         : undefined;
       const providerRouting = modelResult.ok

@@ -1,22 +1,13 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
-import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
+import { callModelAdapterPrompt } from "./modelAdapterPromptClient.js";
 import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 const args = process.argv.slice(2);
 const argSet = new Set(args);
-const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
-  ?? path.join(process.env.CODEX_HOME ?? path.join(process.env.HOME ?? "", ".codex"), "auth.json");
-const chatgptCodexClientVersion = process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0";
 const model = process.env.AGENTCORE_CODEX_MODEL
   ?? process.env.OPENAI_AGENTCORE_MODEL
   ?? process.env.OPENAI_SMOKE_MODEL
@@ -176,53 +167,6 @@ function argValue(name: string): string | undefined {
   return args.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
 }
 
-function extractSseText(text: string): string {
-  const deltas: string[] = [];
-  const completed: string[] = [];
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("data:")) continue;
-    const payload = line.slice("data:".length).trim();
-    if (payload.length === 0 || payload === "[DONE]") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(payload) as unknown;
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
-    const record = parsed as Record<string, unknown>;
-    if (typeof record.delta === "string") deltas.push(record.delta);
-    if (record.type === "response.completed" && record.response !== undefined) {
-      const responseText = extractResponseText(record.response);
-      if (responseText.trim().length > 0) completed.push(responseText);
-    }
-  }
-  return deltas.join("").trim() || completed.join("\n").trim();
-}
-
-function extractResponseText(response: unknown): string {
-  if (typeof response === "string") return extractSseText(response) || response;
-  if (typeof response !== "object" || response === null) return String(response);
-  const record = response as Record<string, unknown>;
-  if (typeof record.output_text === "string" && record.output_text.trim().length > 0) return record.output_text.trim();
-  const outputValue = record.output;
-  if (Array.isArray(outputValue)) {
-    const parts: string[] = [];
-    for (const item of outputValue) {
-      if (typeof item !== "object" || item === null) continue;
-      const contentValue = (item as Record<string, unknown>).content;
-      if (!Array.isArray(contentValue)) continue;
-      for (const content of contentValue) {
-        if (typeof content !== "object" || content === null) continue;
-        const text = (content as Record<string, unknown>).text ?? (content as Record<string, unknown>).output_text;
-        if (typeof text === "string" && text.trim().length > 0) parts.push(text.trim());
-      }
-    }
-    if (parts.length > 0) return parts.join("\n");
-  }
-  return JSON.stringify(response, null, 2);
-}
-
 function parseJsonObject(text: string): unknown {
   const trimmed = text.trim();
   const fenced = /```(?:json)?\s*([\s\S]*?)```/iu.exec(trimmed);
@@ -252,182 +196,7 @@ function normalizeOmniToolCall(value: unknown): OmniToolCall | undefined {
 }
 
 async function callResponsesApi(prompt: string, instructions: string): Promise<string> {
-  const credentialRef = createCredentialRef({
-    id: "agentcore-omni-live-matrix-chatgpt-codex",
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) throw new Error(JSON.stringify(credentialRef.error));
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) throw new Error(JSON.stringify(auth.error));
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: "chatgpt-codex.responses.agentcore-omni-live-matrix",
-    model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: "praxis-agentcore-omni-live-matrix",
-    clientVersion: chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) throw new Error(JSON.stringify(carrier.error));
-
-  const caller = createProviderCaller({ transport: fetchProviderTransport, authMaterial: auth.resolved.privateMaterial, timeoutMs: 60_000 });
-  const result = await invokeChatGPTCodexResponses({
-    operation: "create",
-    baseUrl: carrier.carrier.baseURL,
-    auth: auth.resolved.envelope,
-    runtime: {
-      runtimeId: "agentcore-omni-live-matrix-runtime",
-      invocationId: `agentcore-omni-live-matrix-${Date.now()}`,
-      callerId: "agentcore-omni-live-matrix",
-    },
-    governance: { accepted: true },
-    dryRun: false,
-    caller,
-    headers: { "content-type": "application/json" },
-    clientName: "praxis-agentcore-omni-live-matrix",
-    clientVersion: chatgptCodexClientVersion,
-    expectResponseObject: false,
-    body: { model, instructions, input: prompt, reasoning: { effort: reasoningEffort }, max_output_tokens: maxOutputTokens },
-  });
-  if (!result.ok) throw new Error(JSON.stringify(result.error));
-  return extractResponseText(result.response.raw);
-}
-
-function createOmniExecutor(calls: string[]): BaseToolExecutorPort {
-  return {
-    omni: {
-      async transformMedia(request) {
-        calls.push(`transform:${request.operation}`);
-        return {
-          ok: true,
-          output: {
-            artifactId: `artifact:omni-live:${request.operation}`,
-            mimeType: typeof request.parameters?.targetFormat === "string"
-              ? `application/x-${request.parameters.targetFormat}`
-              : typeof request.parameters?.mediaType === "string"
-                ? request.parameters.mediaType
-                : "application/octet-stream",
-          },
-          metadata: {
-            runtimeEntry: "BaseToolExecutorPort.omni.transformMedia",
-            operation: request.operation,
-            inputArtifactId: request.inputArtifactId,
-            labMode: "deterministic-omni-live-matrix",
-          },
-        };
-      },
-    },
-  };
-}
-
-async function invokeOmniToolThroughRuntimeChain(
-  toolCall: OmniToolCall,
-  executor: BaseToolExecutorPort,
-): Promise<{ ok: boolean; toolId: string; output?: unknown; error?: { code: string; publicSafe: true } }> {
-  const toolCallId = `${toolCall.tool}:omni-live-matrix`;
-  const runtimeId = "agentcore-omni-live-matrix-runtime";
-  const sessionId = "agentcore-omni-live-matrix-session";
-  const adapted = adaptRuntimeToolInvocation({
-    context: { runtimeId, sessionId, invocationId: toolCallId },
-    toolId: toolCall.tool,
-    operation: toolCall.tool,
-    arguments: toolCall.arguments,
-    resourceLimits: { timeoutMs: 1000, maxOutputBytes: 8000 },
-  });
-  if (!adapted.ok) return { ok: false, toolId: toolCall.tool, error: adapted.error };
-  const bridged = bridgeExecEngineInvocation({
-    runtimeId,
-    caller: { kind: "application", id: "agentcore-omni-live-matrix", sessionId },
-    invocation: { invocationId: toolCallId, kind: "tool", target: toolCall.tool, payload: adapted.invocation, auditRef: adapted.invocation.audit.event },
-    runtimeReady: true,
-  });
-  if (!bridged.ok) return { ok: false, toolId: toolCall.tool, error: bridged.error };
-  const lookup = createBaseToolRegistry().lookupHandler(toolCall.tool);
-  if (!lookup.ok) return { ok: false, toolId: toolCall.tool, error: lookup.error };
-  return lookup.handler.invoke({ toolCallId, runtimeId, sessionId, input: toolCall.arguments, executor });
-}
-
-function toolCallFromCase(testCase: OmniLiveCase): OmniToolCall {
-  return { tool: testCase.toolId, arguments: testCase.input };
-}
-
-function withRuntimeGovernance(tool: string, toolArguments: Readonly<Record<string, unknown>>, userPrompt?: string): Readonly<Record<string, unknown>> {
-  const input: Record<string, unknown> = { ...toolArguments };
-  const targetText = typeof input.target === "string" && input.target.trim().length > 0 ? input.target.trim() : undefined;
-  const targetTextLooksOutput = targetText?.startsWith("/workspace/output/") === true;
-  const target = typeof input.target === "object" && input.target !== null && !Array.isArray(input.target)
-    ? { ...(input.target as Record<string, unknown>) }
-    : {};
-  const context = typeof input.context === "object" && input.context !== null && !Array.isArray(input.context)
-    ? input.context as Record<string, unknown>
-    : {};
-
-  if (tool === "omni.viewImage") {
-    target.imagePath ??= target.inputPath ?? target.imagePath ?? target.input ?? target.source ?? input.imagePath ?? input.input ?? input.source ?? input.path ?? targetText ?? "/workspace/media/source.png";
-    target.mediaType ??= input.mediaType ?? "image/png";
-    target.detail ??= input.detail ?? context.detail ?? "high";
-  } else if (tool.startsWith("omni.generate")) {
-    target.prompt ??= input.prompt ?? target.prompt ?? userPrompt ?? "Tool matrix generated media.";
-    target.outputPath ??= target.output ?? target.path ?? input.outputPath ?? input.output ?? targetText ?? (tool.endsWith("Image") ? "/workspace/output/result.png" : tool.endsWith("Audio") ? "/workspace/output/result.wav" : "/workspace/output/result.mp4");
-    target.targetFormat ??= target.format ?? target.outputFormat ?? input.targetFormat ?? input.format ?? input.outputFormat ?? (tool.endsWith("Image") ? "png" : tool.endsWith("Audio") ? "wav" : "mp4");
-    target.durationSeconds ??= target.duration ?? input.durationSeconds ?? input.duration;
-  } else {
-    const mediaHint = tool.includes("Audio") || tool.startsWith("omni.audio") || tool === "omni.listenAudio"
-      ? "audio"
-      : tool.includes("Image") || tool.startsWith("omni.image")
-        ? "image"
-        : "video";
-    target.inputPath ??= target.input ?? target.source ?? target.path ?? input.inputPath ?? input.input ?? input.source ?? input.path ?? (targetTextLooksOutput ? undefined : targetText) ?? (mediaHint === "audio" ? "/workspace/media/source.wav" : mediaHint === "image" ? "/workspace/media/source.png" : "/workspace/media/source.mp4");
-    target.targetFormat ??= target.format ?? target.outputFormat ?? input.targetFormat ?? input.format ?? input.outputFormat ?? (mediaHint === "audio" ? "wav" : mediaHint === "image" ? "png" : "mp4");
-    if (tool.includes("Compressor") || tool.includes("FormatConversion")) {
-      target.outputPath ??= target.output ?? input.outputPath ?? input.output ?? (targetTextLooksOutput ? targetText : undefined) ?? (mediaHint === "audio" ? "/workspace/output/result.wav" : mediaHint === "image" ? "/workspace/output/result.png" : "/workspace/output/result.mp4");
-    }
-  }
-
-  const media = tool.includes("Audio") || tool.startsWith("omni.audio") || tool === "omni.listenAudio"
-    ? "audio"
-    : tool.includes("Image") || tool.startsWith("omni.image") || tool === "omni.viewImage"
-      ? "image"
-      : "video";
-  const defaultPermissions = tool === "omni.viewImage"
-    ? ["filesystem:read", "omni:image:view"]
-    : tool.startsWith("omni.generate")
-      ? ["provider:invoke", `omni:${media}:generate`, `omni:${media}:write`]
-      : tool.includes("Compressor") || tool.includes("FormatConversion")
-        ? [`omni:${media}:read`, `omni:${media}:write`]
-        : [`omni:${media}:read`, "provider:invoke"];
-
-  return {
-    ...input,
-    target,
-    context: {
-      ...context,
-      dryRun: false,
-      guard: {
-        ...(typeof context.guard === "object" && context.guard !== null && !Array.isArray(context.guard)
-          ? context.guard as Record<string, unknown>
-          : {}),
-        allowed: true,
-        accepted: true,
-      },
-      allowedImageRoots: Array.isArray(context.allowedImageRoots) ? context.allowedImageRoots : ["/workspace/media"],
-      allowedInputRoots: Array.isArray(context.allowedInputRoots) ? context.allowedInputRoots : ["/workspace/media"],
-      allowedOutputRoots: Array.isArray(context.allowedOutputRoots) ? context.allowedOutputRoots : ["/workspace/output"],
-      grantedPermissions: Array.isArray(context.grantedPermissions) ? context.grantedPermissions : defaultPermissions,
-      requestedScopes: Array.isArray(context.requestedScopes) ? context.requestedScopes : [`tool.${tool}`],
-      allowedScopes: Array.isArray(context.allowedScopes) ? context.allowedScopes : [`tool.${tool}`],
-    },
-  };
-}
-
-function expectedCallSeen(expectedOperation: string, calls: readonly string[]): boolean {
-  return calls.includes(`transform:${expectedOperation}`);
+  return await callModelAdapterPrompt(prompt, instructions, { model, reasoningEffort, maxOutputTokens });
 }
 
 function truncateText(value: unknown, maxChars = 500): string {

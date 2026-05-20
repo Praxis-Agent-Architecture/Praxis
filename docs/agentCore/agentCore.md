@@ -115,9 +115,9 @@ CMP / MP / TAP / multiagent
 它负责：
 
 - 把 OpenAI、Anthropic、DeepMind/Gemini 等官方调用面接进来。
-- 把不兼容官方形式的自定义上游格式接进来。
-- 通过抽象层把不同 provider、不同 endpoint、不同格式整理成 DSL 所表达的能力形态。
-- 通过 bridgingLayer 把抽象后的能力变成 agentCore 内部一看就能接入的实际模型能力。
+- 把不兼容官方形式的自定义上游作为 provider route 接进来。
+- 通过 schema / route / protocol 把不同 provider、不同 endpoint、不同格式整理成 Praxis 稳定请求和事件。
+- 通过 toolBridge 把 Praxis 工具语义转换成 provider 可理解的 tool schema。
 
 它的目标是：用户接入 auth/API/自定义上游后，agentCore 使用 AI 的方式仍然稳定一致，不需要上层业务到处为 provider 做特殊适配。
 
@@ -182,9 +182,9 @@ CMP / MP / TAP / multiagent
 user input / command / tool summary / CMP material / memory material
   -> promptPack 整理上下文包和 prompt 输入参数
   -> runtime.modelAdapter / promptLoweringRuntime
-  -> agent_modelAdapter / bridgingLayer
-  -> abstractionLayer
-  -> actualInvocationLayer
+  -> agent_modelAdapter / schema
+  -> route / protocol
+  -> provider registry / transport
   -> provider or customFormat
 ```
 
@@ -244,60 +244,39 @@ TAP 应基于这些基础原语继续构建更高级的工具治理、审批、�
 
 ## 7. modelAdapter 细分
 
-### 7.1 actualInvocationLayer
+### 7.1 schema
 
-`actualInvocationLayer` 管真实上游调用面。
+`schema` 管 Praxis 内部稳定模型请求和事件协议。
 
 当前包括：
 
-- `openai`
-- `anthropic`
-- `deepmind`
-- `customFormat`
+- `RaxModelRequest`
+- `RaxPreparedModelRequest`
+- `RaxModelEvent`
+- `RaxModelResponse`
+- `RaxUsage`
 
-这里的任务是把上游 provider 的 API endpoint、请求形态、响应形态、错误形态和能力信号拿下来，让上游能力变得实际可用。
+这里的任务是让上层只面对 Praxis 自己的请求、流式事件、工具调用和 usage 统计，不直接依赖 provider 原始字段。
 
-auth 登录和 API 登录以后也应接入这里附近，但本文不展开具体认证实现。
+### 7.2 route / protocol
 
-### 7.2 customFormat
+`route` 管端点、鉴权、transport 和请求准备；`protocol` 管 OpenAI Chat、OpenAI-compatible、Responses、Anthropic Messages、Google GenerateContent 等协议的字段转换。
 
-`customFormat` 是所有非官方或不兼容官方形态的强制承接面。
+这里吸收不同 SDK/API 的差异，把它们统一成 `prepare()`、`stream()`、`generate()` 三种能力。白话说，route 决定“往哪里发”，protocol 决定“怎么说话”。
 
-只要上游不符合 OpenAI、Anthropic、DeepMind/Gemini 的官方形式，就应该进入这里。
+### 7.3 provider / registry
 
-这里要支持：
+`provider` 和 `registry` 管 provider 定义、模型目录、兼容性矩阵和默认路由注册。
 
-- 私有模型网关。
-- 第三方模型服务。
-- 自定义 endpoint。
-- 特殊协议。
-- 用户自己定义的模型调用格式。
+这里负责描述一个 provider 支持哪些协议、工具调用、流式 usage、native option 白名单和 auth env 入口。自定义网关不再靠旧 customFormat 层兜底，而是注册成 provider route。
 
-它不把自定义格式提升成 Praxis 核心标准，而是让它们能进入统一抽象、治理和调用流程。
+### 7.4 toolBridge
 
-### 7.3 abstractionLayer
+`toolBridge` 管 Praxis 工具定义和 provider tool schema 之间的转换。
 
-`abstractionLayer` 管跨厂商抽象。
+它负责工具名映射、JSON schema 归一、provider tool call 回升，以及工具结果回填的最低兼容。白话说，工具系统可以保持 Praxis 语义，模型端看到的是各 provider 能理解的工具格式。
 
-它要根据 DSL 和用户表达的目标调用方式，把任意 provider 或自定义格式转成 agentCore 可继续处理的抽象能力。
-
-例如用户想用 `/v1/responses` 这种风格表达模型调用，即便实际 provider 不同，也应该由抽象层完成能力抽取、格式抽取、中间映射、中间转换和兼容保护。
-
-它不是 provider 真实调用层，也不是 agentCore 内部最终调用层。它负责把差异消化掉。
-
-### 7.4 bridgingLayer
-
-`bridgingLayer` 是模型能力进入 agentCore 内部前的最后一步。
-
-正确流程是：
-
-```text
-actualInvocationLayer 拿到真实上游
-  -> abstractionLayer 完成跨厂商和跨格式抽象
-  -> bridgingLayer 变成 agentCore 内部可直接使用的形态
-```
-
-`applicationAdapter` 在这里不是普通“应用业务适配器”。它是 agentCore 对抽象层的实际应用位置。它把抽象层已经整理好的模型能力暴露给 agentCore，让 agentCore 按唯一固定方式使用 AI。
+`applicationAdapter` 不应该保存 provider 私有字段。它应该通过 `RaxModelClient` 或 runtime bridge 使用模型能力。
 
 ## 8. interfaceAdapter 细分
 
@@ -505,9 +484,9 @@ Agent application
 user input / command / tool summary / CMP material / memory material
   -> agent_executionEngine/promptPack
   -> runtime.modelAdapter/promptLoweringRuntime
-  -> agent_modelAdapter/bridgingLayer
-  -> agent_modelAdapter/abstractionLayer
-  -> agent_modelAdapter/actualInvocationLayer
+  -> agent_modelAdapter/schema
+  -> agent_modelAdapter/route + protocol
+  -> agent_modelAdapter/provider registry + transport
   -> provider or customFormat
 ```
 
@@ -572,9 +551,9 @@ CMP / MP / TAP / multiagent
 
 ```text
 6. agent_executionEngine/promptPack
-7. agent_modelAdapter/actualInvocationLayer
-8. agent_modelAdapter/abstractionLayer
-9. agent_modelAdapter/bridgingLayer
+7. agent_modelAdapter/schema
+8. agent_modelAdapter/route + protocol
+9. agent_modelAdapter/provider registry + toolBridge
 10. runtime.modelAdapter
 ```
 

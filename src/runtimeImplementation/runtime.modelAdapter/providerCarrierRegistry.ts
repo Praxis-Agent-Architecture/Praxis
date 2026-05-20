@@ -12,11 +12,24 @@ import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
 } from "./modelAdapterRuntime.js";
-import type {
-  ProviderCachePolicy,
-  ProviderReasoningConfig,
-} from "../../modelAdapter/providerAccessLayer/providerCarrier.js";
-import type { CredentialRef } from "../../modelAdapter/authProfileLayer/credentialRef.js";
+import type { RaxAuthRef, RaxReasoningEffort } from "../../modelAdapter/index.js";
+
+export type ProviderCachePolicy = {
+  intent: "none" | "read" | "write" | "read-write" | (string & {});
+  ttlSeconds?: number;
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type CredentialRef = RaxAuthRef & {
+  credentialId?: string;
+  credentialType?: string;
+  provider?: string;
+};
+
+export type ProviderReasoningConfig = {
+  effort?: RaxReasoningEffort;
+  summary?: string;
+};
 
 export type ProviderCarrierKind =
   | "openai"

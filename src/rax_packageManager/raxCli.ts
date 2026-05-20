@@ -12,13 +12,7 @@ import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
-import { resolveAuthEnvelope } from "../modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../modelAdapter/providerAccessLayer/transportCaller.js";
+import type { RaxAuthRef, RaxModelClient } from "../modelAdapter/index.js";
 import { praxis, type AgentManifest, type AgentRunResult, type PromptMaterialSource } from "../agentCore/index.js";
 import {
   createRuntimeBaseToolExecutorPort,
@@ -74,8 +68,8 @@ type RaxProjectResolution = {
 type LiveProviderBinding =
   | {
       ok: true;
-      auth: AuthEnvelope;
-      providerCaller: OpenAIV1ResponsesProviderCaller;
+      auth: RaxAuthRef;
+      modelClient?: RaxModelClient;
       authSource: string;
       carrierId: string;
       events: readonly string[];
@@ -380,67 +374,12 @@ async function createLiveProviderBinding(input: {
     };
   }
 
-  const credentialRef = createCredentialRef({
-    id: `rax:${input.manifest.identity.id}:chatgpt-codex`,
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: authFile },
-  });
-  if (!credentialRef.ok) {
-    return {
-      ok: false,
-      authSource: authFile,
-      reason: credentialRef.error.message,
-      events: credentialRef.events,
-    };
-  }
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => {
-      try {
-        return readFileSync(filePath, "utf8");
-      } catch {
-        return undefined;
-      }
-    },
-  });
-  if (!auth.ok) {
-    return {
-      ok: false,
-      authSource: authFile,
-      reason: auth.error.message,
-      events: auth.events,
-    };
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: input.manifest.model.carrierId,
-    model: input.manifest.model.model,
-    credentialRef: credentialRef.credentialRef,
-    clientName: input.manifest.model.clientName ?? "praxis-rax-cli",
-    clientVersion: input.manifest.model.clientVersion ?? process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0",
-  });
-  if (!carrier.ok) {
-    return {
-      ok: false,
-      authSource: authFile,
-      reason: carrier.error.message,
-      events: carrier.events,
-    };
-  }
-
   return {
     ok: true,
-    auth: auth.resolved.envelope,
-    providerCaller: createProviderCaller({
-      transport: fetchProviderTransport,
-      authMaterial: auth.resolved.privateMaterial,
-      timeoutMs: Number(process.env.RAX_PROVIDER_TIMEOUT_MS ?? "60000"),
-    }),
+    auth: { type: "none" },
     authSource: authFile,
-    carrierId: carrier.carrier.carrierId,
-    events: [...auth.events, ...carrier.events],
+    carrierId: input.manifest.model.carrierId,
+    events: ["rax.provider.liveAuth.deferredToModelAdapter"],
   };
 }
 
@@ -1127,7 +1066,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
           storage: { cwd: process.cwd(), initMode: "never" },
           sandbox: { cwd: process.cwd(), failOnUnavailable: true },
           auth: liveProvider?.ok === true ? liveProvider.auth : undefined,
-          providerCaller: liveProvider?.ok === true ? liveProvider.providerCaller : undefined,
+          modelClient: liveProvider?.ok === true ? liveProvider.modelClient : undefined,
           exposeProviderTools: !live,
         })
       : undefined;
@@ -1193,7 +1132,7 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
     dryRun,
     allowProviderCall: live,
     auth: liveProvider?.ok === true ? liveProvider.auth : undefined,
-    providerCaller: liveProvider?.ok === true ? liveProvider.providerCaller : undefined,
+    modelClient: liveProvider?.ok === true ? liveProvider.modelClient : undefined,
     exposeProviderTools: !hasFlag(args, "--no-provider-tools"),
   });
   const selfRepairReport = result.ok
