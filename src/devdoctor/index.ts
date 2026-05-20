@@ -4,7 +4,9 @@
  * Boundary: records protocol-level facts; it does not bypass applicationLayer.
  */
 
+import { readFileSync } from "node:fs";
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,12 +16,19 @@ import {
   type PraxisApplicationCommand,
   type PraxisApplicationCommandResult,
   type PraxisApplicationEvent,
+  type PraxisApplicationLiveProvider,
   type PraxisApplicationPermissionProfile,
   type PraxisApplicationReasoningEffort,
   type PraxisApplicationRuntimeMode,
   type PraxisApplicationTransportClient,
   type PraxisApplicationViewModel,
 } from "../applicationLayer/index.js";
+import type { AgentManifest } from "../agentCore/index.js";
+import { resolveAuthEnvelope } from "../modelAdapter/authProfileLayer/authResolver.js";
+import { createCredentialRef } from "../modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller } from "../modelAdapter/providerAccessLayer/providerCaller.js";
+import { createChatGPTCodexResponsesCarrier } from "../modelAdapter/providerAccessLayer/providerCarrier.js";
+import { fetchProviderTransport } from "../modelAdapter/providerAccessLayer/transportCaller.js";
 import type { RaxCliResult } from "../rax_packageManager/raxCli.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -40,6 +49,7 @@ type DevdoctorProfileConfig = {
   prompt?: string;
   mode?: PraxisApplicationRuntimeMode;
   workspace?: string;
+  authFile?: string;
   permissionProfile?: PraxisApplicationPermissionProfile;
   model?: string;
   reasoningEffort?: PraxisApplicationReasoningEffort;
@@ -153,6 +163,95 @@ function bundledDoctorProjectPath(): string {
   return path.dirname(fileURLToPath(import.meta.url));
 }
 
+function homeDir(): string {
+  return process.env.HOME?.trim() || os.homedir();
+}
+
+async function firstExistingPath(paths: readonly (string | undefined)[]): Promise<string | undefined> {
+  for (const candidate of paths) {
+    if (candidate === undefined || candidate.trim().length === 0) {
+      continue;
+    }
+    if (await pathExists(candidate)) {
+      return candidate;
+    }
+  }
+  return undefined;
+}
+
+async function resolveDevdoctorCodexAuthFile(profile: DevdoctorProfileConfig, projectRoot: string): Promise<string | undefined> {
+  if (profile.authFile !== undefined && profile.authFile.trim().length > 0) {
+    return path.resolve(profile.authFile);
+  }
+
+  const codexHome = process.env.CODEX_HOME?.trim() || path.join(homeDir(), ".codex");
+  return await firstExistingPath([
+    process.env.AGENTCORE_CODEX_AUTH_FILE,
+    process.env.RAX_CODEX_AUTH_FILE,
+    path.join(projectRoot, ".rax_workspace", "auth", "openai", "default", "auth.json"),
+    path.join(projectRoot, ".rax_workspace", "auth", "codex", "auth.json"),
+    path.join(homeDir(), ".rax", "auth", "openai", "default", "auth.json"),
+    path.join(codexHome, "auth.json"),
+  ]);
+}
+
+async function createDevdoctorLiveProvider(
+  manifest: AgentManifest,
+  profile: DevdoctorProfileConfig,
+  projectRoot: string,
+): Promise<PraxisApplicationLiveProvider | undefined> {
+  const authFile = await resolveDevdoctorCodexAuthFile(profile, projectRoot);
+  if (authFile === undefined) {
+    throw new Error("No Codex auth file found. Provide --codex-auth-file, AGENTCORE_CODEX_AUTH_FILE, project .rax_workspace auth, ~/.rax auth, or ~/.codex/auth.json.");
+  }
+
+  const credentialRef = createCredentialRef({
+    id: `devdoctor:${manifest.identity.id}:chatgpt-codex`,
+    provider: "openai",
+    credentialType: "chatgpt_codex_oauth",
+    source: { kind: "codex-auth-file", filePath: authFile },
+  });
+  if (!credentialRef.ok) {
+    throw new Error(credentialRef.error.message);
+  }
+
+  const auth = resolveAuthEnvelope({
+    credentialRef: credentialRef.credentialRef,
+    readFile: (filePath) => {
+      try {
+        return readFileSync(filePath, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+  });
+  if (!auth.ok) {
+    throw new Error(auth.error.message);
+  }
+
+  const carrier = createChatGPTCodexResponsesCarrier({
+    carrierId: manifest.model.carrierId,
+    model: manifest.model.model,
+    credentialRef: credentialRef.credentialRef,
+    clientName: manifest.model.clientName ?? "praxis-devdoctor",
+    clientVersion: manifest.model.clientVersion ?? process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0",
+  });
+  if (!carrier.ok) {
+    throw new Error(carrier.error.message);
+  }
+
+  return {
+    auth: auth.resolved.envelope,
+    providerCaller: createProviderCaller({
+      transport: fetchProviderTransport,
+      authMaterial: auth.resolved.privateMaterial,
+      timeoutMs: Number(process.env.RAX_PROVIDER_TIMEOUT_MS ?? "60000"),
+    }),
+    provider: manifest.model.provider,
+    endpointShape: manifest.model.endpointShape,
+  };
+}
+
 async function pathExists(pathname: string): Promise<boolean> {
   try {
     await stat(pathname);
@@ -176,6 +275,7 @@ function mergeProfile(base: DevdoctorProfileConfig, args: readonly string[]): De
   const url = argValue(args, "--url");
   const prompt = argValue(args, "--prompt");
   const workspace = argValue(args, "--workspace") ?? argValue(args, "--cwd");
+  const authFile = argValue(args, "--codex-auth-file") ?? argValue(args, "--auth-file");
   const model = argValue(args, "--model");
   const reasoningEffort = argValue(args, "--reasoning-effort") as PraxisApplicationReasoningEffort | undefined;
   const permissionProfile = (argValue(args, "--permission-profile") ?? argValue(args, "--permission")) as PraxisApplicationPermissionProfile | undefined;
@@ -196,6 +296,7 @@ function mergeProfile(base: DevdoctorProfileConfig, args: readonly string[]): De
         : { kind: "localProject", project },
     prompt: prompt ?? base.prompt,
     workspace: workspace ?? base.workspace,
+    authFile: authFile ?? base.authFile,
     model: model ?? base.model,
     reasoningEffort: reasoningEffort ?? base.reasoningEffort,
     permissionProfile: permissionProfile ?? base.permissionProfile,
@@ -579,6 +680,7 @@ async function runLocalProject(resolved: DevdoctorResolvedRun): Promise<Devdocto
 
   const created = await createApplicationProjectRuntime(projectPath, {
     now: () => nowIso(),
+    liveProviderResolver: async (manifest) => createDevdoctorLiveProvider(manifest, resolved.profile, projectPath),
   });
   if (!created.ok) {
     await recorder.error({ source: "createApplicationProjectRuntime", error: created.error });
