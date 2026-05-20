@@ -1,0 +1,17 @@
+import type { GitAddToStagingProviderPractice } from "./dependencies.js";
+import { createHostExecutorGitAddToStagingProvider } from "./dependencies.js";
+
+export const openaiGitAddToStagingPractice: GitAddToStagingProviderPractice = {
+  providerName: "openai",
+  source: {
+    kind: "agent-sdk",
+    label: "Codex-style sandboxed git add through runtime-owned executor",
+  },
+  directCliSupport: true,
+  sideEffectPolicy: "workspace-mutation",
+  notes: [
+    "Codex-style practice keeps process execution inside sandbox/runtime policy rather than model-authored commands.",
+    "Praxis storage constructs fixed argv and the runtime owns the host git process.",
+  ],
+  createProvider: ({ provider, executor }) => provider ?? createHostExecutorGitAddToStagingProvider(executor),
+};

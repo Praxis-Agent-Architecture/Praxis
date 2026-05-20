@@ -1,0 +1,19 @@
+{
+  "kind": "praxis.promptPackage",
+  "schemaVersion": "praxis.promptPackage.v1",
+  "packageId": "promptPackage.example.repoInspector",
+  "entry": "base.md",
+  "materials": [
+    "base.md",
+    "evidence-rule.md",
+    "tool-rules.md",
+    "mode-policy.md",
+    "approval-state.md",
+    "output-tail.md"
+  ],
+  "audit": {
+    "owner": "example",
+    "providerPayloadBuiltHere": false,
+    "notes": "PromptPackage files are declared material refs. Runtime lowering decides provider payload shape."
+  }
+}

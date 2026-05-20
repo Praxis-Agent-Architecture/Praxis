@@ -1,0 +1,21 @@
+{
+  "schema": "praxis.rax.project.v1",
+  "kind": "application-project",
+  "id": "example.fullstack",
+  "entry": "agents/repoInspector/praxis.agent.ts",
+  "export": "default",
+  "agent": {
+    "id": "agent.example.repoInspector",
+    "archetype": "RepoInspectorAgent"
+  },
+  "paths": {
+    "application": "application",
+    "agents": "agents",
+    "authentication": "authentication",
+    "context": "context",
+    "memory": "memory",
+    "topology": "topology",
+    "tests": "tests",
+    "primaryAgent": "agents/repoInspector"
+  }
+}

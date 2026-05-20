@@ -1,0 +1,18 @@
+{
+  "schema": "praxis.rax.project.v1",
+  "kind": "application-project",
+  "id": "praxis.doctor",
+  "entry": "praxis.agent.ts",
+  "export": "default",
+  "application": {
+    "id": "application.praxis.doctor"
+  },
+  "agent": {
+    "id": "agent.praxis.doctor",
+    "archetype": "PraxisDoctorAgent"
+  },
+  "paths": {
+    "promptPackage": "prompts",
+    "tests": "tests"
+  }
+}

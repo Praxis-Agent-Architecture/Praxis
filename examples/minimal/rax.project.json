@@ -1,0 +1,15 @@
+{
+  "schema": "praxis.rax.project.v1",
+  "kind": "minimal-agent-project",
+  "id": "example.minimal",
+  "entry": "praxis.agent.ts",
+  "export": "default",
+  "agent": {
+    "id": "agent.example.minimal.repoInspector",
+    "archetype": "MinimalRepoInspectorAgent"
+  },
+  "paths": {
+    "promptPackage": "repo-inspector",
+    "localDebugRunner": "runRepoInspector.ts"
+  }
+}

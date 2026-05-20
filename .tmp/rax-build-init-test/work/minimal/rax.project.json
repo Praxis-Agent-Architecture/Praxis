@@ -1,0 +1,13 @@
+{
+  "schema": "praxis.rax.project.v1",
+  "kind": "agent-project",
+  "id": "repo-agent",
+  "entry": "agents/mainAgent.ts",
+  "export": "default",
+  "agent": {
+    "id": "agent.repo-agent"
+  },
+  "paths": {
+    "agents": "agents"
+  }
+}

@@ -1,0 +1,101 @@
+{
+  "name": "@praxis-ai/praxis",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "Praxis agentCore architecture scaffold, tests, and engineering contracts.",
+  "license": "AGPL-3.0-only",
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "rax": "./bin/rax"
+  },
+  "exports": {
+    ".": "./src/agentCore/index.ts",
+    "./agentCore": "./src/agentCore/index.ts",
+    "./agent-core": "./src/agentCore/index.ts",
+    "./application": "./src/applicationLayer/index.ts",
+    "./application-layer": "./src/applicationLayer/index.ts",
+    "./rax": "./src/rax_packageManager/index.ts"
+  },
+  "files": [
+    "bin",
+    "doctor",
+    "src",
+    "examples",
+    "LICENSE",
+    "tsconfig.json",
+    "!**/memory/generated",
+    "!**/memory/generated/**",
+    "!**/.devdoctor",
+    "!**/.devdoctor/**",
+    "!**/.raxode",
+    "!**/.raxode/**",
+    "!**/reports",
+    "!**/reports/**",
+    "!**/tests",
+    "!**/tests/**",
+    "!**/*.test.ts"
+  ],
+  "engines": {
+    "node": ">=24.15.0 <25"
+  },
+  "scripts": {
+    "build": "npm run typecheck",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "pack:dry-run": "npm pack --dry-run --json",
+    "pack:dist": "mkdir -p dist && npm pack --pack-destination dist",
+    "example:minimal": "node --import tsx examples/minimal/runRepoInspector.ts",
+    "example:fullstack": "node --import tsx examples/fullstack/runRepoInspector.ts",
+    "example:chat": "node --import tsx examples/scripts/agentcore_chat.ts",
+    "example:chat:live": "node --import tsx examples/scripts/agentcore_chat.ts",
+    "example:chat:minimal": "node --import tsx examples/scripts/agentcore_chat.ts --agent examples/minimal",
+    "example:chat:fullstack": "node --import tsx examples/scripts/agentcore_chat.ts --agent examples/fullstack",
+    "test:agentCore:shell-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_shell_live_matrix.ts --dialogue",
+    "test:agentCore:shell-live": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_shell_live_matrix.ts",
+    "test:agentCore:codebase-explore-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_codebase_explore_live_matrix.ts --dialogue",
+    "test:agentCore:codebase-explore-live": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_codebase_explore_live_matrix.ts",
+    "test:agentCore:git-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_git_live_matrix.ts --dialogue",
+    "test:agentCore:git-live": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_git_live_matrix.ts",
+    "test:agentCore:skill-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_skill_live_matrix.ts --dialogue",
+    "test:agentCore:skill-live": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_skill_live_matrix.ts",
+    "test:agentCore:omni-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_omni_live_matrix.ts --dialogue",
+    "test:agentCore:omni-live": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_omni_live_matrix.ts",
+    "test:agentCore:computeruse-dialogue": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_computeruse_live_matrix.ts --dialogue",
+    "test:agentCore:computeruse-live": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_computeruse_live_matrix.ts",
+    "test:agentCore:all-tools-matrix": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_all_tools_matrix.ts",
+    "lab:agentCore:tools": "node --import tsx examples/scripts/agentcore_tool_lab.ts",
+    "smoke:agentCore": "node --import tsx examples/scripts/agentcore_smoke.ts",
+    "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
+    "test:agentCore": "find test/agentCore -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
+    "test:unit": "npm run test:agentCore"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.0"
+  },
+  "optionalDependencies": {
+    "@ffmpeg/core": "^0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
+    "@huggingface/transformers": "^4.2.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.138",
+    "@anthropic-ai/sdk": "^0.78.0",
+    "@google/adk": "^0.5.0",
+    "@google/genai": "^1.52.0",
+    "@lancedb/lancedb": "^0.27.2",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@openai/agents": "^0.7.2",
+    "@types/react": "^18.3.28",
+    "apache-arrow": "^18.1.0",
+    "ink": "^5.2.1",
+    "openai": "^6.37.0",
+    "react": "^18.3.1",
+    "string-width": "^7.2.0",
+    "typescript": "^5.9.3",
+    "tsx": "^4.21.0",
+    "zod": "^4.4.3"
+  }
+}

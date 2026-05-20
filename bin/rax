@@ -1,0 +1,20 @@
+#!/usr/bin/env sh
+PRG=$0
+while [ -h "$PRG" ]; do
+  LINK=$(ls -ld -- "$PRG")
+  LINK=$(expr "$LINK" : '.*-> \(.*\)$')
+  case "$LINK" in
+    /*) PRG=$LINK ;;
+    *) PRG=$(dirname -- "$PRG")/$LINK ;;
+  esac
+done
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$PRG")" && pwd)
+TSX_LOADER="$SCRIPT_DIR/../node_modules/tsx/dist/loader.mjs"
+if [ ! -f "$TSX_LOADER" ]; then
+  TSX_LOADER="$SCRIPT_DIR/../../../tsx/dist/loader.mjs"
+fi
+if [ ! -f "$TSX_LOADER" ]; then
+  echo "Rax could not locate the bundled tsx loader. Please reinstall the package." >&2
+  exit 1
+fi
+exec node --import "$TSX_LOADER" "$SCRIPT_DIR/../src/rax_packageManager/raxCli.ts" "$@"

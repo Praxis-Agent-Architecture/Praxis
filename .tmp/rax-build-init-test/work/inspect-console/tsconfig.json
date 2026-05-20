@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": [
+      "node"
+    ]
+  },
+  "include": [
+    "application/**/*.ts",
+    "agents/**/*.ts",
+    "authentication/**/*.ts",
+    "context/**/*.ts",
+    "memory/**/*.ts",
+    "tests/**/*.ts",
+    "topology/**/*.ts"
+  ]
+}

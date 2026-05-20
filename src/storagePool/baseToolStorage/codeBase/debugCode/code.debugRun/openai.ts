@@ -1,0 +1,2 @@
+import { createHostExecutorCodeDebugRunProvider, type CodeDebugRunProviderPractice } from "./dependencies.js";
+export const openaiCodeDebugRunPractice: CodeDebugRunProviderPractice = { providerName: "openai", source: { kind: "cli", label: "Codex structured debug launch tool practice" }, directCliSupport: true, sideEffectPolicy: "runtime-governed", notes: ["Use explicit launch/attach schema and guard metadata instead of debugger shell commands."], createProvider: ({ provider, executor }) => provider ?? createHostExecutorCodeDebugRunProvider(executor) };
