@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   exposeMpInvocationEvent,
   mpInvocationDescriptor,
-} from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/mpInvocation.js";
+} from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/mpInvocation.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/mpInvocation.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/mpInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/mpInvocation.md",
   testFileUrl: import.meta.url,
 });

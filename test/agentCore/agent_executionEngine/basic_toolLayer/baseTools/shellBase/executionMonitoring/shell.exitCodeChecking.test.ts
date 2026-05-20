@@ -7,11 +7,11 @@ import {
   executeShellExitCodeChecking,
   shellExitCodeCheckingHandler,
   shellExitCodeCheckingDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionMonitoring/shell.exitCodeChecking.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/executionMonitoring/shell.exitCodeChecking.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionMonitoring/shell.exitCodeChecking.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/executionMonitoring/shell.exitCodeChecking.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionMonitoring/shell.exitCodeChecking.md",
   testFileUrl: import.meta.url,
 });

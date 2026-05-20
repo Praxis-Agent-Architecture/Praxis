@@ -1,6 +1,6 @@
 # v1_messages_count_tokens
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_messages_count_tokens.ts`
+> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/anthropic/v1_messages_count_tokens.ts`
 
 ## 1. 文件位置
 

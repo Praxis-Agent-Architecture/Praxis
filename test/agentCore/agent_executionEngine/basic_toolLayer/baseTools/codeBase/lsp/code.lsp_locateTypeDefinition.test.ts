@@ -4,11 +4,11 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { locateLspTypeDefinition } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateTypeDefinition.js";
+import { locateLspTypeDefinition } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateTypeDefinition.js";
 import { fakeLspServerSource } from "./fakeLspServer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateTypeDefinition.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateTypeDefinition.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_locateTypeDefinition.md",
   testFileUrl: import.meta.url,
 });

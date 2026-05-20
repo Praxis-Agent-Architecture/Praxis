@@ -9,11 +9,11 @@ import {
   model,
   tool,
   tools,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
-import { createRuntimeInspectReport } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInspectReport.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtimeAgentManifest.js";
+import { createRuntimeInspectReport } from "../../../../src/agentCore_runtimeImplementation/runtime.inspection/runtimeInspectReport.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInspectReport.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.inspection/runtimeInspectReport.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInspectReport.md",
   testFileUrl: import.meta.url,
 });

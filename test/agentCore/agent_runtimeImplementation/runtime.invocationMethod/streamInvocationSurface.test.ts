@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createStreamInvocationSurface } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/streamInvocationSurface.js";
+import { createStreamInvocationSurface } from "../../../../src/agentCore_runtimeImplementation/runtime.invocationMethod/streamInvocationSurface.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/streamInvocationSurface.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.invocationMethod/streamInvocationSurface.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/streamInvocationSurface.md",
   testFileUrl: import.meta.url,
 });

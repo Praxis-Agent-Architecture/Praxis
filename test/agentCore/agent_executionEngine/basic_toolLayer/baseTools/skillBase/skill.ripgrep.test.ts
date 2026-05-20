@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSkillRipgrep, skillRipgrepHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.ripgrep.js";
+import { planSkillRipgrep, skillRipgrepHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/skillBase/skill.ripgrep.js";
 
 test("skill.ripgrep returns dry-run command preview", async () => {
   const result = await planSkillRipgrep({ target: { query: "allowed-tools", registryRoot: "/workspace/.agents/skills", maxResults: 5 }, context: { allowedRoots: ["/workspace/.agents/skills"] } });

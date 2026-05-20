@@ -1,6 +1,6 @@
 # mpInvocation
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/mpInvocation.ts`
+> 对应源码：`src/agentCore_executionEngine/coreLogic/eventExposurePlane/officialPoolInvocation/mpInvocation.ts`
 
 ## 1. 文件位置
 

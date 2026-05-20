@@ -2,14 +2,14 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assembleShellArguments } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.js";
+import { assembleShellArguments } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.js";
 import {
   generateShellCommand,
   shellCommandGenerationDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.md",
   testFileUrl: import.meta.url,
 });

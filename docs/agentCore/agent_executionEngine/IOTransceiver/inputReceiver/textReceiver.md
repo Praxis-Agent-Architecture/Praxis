@@ -1,6 +1,6 @@
 # textReceiver
 
-> 对应源码：`src/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/textReceiver.ts`
+> 对应源码：`src/agentCore_executionEngine/IOTransceiver/inputReceiver/textReceiver.ts`
 
 ## 1. 文件位置
 

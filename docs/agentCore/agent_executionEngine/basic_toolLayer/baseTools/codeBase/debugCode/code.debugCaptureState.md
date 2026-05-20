@@ -1,6 +1,6 @@
 # code.debugCaptureState
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCaptureState.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCaptureState.ts`
 
 ## 1. 文件位置
 

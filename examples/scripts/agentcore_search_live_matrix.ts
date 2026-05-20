@@ -1,7 +1,7 @@
-import type { BaseToolExecutorPort } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { bridgeExecEngineInvocation } from "../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import type { BaseToolExecutorPort } from "../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { adaptRuntimeToolInvocation } from "../../src/agentCore_executionEngine/basic_toolLayer/invocationAdapter.js";
+import { bridgeExecEngineInvocation } from "../../src/agentCore_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 const args = process.argv.slice(2);
 const argSet = new Set(args);

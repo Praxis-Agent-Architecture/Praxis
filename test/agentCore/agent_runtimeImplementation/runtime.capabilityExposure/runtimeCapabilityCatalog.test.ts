@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildRuntimeCapabilityCatalog } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.js";
+import { buildRuntimeCapabilityCatalog } from "../../../../src/agentCore_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/runtimeCapabilityCatalog.md",
   testFileUrl: import.meta.url,
 });

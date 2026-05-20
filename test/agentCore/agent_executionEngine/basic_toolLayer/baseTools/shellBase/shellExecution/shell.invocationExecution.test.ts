@@ -8,11 +8,11 @@ import {
   selectShellInvocationExecutionPractice,
   shellInvocationExecutionHandler,
   shellInvocationExecutionDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.invocationExecution.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.invocationExecution.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.invocationExecution.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.invocationExecution.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellExecution/shell.invocationExecution.md",
   testFileUrl: import.meta.url,
 });

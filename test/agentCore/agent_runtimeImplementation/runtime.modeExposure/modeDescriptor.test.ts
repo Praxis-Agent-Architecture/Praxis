@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   describeRuntimeMode,
   runtimeModeDescriptorCapability,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeDescriptor.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.modeExposure/modeDescriptor.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeDescriptor.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.modeExposure/modeDescriptor.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeDescriptor.md",
   testFileUrl: import.meta.url,
 });

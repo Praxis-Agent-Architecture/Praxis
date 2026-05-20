@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   cursorLocateDescriptor,
   cursorLocateHandler,
   executeCursorLocateCore,
   planCursorLocate,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.cursorLocate.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.cursorLocate.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../../..");
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.cursorLocate.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.cursorLocate.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.cursorLocate.md",
   testFileUrl: import.meta.url,
 });
@@ -271,7 +271,7 @@ test("computeruse.cursorLocate keeps canonical storage shape and operational doc
   assert.equal(existsSync(path.join(repoRoot, "src/storagePool/baseToolStorage/computeruseBase/mouseEmulation/computeruse.cursorLocate.ts")), false);
 
   const entryText = readFileSync(
-    path.join(repoRoot, "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.cursorLocate.ts"),
+    path.join(repoRoot, "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/mouseEmulation/computeruse.cursorLocate.ts"),
     "utf8",
   );
   assert.doesNotMatch(entryText, /export\s+\*\s+from/u);

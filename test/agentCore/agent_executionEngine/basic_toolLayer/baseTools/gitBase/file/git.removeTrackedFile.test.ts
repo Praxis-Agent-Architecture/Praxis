@@ -7,10 +7,10 @@ import {
   parseGitRemoveTrackedFileResult,
   planGitRemoveTrackedFile,
   type GitRemoveTrackedFileProvider,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.removeTrackedFile.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.removeTrackedFile.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.removeTrackedFile.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.removeTrackedFile.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.removeTrackedFile.md",
   testFileUrl: import.meta.url,
 });

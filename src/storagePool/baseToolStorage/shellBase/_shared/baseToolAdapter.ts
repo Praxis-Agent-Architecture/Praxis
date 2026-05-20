@@ -9,7 +9,7 @@ import type {
   BaseToolInvokeResult,
   BaseToolRiskLevel,
   BaseToolSchemaLike,
-} from "../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+} from "../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import type { ShellToolAuditEvent, ShellToolResult } from "../shellExecution/shell.commandExecution/core.js";
 
 const shellSharedRoot = path.dirname(fileURLToPath(import.meta.url));

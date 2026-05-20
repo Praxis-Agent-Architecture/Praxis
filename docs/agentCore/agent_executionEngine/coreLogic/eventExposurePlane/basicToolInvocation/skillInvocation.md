@@ -1,6 +1,6 @@
 # skillInvocation
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.ts`
+> 对应源码：`src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/skillInvocation.ts`
 
 ## 1. 文件位置
 

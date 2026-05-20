@@ -1,11 +1,11 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reportGovernanceViolation } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.js";
-import { resolveRuntimeAuthority } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.js";
+import { reportGovernanceViolation } from "../../../../src/agentCore_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.js";
+import { resolveRuntimeAuthority } from "../../../../src/agentCore_runtimeImplementation/runtime.governancePlane/runtimeAuthorityResolver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/governanceViolationReporter.md",
   testFileUrl: import.meta.url,
 });

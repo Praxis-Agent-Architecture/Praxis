@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bindEventExposurePlane } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindEventExposurePlane.js";
+import { bindEventExposurePlane } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/bindEventExposurePlane.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindEventExposurePlane.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/bindEventExposurePlane.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/bindEventExposurePlane.md",
   testFileUrl: import.meta.url,
 });

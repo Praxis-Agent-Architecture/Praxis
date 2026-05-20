@@ -8,33 +8,33 @@ import path from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 
-import { builtinBaseToolHandlers } from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
+import { builtinBaseToolHandlers } from "../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { invokeMountedBaseTool } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
+import { invokeMountedBaseTool } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolRuntimeMount.js";
 import {
   baseToolExecutorPortFactoryDescriptor,
   createRuntimeBaseToolExecutorPort,
   listRuntimeBaseToolImplementedPortPaths,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
-import { sandbox } from "../../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
-import { prepareSandboxRuntime } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+import { sandbox } from "../../../../src/agentCore_runtimeImplementation/runtimeAgentManifest.js";
+import { prepareSandboxRuntime } from "../../../../src/agentCore_runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
   baseToolSupportCatalogDescriptor,
   createBaseToolSupportCatalog,
   evaluateBaseToolRuntimeReadiness,
   snapshotBaseToolSupportCatalog,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 
 const execFileAsync = promisify(execFile);
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.md",
   testFileUrl: import.meta.url,
 });
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.md",
   testFileUrl: import.meta.url,
 });
@@ -1188,5 +1188,57 @@ test("linux bubblewrap defaults writes to sandbox storage until five-mode policy
   assert.equal(yoloWrite?.output.exitCode, 0);
   if (yoloWrite?.ok) {
     assert.equal(asRecord(asRecord(yoloWrite.metadata).sandbox).policyProfile, "yolo");
+  }
+});
+
+function createDetachedTestExecutor() {
+  return createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime.detached.test",
+    sessionId: "session.detached.test",
+    policy: {
+      workspaceRoot: process.cwd(),
+      allowedRoots: [process.cwd()],
+      allowProcessExecution: true,
+      allowShellExecution: true,
+    },
+    resourceLimits: {
+      timeoutMs: 2_000,
+      maxOutputBytes: 16 * 1024,
+    },
+  });
+}
+
+test("detached shell launch fails when the process exits during startup", async () => {
+  const executor = createDetachedTestExecutor();
+  const result = await executor.shell?.startDetached?.({
+    command: "exit 0",
+    shell: "sh",
+    cwd: process.cwd(),
+    launchId: "quick-exit",
+    restartPolicy: "none",
+  });
+
+  assert.ok(result);
+  assert.equal(result.ok, false);
+  if (!result.ok) {
+    assert.match(result.error.message, /exited during startup/u);
+  }
+});
+
+test("detached shell launch succeeds once the process survives startup", async () => {
+  const executor = createDetachedTestExecutor();
+  const result = await executor.shell?.startDetached?.({
+    command: "sleep 2",
+    shell: "sh",
+    cwd: process.cwd(),
+    launchId: "sleep-detached",
+    restartPolicy: "none",
+  });
+
+  assert.ok(result);
+  assert.equal(result.ok, true);
+  if (result?.ok) {
+    assert.equal(result.metadata?.detached, true);
+    assert.match(String(result.output.stdout), /launched detached process/u);
   }
 });

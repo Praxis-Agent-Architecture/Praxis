@@ -9,7 +9,7 @@ import type {
   BaseToolInvokeResult,
   BaseToolRiskLevel,
   BaseToolSchemaLike,
-} from "../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+} from "../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 
 const gitBaseSharedRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(gitBaseSharedRoot, "../../../../..");

@@ -1,6 +1,6 @@
 # mainLoop
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/mainLoop.ts`
+> 对应源码：`src/agentCore_executionEngine/coreLogic/mainLoop.ts`
 
 ## 1. 文件位置
 

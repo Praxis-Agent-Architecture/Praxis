@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   createDebugRuntime,
   debugRuntimeDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.debug/debugRuntime.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.debug/debugRuntime.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.debug/debugRuntime.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.debug/debugRuntime.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.debug/debugRuntime.md",
   testFileUrl: import.meta.url,
 });

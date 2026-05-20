@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   adaptationSignalCollectorDescriptor,
   collectAdaptationSignals,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationSignalCollector.md",
   testFileUrl: import.meta.url,
 });

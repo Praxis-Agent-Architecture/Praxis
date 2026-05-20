@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitMoveOrRenameFile,
   parseGitMoveOrRenameFileResult,
   planGitMoveOrRenameFile,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.moveOrRenameFile.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.moveOrRenameFile.js";
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.moveOrRenameFile.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.moveOrRenameFile.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/file/git.moveOrRenameFile.md",
   testFileUrl: import.meta.url,
 });

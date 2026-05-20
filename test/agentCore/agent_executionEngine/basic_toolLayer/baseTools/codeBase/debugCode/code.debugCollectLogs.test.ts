@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   codeDebugCollectLogsDescriptor,
   planCodeDebugCollectLogs,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCollectLogs.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCollectLogs.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCollectLogs.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCollectLogs.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/debugCode/code.debugCollectLogs.md",
   testFileUrl: import.meta.url,
 });

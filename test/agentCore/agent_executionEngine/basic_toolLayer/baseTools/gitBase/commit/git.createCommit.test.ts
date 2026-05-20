@@ -1,8 +1,8 @@
 import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeGitCreateCommit,
   gitCreateCommitDescriptor,
@@ -10,10 +10,10 @@ import {
   parseGitCreateCommitResult,
   planGitCommitCreation,
   type GitCreateCommitOutput,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/commit/git.createCommit.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/commit/git.createCommit.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/commit/git.createCommit.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/commit/git.createCommit.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/commit/git.createCommit.md",
   testFileUrl: import.meta.url,
 });

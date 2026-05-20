@@ -4,26 +4,26 @@ import test from "node:test";
 import {
   createApiKeyAuthEnvelope,
   createBearerAuthEnvelope,
-} from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { probeAuth } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authProbe.js";
+} from "../../../../src/agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
+import { probeAuth } from "../../../../src/agentCore_modelAdapter/authProfileLayer/authProbe.js";
 import {
   parseChatGPTCodexAuthJson,
   parseChatGPTCodexJwtClaims,
-} from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/codexAuth.js";
+} from "../../../../src/agentCore_modelAdapter/authProfileLayer/codexAuth.js";
 import {
   completeChatGPTCodexLogin,
   startChatGPTCodexLogin,
-} from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/codexLoginFlow.js";
-import { refreshChatGPTCodexToken } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/codexTokenRefresh.js";
-import { createCredentialRef } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
-import { createCredentialStore } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialStore.js";
-import { createProviderProfile } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/providerProfile.js";
-import { resolveAuthEnvelope } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
+} from "../../../../src/agentCore_modelAdapter/authProfileLayer/codexLoginFlow.js";
+import { refreshChatGPTCodexToken } from "../../../../src/agentCore_modelAdapter/authProfileLayer/codexTokenRefresh.js";
+import { createCredentialRef } from "../../../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
+import { createCredentialStore } from "../../../../src/agentCore_modelAdapter/authProfileLayer/credentialStore.js";
+import { createProviderProfile } from "../../../../src/agentCore_modelAdapter/authProfileLayer/providerProfile.js";
+import { resolveAuthEnvelope } from "../../../../src/agentCore_modelAdapter/authProfileLayer/authResolver.js";
 import {
   redactHeaders,
   redactSecretRecord,
   redactSecretText,
-} from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/secretRedaction.js";
+} from "../../../../src/agentCore_modelAdapter/authProfileLayer/secretRedaction.js";
 
 function openAiApiKeyRef() {
   const ref = createCredentialRef({

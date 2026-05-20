@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   createRuntimeSurfaceRegistry,
   runtimeSurfaceRegistryCapability,
-} from "../../../src/agentCore/agent_runtimeImplementation/runtimeSurfaceRegistry.js";
+} from "../../../src/agentCore_runtimeImplementation/runtimeSurfaceRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtimeSurfaceRegistry.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtimeSurfaceRegistry.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeSurfaceRegistry.md",
   testFileUrl: import.meta.url,
 });

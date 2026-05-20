@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createTapApprovalGovernanceBridge,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.governancePlane/tapApprovalGovernanceBridge.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.governancePlane/tapApprovalGovernanceBridge.js";
 import {
   evaluateRuntimeGovernancePlane,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.governancePlane/runtimeGovernancePlane.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.governancePlane/runtimeGovernancePlane.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.governancePlane/tapApprovalGovernanceBridge.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.governancePlane/tapApprovalGovernanceBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.governancePlane/tapApprovalGovernanceBridge.md",
   testFileUrl: import.meta.url,
 });

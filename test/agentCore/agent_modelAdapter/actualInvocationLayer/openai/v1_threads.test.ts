@@ -5,10 +5,10 @@ import {
   OPENAI_V1_THREADS_ENDPOINT,
   classifyOpenAIV1ThreadsProviderError,
   invokeOpenAIV1Threads,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_threads.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_threads.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_threads.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_threads.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_threads.md",
   testFileUrl: import.meta.url,
 });

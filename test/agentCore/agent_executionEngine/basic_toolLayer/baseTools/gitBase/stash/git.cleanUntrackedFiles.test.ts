@@ -7,10 +7,10 @@ import {
   parseGitCleanUntrackedFilesResult,
   planGitCleanUntrackedFiles,
   type GitCleanUntrackedFilesProvider,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/stash/git.cleanUntrackedFiles.md",
   testFileUrl: import.meta.url,
 });

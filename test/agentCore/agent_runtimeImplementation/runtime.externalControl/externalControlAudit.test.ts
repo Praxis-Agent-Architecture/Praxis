@@ -2,15 +2,15 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { receiveExternalCommand } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalCommandReceiver.js";
-import { guardExternalControl } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlGuard.js";
+import { receiveExternalCommand } from "../../../../src/agentCore_runtimeImplementation/runtime.externalControl/externalCommandReceiver.js";
+import { guardExternalControl } from "../../../../src/agentCore_runtimeImplementation/runtime.externalControl/externalControlGuard.js";
 import {
   externalControlAuditDescriptor,
   recordExternalControlAudit,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlAudit.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.externalControl/externalControlAudit.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlAudit.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.externalControl/externalControlAudit.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlAudit.md",
   testFileUrl: import.meta.url,
 });

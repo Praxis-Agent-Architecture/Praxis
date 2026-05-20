@@ -2,12 +2,12 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { invokeChatGPTCodexResponses } from "../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import { resolveAuthEnvelope } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/agentCore/agent_modelAdapter/providerAccessLayer/transportCaller.js";
+import { invokeChatGPTCodexResponses } from "../../src/agentCore_modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
+import { resolveAuthEnvelope } from "../../src/agentCore_modelAdapter/authProfileLayer/authResolver.js";
+import { createCredentialRef } from "../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller } from "../../src/agentCore_modelAdapter/providerAccessLayer/providerCaller.js";
+import { createChatGPTCodexResponsesCarrier } from "../../src/agentCore_modelAdapter/providerAccessLayer/providerCarrier.js";
+import { fetchProviderTransport } from "../../src/agentCore_modelAdapter/providerAccessLayer/transportCaller.js";
 import {
   createFullShellExecutor,
   expectedCallSeen,

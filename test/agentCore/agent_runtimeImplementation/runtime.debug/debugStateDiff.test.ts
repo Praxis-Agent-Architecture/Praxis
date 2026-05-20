@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   debugStateDiffDescriptor,
   diffDebugState,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.debug/debugStateDiff.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.debug/debugStateDiff.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.debug/debugStateDiff.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.debug/debugStateDiff.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.debug/debugStateDiff.md",
   testFileUrl: import.meta.url,
 });

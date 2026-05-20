@@ -1,4 +1,4 @@
-import type { BaseToolHandler } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolHandler } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import { baseToolInvokeFailure, baseToolInvokeSuccess, buildPracticeAuditMetadata, createLspBaseToolDefinition, jsonSchema, lspCommonSchemaFragments, normalizeDocumentUriToFilePath, normalizeLspDependencyDeclarations, preferAnthropicExecutor } from "../_shared/baseToolAdapter.js";
 import { planLspApplyCodeAction as planLspApplyCodeActionCore, type LspApplyCodeActionRequest } from "./core.js";
 import { codeActionsWithLspRuntime, type LspLocateDefinitionRuntimeOptions, type LspRuntimeCodeAction } from "../_shared/runtime.js";

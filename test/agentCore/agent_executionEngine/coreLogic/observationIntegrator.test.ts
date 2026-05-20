@@ -13,10 +13,10 @@ import {
   DEFAULT_TOOL_RESULT_SIZE_POLICY,
   createFallbackMemoryRef,
   createObservationMaterial,
-} from "../../../../src/agentCore/agent_executionEngine/coreLogic/observationIntegrator.js";
+} from "../../../../src/agentCore_executionEngine/coreLogic/observationIntegrator.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/observationIntegrator.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/observationIntegrator.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/observationIntegrator.md",
   testFileUrl: import.meta.url,
 });
@@ -177,4 +177,21 @@ test("createFallbackMemoryRef provides a session-local markdown index that MP ca
   assert.equal(ref.storageHint, ".rax_workspace");
   assert.equal(ref.takeoverReadyForMp, true);
   assert.equal(ref.publicSafe, true);
+});
+
+test("createObservationMaterial folds large payloads into artifact references", () => {
+  const marker = "RAXODE_LARGE_TOOL_PAYLOAD_";
+  const observation = createObservationMaterial({
+    observationId: "observation.large",
+    source: "baseTool",
+    status: "completed",
+    title: "BaseTool shell.commandExecution",
+    summary: "tool invocation completed",
+    payload: { stdout: marker.repeat(4000) },
+  });
+
+  assert.ok(observation.artifactRef);
+  assert.match(observation.material.text, /payloadArtifact/u);
+  assert.match(observation.material.text, /payloadBytes/u);
+  assert.equal(observation.material.text.includes(marker.repeat(20)), false);
 });

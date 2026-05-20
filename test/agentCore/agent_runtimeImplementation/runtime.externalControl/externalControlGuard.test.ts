@@ -2,14 +2,14 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { receiveExternalCommand } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalCommandReceiver.js";
+import { receiveExternalCommand } from "../../../../src/agentCore_runtimeImplementation/runtime.externalControl/externalCommandReceiver.js";
 import {
   externalControlGuardDescriptor,
   guardExternalControl,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlGuard.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.externalControl/externalControlGuard.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlGuard.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.externalControl/externalControlGuard.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlGuard.md",
   testFileUrl: import.meta.url,
 });

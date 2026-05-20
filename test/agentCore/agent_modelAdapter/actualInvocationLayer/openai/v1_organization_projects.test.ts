@@ -5,10 +5,10 @@ import {
   OPENAI_V1_ORGANIZATION_PROJECTS_ENDPOINT,
   classifyOpenAIV1OrganizationProjectsProviderError,
   createOpenAIV1OrganizationProjectsInvocation,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_projects.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_projects.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_projects.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_projects.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_projects.md",
   testFileUrl: import.meta.url,
 });

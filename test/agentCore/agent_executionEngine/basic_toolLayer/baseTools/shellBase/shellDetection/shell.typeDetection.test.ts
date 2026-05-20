@@ -7,8 +7,8 @@ import {
   executeShellTypeDetection,
   shellTypeDetectionHandler,
   shellTypeDetectionDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import { executeShellTypeDetection as executeShellTypeDetectionBestPractice } from "../../../../../../../src/storagePool/baseToolStorage/shellBase/shellDetection/shell.typeDetection/bestPractice.js";
 
 type ShellTypeExecutionResult = Awaited<ReturnType<typeof executeShellTypeDetection>>;
@@ -30,7 +30,7 @@ async function assertTypeInputError(
 }
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.md",
   testFileUrl: import.meta.url,
 });

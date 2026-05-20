@@ -6,8 +6,8 @@ import {
   createBaseToolContextTree,
   createBaseToolContextHeatState,
   baseToolContextFoldingDescriptor,
-} from "../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolContextFolding.js";
-import { tool } from "../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
+} from "../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolContextFolding.js";
+import { tool } from "../../../src/agentCore_runtimeImplementation/runtimeAgentManifest.js";
 
 const sampleTools = [
   tool("code.read", { family: "codeBase", group: "explore", description: "Read files." }),

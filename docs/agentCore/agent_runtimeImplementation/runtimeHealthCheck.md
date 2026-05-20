@@ -1,6 +1,6 @@
 # runtimeHealthCheck
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtimeHealthCheck.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtimeHealthCheck.ts`
 
 ## 1. 文件位置
 

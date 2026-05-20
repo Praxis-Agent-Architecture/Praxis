@@ -1,6 +1,6 @@
 # mcp.listResources
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.listResources.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/resource/mcp.listResources.ts`
 
 ## 1. 文件位置
 

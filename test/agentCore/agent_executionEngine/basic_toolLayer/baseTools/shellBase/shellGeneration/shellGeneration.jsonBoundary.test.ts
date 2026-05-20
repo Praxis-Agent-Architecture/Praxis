@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { assembleShellArguments } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.js";
-import { generateShellCommand } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.js";
-import { buildShellExecutionGuard } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.executionGuard.js";
-import { constructShellInvocation } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.invocationConstruction.js";
-import { generateShellScriptPlan } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.scriptGeneration.js";
+import { assembleShellArguments } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.argumentAssembly.js";
+import { generateShellCommand } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.commandGeneration.js";
+import { buildShellExecutionGuard } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.executionGuard.js";
+import { constructShellInvocation } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.invocationConstruction.js";
+import { generateShellScriptPlan } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellGeneration/shell.scriptGeneration.js";
 
 test("shellGeneration core functions classify malformed runtime JSON without raw TypeError", () => {
   const cases = [

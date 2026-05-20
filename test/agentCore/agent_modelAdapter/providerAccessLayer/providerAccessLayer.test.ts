@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createApiKeyAuthEnvelope } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { createCredentialRef } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
-import { probeAuth } from "../../../../src/agentCore/agent_modelAdapter/authProfileLayer/authProbe.js";
-import { OPENAI_PROVIDER_CAPABILITY_CATALOG } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/openaiCapabilityCatalog.js";
-import { createProviderCaller } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
+import { createApiKeyAuthEnvelope } from "../../../../src/agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
+import { createCredentialRef } from "../../../../src/agentCore_modelAdapter/authProfileLayer/credentialRef.js";
+import { probeAuth } from "../../../../src/agentCore_modelAdapter/authProfileLayer/authProbe.js";
+import { OPENAI_PROVIDER_CAPABILITY_CATALOG } from "../../../../src/agentCore_modelAdapter/providerAccessLayer/openaiCapabilityCatalog.js";
+import { createProviderCaller } from "../../../../src/agentCore_modelAdapter/providerAccessLayer/providerCaller.js";
 import {
   CHATGPT_CODEX_DEFAULT_BASE_URL,
   OPENAI_DEFAULT_RESPONSES_BASE_URL,
@@ -14,11 +14,11 @@ import {
   createOpenAIV1ChatCompletionsCarrier,
   createOpenAIV1ResponsesCarrier,
   createProviderCarrier,
-} from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
-import { registerProviderAccessCarriers } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerCarrierRegistry.js";
-import { classifyProviderAccessError } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerErrorClassifier.js";
-import { resolveProviderModelMetadata } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
-import { probeProviderCarrier } from "../../../../src/agentCore/agent_modelAdapter/providerAccessLayer/providerProbe.js";
+} from "../../../../src/agentCore_modelAdapter/providerAccessLayer/providerCarrier.js";
+import { registerProviderAccessCarriers } from "../../../../src/agentCore_modelAdapter/providerAccessLayer/providerCarrierRegistry.js";
+import { classifyProviderAccessError } from "../../../../src/agentCore_modelAdapter/providerAccessLayer/providerErrorClassifier.js";
+import { resolveProviderModelMetadata } from "../../../../src/agentCore_modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
+import { probeProviderCarrier } from "../../../../src/agentCore_modelAdapter/providerAccessLayer/providerProbe.js";
 
 function ref() {
   const credentialRef = createCredentialRef({

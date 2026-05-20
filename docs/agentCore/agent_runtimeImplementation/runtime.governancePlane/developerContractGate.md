@@ -1,6 +1,6 @@
 # developerContractGate
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.governancePlane/developerContractGate.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.governancePlane/developerContractGate.ts`
 
 ## 1. 文件位置
 

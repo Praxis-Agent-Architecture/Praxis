@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHe
 import {
   codeInvocationDescriptor,
   exposeCodeInvocationEvent,
-} from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.js";
+} from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/codeInvocation.md",
   testFileUrl: import.meta.url,
 });

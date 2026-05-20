@@ -2,12 +2,12 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { guardTAPReuseTransferFromBase } from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_guard_fromBase.js";
-import { createTAPReusableInvocationFromBase } from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_invoker_fromBase.js";
-import { migrateBaseToolCapabilityToTAP } from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_migrator_fromBase.js";
+import { guardTAPReuseTransferFromBase } from "../../../../../src/agentCore_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_guard_fromBase.js";
+import { createTAPReusableInvocationFromBase } from "../../../../../src/agentCore_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_invoker_fromBase.js";
+import { migrateBaseToolCapabilityToTAP } from "../../../../../src/agentCore_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_migrator_fromBase.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_invoker_fromBase.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_invoker_fromBase.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/TAP_reuseTransferModule/TAP_invoker_fromBase.md",
   testFileUrl: import.meta.url,
 });

@@ -1,8 +1,8 @@
-import type { BaseToolDependencyDeclaration } from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolDependencyDeclaration } from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 import type {
   BaseToolExecutorPort,
   BaseToolShellServiceVerification,
-} from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import type { ShellToolContext } from "../../shellExecution/shell.commandExecution/core.js";
 import type { ShellServiceStartAndVerifyRequest } from "./core.js";
 

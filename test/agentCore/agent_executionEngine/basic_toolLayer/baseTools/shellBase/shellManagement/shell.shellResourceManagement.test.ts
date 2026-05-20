@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planShellResourceManagement } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellResourceManagement.js";
+import { planShellResourceManagement } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellResourceManagement.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellResourceManagement.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellResourceManagement.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellManagement/shell.shellResourceManagement.md",
   testFileUrl: import.meta.url,
 });

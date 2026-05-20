@@ -1,20 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeMcpAuthenticate,
   mcpAuthenticateHandler,
   planMcpAuthenticate,
   type McpAuthenticateProvider,
-} from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authenticate.js";
+} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authenticate.js";
 import {
   executeMcpAuthorize,
   mcpAuthorizeHandler,
   planMcpAuthorize,
   type McpAuthorizeProvider,
-} from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.js";
-import type { BaseToolExecutorPort } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/auth/mcp.authorize.js";
+import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 
 test("mcp auth tools keep legacy dry-run preview behavior", () => {
   const authenticate = planMcpAuthenticate({

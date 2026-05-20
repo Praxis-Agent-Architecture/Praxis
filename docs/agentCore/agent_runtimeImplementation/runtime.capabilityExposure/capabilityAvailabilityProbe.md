@@ -1,6 +1,6 @@
 # capabilityAvailabilityProbe
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.capabilityExposure/capabilityAvailabilityProbe.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.capabilityExposure/capabilityAvailabilityProbe.ts`
 
 ## 1. 文件位置
 

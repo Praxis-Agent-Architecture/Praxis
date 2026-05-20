@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeScreenshotStorageCore,
   planScreenshotStorage,
   screenshotStorageDescriptor,
   screenshotStorageHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.screenshotStorage.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.screenshotStorage.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../../..");
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.screenshotStorage.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.screenshotStorage.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.screenshotStorage.md",
   testFileUrl: import.meta.url,
 });
@@ -284,7 +284,7 @@ test("computeruse.screenshotStorage keeps canonical storage shape and operationa
   assert.equal(existsSync(path.join(repoRoot, "src/storagePool/baseToolStorage/computeruseBase/screenshot/computeruse.screenshotStorage.ts")), false);
 
   const entryText = readFileSync(
-    path.join(repoRoot, "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.screenshotStorage.ts"),
+    path.join(repoRoot, "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenshot/computeruse.screenshotStorage.ts"),
     "utf8",
   );
   assert.doesNotMatch(entryText, /export\s+\*\s+from/u);

@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   exposeOmniInvocationEvent,
   omniInvocationDescriptor,
-} from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.js";
+} from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/omniInvocation.md",
   testFileUrl: import.meta.url,
 });

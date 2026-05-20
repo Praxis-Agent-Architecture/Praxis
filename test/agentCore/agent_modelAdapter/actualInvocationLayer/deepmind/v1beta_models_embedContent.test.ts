@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   DEEPMIND_V1BETA_MODELS_EMBED_CONTENT_ENDPOINT,
   invokeDeepMindV1BetaModelsEmbedContent,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_embedContent.md",
   testFileUrl: import.meta.url,
 });

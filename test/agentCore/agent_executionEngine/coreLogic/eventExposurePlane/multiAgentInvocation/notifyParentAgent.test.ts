@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { exposeNotifyParentAgentEvent } from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.js";
+import { exposeNotifyParentAgentEvent } from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/notifyParentAgent.md",
   testFileUrl: import.meta.url,
 });

@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   manageToolDependencies,
   toolDependencyManagerDescriptor,
-} from "../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
+} from "../../../../../src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyManager.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/toolDependency/dependencyManager.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/toolDependency/dependencyManager.md",
   testFileUrl: import.meta.url,
 });

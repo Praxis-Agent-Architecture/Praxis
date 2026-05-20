@@ -12,28 +12,28 @@ import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
-import type { OpenAIV1ResponsesProviderCaller } from "../agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import type { AuthEnvelope } from "../agentCore/agent_modelAdapter/authProfileLayer/authEnvelope.js";
-import { resolveAuthEnvelope } from "../agentCore/agent_modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../agentCore/agent_modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../agentCore/agent_modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../agentCore/agent_modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../agentCore/agent_modelAdapter/providerAccessLayer/transportCaller.js";
+import type { OpenAIV1ResponsesProviderCaller } from "../agentCore_modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import type { AuthEnvelope } from "../agentCore_modelAdapter/authProfileLayer/authEnvelope.js";
+import { resolveAuthEnvelope } from "../agentCore_modelAdapter/authProfileLayer/authResolver.js";
+import { createCredentialRef } from "../agentCore_modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller } from "../agentCore_modelAdapter/providerAccessLayer/providerCaller.js";
+import { createChatGPTCodexResponsesCarrier } from "../agentCore_modelAdapter/providerAccessLayer/providerCarrier.js";
+import { fetchProviderTransport } from "../agentCore_modelAdapter/providerAccessLayer/transportCaller.js";
 import { praxis, type AgentManifest, type AgentRunResult, type PromptMaterialSource } from "../agentCore/index.js";
 import {
   createRuntimeBaseToolExecutorPort,
   listRuntimeBaseToolImplementedPortPaths,
-} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   preflightBaseToolDependencies,
   type BaseToolDependencyRuntimeMode,
-} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.js";
+} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.js";
 import {
   createBaseToolRealityLedger,
-} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 import {
   evaluateBaseToolRuntimeReadiness,
-} from "../agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
+} from "../agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 import {
   createRaxBuildInitPlan,
   initRaxProject,
@@ -44,7 +44,7 @@ import { planRaxDeveloperCommand } from "./raxDeveloperCommandContract.js";
 import {
   runSelfRepairRuntime,
   type SelfRepairRuntimeResult,
-} from "../agentCore/agent_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.js";
+} from "../agentCore_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.js";
 import { runDevDoctor } from "../devdoctor/index.js";
 
 export type RaxCliResult = {

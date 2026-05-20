@@ -1,6 +1,6 @@
 # modeVisibilitySurface
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.modeExposure/modeVisibilitySurface.ts`
 
 ## 1. 文件位置
 

@@ -4,20 +4,20 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
 import {
   executeWindowScreenRecordingCore,
   planWindowScreenRecording,
   windowScreenRecordingDescriptor,
   windowScreenRecordingHandler,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, "../../../../../../..");
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.md",
   testFileUrl: import.meta.url,
 });
@@ -285,7 +285,7 @@ test("computeruse.windowScreenRecording keeps canonical storage shape and operat
   );
 
   const entryText = readFileSync(
-    path.join(repoRoot, "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.ts"),
+    path.join(repoRoot, "src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.windowScreenRecording.ts"),
     "utf8",
   );
   assert.doesNotMatch(entryText, /export\s+\*\s+from/u);

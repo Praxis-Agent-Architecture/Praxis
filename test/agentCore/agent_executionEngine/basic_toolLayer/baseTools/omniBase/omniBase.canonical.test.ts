@@ -4,21 +4,21 @@ import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { BaseToolExecutorPort } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js';
-import { createBaseToolRegistry } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js';
-import { planAudioCompression, omniAudioCompressionDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.audioCompressor.js';
-import { planAudioFormatConversion, omniAudioFormatConversionDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.audioFormatConversion.js';
-import { planAudioLyricsGeneration, omniAudioLyricsGenerationDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.audioLyricsGeneration.js';
-import { planGenerateAudio, omniGenerateAudioDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.generateAudio.js';
-import { planListenAudio, omniListenAudioDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.listenAudio.js';
-import { planGenerateImage, omniGenerateImageDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.generateImage.js';
-import { planImageCompressor, omniImageCompressorDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.imageCompressor.js';
-import { planImageFormatConversion, omniImageFormatConversionDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.imageFormatConversion.js';
-import { planGenerateVideo, omniGenerateVideoDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.generateVideo.js';
-import { planVideoCompressor, omniVideoCompressorDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.videoCompressor.js';
-import { planVideoFormatConversion, omniVideoFormatConversionDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.videoFormatConversion.js';
-import { planVideoSubtitleGeneration, omniVideoSubtitleGenerationDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.videoSubtitleGeneration.js';
-import { planViewVideo, omniViewVideoDescriptor } from '../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.viewVideo.js';
+import type { BaseToolExecutorPort } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { planAudioCompression, omniAudioCompressionDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.audioCompressor.js";
+import { planAudioFormatConversion, omniAudioFormatConversionDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.audioFormatConversion.js";
+import { planAudioLyricsGeneration, omniAudioLyricsGenerationDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.audioLyricsGeneration.js";
+import { planGenerateAudio, omniGenerateAudioDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.generateAudio.js";
+import { planListenAudio, omniListenAudioDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/audioTransformer/omni.listenAudio.js";
+import { planGenerateImage, omniGenerateImageDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.generateImage.js";
+import { planImageCompressor, omniImageCompressorDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.imageCompressor.js";
+import { planImageFormatConversion, omniImageFormatConversionDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/imageTransformer/omni.imageFormatConversion.js";
+import { planGenerateVideo, omniGenerateVideoDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.generateVideo.js";
+import { planVideoCompressor, omniVideoCompressorDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.videoCompressor.js";
+import { planVideoFormatConversion, omniVideoFormatConversionDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.videoFormatConversion.js";
+import { planVideoSubtitleGeneration, omniVideoSubtitleGenerationDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.videoSubtitleGeneration.js";
+import { planViewVideo, omniViewVideoDescriptor } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/videoTransformer/omni.viewVideo.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(testDir, '../../../../../..');
@@ -177,7 +177,7 @@ const descriptors = {
 
 for (const tool of tools) {
   defineAgentCoreContractTest({
-    sourcePath: 'src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/' + tool.group + '/' + tool.id + '.ts',
+    sourcePath: 'src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase/' + tool.group + '/' + tool.id + '.ts',
     docPath: 'docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase/' + tool.group + '/' + tool.id + '.md',
     testFileUrl: import.meta.url,
   });
@@ -199,7 +199,7 @@ test('omniBase remaining tools keep canonical storage shape and thin explicit en
       assert.ok(existsSync(path.join(storageDir, fileName)), tool.id + ' missing canonical storage file: ' + fileName);
     }
     assert.equal(existsSync(path.join(repoRoot, 'src/storagePool/baseToolStorage/omniBase', tool.group, tool.id + '.ts')), false);
-    const entryText = readFileSync(path.join(repoRoot, 'src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/omniBase', tool.group, tool.id + '.ts'), 'utf8');
+    const entryText = readFileSync(path.join(repoRoot, 'src/agentCore_executionEngine/basic_toolLayer/baseTools/omniBase', tool.group, tool.id + '.ts'), 'utf8');
     assert.doesNotMatch(entryText, /export\s+\*\s+from/u, tool.id + ' entry must not use bare export star');
     assert.match(entryText, new RegExp('omni' + tool.alias + 'Handler'), tool.id + ' entry must export handler');
   }

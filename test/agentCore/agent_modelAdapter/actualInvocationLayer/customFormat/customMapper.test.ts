@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   customFormatMapperDescriptor,
   mapCustomFormatEndpoint,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/customFormat/customMapper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/customFormat/customMapper.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/customMapper.md",
   testFileUrl: import.meta.url,
 });

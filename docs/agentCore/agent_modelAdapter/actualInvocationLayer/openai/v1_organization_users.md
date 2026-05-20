@@ -1,6 +1,6 @@
 # v1_organization_users
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_users.ts`
+> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_users.ts`
 
 ## 1. 文件位置
 

@@ -3,11 +3,11 @@ import { promisify } from "node:util";
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { shellCapabilityDetectionHandler } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.js";
-import { shellEnvironmentInspectionHandler } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.js";
-import { shellSessionDetectionHandler } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.js";
-import { shellTypeDetectionHandler } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { shellCapabilityDetectionHandler } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.capabilityDetection.js";
+import { shellEnvironmentInspectionHandler } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.environmentInspection.js";
+import { shellSessionDetectionHandler } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.js";
+import { shellTypeDetectionHandler } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.typeDetection.js";
 
 const execFileAsync = promisify(execFile);
 

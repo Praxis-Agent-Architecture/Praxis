@@ -1,6 +1,6 @@
 # cmpRuntimeBridge
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/cmpRuntimeBridge.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.officialModuleSurface/cmpRuntimeBridge.ts`
 
 ## 1. 文件位置
 

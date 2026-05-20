@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineMultiagentInterfaceBoundary } from "../../../../src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/multiagentInterface.js";
+import { defineMultiagentInterfaceBoundary } from "../../../../src/agentCore_interfaceAdapter/basic_interfaceLayer/multiagentInterface.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/multiagentInterface.ts",
+  sourcePath: "src/agentCore_interfaceAdapter/basic_interfaceLayer/multiagentInterface.ts",
   docPath: "docs/agentCore/agent_interfaceAdapter/basic_interfaceLayer/multiagentInterface.md",
   testFileUrl: import.meta.url,
 });

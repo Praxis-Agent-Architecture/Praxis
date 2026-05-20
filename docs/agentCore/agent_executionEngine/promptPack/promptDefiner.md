@@ -1,6 +1,6 @@
 # promptDefiner
 
-> 对应源码：`src/agentCore/agent_executionEngine/promptPack/promptDefiner.ts`
+> 对应源码：`src/agentCore_executionEngine/promptPack/promptDefiner.ts`
 
 ## 1. 文件位置
 

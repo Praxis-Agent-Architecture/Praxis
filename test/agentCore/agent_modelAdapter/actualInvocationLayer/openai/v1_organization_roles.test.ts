@@ -5,10 +5,10 @@ import {
   OPENAI_V1_ORGANIZATION_ROLES_ENDPOINT,
   classifyOpenAIV1OrganizationRolesProviderError,
   createOpenAIV1OrganizationRolesInvocation,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_roles.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_roles.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_roles.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_roles.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_roles.md",
   testFileUrl: import.meta.url,
 });

@@ -7,10 +7,10 @@ import {
   parseGitShowObjectDetails,
   planShowGitObjectDetails,
   showGitObjectDetailsDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/inspection/git.showGitObjectDetails.md",
   testFileUrl: import.meta.url,
 });

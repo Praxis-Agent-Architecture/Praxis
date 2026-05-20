@@ -1,6 +1,6 @@
 # multiagentRuntimeBridge
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/multiagentRuntimeBridge.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.officialModuleSurface/multiagentRuntimeBridge.ts`
 
 ## 1. 文件位置
 

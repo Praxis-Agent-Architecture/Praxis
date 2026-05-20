@@ -5,10 +5,10 @@ import {
   OPENAI_V1_ORGANIZATION_ADMIN_API_KEYS_ENDPOINT,
   classifyOpenAIV1OrganizationAdminApiKeysProviderError,
   invokeOpenAIV1OrganizationAdminApiKeys,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_admin_api_keys.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_admin_api_keys.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_admin_api_keys.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_admin_api_keys.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_admin_api_keys.md",
   testFileUrl: import.meta.url,
 });

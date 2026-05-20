@@ -1,6 +1,6 @@
 # computeruse.cameraStartRecording
 
-对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.ts`
+对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/cameraAccess/computeruse.cameraStartRecording.ts`
 
 ## 1. 文件位置
 

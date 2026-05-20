@@ -1,6 +1,6 @@
 # code.lsp_inspectSymbol
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_inspectSymbol.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_inspectSymbol.ts`
 
 ## 1. 文件位置
 

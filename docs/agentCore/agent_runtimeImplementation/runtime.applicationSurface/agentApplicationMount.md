@@ -1,6 +1,6 @@
 # agentApplicationMount
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.applicationSurface/agentApplicationMount.ts`
 
 ## 1. 文件位置
 

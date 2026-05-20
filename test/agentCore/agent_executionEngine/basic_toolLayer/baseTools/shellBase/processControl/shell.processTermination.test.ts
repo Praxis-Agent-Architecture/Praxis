@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import {
   planShellProcessTermination,
   shellProcessTerminationDescriptor,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/processControl/shell.processTermination.md",
   testFileUrl: import.meta.url,
 });

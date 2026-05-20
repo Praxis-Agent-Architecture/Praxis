@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   externalControlPortDescriptor,
   routeExternalControlCommand,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlPort.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.externalControl/externalControlPort.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlPort.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.externalControl/externalControlPort.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.externalControl/externalControlPort.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import {
   DEEPMIND_V1BETA_MODELS_PREDICT_LONG_RUNNING_ENDPOINT,
   classifyDeepMindV1BetaModelsPredictLongRunningProviderError,
   invokeDeepMindV1BetaModelsPredictLongRunning,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_predictLongRunning.md",
   testFileUrl: import.meta.url,
 });

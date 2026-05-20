@@ -1,6 +1,6 @@
 # praxisRuntimeKernel
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/praxisRuntimeKernel.ts`
 
 ## 1. 文件位置
 

@@ -6,10 +6,10 @@ import {
   DEEPMIND_V1BETA_MODELS_BATCH_EMBED_CONTENTS_ENDPOINT,
   classifyDeepMindV1BetaModelsBatchEmbedContentsProviderError,
   invokeDeepMindV1BetaModelsBatchEmbedContents,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_batchEmbedContents.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_batchEmbedContents.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_batchEmbedContents.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_batchEmbedContents.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_batchEmbedContents.md",
   testFileUrl: import.meta.url,
 });

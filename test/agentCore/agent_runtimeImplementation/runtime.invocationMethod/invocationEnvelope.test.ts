@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createInvocationEnvelope } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.js";
+import { createInvocationEnvelope } from "../../../../src/agentCore_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/invocationEnvelope.md",
   testFileUrl: import.meta.url,
 });

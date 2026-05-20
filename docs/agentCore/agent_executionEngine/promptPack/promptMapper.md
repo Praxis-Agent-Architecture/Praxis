@@ -1,6 +1,6 @@
 # promptMapper
 
-> 对应源码：`src/agentCore/agent_executionEngine/promptPack/promptMapper.ts`
+> 对应源码：`src/agentCore_executionEngine/promptPack/promptMapper.ts`
 
 ## 1. 文件位置
 

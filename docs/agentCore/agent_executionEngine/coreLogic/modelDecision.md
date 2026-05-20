@@ -1,6 +1,6 @@
 # modelDecision
 
-> 对应源码：`src/agentCore/agent_executionEngine/coreLogic/modelDecision.ts`
+> 对应源码：`src/agentCore_executionEngine/coreLogic/modelDecision.ts`
 
 ## 1. 文件位置
 

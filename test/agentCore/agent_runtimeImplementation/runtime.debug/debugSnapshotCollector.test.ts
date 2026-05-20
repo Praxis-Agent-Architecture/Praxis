@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   collectDebugSnapshot,
   debugSnapshotCollectorDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.debug/debugSnapshotCollector.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.debug/debugSnapshotCollector.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.debug/debugSnapshotCollector.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.debug/debugSnapshotCollector.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.debug/debugSnapshotCollector.md",
   testFileUrl: import.meta.url,
 });

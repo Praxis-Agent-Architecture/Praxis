@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   audioInputReceiverDescriptor,
   receiveAudioInput,
-} from "../../../../../src/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/audioReceiver.js";
+} from "../../../../../src/agentCore_executionEngine/IOTransceiver/inputReceiver/audioReceiver.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/audioReceiver.ts",
+  sourcePath: "src/agentCore_executionEngine/IOTransceiver/inputReceiver/audioReceiver.ts",
   docPath: "docs/agentCore/agent_executionEngine/IOTransceiver/inputReceiver/audioReceiver.md",
   testFileUrl: import.meta.url,
 });

@@ -4,11 +4,11 @@ import test from "node:test";
 import {
   debugTraceRecorderDescriptor,
   recordDebugTrace,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.debug/debugTraceRecorder.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.debug/debugTraceRecorder.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.debug/debugTraceRecorder.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.debug/debugTraceRecorder.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.debug/debugTraceRecorder.md",
   testFileUrl: import.meta.url,
 });

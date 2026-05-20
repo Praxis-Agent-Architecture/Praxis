@@ -1,6 +1,6 @@
 # computeruse.fullscreenScreenRecording
 
-对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.ts`
+对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/computeruseBase/screenRecording/computeruse.fullscreenScreenRecording.ts`
 
 ## 1. 文件位置
 

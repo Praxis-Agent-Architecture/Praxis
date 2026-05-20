@@ -1,6 +1,6 @@
 # v1_sessions
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/anthropic/v1_sessions.ts`
+> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/anthropic/v1_sessions.ts`
 
 ## 1. 文件位置
 

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { defineCmpInterfaceBoundary } from "../../../../src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/cmpInterface.js";
+import { defineCmpInterfaceBoundary } from "../../../../src/agentCore_interfaceAdapter/basic_interfaceLayer/cmpInterface.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/cmpInterface.ts",
+  sourcePath: "src/agentCore_interfaceAdapter/basic_interfaceLayer/cmpInterface.ts",
   docPath: "docs/agentCore/agent_interfaceAdapter/basic_interfaceLayer/cmpInterface.md",
   testFileUrl: import.meta.url,
 });

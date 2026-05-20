@@ -7,14 +7,14 @@ import test from "node:test";
 import {
   createRuntimeBaseToolExecutorPort,
   listRuntimeBaseToolImplementedPortPaths,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   evaluateBaseToolRuntimeReadiness,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 import {
   preflightBaseToolDependencies,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.js";
-import type { BaseToolSupportCatalogEntry } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.js";
+import type { BaseToolSupportCatalogEntry } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/baseToolSupportCatalog.js";
 
 test("baseToolDependencyRuntime reports ready dependencies after governance approval", async () => {
   const executor = createRuntimeBaseToolExecutorPort({

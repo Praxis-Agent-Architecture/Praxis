@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { subscribeToApplicationEvents } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.js";
+import { subscribeToApplicationEvents } from "../../../../src/agentCore_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.applicationSurface/applicationEventSubscription.md",
   testFileUrl: import.meta.url,
 });

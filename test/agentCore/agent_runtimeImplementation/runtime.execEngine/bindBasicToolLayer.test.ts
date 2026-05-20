@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bindBasicToolLayer } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.js";
+import { bindBasicToolLayer } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/bindBasicToolLayer.md",
   testFileUrl: import.meta.url,
 });

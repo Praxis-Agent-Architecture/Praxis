@@ -1,19 +1,19 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { classifyRuntimeFault } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/faultClassifier.js";
-import { gateRuntimeRepairAction } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairActionGate.js";
+import { classifyRuntimeFault } from "../../../../src/agentCore_runtimeImplementation/runtime.selfRepair/faultClassifier.js";
+import { gateRuntimeRepairAction } from "../../../../src/agentCore_runtimeImplementation/runtime.selfRepair/repairActionGate.js";
 import {
   buildRuntimeRepairPlan,
   type RuntimeRepairPlan,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairPlanBuilder.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.selfRepair/repairPlanBuilder.js";
 import {
   runRepairSandbox,
   runtimeRepairSandboxRunnerDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairSandboxRunner.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.selfRepair/repairSandboxRunner.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairSandboxRunner.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.selfRepair/repairSandboxRunner.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.selfRepair/repairSandboxRunner.md",
   testFileUrl: import.meta.url,
 });

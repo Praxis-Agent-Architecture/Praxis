@@ -1,6 +1,6 @@
 # selfRepairRuntime
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.selfRepair/selfRepairRuntime.ts`
 
 ## 1. 文件位置
 

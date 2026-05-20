@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   buildExecutionModeRegistry,
   executionModeRegistryCapability,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.modeExposure/executionModeRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.modeExposure/executionModeRegistry.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modeExposure/executionModeRegistry.md",
   testFileUrl: import.meta.url,
 });

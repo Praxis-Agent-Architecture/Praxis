@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.j
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createAgentCoreReuseInvocation } from "../../../../src/agentCore/agent_executionEngine/coreLogic/reuseInvoker.js";
+import { createAgentCoreReuseInvocation } from "../../../../src/agentCore_executionEngine/coreLogic/reuseInvoker.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/reuseInvoker.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/reuseInvoker.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/reuseInvoker.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import {
   OPENAI_V1_CONVERSATIONS_ENDPOINT,
   classifyOpenAIV1ConversationsProviderError,
   invokeOpenAIV1Conversations,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_conversations.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_conversations.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_conversations.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_conversations.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_conversations.md",
   testFileUrl: import.meta.url,
 });

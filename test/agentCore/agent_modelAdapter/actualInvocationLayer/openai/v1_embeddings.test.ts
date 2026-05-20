@@ -5,10 +5,10 @@ import {
   OPENAI_V1_EMBEDDINGS_ENDPOINT,
   classifyOpenAIV1EmbeddingsProviderError,
   invokeOpenAIV1Embeddings,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_embeddings.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_embeddings.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_embeddings.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_embeddings.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_embeddings.md",
   testFileUrl: import.meta.url,
 });

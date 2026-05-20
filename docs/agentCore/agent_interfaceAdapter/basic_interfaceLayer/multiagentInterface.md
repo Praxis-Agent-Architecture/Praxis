@@ -1,6 +1,6 @@
 # multiagentInterface
 
-> 对应源码：`src/agentCore/agent_interfaceAdapter/basic_interfaceLayer/multiagentInterface.ts`
+> 对应源码：`src/agentCore_interfaceAdapter/basic_interfaceLayer/multiagentInterface.ts`
 
 ## 1. 文件位置
 

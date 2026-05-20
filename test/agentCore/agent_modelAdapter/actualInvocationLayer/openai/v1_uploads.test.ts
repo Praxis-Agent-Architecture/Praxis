@@ -5,10 +5,10 @@ import {
   OPENAI_V1_UPLOADS_ENDPOINT,
   classifyOpenAIV1UploadsProviderError,
   invokeOpenAIV1Uploads,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_uploads.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_uploads.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_uploads.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_uploads.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_uploads.md",
   testFileUrl: import.meta.url,
 });

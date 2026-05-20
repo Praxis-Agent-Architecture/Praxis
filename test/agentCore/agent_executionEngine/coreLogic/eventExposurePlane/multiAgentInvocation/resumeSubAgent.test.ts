@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { exposeResumeSubAgentEvent } from "../../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.js";
+import { exposeResumeSubAgentEvent } from "../../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.js";
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/multiAgentInvocation/resumeSubAgent.md",
   testFileUrl: import.meta.url,
 });

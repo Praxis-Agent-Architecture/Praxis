@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelper.js";
-import { exposeUIEvent, uiEventDescriptor } from "../../../../../src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/UIEvent.js";
+import { exposeUIEvent, uiEventDescriptor } from "../../../../../src/agentCore_executionEngine/coreLogic/eventExposurePlane/UIEvent.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/UIEvent.ts",
+  sourcePath: "src/agentCore_executionEngine/coreLogic/eventExposurePlane/UIEvent.ts",
   docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/UIEvent.md",
   testFileUrl: import.meta.url,
 });

@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   probeRuntimeInvariants,
   runtimeInvariantProbeDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInvariantProbe.md",
   testFileUrl: import.meta.url,
 });

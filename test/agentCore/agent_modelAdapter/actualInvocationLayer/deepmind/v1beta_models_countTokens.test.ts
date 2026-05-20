@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   DEEPMIND_V1BETA_MODELS_COUNT_TOKENS_ENDPOINT,
   invokeDeepMindV1BetaModelsCountTokens,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/deepmind/v1beta_models_countTokens.md",
   testFileUrl: import.meta.url,
 });

@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/invocationAdapter.js";
-import { bridgeExecEngineInvocation } from "../../../../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
+import type { BaseToolExecutorPort } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import { createBaseToolRegistry } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { adaptRuntimeToolInvocation } from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/invocationAdapter.js";
+import { bridgeExecEngineInvocation } from "../../../../../../../src/agentCore_runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 const runtimeId = "code-test-debug-runtime-chain-1";
 const sessionId = "code-test-debug-session-chain-1";

@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { bindActualInvocationLayer } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.js";
+import { bindActualInvocationLayer } from "../../../../src/agentCore_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.modelAdapter/bindActualInvocationLayer.md",
   testFileUrl: import.meta.url,
 });

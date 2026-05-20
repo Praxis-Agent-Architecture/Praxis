@@ -90,11 +90,11 @@ function assertPathSpecificContract(sourcePath: string, docText: string): void {
     assertRequiredPhrases(docText, ["自定义格式", "Praxis 标准"], "custom format contract");
   }
 
-  if (sourcePath.includes("/agent_interfaceAdapter/")) {
+  if (sourcePath.includes("/agentCore_interfaceAdapter/")) {
     assertRequiredPhrases(docText, ["接口", "runtime", "治理"], "interface adapter contract");
   }
 
-  if (sourcePath.includes("/agent_runtimeImplementation/")) {
+  if (sourcePath.includes("/agentCore_runtimeImplementation/")) {
     assertRequiredPhrases(docText, ["runtime", "治理", "契约"], "runtime implementation contract");
   }
 

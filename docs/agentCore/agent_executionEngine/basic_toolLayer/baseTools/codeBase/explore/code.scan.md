@@ -1,6 +1,6 @@
 # code.scan
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.scan.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/explore/code.scan.ts`
 
 ## 1. 文件位置
 

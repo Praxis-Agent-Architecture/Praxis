@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { planSkillManagement, skillManagementHandler } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/skillBase/skill.management.js";
+import { planSkillManagement, skillManagementHandler } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/skillBase/skill.management.js";
 
 test("skill.management supports activate/load in dry-run shape", async () => {
   const result = await planSkillManagement({

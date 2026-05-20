@@ -1,6 +1,6 @@
 # mcp.cancel
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.cancel.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.cancel.ts`
 
 ## 1. 文件位置
 

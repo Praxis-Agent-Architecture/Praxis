@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import {
   mcpCancelDescriptor,
   planMcpCancel,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.cancel.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.cancel.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.cancel.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.cancel.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.cancel.md",
   testFileUrl: import.meta.url,
 });

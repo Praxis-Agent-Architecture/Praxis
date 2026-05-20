@@ -1,6 +1,6 @@
 # capabilityReceiver
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.ts`
+> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/customFormat/capabilityReceiver.ts`
 
 ## 1. 文件位置
 

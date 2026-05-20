@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   lspAssistSignatureDescriptor,
   planLspSignatureAssistance,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/lsp/code.lsp_assistSignature.md",
   testFileUrl: import.meta.url,
 });

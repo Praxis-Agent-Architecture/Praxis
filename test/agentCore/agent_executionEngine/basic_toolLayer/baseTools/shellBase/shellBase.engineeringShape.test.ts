@@ -4,19 +4,19 @@ import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
-import { createBaseToolRegistry } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { builtinBaseToolHandlers } from "../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
+import { createBaseToolRegistry } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import { builtinBaseToolHandlers } from "../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.js";
 
 const testDir = path.dirname(fileURLToPath(import.meta.url));
 const architectureRoot = path.resolve(testDir, "../../../../../../");
 const storageRoot = path.join(architectureRoot, "src/storagePool/baseToolStorage/shellBase");
 const entryRoot = path.join(
   architectureRoot,
-  "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase",
+  "src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase",
 );
 const builtinHandlersPath = path.join(
   architectureRoot,
-  "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.ts",
+  "src/agentCore_executionEngine/basic_toolLayer/baseTools/builtinBaseToolHandlers.ts",
 );
 
 const requiredStorageFiles = [

@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { publishBehaviorEvent } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.js";
+import { publishBehaviorEvent } from "../../../../src/agentCore_runtimeImplementation/runtime.behaviorExposure/behaviorEventPublisher.js";
 import {
   behaviorObservationPortDescriptor,
   openBehaviorObservationPort,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.behaviorExposure/behaviorObservationPort.md",
   testFileUrl: import.meta.url,
 });

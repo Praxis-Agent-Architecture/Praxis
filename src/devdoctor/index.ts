@@ -704,7 +704,23 @@ async function resolveExistingRun(args: readonly string[]): Promise<string> {
   }
   const runsDir = path.join(devdoctorDir, "runs");
   const entries = await readdir(runsDir, { withFileTypes: true });
-  const dirs = entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort();
+  const dirs = (
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory() && /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z$/.test(entry.name))
+        .map(async (entry) => {
+          const runDir = path.join(runsDir, entry.name);
+          try {
+            await stat(path.join(runDir, "diagnosis.json"));
+            return entry.name;
+          } catch {
+            return undefined;
+          }
+        }),
+    )
+  )
+    .filter((entry): entry is string => entry !== undefined)
+    .sort();
   const latest = dirs.at(-1);
   if (latest === undefined) {
     throw new Error(`no devdoctor runs found under ${runsDir}`);

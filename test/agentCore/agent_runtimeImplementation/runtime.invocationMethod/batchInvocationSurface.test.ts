@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createBatchInvocationSurface } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.js";
+import { createBatchInvocationSurface } from "../../../../src/agentCore_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.invocationMethod/batchInvocationSurface.md",
   testFileUrl: import.meta.url,
 });

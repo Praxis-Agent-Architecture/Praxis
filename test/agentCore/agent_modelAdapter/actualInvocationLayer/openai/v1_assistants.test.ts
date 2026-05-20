@@ -5,10 +5,10 @@ import {
   OPENAI_V1_ASSISTANTS_ENDPOINT,
   classifyOpenAIV1AssistantsProviderError,
   invokeOpenAIV1Assistants,
-} from "../../../../../src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_assistants.js";
+} from "../../../../../src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_assistants.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_assistants.ts",
+  sourcePath: "src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_assistants.ts",
   docPath: "docs/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_assistants.md",
   testFileUrl: import.meta.url,
 });

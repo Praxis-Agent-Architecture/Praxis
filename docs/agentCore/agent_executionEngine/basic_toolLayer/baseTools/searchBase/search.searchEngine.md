@@ -1,6 +1,6 @@
 # search.searchEngine
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/searchBase/search.searchEngine.ts`
 
 ## 1. 文件位置
 

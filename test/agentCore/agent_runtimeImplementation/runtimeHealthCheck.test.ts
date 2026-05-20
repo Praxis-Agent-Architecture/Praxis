@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   checkRuntimeHealth,
   runtimeHealthCheckDescriptor,
-} from "../../../src/agentCore/agent_runtimeImplementation/runtimeHealthCheck.js";
+} from "../../../src/agentCore_runtimeImplementation/runtimeHealthCheck.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtimeHealthCheck.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtimeHealthCheck.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeHealthCheck.md",
   testFileUrl: import.meta.url,
 });

@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   adaptationPolicyRegistryDescriptor,
   registerAdaptationPolicies,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptationPolicyRegistry.md",
   testFileUrl: import.meta.url,
 });

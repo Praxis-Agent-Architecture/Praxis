@@ -1,6 +1,6 @@
 # git.pullRemoteChanges
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/gitBase/remote/git.pullRemoteChanges.ts`
 
 ## 1. 文件位置
 

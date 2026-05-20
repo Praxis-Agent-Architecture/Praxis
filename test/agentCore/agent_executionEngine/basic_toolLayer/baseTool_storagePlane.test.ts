@@ -5,11 +5,11 @@ import test from "node:test";
 import {
   baseToolStoragePlaneDescriptor,
   exposeBaseToolStoragePlane,
-} from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTool_storagePlane.js";
-import { planBaseToolStorageWrite } from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/storageLogic.js";
+} from "../../../../src/agentCore_executionEngine/basic_toolLayer/baseTool_storagePlane.js";
+import { planBaseToolStorageWrite } from "../../../../src/agentCore_executionEngine/basic_toolLayer/storageLogic.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTool_storagePlane.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTool_storagePlane.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTool_storagePlane.md",
   testFileUrl: import.meta.url,
 });

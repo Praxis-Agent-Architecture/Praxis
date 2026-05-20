@@ -1,6 +1,6 @@
 # interfaceFormatExtraction
 
-> 对应源码：`src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.ts`
+> 对应源码：`src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceFormatExtraction.ts`
 
 ## 1. 文件位置
 

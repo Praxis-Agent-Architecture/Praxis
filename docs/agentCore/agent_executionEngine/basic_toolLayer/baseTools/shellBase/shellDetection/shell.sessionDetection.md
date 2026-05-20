@@ -1,6 +1,6 @@
 # shell.sessionDetection
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/shellDetection/shell.sessionDetection.ts`
 
 ## Runtime Contract Snapshot
 

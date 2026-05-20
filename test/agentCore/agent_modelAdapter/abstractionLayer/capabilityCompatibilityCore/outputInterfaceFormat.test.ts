@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import {
   defineOutputInterfaceFormats,
   outputInterfaceFormatDescriptor,
-} from "../../../../../src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.js";
+} from "../../../../../src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.ts",
+  sourcePath: "src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.ts",
   docPath: "docs/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/outputInterfaceFormat.md",
   testFileUrl: import.meta.url,
 });

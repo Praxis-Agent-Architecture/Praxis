@@ -6,7 +6,7 @@
 import type {
   BaseToolShellServiceStatus,
   BaseToolShellServiceVerification,
-} from "../../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
 import type { ShellProcessSpawningPermission } from "../shell.processSpawning/core.js";
 import {
   approvalRecord,

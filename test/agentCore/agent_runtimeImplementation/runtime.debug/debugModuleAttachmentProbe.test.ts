@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { probeDebugModuleAttachment } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.debug/debugModuleAttachmentProbe.js";
+import { probeDebugModuleAttachment } from "../../../../src/agentCore_runtimeImplementation/runtime.debug/debugModuleAttachmentProbe.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.debug/debugModuleAttachmentProbe.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.debug/debugModuleAttachmentProbe.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.debug/debugModuleAttachmentProbe.md",
   testFileUrl: import.meta.url,
 });

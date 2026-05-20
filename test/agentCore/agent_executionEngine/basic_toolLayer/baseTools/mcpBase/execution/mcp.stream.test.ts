@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import {
   mcpStreamDescriptor,
   planMcpStream,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.stream.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.stream.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.stream.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.stream.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/execution/mcp.stream.md",
   testFileUrl: import.meta.url,
 });

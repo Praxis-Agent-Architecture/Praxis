@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
-import { tuneAdaptiveResources } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveResourceTuner.js";
+import { tuneAdaptiveResources } from "../../../../src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptiveResourceTuner.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveResourceTuner.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.adaptiveRuntime/adaptiveResourceTuner.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.adaptiveRuntime/adaptiveResourceTuner.md",
   testFileUrl: import.meta.url,
 });

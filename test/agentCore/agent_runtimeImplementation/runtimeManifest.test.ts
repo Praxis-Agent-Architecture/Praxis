@@ -5,10 +5,10 @@ import test from "node:test";
 import {
   buildRuntimeManifest,
   runtimeManifestDescriptor,
-} from "../../../src/agentCore/agent_runtimeImplementation/runtimeManifest.js";
+} from "../../../src/agentCore_runtimeImplementation/runtimeManifest.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtimeManifest.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtimeManifest.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeManifest.md",
   testFileUrl: import.meta.url,
 });

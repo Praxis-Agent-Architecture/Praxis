@@ -9,7 +9,7 @@ import type {
   BaseToolInvokeResult,
   BaseToolRiskLevel,
   BaseToolSchemaLike,
-} from "../../../../agentCore/agent_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+} from "../../../../agentCore_executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
 
 const computerUseSharedRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(computerUseSharedRoot, "../../../../../");
@@ -90,8 +90,7 @@ export function computerUseToolSourcePath(toolId: string, storageGroup: string):
     .join(
       repoRoot,
       "src",
-      "agentCore",
-      "agent_executionEngine",
+      "agentCore_executionEngine",
       "basic_toolLayer",
       "baseTools",
       "computeruseBase",

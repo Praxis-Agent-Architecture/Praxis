@@ -5,10 +5,10 @@ import { defineAgentCoreContractTest } from "../../../../../agentCoreContractTes
 import {
   codeBenchmarkDescriptor,
   planCodeBenchmark,
-} from "../../../../../../../src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/testCode/code.benchmark.js";
+} from "../../../../../../../src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/testCode/code.benchmark.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/testCode/code.benchmark.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/baseTools/codeBase/testCode/code.benchmark.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/baseTools/codeBase/testCode/code.benchmark.md",
   testFileUrl: import.meta.url,
 });

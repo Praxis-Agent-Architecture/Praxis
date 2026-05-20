@@ -1,6 +1,6 @@
 # shell.processStatusTracking
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/shellBase/executionMonitoring/shell.processStatusTracking.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/shellBase/executionMonitoring/shell.processStatusTracking.ts`
 
 ## 1. 文件位置
 

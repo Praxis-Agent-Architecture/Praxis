@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { bindIOTransceiver } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindIOTransceiver.js";
+import { bindIOTransceiver } from "../../../../src/agentCore_runtimeImplementation/runtime.execEngine/bindIOTransceiver.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.execEngine/bindIOTransceiver.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.execEngine/bindIOTransceiver.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.execEngine/bindIOTransceiver.md",
   testFileUrl: import.meta.url,
 });

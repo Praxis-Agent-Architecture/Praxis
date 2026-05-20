@@ -7,10 +7,10 @@ import {
   planBaseToolStorageWrite,
   planBasicToolStorageOperation,
   type BasicToolStorageRecord,
-} from "../../../../src/agentCore/agent_executionEngine/basic_toolLayer/storageLogic.js";
+} from "../../../../src/agentCore_executionEngine/basic_toolLayer/storageLogic.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_executionEngine/basic_toolLayer/storageLogic.ts",
+  sourcePath: "src/agentCore_executionEngine/basic_toolLayer/storageLogic.ts",
   docPath: "docs/agentCore/agent_executionEngine/basic_toolLayer/storageLogic.md",
   testFileUrl: import.meta.url,
 });

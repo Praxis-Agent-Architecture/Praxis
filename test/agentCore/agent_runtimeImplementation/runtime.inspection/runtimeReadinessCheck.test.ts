@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   checkRuntimeReadiness,
   runtimeReadinessCheckDescriptor,
-} from "../../../../src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.js";
+} from "../../../../src/agentCore_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeReadinessCheck.md",
   testFileUrl: import.meta.url,
 });

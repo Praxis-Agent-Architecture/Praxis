@@ -1,6 +1,6 @@
 # runtimeInvocationContract
 
-> 对应源码：`src/agentCore/agent_runtimeImplementation/runtime.contractSurface/runtimeInvocationContract.ts`
+> 对应源码：`src/agentCore_runtimeImplementation/runtime.contractSurface/runtimeInvocationContract.ts`
 
 ## 1. 文件位置
 

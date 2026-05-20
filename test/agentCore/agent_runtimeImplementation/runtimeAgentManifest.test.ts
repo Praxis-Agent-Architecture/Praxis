@@ -28,10 +28,10 @@ import {
   tools,
   validateAgentManifest,
   type BaseToolPolicyMatrixSpec,
-} from "../../../src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.js";
+} from "../../../src/agentCore_runtimeImplementation/runtimeAgentManifest.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtimeAgentManifest.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtimeAgentManifest.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtimeAgentManifest.md",
   testFileUrl: import.meta.url,
 });

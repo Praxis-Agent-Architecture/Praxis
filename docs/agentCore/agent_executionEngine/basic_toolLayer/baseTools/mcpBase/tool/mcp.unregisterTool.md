@@ -1,6 +1,6 @@
 # mcp.unregisterTool
 
-> 对应源码：`src/agentCore/agent_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.ts`
+> 对应源码：`src/agentCore_executionEngine/basic_toolLayer/baseTools/mcpBase/tool/mcp.unregisterTool.ts`
 
 ## 1. 文件位置
 

@@ -1,6 +1,6 @@
 # v1_organization_certificates
 
-> 对应源码：`src/agentCore/agent_modelAdapter/actualInvocationLayer/openai/v1_organization_certificates.ts`
+> 对应源码：`src/agentCore_modelAdapter/actualInvocationLayer/openai/v1_organization_certificates.ts`
 
 ## 1. 文件位置
 

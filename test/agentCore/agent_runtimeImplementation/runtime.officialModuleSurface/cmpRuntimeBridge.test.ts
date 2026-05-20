@@ -1,10 +1,10 @@
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createCmpRuntimeBridge } from "../../../../src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/cmpRuntimeBridge.js";
+import { createCmpRuntimeBridge } from "../../../../src/agentCore_runtimeImplementation/runtime.officialModuleSurface/cmpRuntimeBridge.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/cmpRuntimeBridge.ts",
+  sourcePath: "src/agentCore_runtimeImplementation/runtime.officialModuleSurface/cmpRuntimeBridge.ts",
   docPath: "docs/agentCore/agent_runtimeImplementation/runtime.officialModuleSurface/cmpRuntimeBridge.md",
   testFileUrl: import.meta.url,
 });

@@ -2,10 +2,10 @@ import { defineAgentCoreContractTest } from "../../../agentCoreContractTestHelpe
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { evaluateInterfaceScope } from "../../../../../src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceScope.js";
+import { evaluateInterfaceScope } from "../../../../../src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceScope.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceScope.ts",
+  sourcePath: "src/agentCore_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceScope.ts",
   docPath: "docs/agentCore/agent_modelAdapter/abstractionLayer/capabilityCompatibilityCore/interfaceScope.md",
   testFileUrl: import.meta.url,
 });
