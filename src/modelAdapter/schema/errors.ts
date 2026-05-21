@@ -9,6 +9,26 @@ export type RaxModelErrorCode =
   | "tool_schema_invalid"
   | "aborted";
 
+export type RaxProviderErrorCategory =
+  | "authentication"
+  | "authorization"
+  | "rate_limit"
+  | "quota"
+  | "not_found"
+  | "request"
+  | "server"
+  | "network"
+  | "timeout"
+  | "aborted"
+  | "unknown";
+
+export type RaxProviderErrorClassification = {
+  category: RaxProviderErrorCategory;
+  retryable: boolean;
+  status?: number;
+  retryAfterMs?: number;
+};
+
 export class RaxModelError extends Error {
   readonly code: RaxModelErrorCode;
   readonly causeValue: unknown;
@@ -31,4 +51,3 @@ export function raxModelError(
 ): RaxModelError {
   return new RaxModelError(message, { code, details, cause });
 }
-

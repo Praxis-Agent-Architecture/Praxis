@@ -293,7 +293,7 @@ test("rax inspect reports selected BaseTools through CLI host adapter readiness"
   }
 });
 
-test("rax test --all-testable reports the full 176 BaseTool readiness matrix", async () => {
+test("rax test --all-testable reports the rewritten semantic BaseTool readiness matrix", async () => {
   const targetDir = path.join(scratchRoot, "all-testable-readiness");
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
@@ -325,11 +325,11 @@ test("rax test --all-testable reports the full 176 BaseTool readiness matrix", a
       };
     };
   };
-  assert.equal(payload.readiness?.toolReadiness?.total, 176);
-  assert.equal(payload.readiness?.toolReadiness?.ready, 176);
+  assert.equal(payload.readiness?.toolReadiness?.total, 10);
+  assert.equal(payload.readiness?.toolReadiness?.ready, 10);
   assert.deepEqual(payload.readiness?.toolReadiness?.missing, []);
-  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "mcp.call"), true);
-  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "computeruse.mouseClick"), true);
+  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "code.read"), true);
+  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "shell.commandExecution"), true);
 });
 
 test("rax test can run full dependency preparation for selected LSP tools", async () => {
@@ -363,19 +363,21 @@ test("rax test can run full dependency preparation for selected LSP tools", asyn
   assert.equal(result.exitCode, 0);
   const payload = JSON.parse(result.output) as {
     dependencyPreparation?: {
-      mode?: string;
-      total?: number;
-      ready?: number;
-      blocked?: number;
-      results?: { toolId: string; decision: string; status: string }[];
-    };
+          mode?: string;
+          total?: number;
+          ready?: number;
+          requiresApproval?: number;
+          blocked?: number;
+          results?: { toolId: string; decision: string; status: string }[];
+        };
   };
   assert.equal(payload.dependencyPreparation?.mode, "full");
   assert.equal(payload.dependencyPreparation?.total, 1);
-  assert.equal(payload.dependencyPreparation?.ready, 1);
+  assert.equal(payload.dependencyPreparation?.ready, 0);
+  assert.equal(payload.dependencyPreparation?.requiresApproval, 1);
   assert.equal(payload.dependencyPreparation?.blocked, 0);
   assert.deepEqual(payload.dependencyPreparation?.results?.map((entry) => [entry.toolId, entry.decision]), [
-    ["code.lsp_locateDefinition", "ready"],
+    ["code.lsp_locateDefinition", "requiresApproval"],
   ]);
 });
 

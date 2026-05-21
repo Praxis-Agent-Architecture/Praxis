@@ -1,6 +1,9 @@
 /*
  * 文件定位：Agent 运行态实现层 / provider route 绑定面。
  * 核心目的：记录 runtime 可用的 provider routes，不直接执行 provider 调用。
+ * 边界：只绑定 provider route 引用和 metadata，不读取密钥、不探测 provider、不发送请求。
+ * 对接：上接 runtime.modelAdapter 绑定面，下接 modelAdapter registry/client 暴露的 provider route。
+ * 实现提示：保持纯函数和结构化错误，让上层应用、devdoctor 和 runtime inspection 可直接消费绑定结果。
  */
 
 import type { ModelAdapterRuntimeCaller, ModelAdapterRuntimeGate } from "./modelAdapterRuntime.js";
@@ -148,4 +151,3 @@ export function bindProviderRoutes(request?: ProviderRouteBindingRequest): Provi
     events: ["runtime.modelAdapter.providerRoutes.bound"],
   };
 }
-

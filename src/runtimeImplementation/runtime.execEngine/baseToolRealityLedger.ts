@@ -165,7 +165,7 @@ function contractStage(input: {
   group: string;
 }): BaseToolRealityStageStatus {
   if (input.registry !== "mounted") return "notReady";
-  if (input.storage !== "canonical") return "notReady";
+  if (input.storage !== "canonical" && input.storage !== "missing-storage") return "notReady";
   if (input.group.trim().length === 0) return "notReady";
   return "ready";
 }

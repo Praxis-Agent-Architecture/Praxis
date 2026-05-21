@@ -399,7 +399,7 @@ export async function invokeShellToolThroughRuntimeChain(
     metadata: { surface: "agentcore_shell_live_matrix" },
   });
 
-  return { ...result, calls };
+  return { ...result, toolId: toolCall.tool, calls };
 }
 
 export function expectedCallSeen(expectedCall: string | RegExp, calls: readonly string[]): boolean {

@@ -1,7 +1,6 @@
 import {
   createDefaultRaxModelClient,
   createDefaultRaxProviderRegistry,
-  createProviderAuthRef,
   type RaxModelClient,
   type RaxModelRequest,
   type RaxReasoningEffort,
@@ -28,7 +27,7 @@ export async function callModelAdapterPrompt(
 ): Promise<string> {
   const provider = options.provider ?? process.env.AGENTCORE_MODEL_PROVIDER ?? "openai";
   const model = options.model ?? process.env.AGENTCORE_CODEX_MODEL ?? process.env.OPENAI_SMOKE_MODEL ?? "gpt-5.5";
-  const route = options.route ?? process.env.AGENTCORE_MODEL_ROUTE ?? provider;
+  const route = options.route ?? process.env.AGENTCORE_MODEL_ROUTE;
   const baseUrl = options.baseUrl ?? process.env.AGENTCORE_MODEL_BASE_URL;
   const apiKeyEnv = options.apiKeyEnv ?? process.env.AGENTCORE_MODEL_API_KEY_ENV;
   const reasoningEffort =
@@ -38,19 +37,14 @@ export async function callModelAdapterPrompt(
     process.env.OPENAI_REASONING_EFFORT ??
     "low";
   const maxOutputTokens = options.maxOutputTokens ?? Number(process.env.OPENAI_AGENTCORE_MAX_OUTPUT_TOKENS ?? "768");
-  const providerDefinition = defaultProviderRegistry.get(provider);
   const client = options.client ?? createDefaultRaxModelClient();
-  const auth = providerDefinition
-    ? createProviderAuthRef(providerDefinition, { env: apiKeyEnv })
-    : { type: "api_key" as const, env: apiKeyEnv ?? "OPENAI_API_KEY" };
 
-  const request: RaxModelRequest = {
+  const request = defaultProviderRegistry.completeModelRequest({
     model: {
       provider,
       model,
-      route,
+      ...(route !== undefined ? { route } : {}),
       ...(baseUrl ? { baseUrl } : {}),
-      auth,
     },
     system: [{ type: "text", text: instructions }],
     messages: [{ role: "user", content: prompt }],
@@ -59,7 +53,7 @@ export async function callModelAdapterPrompt(
       reasoningEffort,
       ...(options.responseFormat ? { responseFormat: options.responseFormat } : {}),
     },
-  };
+  } satisfies RaxModelRequest, { auth: { env: apiKeyEnv } });
 
   const response = await client.generate(request);
   return response.text.trim();

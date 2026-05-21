@@ -108,8 +108,37 @@ function lowerAnthropicMessages(messages: RaxModelMessage[]): unknown[] {
       }
       return { role: "assistant", content: blocks.length ? blocks : [{ type: "text", text: "" }] };
     }
-    return { role: message.role, content: [{ type: "text", text: textFromContent(message.content) }] };
+    return { role: message.role, content: lowerAnthropicContent(message.content) };
   });
+}
+
+function lowerAnthropicContent(content: RaxModelMessage["content"]): unknown[] {
+  if (typeof content === "string") return [{ type: "text", text: content }];
+  const blocks: unknown[] = [];
+  for (const part of content) {
+    if (part.type === "text") blocks.push({ type: "text", text: part.text });
+    if (part.type === "reasoning") blocks.push({ type: "text", text: part.text });
+    if (part.type === "image" && part.data) {
+      blocks.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: part.mimeType ?? "application/octet-stream",
+          data: part.data,
+        },
+      });
+    }
+    if (part.type === "image" && part.url && !part.data) {
+      blocks.push({
+        type: "image",
+        source: {
+          type: "url",
+          url: part.url,
+        },
+      });
+    }
+  }
+  return blocks.length ? blocks : [{ type: "text", text: textFromContent(content) }];
 }
 
 function lowerAnthropicTools(tools: RaxToolDefinition[], toolNameMap: Map<string, string>): unknown[] {
@@ -142,6 +171,9 @@ function decodeAnthropicMessagesFrame(
   const events: RaxProtocolDecodeResult["events"] = [];
   if (!frame || typeof frame !== "object") return { state, events };
   const value = frame as Record<string, unknown>;
+  if (value.type === "message") {
+    events.push(...decodeAnthropicFullMessage(value, state, prepared));
+  }
   if (value.type === "content_block_delta") {
     const delta = value.delta && typeof value.delta === "object" ? value.delta as Record<string, unknown> : {};
     if (typeof delta.text === "string" && delta.text) events.push({ type: "text.delta", id: prepared.id, text: delta.text });
@@ -178,6 +210,42 @@ function decodeAnthropicMessagesFrame(
     if (usage) state.usage = usage;
   }
   return { state, events };
+}
+
+function decodeAnthropicFullMessage(
+  message: Record<string, unknown>,
+  state: AnthropicMessagesState,
+  prepared: RaxPreparedModelRequest,
+): RaxProtocolDecodeResult["events"] {
+  const events: RaxProtocolDecodeResult["events"] = [];
+  if (typeof message.stop_reason === "string") state.finishReason = message.stop_reason;
+  const usage = lowerAnthropicUsage(message.usage);
+  if (usage) {
+    state.usage = usage;
+    events.push({ type: "usage", id: prepared.id, usage });
+  }
+  const content = Array.isArray(message.content) ? message.content : [];
+  for (const [index, block] of content.entries()) {
+    if (!block || typeof block !== "object") continue;
+    const value = block as Record<string, unknown>;
+    if (value.type === "text" && typeof value.text === "string" && value.text) {
+      events.push({ type: "text.delta", id: prepared.id, text: value.text, index });
+    }
+    if (value.type === "thinking" && typeof value.thinking === "string" && value.thinking) {
+      events.push({ type: "reasoning.delta", id: prepared.id, text: value.thinking, index });
+    }
+    if (value.type === "tool_use") {
+      const toolState = {
+        id: String(value.id ?? `tool_${index}`),
+        name: typeof value.name === "string" ? value.name : "unknown_tool",
+        inputText: JSON.stringify(value.input ?? {}),
+      };
+      events.push({ type: "tool.input.start", id: prepared.id, toolCallId: toolState.id, name: toolState.name, index });
+      events.push({ type: "tool.input.delta", id: prepared.id, toolCallId: toolState.id, delta: toolState.inputText, index });
+      state.toolCalls[index] = toolState;
+    }
+  }
+  return events;
 }
 
 function flushToolCalls(state: AnthropicMessagesState, responseId: string): RaxProtocolDecodeResult["events"] {

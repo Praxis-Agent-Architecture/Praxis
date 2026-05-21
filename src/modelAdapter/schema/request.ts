@@ -38,6 +38,8 @@ export type RaxPreparedModelRequest = {
   method: "POST";
   headers: Record<string, string>;
   body: unknown;
+  timeoutMs?: number;
+  signal?: AbortSignal;
   redacted: {
     url: string;
     method: "POST";
@@ -46,4 +48,3 @@ export type RaxPreparedModelRequest = {
   };
   metadata: Record<string, unknown>;
 };
-

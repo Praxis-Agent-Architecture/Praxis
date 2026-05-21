@@ -4,6 +4,7 @@ import {
   textFromContent,
   toProviderToolName,
   type RaxContentPart,
+  type RaxGenerationOptions,
   type RaxModelMessage,
   type RaxModelRequest,
   type RaxPreparedModelRequest,
@@ -77,7 +78,8 @@ function prepareOpenAIChatBody(request: RaxModelRequest, context: RaxProtocolPre
   if (request.generation?.maxOutputTokens !== undefined) body.max_tokens = request.generation.maxOutputTokens;
   if (request.generation?.stop?.length) body.stop = request.generation.stop;
   if (request.generation?.reasoningEffort) body.reasoning_effort = request.generation.reasoningEffort;
-  if (request.generation?.responseFormat === "json") body.response_format = { type: "json_object" };
+  const responseFormat = lowerOpenAIResponseFormat(request.generation?.responseFormat);
+  if (responseFormat !== undefined) body.response_format = responseFormat;
 
   const toolNameMap = new Map<string, string>();
   const tools = lowerOpenAITools(request.tools ?? [], toolNameMap);
@@ -92,6 +94,22 @@ function prepareOpenAIChatBody(request: RaxModelRequest, context: RaxProtocolPre
       toolNameMap: Object.fromEntries(toolNameMap.entries()),
     },
   };
+}
+
+function lowerOpenAIResponseFormat(format: RaxGenerationOptions["responseFormat"] | undefined): unknown {
+  if (format === undefined || format === "text") return undefined;
+  if (format === "json") return { type: "json_object" };
+  if (typeof format === "object" && "schema" in format && format.schema !== undefined) {
+    return {
+      type: "json_schema",
+      json_schema: {
+        name: typeof format.type === "string" && format.type.length > 0 ? format.type : "response",
+        schema: format.schema,
+        strict: true,
+      },
+    };
+  }
+  return undefined;
 }
 
 function lowerOpenAIMessages(system: RaxModelRequest["system"], messages: RaxModelMessage[]): unknown[] {
@@ -135,9 +153,29 @@ function lowerOpenAIMessages(system: RaxModelRequest["system"], messages: RaxMod
       continue;
     }
 
-    lowered.push({ role: message.role, content: textFromContent(message.content) });
+    lowered.push({ role: message.role, content: lowerOpenAIContent(message.content) });
   }
   return lowered;
+}
+
+function lowerOpenAIContent(content: RaxModelMessage["content"]): unknown {
+  if (typeof content === "string") return content;
+  const lowered = content.flatMap((part): unknown[] => {
+    if (part.type === "text") return [{ type: "text", text: part.text }];
+    if (part.type === "image") {
+      const url = imageUrl(part);
+      return url ? [{ type: "image_url", image_url: { url } }] : [];
+    }
+    if (part.type === "reasoning") return [{ type: "text", text: part.text }];
+    return [];
+  });
+  return lowered.length ? lowered : textFromContent(content);
+}
+
+function imageUrl(part: Extract<RaxContentPart, { type: "image" }>): string | undefined {
+  if (part.url) return part.url;
+  if (part.data) return `data:${part.mimeType ?? "application/octet-stream"};base64,${part.data}`;
+  return undefined;
 }
 
 function lowerOpenAITools(tools: RaxToolDefinition[], toolNameMap: Map<string, string>): unknown[] {
@@ -184,6 +222,10 @@ function decodeOpenAIChatFrame(frame: unknown, state: OpenAIChatState, prepared:
     if (!choice || typeof choice !== "object") continue;
     const choiceObj = choice as Record<string, unknown>;
     if (typeof choiceObj.finish_reason === "string") state.finishReason = choiceObj.finish_reason;
+    const message = choiceObj.message;
+    if (message && typeof message === "object") {
+      events.push(...decodeOpenAIChatMessage(message as Record<string, unknown>, prepared, events.length));
+    }
     const delta = choiceObj.delta;
     if (!delta || typeof delta !== "object") continue;
     const deltaObj = delta as Record<string, unknown>;
@@ -202,6 +244,47 @@ function decodeOpenAIChatFrame(frame: unknown, state: OpenAIChatState, prepared:
   }
 
   return { state, events };
+}
+
+function decodeOpenAIChatMessage(
+  message: Record<string, unknown>,
+  prepared: RaxPreparedModelRequest,
+  baseIndex: number,
+): RaxProtocolDecodeResult["events"] {
+  const events: RaxProtocolDecodeResult["events"] = [];
+  if (typeof message.content === "string" && message.content) {
+    events.push({ type: "text.delta", id: prepared.id, text: message.content });
+  }
+  const reasoning = message.reasoning_content ?? message.reasoning;
+  if (typeof reasoning === "string" && reasoning) {
+    events.push({ type: "reasoning.delta", id: prepared.id, text: reasoning });
+  }
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+  for (const [offset, toolCall] of toolCalls.entries()) {
+    const call = lowerOpenAIToolCall(toolCall, offset);
+    if (!call) continue;
+    const index = baseIndex + offset;
+    const inputText = typeof call.input === "string" ? call.input : JSON.stringify(call.input ?? {});
+    events.push({ type: "tool.input.start", id: prepared.id, toolCallId: call.id, name: call.providerName, index });
+    if (inputText) events.push({ type: "tool.input.delta", id: prepared.id, toolCallId: call.id, delta: inputText, index });
+    events.push({ type: "tool.input.end", id: prepared.id, toolCallId: call.id, input: inputText, index });
+    events.push({ type: "tool.call", id: prepared.id, call, index });
+  }
+  return events;
+}
+
+function lowerOpenAIToolCall(toolCall: unknown, index: number): RaxToolCall | undefined {
+  if (!toolCall || typeof toolCall !== "object") return undefined;
+  const value = toolCall as Record<string, unknown>;
+  const fn = value.function && typeof value.function === "object" ? value.function as Record<string, unknown> : {};
+  const name = typeof fn.name === "string" ? fn.name : "unknown_tool";
+  const rawInput = typeof fn.arguments === "string" ? fn.arguments : "";
+  return {
+    id: typeof value.id === "string" ? value.id : `tool_${index}`,
+    name,
+    providerName: name,
+    input: parseToolInput(rawInput),
+  };
 }
 
 function decodeToolDelta(toolCall: unknown, state: OpenAIChatState, prepared: RaxPreparedModelRequest): RaxProtocolDecodeResult["events"] {

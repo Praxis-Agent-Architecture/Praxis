@@ -1,3 +1,11 @@
+/*
+ * 文件定位：Agent 运行态实现层 / RaxModelRequest 调用桥。
+ * 核心目的：把 runtime 调用模式接到新的 RaxModelClient prepare/stream/generate 请求层。
+ * 边界：不选择 provider route、不解析产品配置、不实现重试策略；provider 字段形状归 src/modelAdapter。
+ * 对接：上接 runtime invocation/application surface，下接 modelAdapter 的 RaxModelRequest、RaxModelClient、protocol 和 transport。
+ * 实现提示：保持 prepare/stream/generate 三种模式可注入、可测试，并保留事件与 invocationId 供上层串联。
+ */
+
 import {
   defaultRaxModelClient,
   foldRaxModelEvents,
@@ -66,4 +74,3 @@ export async function invokeRaxModelThroughRuntime(input: RaxModelRuntimeRequest
     return { ok: false, runtimeId: input.runtimeId, invocationId, error: { code, message }, events: [] };
   }
 }
-

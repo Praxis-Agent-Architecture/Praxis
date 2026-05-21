@@ -3,8 +3,11 @@ import {
   raxModelError,
   textFromContent,
   toProviderToolName,
+  type RaxContentPart,
+  type RaxGenerationOptions,
   type RaxModelRequest,
   type RaxPreparedModelRequest,
+  type RaxToolCall,
   type RaxToolDefinition,
   type RaxUsage,
 } from "../schema/index.js";
@@ -53,7 +56,7 @@ function prepareGoogleGenerateContentBody(
   const body: Record<string, unknown> = {
     contents: request.messages.map((message) => ({
       role: message.role === "assistant" ? "model" : "user",
-      parts: [{ text: textFromContent(message.content) }],
+      parts: lowerGoogleParts(message.content),
     })),
   };
   const systemInstruction = (request.system ?? []).map((part) => part.text).join("\n\n");
@@ -63,10 +66,24 @@ function prepareGoogleGenerateContentBody(
   if (request.generation?.topP !== undefined) generationConfig.topP = request.generation.topP;
   if (request.generation?.maxOutputTokens !== undefined) generationConfig.maxOutputTokens = request.generation.maxOutputTokens;
   if (request.generation?.stop?.length) generationConfig.stopSequences = request.generation.stop;
+  const responseFormat = lowerGoogleResponseFormat(request.generation?.responseFormat);
+  if (responseFormat !== undefined) Object.assign(generationConfig, responseFormat);
   if (Object.keys(generationConfig).length) body.generationConfig = generationConfig;
   const tools = lowerGoogleTools(request.tools ?? []);
   if (tools.length) body.tools = tools;
   return { body };
+}
+
+function lowerGoogleResponseFormat(format: RaxGenerationOptions["responseFormat"] | undefined): Record<string, unknown> | undefined {
+  if (format === undefined || format === "text") return undefined;
+  if (format === "json") return { responseMimeType: "application/json" };
+  if (typeof format === "object" && "schema" in format && format.schema !== undefined) {
+    return {
+      responseMimeType: "application/json",
+      responseSchema: format.schema,
+    };
+  }
+  return undefined;
 }
 
 function lowerGoogleTools(tools: RaxToolDefinition[]): unknown[] {
@@ -88,6 +105,30 @@ function lowerGoogleTools(tools: RaxToolDefinition[]): unknown[] {
   ];
 }
 
+function lowerGoogleParts(content: RaxModelRequest["messages"][number]["content"]): unknown[] {
+  if (typeof content === "string") return [{ text: content }];
+  const parts = content.flatMap((part) => lowerGooglePart(part));
+  return parts.length ? parts : [{ text: textFromContent(content) }];
+}
+
+function lowerGooglePart(part: RaxContentPart): unknown[] {
+  if (part.type === "text") return [{ text: part.text }];
+  if (part.type === "reasoning") return [{ text: part.text }];
+  if (part.type === "image" && part.data) {
+    return [{ inlineData: { mimeType: part.mimeType ?? "application/octet-stream", data: part.data } }];
+  }
+  if (part.type === "image" && part.url) {
+    return [{ fileData: { mimeType: part.mimeType ?? "application/octet-stream", fileUri: part.url } }];
+  }
+  if (part.type === "tool_call") {
+    return [{ functionCall: { name: part.call.providerName ?? toProviderToolName(part.call.name), args: part.call.input ?? {} } }];
+  }
+  if (part.type === "tool_result") {
+    return [{ functionResponse: { name: part.name ?? "tool", response: { content: typeof part.content === "string" ? part.content : textFromContent(part.content) } } }];
+  }
+  return [];
+}
+
 function decodeGoogleGenerateContentFrame(
   frame: unknown,
   state: GoogleGenerateContentState,
@@ -107,6 +148,11 @@ function decodeGoogleGenerateContentFrame(
       if (!part || typeof part !== "object") continue;
       const text = (part as Record<string, unknown>).text;
       if (typeof text === "string" && text) events.push({ type: "text.delta", id: prepared.id, text });
+      const functionCall = (part as Record<string, unknown>).functionCall;
+      if (functionCall && typeof functionCall === "object") {
+        const call = lowerGoogleFunctionCall(functionCall);
+        if (call) events.push({ type: "tool.call", id: prepared.id, call, index: events.length });
+      }
     }
   }
   const usage = lowerGoogleUsage(value.usageMetadata);
@@ -115,6 +161,18 @@ function decodeGoogleGenerateContentFrame(
     events.push({ type: "usage", id: prepared.id, usage });
   }
   return { state, events };
+}
+
+function lowerGoogleFunctionCall(value: unknown): RaxToolCall | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const call = value as Record<string, unknown>;
+  const name = typeof call.name === "string" ? call.name : "unknown_tool";
+  return {
+    id: `google_${name}`,
+    name,
+    providerName: name,
+    input: call.args ?? {},
+  };
 }
 
 function lowerGoogleUsage(usage: unknown): RaxUsage | undefined {

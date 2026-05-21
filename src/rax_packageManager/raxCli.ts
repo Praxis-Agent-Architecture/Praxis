@@ -344,7 +344,8 @@ async function firstExistingPath(paths: readonly string[]): Promise<string | und
 async function resolveCodexAuthFile(args: readonly string[], projectRoot: string | undefined): Promise<string | undefined> {
   const explicit = argValue(args, "--codex-auth-file") ?? argValue(args, "--auth-file");
   if (explicit !== undefined && explicit.trim().length > 0) {
-    return path.resolve(explicit);
+    const resolved = path.resolve(explicit);
+    return await pathExists(resolved) ? resolved : undefined;
   }
 
   const codexHome = process.env.CODEX_HOME?.trim() || path.join(homeDir(), ".codex");

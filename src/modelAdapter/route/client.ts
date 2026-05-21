@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { randomUUID } from "node:crypto";
 import { decodeServerSentEventChunk } from "./framing.js";
+import { providerErrorDetails } from "./errorClassification.js";
 import { filterNativeOptions, joinEndpointUrl, type RaxEndpointTemplate } from "./endpoint.js";
 import { resolveRaxAuth } from "./auth.js";
 import { createFetchTransport, runEffect, type RaxTransport } from "./transport.js";
@@ -59,18 +60,19 @@ export function createRaxModelClient(initialRoutes: RaxModelRoute[] = []): RaxMo
     const url = joinEndpointUrl(route.endpoint, request.model.baseUrl, request.providerOptions?.query, {
       model: String(request.model.model),
     });
+    const providerHeaders = request.providerOptions?.headers ?? {};
     const headers = {
       "content-type": "application/json",
       accept: "text/event-stream, application/json",
       ...route.endpoint.defaultHeaders,
-      ...request.providerOptions?.headers,
+      ...providerHeaders,
       ...auth.headers,
     };
     const redactedHeaders = {
       "content-type": "application/json",
       accept: "text/event-stream, application/json",
       ...route.endpoint.defaultHeaders,
-      ...request.providerOptions?.headers,
+      ...redactSensitiveHeaders(providerHeaders),
       ...auth.redactedHeaders,
     };
 
@@ -82,6 +84,8 @@ export function createRaxModelClient(initialRoutes: RaxModelRoute[] = []): RaxMo
       method: "POST",
       headers,
       body,
+      ...(request.http?.timeoutMs !== undefined ? { timeoutMs: request.http.timeoutMs } : {}),
+      ...(request.http?.signal !== undefined ? { signal: request.http.signal } : {}),
       redacted: { url, method: "POST", headers: redactedHeaders, body },
       metadata: protocolResult.metadata ?? {},
     };
@@ -113,7 +117,7 @@ export function createRaxModelClient(initialRoutes: RaxModelRoute[] = []): RaxMo
     } catch (error) {
       const modelError = error instanceof Error && error.name === "RaxModelError"
         ? (error as RaxModelError)
-        : raxModelError("transport_error", "Model transport failed", {}, error);
+        : raxModelError("transport_error", "Model transport failed", providerErrorDetails({ cause: error }), error);
       yield { type: "error", id: prepared.id, code: modelError.code, message: modelError.message, raw: modelError.details };
       throw modelError;
     }
@@ -139,3 +143,17 @@ export function createRaxModelClient(initialRoutes: RaxModelRoute[] = []): RaxMo
 }
 
 export const defaultRaxModelClient = createRaxModelClient();
+
+function redactSensitiveHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key, isSensitiveHeader(key) ? "[redacted]" : value]));
+}
+
+function isSensitiveHeader(header: string): boolean {
+  const normalized = header.toLowerCase();
+  return normalized === "authorization"
+    || normalized === "proxy-authorization"
+    || normalized === "x-api-key"
+    || normalized === "x-goog-api-key"
+    || normalized.endsWith("-api-key")
+    || normalized.includes("token");
+}
