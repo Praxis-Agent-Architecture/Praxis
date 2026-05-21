@@ -8,7 +8,6 @@ import {
   PraxisRuntimeKernel,
   authoringPrimitives,
   baseTool,
-  baseTools,
   compileAgent,
   createFrameworkInspectionReport,
   endpoint,
@@ -46,7 +45,7 @@ class MinimalDeveloperAgent extends PraxisAgent {
   model = model("gpt-5.4");
   harness = harness({
     tools: tools([
-      baseTools.code.read(),
+      baseTool.basetool.core.fileRead({ profileName: "codingCore" }),
     ]),
     policy: policy({ allowProviderCall: true, allowToolExecution: true }),
     loop: loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
@@ -76,8 +75,8 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
   statePlane = statePlane({ expose: ["phase", "toolCalls"], control: ["pause"] });
   harness = harness({
     tools: tools([
-      baseTools.shell.commandExecution(),
-      baseTools.code.searchRipgrep(),
+      baseTool.basetool.core.shellRun({ profileName: "codingCore" }),
+      baseTool.basetool.core.fileSearch({ profileName: "codingCore" }),
     ]),
     loop: loop.standard({ maxModelTurns: 2, maxToolCalls: 2 }),
   });
@@ -85,14 +84,22 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
 
 test("public agentCore API lets developers compile minimal and mature agents without runtime internals", async () => {
   assert.equal(authoringPrimitives.PraxisAgent, PraxisAgent);
-  assert.equal(baseTool.baseTools.code.read().toolId, "file.read");
+  assert.equal(baseTool.basetool.core.fileRead().toolId, "file.read");
+  assert.deepEqual(baseTool.profiles().map((profile) => profile.name), [
+    "codingCore",
+    "researchCore",
+    "workCore",
+    "runtimeCore",
+    "agentCore",
+    "fullCore",
+  ]);
   assert.equal(packageAuthoringPrimitives.PraxisAgentArchetype, PraxisAgentArchetype);
   assert.equal(packageModelAuthoring.model("gpt-5.4").model, "gpt-5.4");
-  assert.equal(packageBaseTool.baseTools.code.searchRipgrep().toolId, "file.search");
+  assert.equal(packageBaseTool.basetool.core.fileSearch().toolId, "file.search");
   assert.equal(praxis.Agent, PraxisAgent);
   assert.equal(packagePraxis.AgentArchetype, PraxisAgentArchetype);
   assert.equal(packagePraxis.model("gpt-5.4").model, "gpt-5.4");
-  assert.equal(packagePraxis.baseTools.code.read().toolId, "file.read");
+  assert.equal(packagePraxis.basetool.core.fileRead().toolId, "file.read");
   assert.equal(packagePraxis.sandbox.linuxBubblewrap().providerFamily, "linux-bubblewrap");
   assert.equal(packagePraxis.toolPolicies.custom({ matrixId: "toolPolicy.public.custom" }).profile, "custom");
   assert.equal(packagePraxis.interfaceAdapter.createInterfaceEnvelope({

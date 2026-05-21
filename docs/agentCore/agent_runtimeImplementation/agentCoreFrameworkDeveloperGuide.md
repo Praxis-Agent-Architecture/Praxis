@@ -83,7 +83,7 @@ class MinimalAgent extends praxis.Agent {
   identity = "agent.minimal";
   model = praxis.model("gpt-5.5");
   harness = praxis.harness({
-    tools: praxis.tools([praxis.baseTools.code.read()]),
+    tools: praxis.tools([praxis.basetool.core.fileRead({ profileName: "codingCore" })]),
     loop: praxis.loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
   });
 }
@@ -107,8 +107,8 @@ class FullstackAgent extends praxis.AgentArchetype {
   });
   harness = praxis.harness({
     tools: praxis.tools([
-      ...praxis.toolSets.coding.readonly({ includeGit: true, includeSearch: true }),
-      praxis.baseTools.shell.commandExecution(),
+      ...praxis.toolSets.coding.readonly({ includeSearch: true }),
+      praxis.basetool.core.shellRun({ profileName: "codingCore" }),
     ]),
     loop: praxis.loop.standard({ maxModelTurns: 4, maxToolCalls: 8 }),
   });
@@ -143,9 +143,9 @@ class MinimalRepoAgent extends praxis.Agent {
 
   harness = praxis.harness({
     tools: praxis.tools([
-      praxis.baseTools.code.read(),
-      praxis.baseTools.code.searchRipgrep(),
-      praxis.baseTools.git.getRepositoryStatus(),
+      praxis.basetool.core.fileRead({ profileName: "codingCore" }),
+      praxis.basetool.core.fileSearch({ profileName: "codingCore" }),
+      praxis.basetool.core.shellRun({ profileName: "codingCore" }),
     ]),
     loop: praxis.loop.standard({ maxModelTurns: 1, maxToolCalls: 2 }),
   });
@@ -208,8 +208,8 @@ class CodingAgent extends praxis.AgentArchetype {
 
   harness = praxis.harness({
     tools: praxis.tools([
-      ...praxis.toolSets.coding.readonly({ includeGit: true, includeSearch: true }),
-      praxis.baseTools.shell.commandExecution(),
+      ...praxis.toolSets.coding.readonly({ includeSearch: true }),
+      praxis.basetool.core.shellRun({ profileName: "codingCore" }),
     ]),
     loop: praxis.loop.standard({ maxModelTurns: 4, maxToolCalls: 8 }),
   });
@@ -267,9 +267,9 @@ Example:
 ```ts
 harness = praxis.harness({
   tools: praxis.tools([
-    praxis.baseTools.code.read(),
-    praxis.baseTools.code.searchRipgrep(),
-    praxis.baseTools.git.getRepositoryStatus(),
+    praxis.basetool.core.fileRead({ profileName: "codingCore" }),
+    praxis.basetool.core.fileSearch({ profileName: "codingCore" }),
+    praxis.basetool.core.shellRun({ profileName: "codingCore" }),
   ]),
   policy: praxis.policy({
     allowProviderCall: true,
@@ -286,17 +286,16 @@ harness = praxis.harness({
 Prefer typed public helpers:
 
 ```ts
-praxis.baseTools.code.read()
-praxis.baseTools.code.searchRipgrep()
-praxis.baseTools.git.getRepositoryStatus()
-praxis.baseTools.shell.commandExecution()
+praxis.basetool.core.fileRead({ profileName: "codingCore" })
+praxis.basetool.core.fileSearch({ profileName: "codingCore" })
+praxis.basetool.core.shellRun({ profileName: "codingCore" })
+praxis.basetool.profile("codingCore")
 ```
 
 Prefer tool sets for common bundles:
 
 ```ts
-praxis.toolSets.coding.readonly({ includeGit: true, includeSearch: true })
-praxis.toolSets.git.inspection()
+praxis.toolSets.coding.readonly({ includeSearch: true })
 praxis.toolSets.shell.safe()
 ```
 

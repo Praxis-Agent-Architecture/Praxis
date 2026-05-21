@@ -12,7 +12,7 @@ test("sandbox helpers compile into provider-aware manifest fields", () => {
     model = praxis.model("gpt-5.4");
     sandbox = sandbox.linuxBubblewrap({ resourceLimits: { timeoutMs: 5_000, maxProcesses: 4 } });
     harness = praxis.harness({
-      tools: praxis.tools([praxis.baseTools.shell.commandExecution()]),
+      tools: praxis.tools([praxis.basetool.core.shellRun({ profileName: "runtimeCore" })]),
       loop: praxis.loop.single(),
     });
   }

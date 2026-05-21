@@ -29,7 +29,7 @@ export function stringField(
   definition: BaseToolDefinition,
   input: Record<string, unknown>,
   key: string,
-  options: { required?: boolean; minLength?: number } = {},
+  options: { required?: boolean; minLength?: number; allowed?: readonly string[] } = {},
 ): ValidationResult<string | undefined> {
   const value = input[key];
   if (value === undefined) {
@@ -52,6 +52,12 @@ export function stringField(
     return {
       ok: false,
       result: errorResult(definition, "INVALID_FIELD_VALUE", `Field '${key}' must be a non-empty string.`),
+    };
+  }
+  if (options.allowed !== undefined && !options.allowed.includes(value)) {
+    return {
+      ok: false,
+      result: errorResult(definition, "INVALID_FIELD_VALUE", `Field '${key}' must be one of: ${options.allowed.join(", ")}.`),
     };
   }
   return { ok: true, value };

@@ -153,8 +153,11 @@ function sandboxCall(profile: Required<RaxBuildInitOptions>["sandboxProfile"]): 
 }
 
 function toolsBlock(options: Required<RaxBuildInitOptions>): string {
-  const lines = ["praxis.baseTools.code.read()", "praxis.baseTools.code.searchRipgrep()"];
-  if (options.includeShellTools) lines.push("praxis.baseTools.shell.commandExecution()");
+  const lines = [
+    "praxis.basetool.core.fileRead({ profileName: \"codingCore\" })",
+    "praxis.basetool.core.fileSearch({ profileName: \"codingCore\" })",
+  ];
+  if (options.includeShellTools) lines.push("praxis.basetool.core.shellRun({ profileName: \"codingCore\" })");
   return lines.map((line) => `      ${line},`).join("\n");
 }
 
@@ -274,7 +277,7 @@ export function createRaxBuildInitPlan(input: RaxBuildInitOptions): RaxBuildInit
       { path: "agents/mainAgent/config/modelFleet.ts", content: "import { praxis } from \"@praxis-ai/praxis\";\n\nexport const modelFleet = praxis.modelFleet.auto({\n  primary: praxis.endpoint(\"/v1/responses\", { role: \"reasoning\", provider: \"openai\", model: \"gpt-5.4\" }),\n});\n" },
       { path: "agents/mainAgent/policies/toolPolicy.ts", content: `import { praxis } from "@praxis-ai/praxis";\n\nexport const toolPolicy = praxis.toolPolicies.${options.toolPolicyProfile}();\n` },
       { path: "agents/mainAgent/sandbox/profile.ts", content: `import { praxis } from "@praxis-ai/praxis";\n\nexport const sandboxProfile = praxis.sandbox.${options.sandboxProfile}();\n` },
-      { path: "agents/mainAgent/tools/toolSet.ts", content: "import { praxis } from \"@praxis-ai/praxis\";\n\nexport const repoToolSet = praxis.tools([\n  praxis.baseTools.code.read(),\n  praxis.baseTools.code.searchRipgrep(),\n]);\n" },
+      { path: "agents/mainAgent/tools/toolSet.ts", content: "import { praxis } from \"@praxis-ai/praxis\";\n\nexport const repoToolSet = praxis.basetool.profile(\"codingCore\");\n" },
       { path: "agents/mainAgent/storage/storagePolicy.ts", content: "import { praxis } from \"@praxis-ai/praxis\";\n\nexport const storagePolicy = praxis.storage.raxWorkspace();\nexport const sessionPolicy = praxis.session({ persistence: \"sqlite\", resume: \"auto\", thread: \"durable\", logs: \"full\" });\n" },
       { path: "agents/mainAgent/state/statePlane.ts", content: "import { praxis } from \"@praxis-ai/praxis\";\n\nexport const statePlanePolicy = praxis.statePlane({\n  expose: [\"phase\", \"lastAction\", \"toolCalls\", \"errors\", \"approvals\"],\n  control: [\"pause\", \"resume\", \"interrupt\", \"approve\", \"deny\", \"rollback\", \"inspect\", \"repair\", \"configure\"],\n  audit: \"full\",\n});\n" },
       { path: "authentication/providerProfiles.ts", content: "export const providerProfiles = { rawSecretsStoredHere: false, profiles: [] } as const;\n" },

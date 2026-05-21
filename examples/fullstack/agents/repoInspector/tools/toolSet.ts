@@ -85,7 +85,8 @@ export function createRepoInspectorToolSet(options: NormalizedRepoInspectorOptio
     }),
     ...(options.includeShell ? praxis.toolSets.shell.safe() : []),
     ...(options.includeSkillAuthoring ? praxis.toolSets.skill.authoring() : []),
-    praxis.baseTools.skill.ripgrep({
+    praxis.basetool.extension.skillLoad({
+      profileName: "codingCore",
       description: "只读检索本机可用的 skill/context 材料。",
     }),
   ];

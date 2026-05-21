@@ -74,12 +74,13 @@ import {
 import {
   baseToolDeveloperCatalogDescriptor,
   baseToolCodingCoreDescriptor,
-  baseTools,
   basetool,
+  baseToolProfile,
   createBaseToolRegistry,
   createBaseToolSupportCatalog,
   evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
 } from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
@@ -460,6 +461,9 @@ export {
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
+  type RuntimeAgentReviewEnvelope,
+  type RuntimeAgentReviewResolution,
+  type RuntimeAgentReviewResolver,
 } from "../runtimeImplementation/praxisRuntimeKernel.js";
 
 export {
@@ -505,17 +509,20 @@ export {
 export {
   baseToolDeveloperCatalogDescriptor,
   baseToolCodingCoreDescriptor,
-  baseTools,
   basetool,
+  baseToolProfile,
   createBaseToolRegistry,
   createBaseToolSupportCatalog,
   evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
   type BaseToolDefinition,
   type BaseToolDeveloperCatalogEntry,
   type BaseToolDeveloperLookupResult,
+  type BaseToolProfile,
+  type BaseToolProfileName,
   type BaseToolSpecInput,
   type CodingToolSetOptions,
 } from "../basetool/index.js";
@@ -612,10 +619,11 @@ export const harnessRuntimePolicy = Object.freeze({
 
 export const baseTool = Object.freeze({
   basetool,
+  profile: baseToolProfile,
+  profiles: listBaseToolProfiles,
   createBaseToolRegistry,
   createBaseToolSupportCatalog,
   evaluateBaseToolRuntimeReadiness,
-  baseTools,
   tool,
   tools,
   toolPolicies,
@@ -700,7 +708,7 @@ export const interfaceAdapter = Object.freeze({
  * ```
  *
  * 然后用 `praxis.AgentArchetype`、`praxis.prompt.append`、
- * `praxis.model(...)`、`praxis.baseTools.code.read()` 来定义 Agent。
+ * `praxis.model(...)`、`praxis.basetool.core.fileRead()` 来定义 Agent。
  */
 export const praxis = Object.freeze({
   Agent: PraxisAgent,
@@ -733,9 +741,11 @@ export const praxis = Object.freeze({
   statePlane,
   storage,
 
-  baseTools,
   basetool,
   basetools: basetool,
+  baseTool,
+  baseToolProfile,
+  listBaseToolProfiles,
   createBaseToolRegistry,
   createBaseToolSupportCatalog,
   evaluateBaseToolRuntimeReadiness,

@@ -3,8 +3,9 @@ import test from "node:test";
 
 import { createBaseToolRegistry } from "../../../../src/basetool/registry.js";
 import {
-  baseTools,
+  basetool,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
 } from "../../../../src/runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
@@ -19,12 +20,13 @@ test("baseToolDeveloperCatalog exposes all registered tools without requiring ha
     assert.notEqual(entry.storageFamily, "officeBase");
   }
 
-  const codeRead = baseTools.code.read();
+  const codeRead = basetool.core.fileRead({ profileName: "codingCore" });
   assert.equal(codeRead.toolId, "file.read");
   assert.equal(codeRead.family, "coreBase");
   assert.equal(codeRead.group, "filesystem");
   assert.equal(codeRead.metadata?.basetoolLayer, "core");
   assert.equal(codeRead.metadata?.policyRisk, "safe");
+  assert.equal(codeRead.metadata?.profileName, "codingCore");
 
   const lookup = tryBaseToolById("file.search");
   assert.equal(lookup.ok, true);
@@ -40,10 +42,28 @@ test("baseToolDeveloperCatalog exposes all registered tools without requiring ha
   }
 });
 
+test("basetool profiles expose the six framework profile names and profile-aware descriptions", () => {
+  assert.deepEqual(listBaseToolProfiles().map((profile) => profile.name), [
+    "codingCore",
+    "researchCore",
+    "workCore",
+    "runtimeCore",
+    "agentCore",
+    "fullCore",
+  ]);
+
+  const codingShell = basetool.core.shellRun({ profileName: "codingCore" });
+  const workShell = basetool.core.shellRun({ profileName: "workCore" });
+  assert.match(codingShell.description ?? "", /tests, build commands, diagnostics/u);
+  assert.match(workShell.description ?? "", /documents, spreadsheets, reports/u);
+  assert.equal(basetool.profile("agentCore").some((entry) => entry.toolId === "mcp.use"), true);
+  assert.equal(basetool.profile("fullCore").some((entry) => entry.toolId === "context.load"), true);
+});
+
 test("toolSets provide framework-level presets backed by registered BaseTool ids", () => {
   const registry = createBaseToolRegistry();
   const readonly = toolSets.coding.readonly({ includeSearch: true });
-  const full = toolSets.coding.full({ includeShell: true });
+  const full = toolSets.coding.full();
   const research = toolSets.research.web();
   const skillContext = toolSets.skill.context();
   const skillSearch = toolSets.skill.search();

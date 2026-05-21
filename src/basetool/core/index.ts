@@ -71,6 +71,7 @@ export function lookupBaseToolCoreInvoker(toolId: string): BaseToolCoreInvoker |
 
 export const baseToolCodingCoreDescriptor = {
   surface: "basetool.core",
+  profileName: "agentCore",
   toolIds: codingCoreToolIds,
   directHostAccess: false,
   runtimePortRequired: true,

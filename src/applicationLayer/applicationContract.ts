@@ -4,7 +4,11 @@
  * 边界：只描述应用层语义，不包含 Raxode 产品逻辑，也不暴露 agentCore 内部对象。
  */
 
+import type { BaseToolProfileName } from "../basetool/types.js";
+
 export type PraxisApplicationRuntimeMode = "dry-run" | "live";
+
+export type PraxisApplicationToolProfile = BaseToolProfileName;
 
 export type PraxisApplicationPermissionProfile =
   | "restricted"
@@ -69,6 +73,10 @@ export type PraxisApplicationModelState = {
 };
 
 export type PraxisApplicationToolCatalogState = {
+  profile: PraxisApplicationToolProfile;
+  availableProfiles: readonly PraxisApplicationToolProfile[];
+  defaultPolicyProfile: PraxisApplicationPermissionProfile;
+  extensionSlots: readonly string[];
   total: number;
   mounted: number;
   byFamily: Readonly<Record<string, number>>;
@@ -156,6 +164,7 @@ export type PraxisApplicationViewModel = {
   mode: PraxisApplicationRuntimeMode;
   model: PraxisApplicationModelState;
   permissionProfile: PraxisApplicationPermissionProfile;
+  toolProfile: PraxisApplicationToolProfile;
   sessions: readonly PraxisApplicationSessionSummary[];
   approvals: readonly PraxisApplicationApprovalSummary[];
   manifest?: PraxisApplicationManifestView;
@@ -292,6 +301,11 @@ export type PraxisApplicationCommand =
       type: "application.changePermissionProfile";
       sessionId?: string;
       profile: PraxisApplicationPermissionProfile;
+    }
+  | {
+      type: "application.changeToolProfile";
+      sessionId?: string;
+      profile: PraxisApplicationToolProfile;
     }
   | {
       type: "application.close";

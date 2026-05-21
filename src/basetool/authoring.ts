@@ -1,6 +1,11 @@
 import { tool, tools, type ToolSpec } from "../runtimeImplementation/runtimeAgentManifest.js";
 import { getSemanticBaseToolDefinition, listSemanticBaseToolDefinitions } from "./catalog.js";
-import { getBaseToolProfile } from "./profiles.js";
+import {
+  describeBaseToolForProfile,
+  getBaseToolProfile,
+  listBaseToolDefinitionsForProfile,
+  listBaseToolProfiles,
+} from "./profiles.js";
 import type { BaseToolDefinition, BaseToolProfileName, BaseToolSpecInput } from "./types.js";
 
 export type BaseToolDeveloperCatalogEntry = BaseToolDefinition;
@@ -14,21 +19,31 @@ function inputSchema(definition: BaseToolDefinition): Readonly<Record<string, un
   return definition.inputSchema.kind === "json-schema" ? definition.inputSchema.schema : undefined;
 }
 
+function profileFor(input: BaseToolSpecInput): BaseToolProfileName {
+  return input.profileName ?? "agentCore";
+}
+
 export function baseToolToToolSpec(definition: BaseToolDefinition, input: BaseToolSpecInput = {}): ToolSpec {
-  return tool(definition.toolId, {
-    ...input,
-    family: definition.storageFamily,
-    group: definition.group,
-    description: input.description ?? definition.description,
-    inputSchema: input.inputSchema ?? inputSchema(definition),
+  const { profileName: _profileName, metadata, ...toolInput } = input;
+  const profileName = profileFor(input);
+  const profiled = describeBaseToolForProfile(definition, profileName);
+  return tool(profiled.toolId, {
+    ...toolInput,
+    family: profiled.storageFamily,
+    group: profiled.group,
+    description: toolInput.description ?? profiled.description,
+    inputSchema: toolInput.inputSchema ?? inputSchema(profiled),
     metadata: {
       authoringSurface: "basetool.authoring",
-      basetoolLayer: definition.layer,
-      visibility: definition.visibility,
-      riskLevel: definition.riskLevel,
-      policyRisk: definition.policyRisk,
-      runtimePorts: definition.runtimePorts,
-      ...(input.metadata ?? {}),
+      basetoolLayer: profiled.layer,
+      visibility: profiled.visibility,
+      riskLevel: profiled.riskLevel,
+      policyRisk: profiled.policyRisk,
+      runtimePorts: profiled.runtimePorts,
+      profileName,
+      profileSummary: getBaseToolProfile(profileName).summary,
+      ...(profiled.metadata ?? {}),
+      ...(metadata ?? {}),
     },
   });
 }
@@ -48,8 +63,9 @@ function knownTool(toolId: string, input?: BaseToolSpecInput): ToolSpec {
   return baseToolToToolSpec(definition, input);
 }
 
-export function listBaseToolDeveloperCatalog(): readonly BaseToolDefinition[] {
-  return listSemanticBaseToolDefinitions();
+export function listBaseToolDeveloperCatalog(input: { profileName?: BaseToolProfileName } = {}): readonly BaseToolDefinition[] {
+  if (input.profileName === undefined) return listSemanticBaseToolDefinitions();
+  return listBaseToolDefinitionsForProfile(input.profileName, { includeDeferred: true, includeRuntime: true });
 }
 
 export function tryBaseToolById(toolId: string, input: BaseToolSpecInput = {}) {
@@ -67,17 +83,18 @@ export function tryBaseToolById(toolId: string, input: BaseToolSpecInput = {}) {
   return {
     ok: true as const,
     tool: baseToolToToolSpec(definition, input),
-    entry: definition,
+    entry: describeBaseToolForProfile(definition, profileFor(input)),
   };
 }
 
 export function baseToolProfile(name: BaseToolProfileName): readonly ToolSpec[] {
   const profile = getBaseToolProfile(name);
-  return tools(profile.visibleToolIds.map((toolId) => knownTool(toolId)));
+  return tools(profile.visibleToolIds.map((toolId) => knownTool(toolId, { profileName: name })));
 }
 
 export const basetool = {
   all: listBaseToolDeveloperCatalog,
+  profiles: listBaseToolProfiles,
   byId: tryBaseToolById,
   profile: baseToolProfile,
   core: {
@@ -104,103 +121,52 @@ export const basetool = {
   },
 } as const;
 
-export const baseTools = {
-  all(_input?: unknown): readonly BaseToolDefinition[] {
-    return listBaseToolDeveloperCatalog();
-  },
-  family(storageFamily: string): readonly BaseToolDefinition[] {
-    return listBaseToolDeveloperCatalog().filter((entry) => entry.storageFamily === storageFamily || entry.family === storageFamily);
-  },
-  byId: tryBaseToolById,
-  profile: baseToolProfile,
-  semantic: basetool,
-  code: {
-    read: (input?: BaseToolSpecInput) => knownTool("file.read", input),
-    scan: (input?: BaseToolSpecInput) => knownTool("file.search", input),
-    searchRipgrep: (input?: BaseToolSpecInput) => knownTool("file.search", input),
-    replaceFile: (input?: BaseToolSpecInput) => knownTool("patch.apply", input),
-    modify: (input?: BaseToolSpecInput) => knownTool("patch.apply", input),
-    delete: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    format: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    testCode: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    benchmark: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    debugRun: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    debugCaptureState: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    debugCollectLogs: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-  },
-  shell: {
-    commandExecution: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    invocationExecution: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    scriptExecution: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    backgroundExecution: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    foregroundExecution: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    processSpawning: (input?: BaseToolSpecInput) => knownTool("shell.run", input),
-    processTermination: (input?: BaseToolSpecInput) => knownTool("process.kill", input),
-  },
-  search: {
-    fetch: (input?: BaseToolSpecInput) => knownTool("web.fetch", input),
-    searchEngine: (input?: BaseToolSpecInput) => knownTool("web.search", input),
-    nativeSearch: (input?: BaseToolSpecInput) => knownTool("web.search", input),
-    ground: (input?: BaseToolSpecInput) => knownTool("web.search", input),
-  },
-  skill: {
-    generate: (input?: BaseToolSpecInput) => knownTool("skill.load", input),
-    iterate: (input?: BaseToolSpecInput) => knownTool("skill.load", input),
-    management: (input?: BaseToolSpecInput) => knownTool("skill.load", input),
-    remove: (input?: BaseToolSpecInput) => knownTool("skill.load", input),
-    ripgrep: (input?: BaseToolSpecInput) => knownTool("skill.load", input),
-    summarize: (input?: BaseToolSpecInput) => knownTool("skill.load", input),
-  },
-  mcp: {
-    listTools: (input?: BaseToolSpecInput) => knownTool("mcp.use", input),
-    call: (input?: BaseToolSpecInput) => knownTool("mcp.use", input),
-    listResources: (input?: BaseToolSpecInput) => knownTool("mcp.resources", input),
-    readResource: (input?: BaseToolSpecInput) => knownTool("mcp.resources", input),
-  },
-  tool: {
-    discover: (input?: BaseToolSpecInput) => knownTool("tool.discover", input),
-    describe: (input?: BaseToolSpecInput) => knownTool("tool.describe", input),
-  },
-} as const;
-
 export const toolSets = {
   coding: {
     readonly(input: CodingToolSetOptions = {}): readonly ToolSpec[] {
       return tools([
-        knownTool("file.read"),
-        knownTool("file.search"),
-        ...(input.includeSearch === true ? [knownTool("web.search"), knownTool("web.fetch")] : []),
+        knownTool("file.read", { profileName: "codingCore" }),
+        knownTool("file.search", { profileName: "codingCore" }),
+        ...(input.includeSearch === true
+          ? [knownTool("web.search", { profileName: "codingCore" }), knownTool("web.fetch", { profileName: "codingCore" })]
+          : []),
       ]);
     },
-    full(input: CodingToolSetOptions = {}): readonly ToolSpec[] {
-      return tools([
-        ...baseToolProfile("minimalCoding"),
-        ...(input.includeSearch === true ? [knownTool("web.search"), knownTool("web.fetch")] : []),
-      ]);
+    full(): readonly ToolSpec[] {
+      return baseToolProfile("codingCore");
     },
   },
   shell: {
     safe(): readonly ToolSpec[] {
-      return tools([knownTool("shell.run")]);
+      return tools([knownTool("shell.run", { profileName: "runtimeCore" })]);
     },
   },
   research: {
     web(): readonly ToolSpec[] {
-      return tools([knownTool("web.search"), knownTool("web.fetch")]);
+      return tools([
+        knownTool("web.search", { profileName: "researchCore" }),
+        knownTool("web.fetch", { profileName: "researchCore" }),
+      ]);
     },
   },
   skill: {
     context(): readonly ToolSpec[] {
-      return tools([knownTool("skill.load")]);
+      return tools([knownTool("skill.load", { profileName: "agentCore" })]);
     },
     search(): readonly ToolSpec[] {
-      return tools([knownTool("skill.load"), knownTool("file.search")]);
+      return tools([
+        knownTool("skill.load", { profileName: "agentCore" }),
+        knownTool("file.search", { profileName: "agentCore" }),
+      ]);
     },
     authoring(): readonly ToolSpec[] {
-      return tools([knownTool("skill.load")]);
+      return tools([knownTool("skill.load", { profileName: "agentCore" })]);
     },
     full(): readonly ToolSpec[] {
-      return tools([knownTool("skill.load"), knownTool("file.search")]);
+      return tools([
+        knownTool("skill.load", { profileName: "agentCore" }),
+        knownTool("file.search", { profileName: "agentCore" }),
+      ]);
     },
   },
 } as const;
@@ -208,8 +174,9 @@ export const toolSets = {
 export const baseToolDeveloperCatalogDescriptor = {
   surface: "basetool.authoring",
   validatesAgainst: "basetool.catalog",
-  publicHelpers: ["basetool", "baseTools", "toolSets", "tryBaseToolById", "listBaseToolDeveloperCatalog"],
+  publicHelpers: ["basetool", "toolSets", "tryBaseToolById", "listBaseToolDeveloperCatalog"],
   semanticToolCount: listSemanticBaseToolDefinitions().length,
-  legacyHelpersAreAliases: true,
+  profileNames: ["codingCore", "researchCore", "workCore", "runtimeCore", "agentCore", "fullCore"],
+  legacyHelpersAreAliases: false,
   doesNotExecuteTools: true,
 } as const;

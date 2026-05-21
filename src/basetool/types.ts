@@ -89,17 +89,44 @@ export type BaseToolDefinition = {
   modelRequired?: boolean;
 };
 
-export type BaseToolProfileName = "minimalCoding" | "standardAgent" | "extendedAgent" | "runtimeOnly";
+export type BaseToolProfileName =
+  | "codingCore"
+  | "researchCore"
+  | "workCore"
+  | "runtimeCore"
+  | "agentCore"
+  | "fullCore";
+
+export type BaseToolDefaultPolicyProfile =
+  | "bapr"
+  | "yolo"
+  | "permissive"
+  | "standard"
+  | "restricted";
+
+export type BaseToolProfileDescribeOverlay = {
+  summary?: string;
+  description?: string;
+  useWhen?: readonly string[];
+  avoidWhen?: readonly string[];
+  examples?: readonly string[];
+};
 
 export type BaseToolProfile = {
   name: BaseToolProfileName;
+  title: string;
   description: string;
+  summary: string;
+  defaultPolicyProfile: BaseToolDefaultPolicyProfile;
   visibleToolIds: readonly string[];
   deferredToolIds: readonly string[];
   runtimeToolIds: readonly string[];
+  extensionSlots?: readonly string[];
+  describeOverlays?: Readonly<Record<string, BaseToolProfileDescribeOverlay>>;
 };
 
 export type BaseToolSpecInput = Omit<ToolSpec, "toolId" | "family" | "group"> & {
+  profileName?: BaseToolProfileName;
   metadata?: Readonly<Record<string, unknown>>;
 };
 

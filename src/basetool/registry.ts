@@ -3,11 +3,13 @@ import type {
   BaseToolHandler,
   BaseToolInvokeRequest,
   BaseToolInvokeResult,
+  BaseToolProfileName,
   BaseToolRegistry,
   BaseToolRegistryLookupResult,
 } from "./types.js";
 import { semanticBaseToolCatalog } from "./catalog.js";
 import { lookupBaseToolCoreInvoker } from "./core/index.js";
+import { listBaseToolDefinitionsForProfile } from "./profiles.js";
 
 function unavailable(definition: BaseToolDefinition, request: BaseToolInvokeRequest): BaseToolInvokeResult {
   const ports = definition.runtimePorts.join(", ") || "no declared runtime port";
@@ -53,7 +55,31 @@ function createHandler(definition: BaseToolDefinition): BaseToolHandler {
   };
 }
 
-export function createBaseToolRegistry(definitions: readonly BaseToolDefinition[] = semanticBaseToolCatalog): BaseToolRegistry {
+export type CreateBaseToolRegistryOptions = {
+  profileName?: BaseToolProfileName;
+  includeDeferred?: boolean;
+  includeRuntime?: boolean;
+  definitions?: readonly BaseToolDefinition[];
+};
+
+function isDefinitionArray(input: unknown): input is readonly BaseToolDefinition[] {
+  return Array.isArray(input);
+}
+
+function resolveRegistryDefinitions(input?: readonly BaseToolDefinition[] | CreateBaseToolRegistryOptions): readonly BaseToolDefinition[] {
+  if (isDefinitionArray(input)) return input;
+  if (input?.definitions !== undefined) return input.definitions;
+  if (input?.profileName !== undefined) {
+    return listBaseToolDefinitionsForProfile(input.profileName, {
+      includeDeferred: input.includeDeferred,
+      includeRuntime: input.includeRuntime,
+    });
+  }
+  return semanticBaseToolCatalog;
+}
+
+export function createBaseToolRegistry(input?: readonly BaseToolDefinition[] | CreateBaseToolRegistryOptions): BaseToolRegistry {
+  const definitions = resolveRegistryDefinitions(input);
   const handlers = new Map(definitions.map((definition) => [definition.toolId, createHandler(definition)]));
   return {
     all() {

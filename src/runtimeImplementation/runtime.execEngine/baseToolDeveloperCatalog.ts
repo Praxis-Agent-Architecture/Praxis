@@ -1,7 +1,6 @@
 export {
   baseToolDeveloperCatalogDescriptor,
   baseToolCodingCoreDescriptor,
-  baseTools,
   basetool,
   baseToolProfile,
   baseToolToToolSpec,
@@ -9,7 +8,10 @@ export {
   createBaseToolSupportCatalog,
   evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
+  type BaseToolProfile,
+  type BaseToolProfileName,
   type BaseToolSpecInput,
 } from "../../basetool/index.js";

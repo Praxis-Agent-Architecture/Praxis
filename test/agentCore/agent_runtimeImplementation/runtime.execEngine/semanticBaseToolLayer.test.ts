@@ -33,11 +33,11 @@ const singleAgentCoreToolIds = [
   "tool.describe",
 ] as const;
 
-test("semantic basetool minimalCoding profile compiles through OAO harness", () => {
+test("semantic basetool codingCore profile compiles through OAO harness", () => {
   class MinimalCodingAgent extends PraxisAgent {
     identity = "agent.semantic-basetool";
     model = model("gpt-5.5");
-    harness = harness({ tools: basetool.profile("minimalCoding") });
+    harness = harness({ tools: basetool.profile("codingCore") });
   }
 
   const result = compileAgent(new MinimalCodingAgent());
@@ -46,9 +46,10 @@ test("semantic basetool minimalCoding profile compiles through OAO harness", () 
   if (!result.ok) return;
   assert.deepEqual(
     result.manifest.harness.tools.map((toolSpec) => toolSpec.toolId),
-    ["shell.run", "file.read", "file.search", "patch.apply", "web.search", "web.fetch", "plan.update", "user.ask"],
+    ["shell.run", "file.read", "file.search", "patch.apply", "web.search", "web.fetch", "plan.update", "user.ask", "skill.load", "context.load"],
   );
   assert.equal(result.manifest.harness.tools[0]?.family, "coreBase");
+  assert.equal(result.manifest.harness.tools[0]?.metadata?.profileName, "codingCore");
 });
 
 test("semantic basetool registry is narrowed to the single-agent core surface", () => {
@@ -57,6 +58,17 @@ test("semantic basetool registry is narrowed to the single-agent core surface", 
   assert.equal(registry.lookup("agent.spawn").ok, false);
   assert.equal(registry.lookup("browser.use").ok, false);
   assert.equal(registry.lookup("file.write").ok, false);
+});
+
+test("semantic basetool registry can render profile-specific tool descriptions", () => {
+  const coding = createBaseToolRegistry({ profileName: "codingCore" }).lookup("shell.run");
+  const work = createBaseToolRegistry({ profileName: "workCore" }).lookup("shell.run");
+
+  assert.equal(coding.ok, true);
+  assert.equal(work.ok, true);
+  if (!coding.ok || !work.ok) return;
+  assert.match(coding.definition.description, /tests, build commands, diagnostics/u);
+  assert.match(work.definition.description, /documents, spreadsheets, reports/u);
 });
 
 test("semantic basetool registry dispatches to injected executor ports", async () => {
@@ -88,6 +100,7 @@ test("semantic basetool registry dispatches to injected executor ports", async (
 test("basetool Coding Core descriptor exposes the implemented core tool ids", () => {
   assert.equal(baseToolCodingCoreDescriptor.surface, "basetool.core");
   assert.equal(baseToolCodingCoreDescriptor.directHostAccess, false);
+  assert.equal(baseToolCodingCoreDescriptor.profileName, "agentCore");
   assert.deepEqual(baseToolCodingCoreDescriptor.toolIds, [
     "file.read",
     "file.search",
@@ -322,7 +335,7 @@ test("skill.load and context.load validate and call extension ports", async () =
   let contextInput: unknown;
   const contextResult = await contextLookup.handler.invoke({
     toolId: "context.load",
-    input: { source: "workspace", query: "basetool", maxBytes: 256 },
+    input: { kind: "workspaceIndex", query: "basetool", limit: 3 },
     executor: {
       context: {
         load(request) {
@@ -333,7 +346,7 @@ test("skill.load and context.load validate and call extension ports", async () =
     },
   });
   assert.equal(contextResult.ok, true);
-  assert.deepEqual(contextInput, { source: "workspace", query: "basetool", maxBytes: 256 });
+  assert.deepEqual(contextInput, { kind: "workspaceIndex", query: "basetool", limit: 3 });
 });
 
 test("mcp.use and mcp.resources route to MCP runtime ports", async () => {
