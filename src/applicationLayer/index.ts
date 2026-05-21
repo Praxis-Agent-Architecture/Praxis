@@ -21,6 +21,7 @@ export type {
   PraxisApplicationRuntimeMode,
   PraxisApplicationStatus,
   PraxisApplicationToolCatalogState,
+  PraxisApplicationToolProfile,
   PraxisApplicationUsageTelemetry,
   PraxisApplicationViewModel,
 } from "./applicationContract.js";
@@ -35,6 +36,7 @@ export {
 export {
   createApplicationProjectRuntime,
   createPraxisApplicationRuntime,
+  type PraxisApplicationBaseToolIntegrationOptions,
   type CreateApplicationProjectRuntimeOptions,
   type PraxisApplicationLiveProvider,
   type PraxisApplicationRuntimeOptions,

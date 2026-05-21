@@ -20,8 +20,10 @@ import {
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
+  type RuntimeAgentReviewResolver,
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
+  type BaseToolProfileName,
 } from "../agentCore/index.js";
 import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
@@ -46,6 +48,7 @@ import type {
   PraxisApplicationSessionSummary,
   PraxisApplicationStatus,
   PraxisApplicationToolCatalogState,
+  PraxisApplicationToolProfile,
   PraxisApplicationContextTelemetry,
   PraxisApplicationUsageTelemetry,
   PraxisApplicationViewModel,
@@ -67,6 +70,16 @@ export type PraxisApplicationLiveProvider = {
   providerRoute?: string;
 };
 
+export type PraxisApplicationBaseToolIntegrationOptions = {
+  toolProfile?: PraxisApplicationToolProfile;
+  policyMode?: PraxisApplicationPermissionProfile;
+  approvalResolver?: RuntimeApprovalResolver;
+  agentReviewResolver?: RuntimeAgentReviewResolver;
+  contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
+  baseToolAdapters?: Partial<BaseToolExecutorPort>;
+  onToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
+};
+
 export type PraxisApplicationRuntimeOptions = {
   project: PraxisApplicationProject;
   applicationId?: string;
@@ -82,7 +95,12 @@ export type PraxisApplicationRuntimeOptions = {
   reasoningEffort?: PraxisApplicationReasoningEffort;
   maxOutputTokens?: number;
   permissionProfile?: PraxisApplicationPermissionProfile;
+  toolProfile?: PraxisApplicationToolProfile;
   approvalResolver?: RuntimeApprovalResolver;
+  agentReviewResolver?: RuntimeAgentReviewResolver;
+  contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
+  baseToolAdapters?: Partial<BaseToolExecutorPort>;
+  onApplicationToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
   liveProviderResolver?: (manifest: AgentManifest, context?: {
     sessionId: string;
     runtimeId: string;
@@ -103,6 +121,7 @@ type RuntimeState = {
   mode: PraxisApplicationRuntimeMode;
   model: PraxisApplicationModelState;
   permissionProfile: PraxisApplicationPermissionProfile;
+  toolProfile: PraxisApplicationToolProfile;
   turns: number;
   modelCalls: number;
   toolCalls: number;
@@ -207,18 +226,27 @@ function summarizeManifest(manifest: AgentManifest | undefined): PraxisApplicati
   };
 }
 
-function summarizeToolCatalog(manifest: AgentManifest | undefined): PraxisApplicationToolCatalogState {
-  const entries = praxis.inspection.createBaseToolRealityLedger();
+function summarizeToolCatalog(
+  manifest: AgentManifest | undefined,
+  toolProfile: BaseToolProfileName,
+): PraxisApplicationToolCatalogState {
+  const profile = praxis.baseTool.profiles().find((entry) => entry.name === toolProfile)
+    ?? praxis.baseTool.profiles().find((entry) => entry.name === "agentCore")!;
+  const entries = praxis.baseTool.basetool.all({ profileName: profile.name });
   const byFamily: Record<string, number> = {};
   const byRiskLevel: Record<string, number> = {};
   const byReadiness: Record<string, number> = {};
   for (const entry of entries) {
     byFamily[entry.storageFamily] = (byFamily[entry.storageFamily] ?? 0) + 1;
     byRiskLevel[entry.riskLevel] = (byRiskLevel[entry.riskLevel] ?? 0) + 1;
-    byReadiness[entry.developerReadiness] = (byReadiness[entry.developerReadiness] ?? 0) + 1;
+    byReadiness.semanticCatalog = (byReadiness.semanticCatalog ?? 0) + 1;
   }
   const mountedToolIds = manifest?.harness.tools.map((tool) => tool.toolId).sort() ?? [];
   return {
+    profile: profile.name,
+    availableProfiles: praxis.baseTool.profiles().map((entry) => entry.name),
+    defaultPolicyProfile: profile.defaultPolicyProfile,
+    extensionSlots: profile.extensionSlots ?? [],
     total: entries.length,
     mounted: mountedToolIds.length,
     byFamily,
@@ -2430,7 +2458,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       providerRoute: options.providerRoute,
       maxOutputTokens: options.maxOutputTokens,
     }),
-    permissionProfile: options.permissionProfile ?? "standard",
+    permissionProfile: options.permissionProfile ?? "permissive",
+    toolProfile: options.toolProfile ?? "codingCore",
     turns: 0,
     modelCalls: 0,
     toolCalls: 0,
@@ -2548,8 +2577,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         ? `input budget: ${state.model.usableInputTokens}/${state.model.maxInputTokens} tokens @ ${Math.round((state.model.inputBudgetThreshold ?? 1) * 100)}%`
         : "input budget: unknown",
       `permission: ${state.permissionProfile}`,
+      `tool profile: ${state.toolProfile}`,
       `workspace: ${state.cwd}`,
-      `tools: ${summarizeToolCatalog(state.manifest).mounted}/${summarizeToolCatalog(state.manifest).total}`,
+      `tools: ${summarizeToolCatalog(state.manifest, state.toolProfile).mounted}/${summarizeToolCatalog(state.manifest, state.toolProfile).total}`,
       state.finalOutput ? `final: ${state.finalOutput}` : `status: ${state.status}`,
     ];
     return {
@@ -2564,10 +2594,11 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       mode: state.mode,
       model: state.model,
       permissionProfile: state.permissionProfile,
+      toolProfile: state.toolProfile,
       sessions: [...state.sessions.values()].sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt)),
       approvals: [...state.approvals.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       manifest: summarizeManifest(state.manifest),
-      tools: summarizeToolCatalog(state.manifest),
+      tools: summarizeToolCatalog(state.manifest, state.toolProfile),
       counters: {
         turns: state.turns,
         events: state.events.length,
@@ -2599,6 +2630,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       });
       const defaultAgentOptions = {
         policyProfile: state.permissionProfile,
+        toolProfile: state.toolProfile,
         provider: state.model.provider,
         endpointShape: state.model.endpointShape,
         baseURL: state.model.baseURL,
@@ -2747,6 +2779,11 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
           exposeProviderTools: false,
           approvalResolver: approvalResolverForRun(),
+          agentReviewResolver: options.agentReviewResolver,
+          baseToolAdapters: {
+            ...(options.contextArtifactAdapters ?? {}),
+            ...(options.baseToolAdapters ?? {}),
+          },
           storage: {
             cwd: state.cwd,
             workspaceRoot: path.join(project.projectRoot, ".raxode"),
@@ -2998,15 +3035,20 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
       toolContextUsage: state.toolContextUsage.get(state.sessionId),
       approvalResolver: approvalResolverForRun(),
+      agentReviewResolver: options.agentReviewResolver,
       storage: {
         cwd: state.cwd,
         workspaceRoot: path.join(project.projectRoot, ".raxode"),
         initMode: "on-run",
       },
       sandbox: { cwd: state.cwd },
-      baseToolAdapters: openAIResponsesCallerFor(liveProvider)
+      baseToolAdapters: {
+        ...(options.contextArtifactAdapters ?? {}),
+        ...(options.baseToolAdapters ?? {}),
+        ...(openAIResponsesCallerFor(liveProvider)
         ? {
           network: {
+            ...(options.baseToolAdapters?.network ?? {}),
             nativeWebSearch: createProviderNativeSearchAdapter({
               auth: liveProvider!.auth,
               providerCaller: openAIResponsesCallerFor(liveProvider)!,
@@ -3014,6 +3056,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             }),
           },
           omni: {
+            ...(options.baseToolAdapters?.omni ?? {}),
             transformMedia: createOpenAIResponsesImageVisionAdapter({
               auth: liveProvider!.auth,
               providerCaller: openAIResponsesCallerFor(liveProvider)!,
@@ -3023,7 +3066,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             }),
           },
         }
-        : undefined,
+        : {}),
+      },
       onModelCallProgress: (progress) => {
         const comparedProgress = progressWithSessionCacheComparison(state, progress);
         rememberProviderResponseForSession(state, comparedProgress);
@@ -3036,11 +3080,12 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       },
       onToolCallProgress: (progress) => {
         emittedToolProgress.add(toolProgressKey(progress));
-        publish(createToolProgressEvent({
+        const event = publish(createToolProgressEvent({
           progress,
           turnId,
           status: "running",
         }));
+        void options.onApplicationToolEvent?.(event);
       },
       onTextDelta: emitTextDelta,
       now,
@@ -3199,6 +3244,17 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           const changed = publish({
             eventId: "application.permission.changed",
             kind: "permission",
+            status: state.status,
+            message: command.profile,
+          });
+          return { ok: true, view: view(), events: [changed] };
+        }
+        case "application.changeToolProfile": {
+          applyCommandSession(command.sessionId);
+          state.toolProfile = command.profile;
+          const changed = publish({
+            eventId: "application.toolProfile.changed",
+            kind: "tool",
             status: state.status,
             message: command.profile,
           });

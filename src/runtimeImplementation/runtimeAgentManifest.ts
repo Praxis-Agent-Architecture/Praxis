@@ -1906,6 +1906,7 @@ function normalizeHarnessTools(input: readonly ToolSpec[] | undefined): Normaliz
       description: selectedTool.description ?? entry.title,
       metadata: {
         baseToolFamily: entry.family,
+        baseToolStorageFamily: entry.storageFamily,
         riskLevel: entry.riskLevel,
         ...(selectedTool.metadata ?? {}),
       },

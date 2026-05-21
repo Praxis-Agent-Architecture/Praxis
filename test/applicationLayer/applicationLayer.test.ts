@@ -136,7 +136,9 @@ test("applicationLayer project runtime can execute a dry-run turn", async () => 
   assert.deepEqual(start.view.agentEntries.map((entry) => [entry.key, entry.agentId, entry.role]), [
     ["primary", "agent.praxis.doctor", "primary"],
   ]);
-  assert.equal(start.view.tools.total, 176);
+  assert.equal(start.view.permissionProfile, "permissive");
+  assert.equal(start.view.toolProfile, "codingCore");
+  assert.equal(start.view.tools.total, 14);
   assert.ok(start.view.tools.mounted > 0);
 
   const result = await transport.dispatch({
@@ -152,8 +154,9 @@ test("applicationLayer project runtime can execute a dry-run turn", async () => 
   assert.equal(result.view.applicationId, "application.praxis.doctor");
   assert.equal(result.view.model.model, "gpt-5.5");
   assert.equal(result.view.model.reasoningEffort, "low");
-  assert.equal(result.view.permissionProfile, "standard");
-  assert.equal(result.view.tools.total, 176);
+  assert.equal(result.view.permissionProfile, "permissive");
+  assert.equal(result.view.toolProfile, "codingCore");
+  assert.equal(result.view.tools.total, 14);
   assert.ok(result.view.tools.mounted > 0);
   assert.equal(result.view.counters.turns, 1);
   assert.equal(result.view.status, "completed");
@@ -256,4 +259,14 @@ test("applicationLayer commands can steer session, workspace, model, and permiss
   assert.equal(permission.view.permissionProfile, "bapr");
   assert.equal(permission.view.sessions[0]?.sessionId, "session.praxis.doctor.steered");
   assert.equal(permission.view.sessions[0]?.status, "idle");
+
+  const toolProfile = await transport.dispatch({
+    type: "application.changeToolProfile",
+    sessionId: "session.praxis.doctor.steered",
+    profile: "workCore",
+  });
+  assert.equal(toolProfile.ok, true);
+  assert.equal(toolProfile.view.toolProfile, "workCore");
+  assert.equal(toolProfile.view.tools.profile, "workCore");
+  assert.equal(toolProfile.view.tools.extensionSlots.includes("pdf"), true);
 });

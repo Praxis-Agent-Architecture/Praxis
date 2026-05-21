@@ -31,7 +31,7 @@ import {
   type ProviderToolNameMapping,
   type ProviderToolSchemaFamily,
 } from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
-import type { BaseToolExecutorPort } from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolExecutorPort } from "../basetool/types.js";
 import { receiveTextInput } from "../executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
 import { exposeTextOutput } from "../executionEngine/IOTransceiver/outputExposer/textExposer.js";
 import {
@@ -82,6 +82,24 @@ import {
 } from "./runtime.execEngine/baseToolContextFolding.js";
 import { invokeMountedBaseTool } from "./runtime.execEngine/baseToolRuntimeMount.js";
 import { evaluateBaseToolRuntimeReadiness } from "./runtime.execEngine/baseToolSupportCatalog.js";
+import {
+  adjudicateBaseToolPolicy,
+  type BaseToolPolicyAdjudication,
+} from "./runtime.execEngine/baseToolPolicyAdjudicator.js";
+import {
+  createBaseToolApprovalScope,
+  hasApprovedBaseToolScope,
+} from "./runtime.execEngine/baseToolApprovalScope.js";
+import {
+  createBaseToolFactMatrixSnapshot,
+} from "../basetool/factMatrix.js";
+import {
+  planBaseToolSandbox,
+  type BaseToolSandboxPlan,
+} from "./runtime.sandboxPlane/baseToolSandboxPlanner.js";
+import {
+  createWorkspaceRollbackSandboxPlan,
+} from "./runtime.sandboxPlane/workspaceRollbackSandbox.js";
 import { invokeModelThroughRuntime } from "./runtime.modelAdapter/modelInvocationRuntime.js";
 import {
   normalizeAllowedRoots,
@@ -180,6 +198,7 @@ export type PraxisRuntimeKernelOptions = {
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
   dryRun?: boolean;
   approvalResolver?: RuntimeApprovalResolver;
+  agentReviewResolver?: RuntimeAgentReviewResolver;
   baseToolDependencyRuntime?: {
     mode?: BaseToolDependencyRuntimeMode;
     probes?: readonly ToolDependencyProbe[];
@@ -231,17 +250,45 @@ export type RuntimeApprovalResolver = (
   envelope: RuntimeApprovalEnvelope,
 ) => RuntimeApprovalResolution | Promise<RuntimeApprovalResolution>;
 
+export type RuntimeAgentReviewEnvelope = {
+  reviewId: string;
+  runtimeId: string;
+  sessionId: string;
+  toolId: string;
+  reason: string;
+  riskLevel: string;
+  arguments: Readonly<Record<string, unknown>>;
+  policy: BaseToolPolicyAdjudication;
+  sandbox: BaseToolSandboxPlan;
+  metadata: Readonly<Record<string, unknown>>;
+  publicSafe: true;
+};
+
+export type RuntimeAgentReviewResolution = {
+  status: "approved" | "denied" | "needs_user" | "needs_sandbox" | "needs_diff_preview";
+  reason?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
+export type RuntimeAgentReviewResolver = (
+  envelope: RuntimeAgentReviewEnvelope,
+) => RuntimeAgentReviewResolution | Promise<RuntimeAgentReviewResolution>;
+
 async function inferFilesystemActionForTool(input: {
   toolId: string;
   args: Readonly<Record<string, unknown>>;
   workspaceRoot?: string;
 }): Promise<string | undefined> {
-  if (input.toolId === "code.delete") return "delete";
-  if (!["code.overwrite", "code.replaceFile", "code.modify", "code.format"].includes(input.toolId)) return undefined;
+  if (input.toolId !== "patch.apply") return undefined;
+  const rawPatch = typeof input.args.patch === "string" ? input.args.patch : undefined;
+  if (rawPatch === undefined) return "modify";
+  if (/^\*\*\* Delete File:/mu.test(rawPatch)) return "delete";
+  if (/^\*\*\* Add File:/mu.test(rawPatch)) return "create";
+  if (/^\*\*\* Update File:/mu.test(rawPatch) || /^diff --git /mu.test(rawPatch)) return "modify";
 
-  const rawPath = input.args.targetPath ?? input.args.path;
+  const rawPath = input.args.path ?? input.args.filePath;
   if (typeof rawPath !== "string" || rawPath.trim() === "" || input.workspaceRoot === undefined) {
-    return ["code.overwrite", "code.replaceFile"].includes(input.toolId) ? "overwrite" : "modify";
+    return "modify";
   }
 
   const normalized = rawPath.trim();
@@ -251,7 +298,7 @@ async function inferFilesystemActionForTool(input: {
 
   try {
     await stat(absoluteTarget);
-    return ["code.overwrite", "code.replaceFile"].includes(input.toolId) ? "overwrite" : "modify";
+    return "modify";
   } catch (error) {
     if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT") return "create";
     return undefined;
@@ -529,16 +576,10 @@ function readStringArray(value: unknown): readonly string[] {
 }
 
 function procedureShellStepCommandSource(step: EphemeralProcedureStep): string | undefined {
-  if (!step.baseToolId.startsWith("shell.")) return undefined;
-  const target = isRecord(step.input.target) ? step.input.target : {};
+  if (step.baseToolId !== "shell.run") return undefined;
   const command = readString(step.input.command)
-    ?? readString(target.command)
-    ?? readString(step.input.script)
-    ?? readString(target.script);
-  const args = [
-    ...readStringArray(step.input.args),
-    ...readStringArray(target.args),
-  ];
+    ?? readString(step.input.script);
+  const args = readStringArray(step.input.args);
   if (command !== undefined) {
     return [command, ...args].join(" ");
   }
@@ -580,51 +621,9 @@ function mergeStringLists(...lists: readonly (readonly string[] | undefined)[]):
   return merged;
 }
 
-function omniProviderPermissionsCanDefault(profile: BaseToolPolicyProfile): boolean {
-  return profile === "bapr" || profile === "yolo" || profile === "permissive";
-}
-
 function runtimeTapApprovalCanDefault(profile: BaseToolPolicyProfile): boolean {
   return profile === "bapr" || profile === "yolo" || profile === "permissive";
 }
-
-const shellRuntimeBasePermissions = ["shell:execute", "shell:observe", "shell:validate"] as const;
-
-const shellRuntimePermissionHintsByToolId: Record<string, readonly string[]> = {
-  "shell.argumentAssembly": ["shell:generate"],
-  "shell.backgroundExecution": ["shell:process:background"],
-  "shell.capabilityDetection": ["shell:detect"],
-  "shell.commandGeneration": ["shell:generate"],
-  "shell.detachedExecution": ["shell:process:detached"],
-  "shell.environmentInspection": ["shell:environment:inspect"],
-  "shell.executionGuard": ["shell:generate"],
-  "shell.executionMonitoring": ["shell:execution:monitor"],
-  "shell.interactiveControl": ["shell:interactive:control"],
-  "shell.invocationConstruction": ["shell:generate"],
-  "shell.outputCapture": ["shell:output:capture"],
-  "shell.processTermination": ["shell:process:terminate"],
-  "shell.promptHandling": ["shell:prompt:handle"],
-  "shell.sandboxEnforcement": ["shell:sandbox"],
-  "shell.scriptGeneration": ["shell:script:generate"],
-  "shell.serviceStartAndVerify": ["shell:service:verify", "shell:process:service", "shell:process:background"],
-  "shell.sessionDetection": ["shell:session:detect", "shell:process:read"],
-  "shell.shellLifecycleManagement": ["shell:lifecycle:manage"],
-  "shell.shellProcessManagement": ["shell:process:manage"],
-  "shell.shellResourceManagement": [
-    "shell:resource:inspect",
-    "shell:resource:reserve",
-    "shell:resource:release",
-    "shell:resource:limit",
-  ],
-  "shell.shellSessionManagement": [
-    "shell:session:inspect",
-    "shell:session:create",
-    "shell:session:attach",
-    "shell:session:close",
-  ],
-  "shell.stdinFeeding": ["shell:stdin:feed"],
-  "shell.typeDetection": ["shell:detect"],
-};
 
 function approvedRuntimeTapApproval(input: {
   rawApproval: unknown;
@@ -642,107 +641,46 @@ function approvedRuntimeTapApproval(input: {
   };
 }
 
-function runtimeGrantedPermissionsForTool(toolId: string, profile: BaseToolPolicyProfile): readonly string[] {
-  if (toolId.startsWith("git.")) return ["git:read", "filesystem:read"];
-  if (toolId.startsWith("code.")) return ["filesystem:read", "filesystem:write"];
-  if (toolId.startsWith("skill.")) return ["skill:read", "skill:write", "filesystem:read", "filesystem:write"];
-  if (toolId.startsWith("search.")) return ["network:read", "search:fetch", "network:egress", "network:search", "search:native"];
-  if (toolId.startsWith("shell.")) return mergeStringLists(shellRuntimeBasePermissions, shellRuntimePermissionHintsByToolId[toolId]);
-  if (toolId.startsWith("mcp.")) {
-    return [
-      "mcp:connect",
-      "mcp:auth",
-      "mcp:read",
-      "mcp:write",
-      "mcp:cache:invalidate",
-      "mcp:disconnect",
-      "mcp:subscription:write",
-      "mcp:call",
-      "mcp:service",
-      "mcp:stream",
-      "mcp:cancel",
-      "mcp:control",
-      "mcp:native-execute",
-      "mcp:raw",
-      "mcp:tool:read",
-      "mcp:tool:write",
-      "mcp:connection:read",
-      "mcp:resource:list",
-      "mcp:resource:read",
-      "mcp:resource:create",
-      "mcp:resource:write",
-      "mcp:resource:delete",
-      "mcp:ping",
-      "mcp:monitor:read",
-    ];
+function runtimeGrantedPermissionsForTool(toolId: string, _profile: BaseToolPolicyProfile): readonly string[] {
+  switch (toolId) {
+    case "file.read":
+      return ["filesystem:read"];
+    case "file.search":
+      return ["filesystem:read", "filesystem:search"];
+    case "patch.apply":
+      return ["filesystem:read", "filesystem:write", "patch:apply"];
+    case "shell.run":
+      return ["shell:execute", "shell:observe", "shell:validate", "process:spawn"];
+    case "web.search":
+      return ["network:egress", "network:search"];
+    case "web.fetch":
+      return ["network:egress", "network:fetch"];
+    case "plan.update":
+      return ["plan:update"];
+    case "user.ask":
+      return ["user:ask"];
+    case "skill.load":
+      return ["skill:read", "filesystem:read"];
+    case "context.load":
+      return ["context:read", "artifact:read"];
+    case "mcp.use":
+      return ["mcp:call", "mcp:auth"];
+    case "mcp.resources":
+      return ["mcp:resource:list", "mcp:resource:read"];
+    case "process.wait":
+      return ["process:wait", "process:read"];
+    case "process.kill":
+      return ["process:kill"];
+    case "tool.discover":
+    case "tool.describe":
+      return ["tool:metadata"];
+    default:
+      return ["tool.execute"];
   }
-  if (toolId === "omni.viewImage") return ["filesystem:read", "omni:image:view"];
-  if (toolId.startsWith("omni.")) {
-    const basePermissions = ["filesystem:read", "filesystem:write", "omni:media:transform"];
-    if (!omniProviderPermissionsCanDefault(profile)) return basePermissions;
-    return [
-      ...basePermissions,
-      "provider:invoke",
-      "omni:image:read",
-      "omni:image:write",
-      "omni:image:generate",
-      "omni:audio:read",
-      "omni:audio:write",
-      "omni:audio:generate",
-      "omni:video:read",
-      "omni:video:write",
-      "omni:video:generate",
-    ];
-  }
-  if (toolId.startsWith("computeruse.")) return ["computeruse:read", "computeruse:device:read", "computeruse:screenshot"];
-  return ["tool.execute"];
-}
-
-function safeRuntimePathSegment(value: string): string {
-  return value.replace(/[^a-zA-Z0-9_.-]/gu, "_").slice(0, 96) || "runtime";
-}
-
-function imageExtensionFromTarget(target: Readonly<Record<string, unknown>>): string {
-  const declared = readString(target.outputFormat)
-    ?? readString(target.targetFormat)
-    ?? readString(target.format)
-    ?? readString(target.mimeType);
-  if (declared === "image/jpeg" || declared === "jpeg" || declared === "jpg") return "jpg";
-  if (declared === "image/webp" || declared === "webp") return "webp";
-  return "png";
-}
-
-function autoOutputTargetForTool(input: {
-  toolId: string;
-  target: Readonly<Record<string, unknown>>;
-  workspaceRoot?: string;
-  sessionId: string;
-  invocationId: string;
-}): Readonly<Record<string, unknown>> {
-  if (input.toolId !== "omni.generateImage") return input.target;
-  if (readString(input.target.outputPath) !== undefined || readString(input.target.outputRef) !== undefined) {
-    return input.target;
-  }
-  if (input.workspaceRoot === undefined) return input.target;
-  const extension = imageExtensionFromTarget(input.target);
-  return {
-    ...input.target,
-    outputPath: path.join(
-      input.workspaceRoot,
-      ".rax_workspace",
-      "artifacts",
-      safeRuntimePathSegment(input.sessionId),
-      `generated-image-${safeRuntimePathSegment(input.invocationId)}.${extension}`,
-    ),
-  };
 }
 
 function grantedPermissionsForTool(toolId: string, rawPermissions: unknown, profile: BaseToolPolicyProfile): readonly string[] {
-  const merged = mergeStringLists(readStringArray(rawPermissions), runtimeGrantedPermissionsForTool(toolId, profile));
-  if (toolId === "omni.viewImage") {
-    return merged.filter((permission) => permission === "filesystem:read" || permission === "omni:image:view");
-  }
-  return merged;
+  return mergeStringLists(readStringArray(rawPermissions), runtimeGrantedPermissionsForTool(toolId, profile));
 }
 
 function withApprovedRuntimePermissions(
@@ -837,24 +775,7 @@ function enrichToolArguments(
     profile: manifest.toolPolicy.profile,
     reason: `${manifest.toolPolicy.profile} profile auto-approves runtime TAP approval fields`,
   });
-  const rawTarget = isRecord(args.target) ? args.target : {};
-  let target = rawTarget;
-  if (toolId.startsWith("git.") && workspaceRoot !== undefined) {
-    const rawRepositoryPath = readString(rawTarget.repositoryPath);
-    const repositoryPath = rawRepositoryPath === undefined
-      ? workspaceRoot
-      : path.isAbsolute(rawRepositoryPath)
-        ? rawRepositoryPath
-        : path.resolve(workspaceRoot, rawRepositoryPath);
-    target = { ...rawTarget, repositoryPath };
-  }
-  target = autoOutputTargetForTool({
-    toolId,
-    target,
-    workspaceRoot,
-    sessionId: runtimeContext.sessionId,
-    invocationId: runtimeContext.invocationId,
-  });
+  let target = isRecord(args.target) ? args.target : {};
   if (defaultServerId !== undefined) {
     target = { serverId: defaultServerId, ...target };
   }
@@ -1036,34 +957,6 @@ function normalizeStringPathField(input: {
   return undefined;
 }
 
-function normalizeStringArrayPathField(input: {
-  target: Record<string, unknown>;
-  field: string;
-  workspaceRoot: string;
-  allowedRoots: readonly string[];
-  normalizations: Readonly<Record<string, unknown>>[];
-}): Readonly<Record<string, unknown>> | undefined {
-  const raw = input.target[input.field];
-  if (!Array.isArray(raw)) return undefined;
-  const values: string[] = [];
-  for (const item of raw) {
-    if (typeof item !== "string") {
-      values.push(String(item));
-      continue;
-    }
-    const normalized = normalizeCodePathValue({
-      value: item,
-      workspaceRoot: input.workspaceRoot,
-      allowedRoots: input.allowedRoots,
-    });
-    if (!normalized.ok) return normalized.error;
-    values.push(normalized.value);
-    input.normalizations.push(normalized.metadata);
-  }
-  input.target[input.field] = values;
-  return undefined;
-}
-
 function normalizeWorkspacePathContract(input: {
   toolId: string;
   args: Readonly<Record<string, unknown>>;
@@ -1075,13 +968,9 @@ function normalizeWorkspacePathContract(input: {
   const allowedRoots = normalizeAllowedRoots({ workspaceRoot, allowedRoots: input.allowedRoots });
   const nextArgs: Record<string, unknown> = { ...input.args };
   const normalizations: Readonly<Record<string, unknown>>[] = [];
-  const allowProcessControlTmpCwd = input.toolId === "shell.backgroundExecution"
-    || input.toolId === "shell.detachedExecution"
-    || input.toolId === "shell.processSpawning"
-    || input.toolId === "shell.serviceStartAndVerify";
 
-  if (input.toolId.startsWith("code.")) {
-    for (const field of ["targetPath", "path", "filePath", "directoryPath"]) {
+  if (input.toolId === "file.read" || input.toolId === "skill.load") {
+    for (const field of ["path", "filePath"]) {
       const error = normalizeStringPathField({
         target: nextArgs,
         field,
@@ -1092,103 +981,19 @@ function normalizeWorkspacePathContract(input: {
       });
       if (error !== undefined) return { ok: false, error };
     }
-    for (const field of ["targetPaths", "paths", "files"]) {
-      const error = normalizeStringArrayPathField({
-        target: nextArgs,
-        field,
-        workspaceRoot,
-        allowedRoots,
-        normalizations,
-      });
-      if (error !== undefined) return { ok: false, error };
-    }
-    if (isRecord(nextArgs.target)) {
-      const target = { ...nextArgs.target };
-      for (const field of ["targetPath", "path", "filePath", "directoryPath"]) {
-        const error = normalizeStringPathField({
-          target,
-          field,
-          workspaceRoot,
-          allowedRoots,
-          mode: "code-path",
-          normalizations,
-        });
-        if (error !== undefined) return { ok: false, error };
-      }
-      nextArgs.target = target;
-    }
-    if (Array.isArray(nextArgs.targets)) {
-      const targets: unknown[] = [];
-      for (const rawTarget of nextArgs.targets) {
-        if (!isRecord(rawTarget)) {
-          targets.push(rawTarget);
-          continue;
-        }
-        const target = { ...rawTarget };
-        for (const field of ["targetPath", "path", "filePath"]) {
-          const error = normalizeStringPathField({
-            target,
-            field,
-            workspaceRoot,
-            allowedRoots,
-            mode: "code-path",
-            normalizations,
-          });
-          if (error !== undefined) return { ok: false, error };
-        }
-        targets.push(target);
-      }
-      nextArgs.targets = targets;
-    }
   }
 
-  if (input.toolId.startsWith("shell.")) {
-    if (input.toolId === "shell.commandExecution" && isRecord(nextArgs.target)) {
-      const target = nextArgs.target;
-      if (typeof nextArgs.command !== "string" && typeof target.command === "string") {
-        nextArgs.command = target.command;
-      }
-      if (!Array.isArray(nextArgs.args) && Array.isArray(target.args)) {
-        nextArgs.args = target.args;
-      }
-      if (typeof nextArgs.cwd !== "string" && typeof target.workingDirectory === "string") {
-        nextArgs.cwd = target.workingDirectory;
-      }
-      if (typeof nextArgs.cwd !== "string" && typeof target.cwd === "string") {
-        nextArgs.cwd = target.cwd;
-      }
-      if (typeof nextArgs.shellType !== "string" && typeof target.shell === "string") {
-        nextArgs.shellType = target.shell;
-      }
-    }
-    for (const field of ["cwd", "workingDirectory"]) {
+  if (input.toolId === "file.search" || input.toolId === "patch.apply" || input.toolId === "shell.run") {
+    for (const field of ["cwd"]) {
       const error = normalizeStringPathField({
         target: nextArgs,
         field,
         workspaceRoot,
         allowedRoots,
         mode: "shell-cwd",
-        allowOsTmpdir: allowProcessControlTmpCwd,
         normalizations,
       });
       if (error !== undefined) return { ok: false, error };
-    }
-    for (const nestedKey of ["target", "start", "probe", "verification"]) {
-      if (!isRecord(nextArgs[nestedKey])) continue;
-      const nested = { ...(nextArgs[nestedKey] as Record<string, unknown>) };
-      for (const field of ["cwd", "workingDirectory"]) {
-        const error = normalizeStringPathField({
-          target: nested,
-          field,
-          workspaceRoot,
-          allowedRoots,
-          mode: "shell-cwd",
-          allowOsTmpdir: allowProcessControlTmpCwd,
-          normalizations,
-        });
-        if (error !== undefined) return { ok: false, error };
-      }
-      nextArgs[nestedKey] = nested;
     }
   }
 
@@ -2309,42 +2114,32 @@ function stringArrayValueForKernel(value: unknown): readonly string[] {
     : [];
 }
 
-function codeReadTargetPaths(args: Readonly<Record<string, unknown>>): readonly string[] {
-  const target = isRecord(args.target) ? args.target : undefined;
+function fileReadTargetPaths(args: Readonly<Record<string, unknown>>): readonly string[] {
   const values = [
-    ...stringArrayValueForKernel(args.targetPaths),
     ...stringArrayValueForKernel(args.paths),
     ...stringArrayValueForKernel(args.files),
-    ...stringArrayValueForKernel(target?.targetPaths),
-    ...stringArrayValueForKernel(target?.paths),
     ...[
-      firstStringValueForKernel(args.targetPath, args.path, args.filePath, target?.targetPath, target?.path, target?.filePath),
+      firstStringValueForKernel(args.path, args.filePath),
     ].filter((item): item is string => item !== undefined),
   ];
   return values.map((item) => item.trim()).filter((item, index, array) => item.length > 0 && array.indexOf(item) === index).sort();
 }
 
-function codeReadHasRange(args: Readonly<Record<string, unknown>>): boolean {
-  return isRecord(args.range) || isRecord(isRecord(args.target) ? args.target.range : undefined);
-}
-
-function codeReadCacheKey(toolId: string, args: Readonly<Record<string, unknown>>): string | undefined {
-  if (toolId !== "code.read") return undefined;
-  const paths = codeReadTargetPaths(args);
+function fileReadCacheKey(toolId: string, args: Readonly<Record<string, unknown>>): string | undefined {
+  if (toolId !== "file.read") return undefined;
+  const paths = fileReadTargetPaths(args);
   if (paths.length === 0) return undefined;
   return `${toolId}:${stableJsonForHash({
     paths,
-    includeLineNumbers: args.includeLineNumbers,
-    encoding: args.encoding,
     context: normalizeToolContext(args.context),
   })}`;
 }
 
-function isCodeMutationTool(toolId: string): boolean {
-  return ["code.overwrite", "code.modify", "code.replaceFile", "code.delete", "code.format"].includes(toolId);
+function invalidatesFileReadCache(toolId: string): boolean {
+  return toolId === "patch.apply" || toolId === "shell.run";
 }
 
-function duplicateCodeReadRecord(input: {
+function duplicateFileReadRecord(input: {
   sessionId: string;
   toolCallId: string;
   toolId: string;
@@ -2353,17 +2148,16 @@ function duplicateCodeReadRecord(input: {
   previousCallId: string;
   now: string;
 }): { record: AgentToolCallRecord; observation: RuntimeObservationMaterial } {
-  const paths = codeReadTargetPaths(input.args);
+  const paths = fileReadTargetPaths(input.args);
   const payload = {
-    kind: "agentCore.basicTool.code.read.cachedObservation",
+    kind: "agentCore.basicTool.file.read.cachedObservation",
     duplicateOfToolCallId: input.previousCallId,
-    targetPaths: paths,
+    paths,
     content: "",
-    files: [],
     bytes: 0,
     truncated: false,
     unsafeSideEffects: false,
-    note: "This code.read request repeats content already returned earlier in the same model turn. Use the previous observation instead of rereading the file.",
+    note: "This file.read request repeats content already returned earlier in the same model turn. Use the previous observation instead of rereading the file.",
   };
   const record: AgentToolCallRecord = {
     callId: input.toolCallId,
@@ -2377,7 +2171,7 @@ function duplicateCodeReadRecord(input: {
     source: "runtime",
     status: "completed",
     title: `BaseTool ${input.toolId} cached`,
-    summary: `duplicate code.read skipped; previous observation ${input.previousCallId} already contains ${paths.join(", ") || "the requested file"}`,
+    summary: `duplicate file.read skipped; previous observation ${input.previousCallId} already contains ${paths.join(", ") || "the requested file"}`,
     refs: [input.toolCallId, input.toolId, input.previousCallId],
     payload,
     metadata: metadataRecord({
@@ -3224,6 +3018,82 @@ async function prepareKernelSandbox(input: {
   return { ok: true, sandbox };
 }
 
+async function requestRuntimeAgentReview(input: {
+  runtimeId: string;
+  sessionId: string;
+  reviewId: string;
+  toolId: string;
+  reason: string;
+  riskLevel: string;
+  args: Readonly<Record<string, unknown>>;
+  policy: BaseToolPolicyAdjudication;
+  sandbox: BaseToolSandboxPlan;
+  resolver?: RuntimeAgentReviewResolver;
+  store: RuntimeSessionStateEventStore;
+  now: () => string;
+  metadata?: Readonly<Record<string, unknown>>;
+}): Promise<{
+  status: RuntimeAgentReviewResolution["status"] | "skipped";
+  reason?: string;
+  events: readonly string[];
+}> {
+  if (input.resolver === undefined) {
+    await input.store.appendEvent(event(input.sessionId, `event:agentReview:${input.reviewId}:skipped`, "runtime.agentReview.skipped", input.now(), {
+      toolId: input.toolId,
+      reason: "agent review resolver is not configured",
+      policy: input.policy,
+      sandbox: input.sandbox,
+    }));
+    return {
+      status: "skipped",
+      reason: "agent review resolver is not configured",
+      events: ["runtime.agentReview.skipped"],
+    };
+  }
+
+  const envelope: RuntimeAgentReviewEnvelope = {
+    reviewId: input.reviewId,
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    toolId: input.toolId,
+    reason: input.reason,
+    riskLevel: input.riskLevel,
+    arguments: input.args,
+    policy: input.policy,
+    sandbox: input.sandbox,
+    metadata: input.metadata ?? {},
+    publicSafe: true,
+  };
+  await input.store.appendEvent(event(input.sessionId, `event:agentReview:${input.reviewId}:requested`, "runtime.agentReview.requested", input.now(), {
+    review: envelope,
+  }));
+  try {
+    const resolution = await input.resolver(envelope);
+    await input.store.appendEvent(event(input.sessionId, `event:agentReview:${input.reviewId}:${resolution.status}`, `runtime.agentReview.${resolution.status}`, input.now(), {
+      reviewId: input.reviewId,
+      toolId: input.toolId,
+      reason: resolution.reason,
+      metadata: resolution.metadata ?? {},
+    }));
+    return {
+      status: resolution.status,
+      reason: resolution.reason,
+      events: ["runtime.agentReview.requested", `runtime.agentReview.${resolution.status}`],
+    };
+  } catch {
+    await input.store.appendEvent(event(input.sessionId, `event:agentReview:${input.reviewId}:failed`, "runtime.agentReview.failed", input.now(), {
+      reviewId: input.reviewId,
+      toolId: input.toolId,
+      publicSafeFailure: "agent review resolver failed",
+    }));
+    return {
+      status: "needs_user",
+      reason: "agent review resolver failed",
+      events: ["runtime.agentReview.requested", "runtime.agentReview.failed"],
+    };
+  }
+}
+
 async function buildPromptPackAndLower(input: {
   runtimeId: string;
   sessionId: string;
@@ -3369,8 +3239,10 @@ async function executeBaseToolDecision(input: {
   allowedRoots?: readonly string[];
   allowToolExecution?: boolean;
   dependencyRuntime?: NonNullable<PraxisRuntimeKernelOptions["baseToolDependencyRuntime"]>;
+  preparedSandbox?: SandboxRuntimePrepareResult;
   store: RuntimeSessionStateEventStore;
   approvalResolver?: RuntimeApprovalResolver;
+  agentReviewResolver?: RuntimeAgentReviewResolver;
   now: () => string;
   events: string[];
 }): Promise<{
@@ -3378,6 +3250,8 @@ async function executeBaseToolDecision(input: {
   observation: RuntimeObservationMaterial;
   events: readonly string[];
   governance: BaseToolRuntimeGovernanceDecision;
+  policyAdjudication?: BaseToolPolicyAdjudication;
+  sandboxPlan?: BaseToolSandboxPlan;
 }> {
   let toolArguments = enrichToolArguments(input.manifest, input.toolId, input.args, {
     runtimeId: input.runtimeId,
@@ -3461,6 +3335,37 @@ async function executeBaseToolDecision(input: {
     args: toolArguments,
     workspaceRoot: input.workspaceRoot,
   });
+  const approvalScope = createBaseToolApprovalScope({ toolId: input.toolId, args: toolArguments });
+  const humanApprovalCacheHit = await hasApprovedBaseToolScope({
+    store: input.store,
+    sessionId: input.sessionId,
+    approvalScopeKey: approvalScope.scopeKey,
+  });
+  const factMatrix = createBaseToolFactMatrixSnapshot();
+  const riskFact = factMatrix.risk.find((row) => row.toolId === input.toolId);
+  const sandboxPlan = planBaseToolSandbox({
+    toolId: input.toolId,
+    profile: input.manifest.toolPolicy.profile,
+    sandbox: input.manifest.sandbox,
+    preparedSandbox: input.preparedSandbox,
+    effectKinds: riskFact?.effectKinds,
+    sandboxHint: riskFact?.sandboxHint,
+  });
+  const workspaceRollback = sandboxPlan.effectiveMode === "workspace-rollback" && input.workspaceRoot !== undefined
+    ? createWorkspaceRollbackSandboxPlan({
+        workspaceRoot: input.workspaceRoot,
+        sessionId: input.sessionId,
+        invocationId: input.toolCallId,
+      })
+    : undefined;
+  const policyAdjudication = adjudicateBaseToolPolicy({
+    toolId: input.toolId,
+    profile: input.manifest.toolPolicy.profile,
+    approvalScopeKey: approvalScope.scopeKey,
+    humanApprovalCacheHit,
+    hasAgentReviewer: input.agentReviewResolver !== undefined,
+    args: toolArguments,
+  });
   const governance = evaluateBaseToolRuntimeGovernance({
     toolId: input.toolId,
     policyMatrix: input.manifest.toolPolicy,
@@ -3472,9 +3377,20 @@ async function executeBaseToolDecision(input: {
       toolCallId: input.toolCallId,
       providerToolName: input.providerToolName ?? "",
       ...(filesystemAction === undefined ? {} : { filesystemAction }),
+      approvalScope,
+      policyAdjudication,
+      sandboxPlan,
+      ...(workspaceRollback === undefined ? {} : { workspaceRollback }),
     },
   });
-  input.events.push(...governance.events);
+  input.events.push(...governance.events, ...policyAdjudication.events, ...sandboxPlan.events);
+  await input.store.appendEvent(event(input.sessionId, `event:tool:${input.toolCallId}:policy`, "runtime.baseTool.policy.adjudicated", input.now(), {
+    toolId: input.toolId,
+    approvalScope,
+    policyAdjudication,
+    sandboxPlan,
+    ...(workspaceRollback === undefined ? {} : { workspaceRollback }),
+  }));
 
   if (governance.status === "deny") {
     const record: AgentToolCallRecord = {
@@ -3498,25 +3414,101 @@ async function executeBaseToolDecision(input: {
       payload: record.error,
       metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, governanceStatus: governance.status }),
     });
-    return { record, observation, events: governance.events, governance };
+    return { record, observation, events: governance.events, governance, policyAdjudication, sandboxPlan };
   }
 
-  if (governance.status === "requiresApproval") {
+  if (policyAdjudication.agentReviewRequired) {
+    const review = await requestRuntimeAgentReview({
+      runtimeId: input.runtimeId,
+      sessionId: input.sessionId,
+      reviewId: `${input.toolCallId}:agent-review`,
+      toolId: input.toolId,
+      reason: policyAdjudication.reason,
+      riskLevel: policyAdjudication.risk,
+      args: toolArguments,
+      policy: policyAdjudication,
+      sandbox: sandboxPlan,
+      resolver: input.agentReviewResolver,
+      store: input.store,
+      now: input.now,
+      metadata: {
+        toolCallId: input.toolCallId,
+        approvalScopeKey: approvalScope.scopeKey,
+      },
+    });
+    input.events.push(...review.events);
+    if (review.status === "denied" || review.status === "needs_user" || review.status === "needs_diff_preview" || review.status === "needs_sandbox") {
+      const approval = await requestRuntimeApproval({
+        runtimeId: input.runtimeId,
+        sessionId: input.sessionId,
+        approvalId: `${input.toolCallId}:agent-review-override`,
+        source: "baseTool",
+        reason: review.reason ?? `Agent review requested human override for ${input.toolId}`,
+        requestedScopes: ["tool.execute", `tool.${input.toolId}`, `approvalScope.${approvalScope.scopeKey}`],
+        riskLevel: policyAdjudication.risk,
+        resolver: input.approvalResolver,
+        store: input.store,
+        now: input.now,
+        metadata: {
+          toolCallId: input.toolCallId,
+          toolId: input.toolId,
+          approvalScopeKey: approvalScope.scopeKey,
+          agentReviewStatus: review.status,
+          policyAdjudication,
+          sandboxPlan,
+        },
+      });
+      input.events.push(...approval.events);
+      if (approval.status !== "approved") {
+        const error = {
+          code: "APPROVAL_REQUIRED",
+          message: approval.reason ?? review.reason ?? `Agent review requires human override for ${input.toolId}`,
+          publicSafe: true,
+        };
+        const record: AgentToolCallRecord = {
+          callId: input.toolCallId,
+          toolId: input.toolId,
+          arguments: toolArguments,
+          ok: false,
+          error,
+        };
+        const observation = createObservationMaterial({
+          observationId: `${input.sessionId}:observation:${input.toolCallId}:agent-review`,
+          source: "baseTool",
+          status: "waitingApproval",
+          title: `BaseTool ${input.toolId}`,
+          summary: error.message,
+          refs: [input.toolCallId, input.toolId, approval.envelope.approvalId],
+          payload: approval.envelope,
+          metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, agentReviewStatus: review.status }),
+        });
+        return { record, observation, events: [...governance.events, ...review.events, ...approval.events], governance, policyAdjudication, sandboxPlan };
+      }
+      toolArguments = withApprovedRuntimePermissions(input.toolId, toolArguments);
+    }
+  }
+
+  if (policyAdjudication.humanApprovalRequired) {
     const approval = await requestRuntimeApproval({
       runtimeId: input.runtimeId,
       sessionId: input.sessionId,
       approvalId: `${input.toolCallId}:approval`,
       source: "baseTool",
-      reason: governance.approvalReason ?? `BaseTool ${input.toolId} requires approval`,
-      requestedScopes: ["tool.execute", `tool.${input.toolId}`],
-      riskLevel: governance.risk,
+      reason: policyAdjudication.reason,
+      requestedScopes: ["tool.execute", `tool.${input.toolId}`, `approvalScope.${approvalScope.scopeKey}`],
+      riskLevel: policyAdjudication.risk,
       resolver: input.approvalResolver,
       store: input.store,
       now: input.now,
       metadata: {
         toolCallId: input.toolCallId,
         toolId: input.toolId,
+        approvalScopeKey: approvalScope.scopeKey,
+        approvalScope,
         policyMatrixId: governance.policyMatrixId,
+        policyAdjudication,
+        sandboxPlan,
+        ...(workspaceRollback === undefined ? {} : { workspaceRollback }),
       },
     });
     input.events.push(...approval.events);
@@ -3543,7 +3535,7 @@ async function executeBaseToolDecision(input: {
         payload: approval.envelope,
         metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, governanceStatus: governance.status }),
       });
-      return { record, observation, events: [...governance.events, ...approval.events], governance };
+      return { record, observation, events: [...governance.events, ...approval.events], governance, policyAdjudication, sandboxPlan };
     }
     toolArguments = withApprovedRuntimePermissions(input.toolId, toolArguments);
   }
@@ -3621,7 +3613,7 @@ async function executeBaseToolDecision(input: {
         payload: approval.envelope,
         metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, dependencyStatus: dependencyPreflight.status }),
       });
-      return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance };
+      return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance, policyAdjudication, sandboxPlan };
     }
 
     if (!dependencyModeCanPrepare(input.dependencyRuntime?.mode ?? "observe")) {
@@ -3647,7 +3639,7 @@ async function executeBaseToolDecision(input: {
         payload: dependencyPreflight,
         metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, dependencyStatus: dependencyPreflight.status }),
       });
-      return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance };
+      return { record, observation, events: [...governance.events, ...dependencyPreflight.events, ...approval.events], governance, policyAdjudication, sandboxPlan };
     }
 
     dependencyPreflight = await preflightBaseToolDependencies({
@@ -3700,7 +3692,7 @@ async function executeBaseToolDecision(input: {
       payload: dependencyPreflight,
       metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, dependencyStatus: dependencyPreflight.status }),
     });
-    return { record, observation, events: [...governance.events, ...dependencyPreflight.events], governance };
+    return { record, observation, events: [...governance.events, ...dependencyPreflight.events], governance, policyAdjudication, sandboxPlan };
   }
 
   const toolResult = await invokeMountedBaseTool({
@@ -3736,6 +3728,9 @@ async function executeBaseToolDecision(input: {
         missingDependencies: dependencyPreflight.missingDependencies,
         installableDependencies: dependencyPreflight.installableDependencies,
       },
+      policyAdjudication,
+      sandboxPlan,
+      ...(workspaceRollback === undefined ? {} : { workspaceRollback }),
     },
   });
   input.events.push(...toolResult.events);
@@ -3770,7 +3765,7 @@ async function executeBaseToolDecision(input: {
       createdAt: input.now(),
     }),
   });
-  return { record, observation, events: toolResult.events, governance };
+  return { record, observation, events: toolResult.events, governance, policyAdjudication, sandboxPlan };
 }
 
 async function executeEphemeralProcedure(input: {
@@ -3784,6 +3779,8 @@ async function executeEphemeralProcedure(input: {
   allowToolExecution?: boolean;
   store: RuntimeSessionStateEventStore;
   approvalResolver?: RuntimeApprovalResolver;
+  agentReviewResolver?: RuntimeAgentReviewResolver;
+  preparedSandbox?: SandboxRuntimePrepareResult;
   dependencyRuntime?: NonNullable<PraxisRuntimeKernelOptions["baseToolDependencyRuntime"]>;
   onToolCallProgress?: (event: AgentToolCallProgressEvent) => void | Promise<void>;
   now: () => string;
@@ -3811,7 +3808,7 @@ async function executeEphemeralProcedure(input: {
           stepId: shellWorkspaceWriteViolation.step.stepId,
           baseToolId: shellWorkspaceWriteViolation.step.baseToolId,
           reason: shellWorkspaceWriteViolation.reason,
-          recommendedTools: ["code.overwrite", "code.modify", "code.replaceFile"],
+          recommendedTools: ["patch.apply"],
         },
         metadata: metadataRecord({
           procedureId: input.plan.procedureId,
@@ -3900,6 +3897,8 @@ async function executeEphemeralProcedure(input: {
         allowToolExecution: input.allowToolExecution,
         store: input.store,
         approvalResolver: input.approvalResolver,
+        agentReviewResolver: input.agentReviewResolver,
+        preparedSandbox: input.preparedSandbox,
         dependencyRuntime: input.dependencyRuntime,
         now: input.now,
         events: input.events,
@@ -4025,7 +4024,7 @@ export class PraxisRuntimeKernel {
     const toolCalls: AgentToolCallRecord[] = [];
     const mainLoopSteps: MainLoopStepRecord[] = [];
     const observations: RuntimeObservationMaterial[] = [];
-    const sameTurnCodeReadCache = new Map<string, { callId: string; fullFileRead: boolean }>();
+    const sameTurnFileReadCache = new Map<string, { callId: string; fullFileRead: boolean }>();
     const createdAt = now();
 
     await store.createSession({
@@ -4953,10 +4952,10 @@ export class PraxisRuntimeKernel {
             providerToolName: decision.toolCall.providerToolName,
             arguments: decision.toolCall.arguments,
           });
-          const readCacheKey = codeReadCacheKey(decision.toolCall.toolId, decision.toolCall.arguments);
-          const cachedRead = readCacheKey === undefined ? undefined : sameTurnCodeReadCache.get(readCacheKey);
+          const readCacheKey = fileReadCacheKey(decision.toolCall.toolId, decision.toolCall.arguments);
+          const cachedRead = readCacheKey === undefined ? undefined : sameTurnFileReadCache.get(readCacheKey);
           if (cachedRead?.fullFileRead === true) {
-            const reused = duplicateCodeReadRecord({
+            const reused = duplicateFileReadRecord({
               sessionId,
               toolCallId: decision.toolCall.callId,
               toolId: decision.toolCall.toolId,
@@ -5002,7 +5001,7 @@ export class PraxisRuntimeKernel {
                 },
               }),
             });
-            return { ok: true, continueLoop: true, events: ["runtime.baseTool.codeRead.duplicateObservationReused"] };
+            return { ok: true, continueLoop: true, events: ["runtime.baseTool.fileRead.duplicateObservationReused"] };
           }
           const executed = await executeBaseToolDecision({
             runtimeId,
@@ -5018,6 +5017,8 @@ export class PraxisRuntimeKernel {
             allowToolExecution: options.allowToolExecution,
             store,
             approvalResolver: options.approvalResolver,
+            agentReviewResolver: options.agentReviewResolver,
+            preparedSandbox: sandboxPrepared.sandbox,
             dependencyRuntime: options.baseToolDependencyRuntime,
             now,
             events,
@@ -5029,14 +5030,14 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(executed.record);
           observations.push(executed.observation);
-          if (isCodeMutationTool(executed.record.toolId)) {
-            sameTurnCodeReadCache.clear();
+          if (invalidatesFileReadCache(executed.record.toolId)) {
+            sameTurnFileReadCache.clear();
           } else if (readCacheKey !== undefined && executed.record.ok) {
             const output = isRecord(executed.record.output) ? executed.record.output : undefined;
             const truncated = output?.truncated === true;
-            sameTurnCodeReadCache.set(readCacheKey, {
+            sameTurnFileReadCache.set(readCacheKey, {
               callId: executed.record.callId,
-              fullFileRead: !codeReadHasRange(executed.record.arguments) && !truncated,
+              fullFileRead: !truncated,
             });
           }
           toolContextHeatState = applyBaseToolContextUsage(
@@ -5174,6 +5175,8 @@ export class PraxisRuntimeKernel {
             allowToolExecution: options.allowToolExecution,
             store,
             approvalResolver: options.approvalResolver,
+            agentReviewResolver: options.agentReviewResolver,
+            preparedSandbox: sandboxPrepared.sandbox,
             dependencyRuntime: options.baseToolDependencyRuntime,
             onToolCallProgress: options.onToolCallProgress,
             now,

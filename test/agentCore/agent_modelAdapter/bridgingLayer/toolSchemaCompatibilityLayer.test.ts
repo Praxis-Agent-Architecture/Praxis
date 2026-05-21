@@ -12,8 +12,8 @@ import {
   tool,
 } from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
 import {
-  codeOverwriteBaseToolDefinition,
-} from "../../../../src/storagePool/baseToolStorage/codeBase/edit/code.overwrite/bestPractice.js";
+  basetool,
+} from "../../../../src/basetool/index.js";
 
 const fixtureTools = [
   tool("code.read", {
@@ -140,21 +140,16 @@ test("toolSchemaCompatibilityLayer supports OpenAI chat completions tool shape a
   assert.deepEqual(calls[0]?.arguments, { path: "README.md" });
 });
 
-test("toolSchemaCompatibilityLayer exposes code.overwrite workspaceRoot contract clearly", () => {
-  const overwriteTool = tool("code.overwrite", {
-    family: "codeBase",
-    group: "edit",
-    description: codeOverwriteBaseToolDefinition.description,
-    inputSchema: codeOverwriteBaseToolDefinition.inputSchema.schema as Readonly<Record<string, unknown>>,
-  });
+test("toolSchemaCompatibilityLayer exposes patch.apply as the preferred write contract", () => {
+  const overwriteTool = basetool.core.patchApply();
   const lowered = lowerPraxisToolsForProvider({ providerFamily: "openaiChatCompletions", tools: [overwriteTool] });
   const providerTool = lowered.tools.find((item) =>
-    (item as { function?: { name?: string } }).function?.name === "praxis_tool_code_overwrite"
+    (item as { function?: { name?: string } }).function?.name === "praxis_tool_patch_apply"
   ) as { function?: { description?: string; parameters?: { required?: string[]; properties?: Record<string, { description?: string }> } } } | undefined;
 
-  assert.match(providerTool?.function?.description ?? "", /workspaceRoot/u);
-  assert.deepEqual(providerTool?.function?.parameters?.required, ["workspaceRoot", "targetPath", "content"]);
-  assert.match(providerTool?.function?.parameters?.properties?.workspaceRoot?.description ?? "", /scope auditing/u);
+  assert.match(providerTool?.function?.description ?? "", /Codex-style patch/u);
+  assert.deepEqual(providerTool?.function?.parameters?.required, ["patch"]);
+  assert.match(providerTool?.function?.parameters?.properties?.patch?.description ?? "", /Begin Patch/u);
 });
 
 test("toolSchemaCompatibilityLayer raises fragmented OpenAI chat completions streaming tool calls", () => {

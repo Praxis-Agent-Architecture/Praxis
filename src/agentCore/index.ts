@@ -73,8 +73,14 @@ import {
 } from "../runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
 import {
   baseToolDeveloperCatalogDescriptor,
-  baseTools,
+  baseToolCodingCoreDescriptor,
+  basetool,
+  baseToolProfile,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
 } from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
@@ -438,7 +444,7 @@ export {
 export {
   type BaseToolExecutorPort,
   type BaseToolExecutorResult,
-} from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../basetool/types.js";
 
 export {
   PraxisRuntimeKernel,
@@ -455,6 +461,9 @@ export {
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
+  type RuntimeAgentReviewEnvelope,
+  type RuntimeAgentReviewResolution,
+  type RuntimeAgentReviewResolver,
 } from "../runtimeImplementation/praxisRuntimeKernel.js";
 
 export {
@@ -499,15 +508,24 @@ export {
 
 export {
   baseToolDeveloperCatalogDescriptor,
-  baseTools,
+  baseToolCodingCoreDescriptor,
+  basetool,
+  baseToolProfile,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
+  type BaseToolDefinition,
   type BaseToolDeveloperCatalogEntry,
   type BaseToolDeveloperLookupResult,
+  type BaseToolProfile,
+  type BaseToolProfileName,
   type BaseToolSpecInput,
   type CodingToolSetOptions,
-} from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+} from "../basetool/index.js";
 
 export {
   baseToolRealityLedgerDescriptor,
@@ -600,7 +618,12 @@ export const harnessRuntimePolicy = Object.freeze({
 });
 
 export const baseTool = Object.freeze({
-  baseTools,
+  basetool,
+  profile: baseToolProfile,
+  profiles: listBaseToolProfiles,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   tool,
   tools,
   toolPolicies,
@@ -608,6 +631,7 @@ export const baseTool = Object.freeze({
   tryBaseToolById,
   listBaseToolDeveloperCatalog,
   baseToolDeveloperCatalogDescriptor,
+  baseToolCodingCoreDescriptor,
 });
 
 export const runtimeKernel = Object.freeze({
@@ -684,7 +708,7 @@ export const interfaceAdapter = Object.freeze({
  * ```
  *
  * 然后用 `praxis.AgentArchetype`、`praxis.prompt.append`、
- * `praxis.model(...)`、`praxis.baseTools.code.read()` 来定义 Agent。
+ * `praxis.model(...)`、`praxis.basetool.core.fileRead()` 来定义 Agent。
  */
 export const praxis = Object.freeze({
   Agent: PraxisAgent,
@@ -717,13 +741,21 @@ export const praxis = Object.freeze({
   statePlane,
   storage,
 
-  baseTools,
+  basetool,
+  basetools: basetool,
+  baseTool,
+  baseToolProfile,
+  listBaseToolProfiles,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   tool,
   tools,
   toolPolicies,
   toolSets,
   tryBaseToolById,
   listBaseToolDeveloperCatalog,
+  baseToolCodingCoreDescriptor,
 
   runtime: runtimeKernel,
   execution: executionCore,
