@@ -158,7 +158,7 @@ if (!compiled.ok) {
           role: "primary",
           ready: false,
           required: false,
-          reason: "example 默认使用 dry-run；接 live provider 时再注入 auth/providerCaller。",
+          reason: "example 默认使用 dry-run；接 live provider 时再注入 auth/modelClient。",
         },
       ],
       promptPackPreview: turnPreview.ok

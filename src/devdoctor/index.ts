@@ -24,11 +24,6 @@ import {
   type PraxisApplicationViewModel,
 } from "../applicationLayer/index.js";
 import type { AgentManifest } from "../agentCore/index.js";
-import { resolveAuthEnvelope } from "../modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../modelAdapter/providerAccessLayer/transportCaller.js";
 import type { RaxCliResult } from "../rax_packageManager/raxCli.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -205,48 +200,8 @@ async function createDevdoctorLiveProvider(
     throw new Error("No Codex auth file found. Provide --codex-auth-file, AGENTCORE_CODEX_AUTH_FILE, project .rax_workspace auth, ~/.rax auth, or ~/.codex/auth.json.");
   }
 
-  const credentialRef = createCredentialRef({
-    id: `devdoctor:${manifest.identity.id}:chatgpt-codex`,
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: authFile },
-  });
-  if (!credentialRef.ok) {
-    throw new Error(credentialRef.error.message);
-  }
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => {
-      try {
-        return readFileSync(filePath, "utf8");
-      } catch {
-        return undefined;
-      }
-    },
-  });
-  if (!auth.ok) {
-    throw new Error(auth.error.message);
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: manifest.model.carrierId,
-    model: manifest.model.model,
-    credentialRef: credentialRef.credentialRef,
-    clientName: manifest.model.clientName ?? "praxis-devdoctor",
-    clientVersion: manifest.model.clientVersion ?? process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0",
-  });
-  if (!carrier.ok) {
-    throw new Error(carrier.error.message);
-  }
-
   return {
-    auth: auth.resolved.envelope,
-    providerCaller: createProviderCaller({
-      transport: fetchProviderTransport,
-      authMaterial: auth.resolved.privateMaterial,
-      timeoutMs: Number(process.env.RAX_PROVIDER_TIMEOUT_MS ?? "60000"),
-    }),
+    auth: { type: "none" },
     provider: manifest.model.provider,
     endpointShape: manifest.model.endpointShape,
   };

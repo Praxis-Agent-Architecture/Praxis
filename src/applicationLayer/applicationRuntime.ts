@@ -23,12 +23,7 @@ import {
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
 } from "../agentCore/index.js";
-import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
-import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
-import { invokeChatGPTCodexResponses } from "../modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
-import { resolveProviderModelMetadata } from "../modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
+import type { RaxAuthRef, RaxModelClient } from "../modelAdapter/index.js";
 import type {
   PraxisApplicationCommand,
   PraxisApplicationCommandResult,
@@ -55,12 +50,29 @@ import {
   type PraxisApplicationProject,
 } from "./applicationProject.js";
 
+type RaxProviderModelClient = RaxModelClient;
+type RaxApplicationAuthRef = RaxAuthRef;
+
+async function invokeMovedProviderNativeRequest(_request: unknown): Promise<{
+  ok: false;
+  error: { code: string; message: string; boundary?: string };
+  events: readonly string[];
+  response?: { raw: unknown };
+}> {
+  return {
+    ok: false,
+    error: {
+      code: "PROVIDER_NATIVE_ADAPTER_MOVED",
+      message: "Provider-native Responses helpers moved out of Praxis applicationLayer; call src/modelAdapter RaxModelClient instead.",
+      boundary: "provider",
+    },
+    events: ["praxis.application.providerNative.movedToModelAdapter"],
+  };
+}
+
 export type PraxisApplicationLiveProvider = {
-  auth: AuthEnvelope;
-  providerCaller?: OpenAIV1ResponsesProviderCaller;
-  openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
-  openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
-  anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
+  auth: RaxAuthRef;
+  modelClient?: RaxModelClient;
   provider?: string;
   endpointShape?: string;
   baseURL?: string;
@@ -163,6 +175,40 @@ function event(input: Omit<PraxisApplicationEvent, "publicSafe">): PraxisApplica
 
 function cleanReasoning(value: PraxisApplicationReasoningEffort | undefined): PraxisApplicationReasoningEffort {
   return value ?? "low";
+}
+
+function resolveProviderModelMetadata(input: { provider: string; model: string }): {
+  contextWindowTokens?: number;
+  maxInputTokens?: number;
+  inputBudgetThreshold?: number;
+  usableInputTokens?: number;
+  source?: string;
+} | undefined {
+  if (input.provider === "deepseek" || input.model.includes("deepseek")) {
+    return {
+      contextWindowTokens: 128_000,
+      maxInputTokens: 112_000,
+      inputBudgetThreshold: 96_000,
+      usableInputTokens: 112_000,
+      source: "modelAdapter.static",
+    };
+  }
+  if (input.provider === "anthropic") {
+    return {
+      contextWindowTokens: 200_000,
+      maxInputTokens: 180_000,
+      inputBudgetThreshold: 160_000,
+      usableInputTokens: 180_000,
+      source: "modelAdapter.static",
+    };
+  }
+  return {
+    contextWindowTokens: 128_000,
+    maxInputTokens: 112_000,
+    inputBudgetThreshold: 96_000,
+    usableInputTokens: 112_000,
+    source: "modelAdapter.static",
+  };
 }
 
 function createApplicationModelState(input: {
@@ -1786,21 +1832,21 @@ function readResponseSources(raw: unknown): Array<{ title?: string; url: string;
   return dedupeSources(sources);
 }
 
-function openAIResponsesCallerFor(liveProvider: PraxisApplicationLiveProvider | undefined): OpenAIV1ResponsesProviderCaller | undefined {
+function modelClientFor(liveProvider: PraxisApplicationLiveProvider | undefined): RaxProviderModelClient | undefined {
   if (liveProvider === undefined) return undefined;
   const provider = liveProvider.provider?.trim();
   const endpointShape = liveProvider.endpointShape?.trim();
   if (provider !== undefined && provider !== "openai") return undefined;
   if (endpointShape !== undefined && endpointShape !== "responses") return undefined;
-  return liveProvider.openaiResponsesCaller ?? liveProvider.providerCaller;
+  return liveProvider.modelClient;
 }
 
 function createProviderNativeSearchAdapter(input: {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: RaxApplicationAuthRef;
+  modelClient: RaxProviderModelClient;
   runtimeId: string;
 }): NonNullable<NonNullable<BaseToolExecutorPort["network"]>["nativeWebSearch"]> {
-  return async (request): Promise<BaseToolExecutorResult<{
+  return async (request: any): Promise<BaseToolExecutorResult<{
     answer?: string;
     sources: readonly { title?: string; url: string; snippet?: string; kind?: "search_result" | "citation" | "provider_native"; raw?: unknown }[];
     citations?: readonly { url: string; title?: string; snippet?: string; providerReference?: string; raw?: unknown }[];
@@ -1817,11 +1863,11 @@ function createProviderNativeSearchAdapter(input: {
         },
       };
     }
-    const result = await invokeChatGPTCodexResponses({
+    const result = await invokeMovedProviderNativeRequest({
       operation: "create",
       method: "POST",
       auth: input.auth,
-      caller: input.providerCaller,
+      caller: input.modelClient,
       runtime: {
         runtimeId: input.runtimeId,
         invocationId: `native-web-search:${Date.now()}`,
@@ -1853,7 +1899,7 @@ function createProviderNativeSearchAdapter(input: {
         events: result.events,
       };
     }
-    const raw = result.response.raw;
+    const raw = result.response?.raw;
     const answer = readResponseText(raw);
     const sources = readResponseSources(raw);
     const publicSources = sources.map((source) => ({
@@ -1997,13 +2043,13 @@ function resolveImageAttachment(input: {
 }
 
 function createOpenAIResponsesImageVisionAdapter(input: {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: RaxApplicationAuthRef;
+  modelClient: RaxProviderModelClient;
   runtimeId: string;
   model: string;
   attachments?: readonly ApplicationInputAttachment[];
 }): NonNullable<NonNullable<BaseToolExecutorPort["omni"]>["transformMedia"]> {
-  return async (request): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType?: string }>> => {
+  return async (request: any): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType?: string }>> => {
     const parameters = request.parameters ?? {};
     if (request.operation === "omni.generateImage.generateimage") {
       const prompt = stringValue(parameters.prompt);
@@ -2033,11 +2079,11 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       if (quality !== undefined) imageTool.quality = quality;
       if (outputFormat !== undefined) imageTool.output_format = outputFormat;
 
-      const result = await invokeChatGPTCodexResponses({
+      const result = await invokeMovedProviderNativeRequest({
         operation: "create",
         method: "POST",
         auth: input.auth,
-        caller: input.providerCaller,
+        caller: input.modelClient,
         runtime: {
           runtimeId: input.runtimeId,
           invocationId: `omni-generate-image:${Date.now()}`,
@@ -2071,7 +2117,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         };
       }
 
-      const generated = readImageGenerationCall(result.response.raw);
+      const generated = readImageGenerationCall(result.response?.raw);
       if (generated === undefined) {
         return {
           ok: false,
@@ -2155,11 +2201,11 @@ function createOpenAIResponsesImageVisionAdapter(input: {
 
     const mimeType = imageMimeTypeFromPath(imagePath, stringValue(parameters.mediaType) ?? attachment?.mimeType);
     const detail = responsesImageDetail(stringValue(parameters.detail));
-    const result = await invokeChatGPTCodexResponses({
+    const result = await invokeMovedProviderNativeRequest({
       operation: "create",
       method: "POST",
       auth: input.auth,
-      caller: input.providerCaller,
+      caller: input.modelClient,
       runtime: {
         runtimeId: input.runtimeId,
         invocationId: `omni-view-image:${Date.now()}`,
@@ -2207,7 +2253,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       };
     }
 
-    const analysis = readResponseText(result.response.raw);
+    const analysis = readResponseText(result.response?.raw);
     return {
       ok: true,
       output: {
@@ -2741,10 +2787,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           allowProviderCall: (command.mode ?? state.mode) === "live",
           allowToolExecution: false,
           auth: liveProvider?.auth,
-          providerCaller: liveProvider?.providerCaller,
-          openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
-          openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
-          anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+          modelClient: liveProvider?.modelClient,
           exposeProviderTools: false,
           approvalResolver: approvalResolverForRun(),
           storage: {
@@ -2989,10 +3032,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       allowProviderCall: state.mode === "live",
       allowToolExecution: state.mode === "live",
       auth: liveProvider?.auth,
-      providerCaller: liveProvider?.providerCaller,
-      openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
-      openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
-      anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+          modelClient: liveProvider?.modelClient,
       previousProviderResponse: state.lastProviderResponseBySession.get(state.sessionId),
       exposeProviderTools: true,
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
@@ -3004,19 +3044,19 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         initMode: "on-run",
       },
       sandbox: { cwd: state.cwd },
-      baseToolAdapters: openAIResponsesCallerFor(liveProvider)
+      baseToolAdapters: modelClientFor(liveProvider)
         ? {
           network: {
             nativeWebSearch: createProviderNativeSearchAdapter({
               auth: liveProvider!.auth,
-              providerCaller: openAIResponsesCallerFor(liveProvider)!,
+              modelClient: modelClientFor(liveProvider)!,
               runtimeId: state.runtimeId,
             }),
           },
           omni: {
             transformMedia: createOpenAIResponsesImageVisionAdapter({
               auth: liveProvider!.auth,
-              providerCaller: openAIResponsesCallerFor(liveProvider)!,
+              modelClient: modelClientFor(liveProvider)!,
               runtimeId: state.runtimeId,
               model: state.model.model,
               attachments: command.input.attachments,

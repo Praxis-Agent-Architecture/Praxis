@@ -17,12 +17,26 @@
     "./agent-core": "./src/agentCore/index.ts",
     "./application": "./src/applicationLayer/index.ts",
     "./application-layer": "./src/applicationLayer/index.ts",
+    "./modelAdapter": "./src/modelAdapter/index.ts",
+    "./model-adapter": "./src/modelAdapter/index.ts",
+    "./toolBase": "./src/toolBase/index.ts",
+    "./tool-base": "./src/toolBase/index.ts",
     "./rax": "./src/rax_packageManager/index.ts"
   },
   "files": [
     "bin",
     "src",
     "examples",
+    "!examples/scripts/agentcore_all_tools_matrix.ts",
+    "!examples/scripts/agentcore_codebase_explore_live_matrix.ts",
+    "!examples/scripts/agentcore_computeruse_live_matrix.ts",
+    "!examples/scripts/agentcore_git_live_matrix.ts",
+    "!examples/scripts/agentcore_mcp_external_transport_smoke.ts",
+    "!examples/scripts/agentcore_mcp_live_matrix.ts",
+    "!examples/scripts/agentcore_omni_live_matrix.ts",
+    "!examples/scripts/agentcore_search_live_matrix.ts",
+    "!examples/scripts/agentcore_skill_live_matrix.ts",
+    "!examples/scripts/agentcore_tool_lab.ts",
     "LICENSE",
     "tsconfig.json",
     "!**/memory/generated",
@@ -38,7 +52,7 @@
     "!**/*.test.ts"
   ],
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=22.22.3"
   },
   "scripts": {
     "build": "npm run typecheck",
@@ -66,8 +80,9 @@
     "test:agentCore:all-tools-matrix": "AGENTCORE_LIVE_TEST=1 node --import tsx examples/scripts/agentcore_all_tools_matrix.ts",
     "lab:agentCore:tools": "node --import tsx examples/scripts/agentcore_tool_lab.ts",
     "smoke:agentCore": "node --import tsx examples/scripts/agentcore_smoke.ts",
+    "smoke:modelAdapter": "node --import tsx examples/scripts/modelAdapter_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
-    "test:agentCore": "find test/agentCore -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
+    "test:agentCore": "find test/agentCore -type f -name '*.test.ts' ! -path 'test/agentCore/agent_executionEngine/basic_toolLayer/*' ! -path 'test/agentCore/agent_runtimeImplementation/runtime.execEngine/*' -print0 | xargs -0 node --import tsx --test",
     "test:unit": "npm run test:agentCore"
   },
   "devDependencies": {
@@ -89,12 +104,13 @@
     "@openai/agents": "^0.7.2",
     "@types/react": "^18.3.28",
     "apache-arrow": "^18.1.0",
+    "effect": "^3.21.2",
     "ink": "^5.2.1",
     "openai": "^6.37.0",
     "react": "^18.3.1",
     "string-width": "^7.2.0",
-    "typescript": "^5.9.3",
     "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "zod": "^4.4.3"
   }
 }

@@ -1881,7 +1881,7 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
     async enforceSandbox(request) {
       const delegated = await callDelegated<Readonly<Record<string, unknown>>>(context, "shell.enforceSandbox", request);
       if (delegated !== undefined) return delegated;
-      const deniedPath = request.requestedPaths.find((requestedPath) => {
+      const deniedPath = request.requestedPaths.find((requestedPath: string) => {
         const resolved = resolveWithinAllowedRoots(context, requestedPath);
         return !resolved.ok;
       });
@@ -2568,15 +2568,15 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): NonNull
       }>(context, "network.ground", request);
       if (delegated !== undefined) return delegated;
       const citations = request.evidence
-        .filter((item) => typeof item.url === "string" && item.url.length > 0)
-        .map((item) => ({ url: item.url as string, title: item.title, snippet: item.excerpt }));
+        .filter((item: { url?: unknown }) => typeof item.url === "string" && item.url.length > 0)
+        .map((item: { url: string; title?: string; excerpt?: string }) => ({ url: item.url, title: item.title, snippet: item.excerpt }));
       return success({
         answer: citations.length > 0 ? request.claim : undefined,
         grounded: citations.length >= (request.minimumEvidenceCount ?? 1),
         status: citations.length >= (request.minimumEvidenceCount ?? 1) ? "grounded" : "unsupported",
         confidence: citations.length > 0 ? "medium" : "not-evaluated",
         citations,
-        sources: citations.map((citation) => ({ ...citation, kind: "citation" as const })),
+        sources: citations.map((citation: { url: string; title?: string; snippet?: string }) => ({ ...citation, kind: "citation" as const })),
         providerMetadata: {
           provider: request.provider ?? "generic",
           officialShape: "grounding-adapter",
@@ -2608,7 +2608,7 @@ function createDebugExecutor(context: RuntimeBaseToolExecutorContext): NonNullab
       const delegated = await callDelegated(context, "debug.collectLogs", request);
       if (delegated !== undefined) return delegated;
       return success({
-        entries: request.sources.map((source) => ({
+        entries: request.sources.map((source: { source?: unknown }) => ({
           source: typeof source.source === "string" ? source.source : "runtime",
           level: "info",
           message: "runtime log collection envelope prepared",
@@ -3448,7 +3448,7 @@ async function runManagedTmuxKeyboardAction(
   const target = session;
   const args = request.action === "type"
     ? ["send-keys", "-t", target, "-l", request.text ?? ""]
-    : ["send-keys", "-t", target, ...((request.keys ?? (request.action === "submit" ? ["Enter"] : [])).map((key) => key === "Enter" ? "C-m" : key))];
+    : ["send-keys", "-t", target, ...((request.keys ?? (request.action === "submit" ? ["Enter"] : [])).map((key: string) => key === "Enter" ? "C-m" : key))];
   if (args.length <= 3) {
     return failure("INVALID_REQUEST", "managed terminal input requires text or keys", [
       "runtime.execEngine.baseToolExecutorPort.computeruse.keyboardAction.tmuxInvalidRequest",
@@ -3605,7 +3605,7 @@ async function runLinuxDesktopKeyboardAction(
     if (xdotool === undefined) return undefined;
     const args = request.action === "type"
       ? ["type", "--delay", "1", request.text ?? ""]
-      : ["key", "--clearmodifiers", ...((request.keys ?? (request.action === "submit" ? ["Return"] : [])).map((key) => key === "Enter" ? "Return" : key))];
+    : ["key", "--clearmodifiers", ...((request.keys ?? (request.action === "submit" ? ["Return"] : [])).map((key: string) => key === "Enter" ? "Return" : key))];
     if (args.length <= 2) return undefined;
     const result = await runChildProcess({ command: xdotool, args, cwd, timeoutMs: 5_000, intent: "generic" }, context, "computeruse.keyboardAction");
     if (!result.ok) return result;

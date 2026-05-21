@@ -14,7 +14,7 @@ import {
   raiseProviderToolCalls,
   type ProviderToolNameMapping,
   type ProviderToolSchemaFamily,
-} from "../../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../../modelAdapter/toolBridge/providerToolLowering.js";
 
 export type ModelDecisionKind =
   | "finalOutput"

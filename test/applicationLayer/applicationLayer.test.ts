@@ -10,6 +10,11 @@ import {
   describeApplicationWebSocketTransport,
   loadApplicationProject,
 } from "../../src/applicationLayer/index.js";
+import {
+  createMockTransport,
+  createOpenAICompatibleProvider,
+  createRaxModelClient,
+} from "../../src/modelAdapter/index.js";
 
 const DOCTOR_PROJECT = "src/devdoctor";
 
@@ -160,36 +165,29 @@ test("applicationLayer project runtime can execute a dry-run turn", async () => 
 });
 
 test("applicationLayer publishes stream events during live provider calls", async () => {
+  const modelClient = createRaxModelClient([
+    createOpenAICompatibleProvider({
+      id: "openai",
+      baseUrl: "https://api.openai.com/v1",
+    }).routes[0]!,
+  ]);
+  modelClient.registerRoute({
+    ...modelClient.getRoute("openai")!,
+    transport: createMockTransport([
+      {
+        choices: [
+          { delta: { content: "stream " } },
+          { delta: { content: "ok" }, finish_reason: "stop" },
+        ],
+        usage: { prompt_tokens: 31, completion_tokens: 6, total_tokens: 37 },
+      },
+    ]),
+  });
   const created = await createApplicationProjectRuntime(DOCTOR_PROJECT, {
     now: () => "2026-05-10T00:00:00.000Z",
-    liveProviderResolver: async (_manifest, context) => ({
-      auth: {
-        kind: "oauth",
-        present: true,
-        headerPlan: [],
-        queryPlan: [],
-        publicSafe: true,
-      },
-      providerCaller: async () => {
-        context?.onTextDelta?.("stream ");
-        context?.onTextDelta?.("ok");
-        return {
-          status: 200,
-          headers: {},
-          body: [
-            'data: {"type":"response.output_text.delta","delta":"stream "}',
-            "",
-            'data: {"type":"response.output_text.delta","delta":"ok"}',
-            "",
-            'data: {"type":"response.completed","response":{"usage":{"input_tokens":31,"output_tokens":6,"output_tokens_details":{"reasoning_tokens":2}}}}',
-            "",
-            "data: [DONE]",
-            "",
-          ].join("\n"),
-          providerRawShapePromoted: false,
-          publicSafe: true,
-        };
-      },
+    liveProviderResolver: async () => ({
+      auth: { type: "none" },
+      modelClient,
     }),
   });
   assert.equal(created.ok, true);
@@ -215,7 +213,6 @@ test("applicationLayer publishes stream events during live provider calls", asyn
   assert.equal(result.view.finalOutput, "stream ok");
   assert.equal(result.view.usage?.inputTokens, 31);
   assert.equal(result.view.usage?.outputTokens, 6);
-  assert.equal(result.view.usage?.thinkingTokens, 2);
   assert.equal(result.view.usage?.estimated, false);
 });
 

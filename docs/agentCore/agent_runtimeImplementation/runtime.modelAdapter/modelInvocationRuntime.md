@@ -29,13 +29,11 @@
 
 ## 4. 源码头部能力注释
 
-- 文件定位：Agent 运行态实现层 / 模型适配运行态绑定面。
-- 核心目的：承载 model Invocation Runtime 这一能力位点。
-- 能力要求1：需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
-- 能力要求2：如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
-- 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
-- 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 文件定位：Agent 运行态实现层 / 模型调用运行态。
+- 核心目的：把 runtime 的治理/计划壳接到新的 RaxModelRequest/provider route 调用层。
+- 边界：这里不再直连 OpenAI/Anthropic/Gemini 端点实现；provider 字段形状归 src/modelAdapter。
+- 对接：上接 application/runtime kernel，下接 modelAdapter 的 RaxModelClient、provider route 和事件折叠。
+- 实现提示：先保留 dry-run 计划面，再通过可注入 modelClient 打开真实 provider 调用。
 
 ## 5. 需要提供的能力
 
