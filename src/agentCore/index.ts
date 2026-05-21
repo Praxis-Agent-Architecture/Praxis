@@ -73,7 +73,12 @@ import {
 } from "../runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
 import {
   baseToolDeveloperCatalogDescriptor,
+  baseToolCodingCoreDescriptor,
   baseTools,
+  basetool,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
   toolSets,
   tryBaseToolById,
@@ -438,7 +443,7 @@ export {
 export {
   type BaseToolExecutorPort,
   type BaseToolExecutorResult,
-} from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../basetool/types.js";
 
 export {
   PraxisRuntimeKernel,
@@ -499,15 +504,21 @@ export {
 
 export {
   baseToolDeveloperCatalogDescriptor,
+  baseToolCodingCoreDescriptor,
   baseTools,
+  basetool,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
   toolSets,
   tryBaseToolById,
+  type BaseToolDefinition,
   type BaseToolDeveloperCatalogEntry,
   type BaseToolDeveloperLookupResult,
   type BaseToolSpecInput,
   type CodingToolSetOptions,
-} from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+} from "../basetool/index.js";
 
 export {
   baseToolRealityLedgerDescriptor,
@@ -600,6 +611,10 @@ export const harnessRuntimePolicy = Object.freeze({
 });
 
 export const baseTool = Object.freeze({
+  basetool,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   baseTools,
   tool,
   tools,
@@ -608,6 +623,7 @@ export const baseTool = Object.freeze({
   tryBaseToolById,
   listBaseToolDeveloperCatalog,
   baseToolDeveloperCatalogDescriptor,
+  baseToolCodingCoreDescriptor,
 });
 
 export const runtimeKernel = Object.freeze({
@@ -718,12 +734,18 @@ export const praxis = Object.freeze({
   storage,
 
   baseTools,
+  basetool,
+  basetools: basetool,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   tool,
   tools,
   toolPolicies,
   toolSets,
   tryBaseToolById,
   listBaseToolDeveloperCatalog,
+  baseToolCodingCoreDescriptor,
 
   runtime: runtimeKernel,
   execution: executionCore,

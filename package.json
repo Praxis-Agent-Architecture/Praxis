@@ -17,6 +17,7 @@
     "./agent-core": "./src/agentCore/index.ts",
     "./application": "./src/applicationLayer/index.ts",
     "./application-layer": "./src/applicationLayer/index.ts",
+    "./basetool": "./src/basetool/index.ts",
     "./rax": "./src/rax_packageManager/index.ts"
   },
   "files": [

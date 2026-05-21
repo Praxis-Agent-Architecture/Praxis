@@ -77,7 +77,7 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
   harness = harness({
     tools: tools([
       baseTools.shell.commandExecution(),
-      ...toolSets.git.inspection(),
+      baseTools.code.searchRipgrep(),
     ]),
     loop: loop.standard({ maxModelTurns: 2, maxToolCalls: 2 }),
   });
@@ -85,14 +85,14 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
 
 test("public agentCore API lets developers compile minimal and mature agents without runtime internals", async () => {
   assert.equal(authoringPrimitives.PraxisAgent, PraxisAgent);
-  assert.equal(baseTool.baseTools.code.read().toolId, "code.read");
+  assert.equal(baseTool.baseTools.code.read().toolId, "file.read");
   assert.equal(packageAuthoringPrimitives.PraxisAgentArchetype, PraxisAgentArchetype);
   assert.equal(packageModelAuthoring.model("gpt-5.4").model, "gpt-5.4");
-  assert.equal(packageBaseTool.baseTools.git.getRepositoryStatus().toolId, "git.getRepositoryStatus");
+  assert.equal(packageBaseTool.baseTools.code.searchRipgrep().toolId, "file.search");
   assert.equal(praxis.Agent, PraxisAgent);
   assert.equal(packagePraxis.AgentArchetype, PraxisAgentArchetype);
   assert.equal(packagePraxis.model("gpt-5.4").model, "gpt-5.4");
-  assert.equal(packagePraxis.baseTools.code.read().toolId, "code.read");
+  assert.equal(packagePraxis.baseTools.code.read().toolId, "file.read");
   assert.equal(packagePraxis.sandbox.linuxBubblewrap().providerFamily, "linux-bubblewrap");
   assert.equal(packagePraxis.toolPolicies.custom({ matrixId: "toolPolicy.public.custom" }).profile, "custom");
   assert.equal(packagePraxis.interfaceAdapter.createInterfaceEnvelope({
@@ -108,8 +108,8 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   if (!minimal.ok) return;
   assert.equal(minimal.manifest.sandbox.profile, "host-observed");
   assert.equal(minimal.manifest.toolPolicy.profile, "standard");
-  assert.equal(minimal.manifest.harness.tools[0]?.family, "codeBase");
-  assert.equal(minimal.manifest.harness.tools[0]?.group, "explore");
+  assert.equal(minimal.manifest.harness.tools[0]?.family, "coreBase");
+  assert.equal(minimal.manifest.harness.tools[0]?.group, "filesystem");
 
   const mature = compileAgent(MatureDeveloperAgent, { compiledAt: "2026-05-04T00:00:00.000Z" });
   assert.equal(mature.ok, true);
@@ -120,7 +120,7 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(mature.manifest.harness.sandbox.profile, "host-observed");
   assert.equal(mature.manifest.harness.storage.kind, "rax-workspace");
   assert.equal(mature.manifest.harness.storage.sessionStoreRef, "session.sqlite.workspace");
-  assert.equal(mature.manifest.harness.tools.some((item) => item.toolId === "git.getRepositoryStatus"), true);
+  assert.equal(mature.manifest.harness.tools.some((item) => item.toolId === "file.search"), true);
   const validation = validateAgentManifest(mature.manifest);
   assert.equal(validation.ok, true);
   if (!validation.ok) return;
@@ -160,7 +160,7 @@ test("public agentCore API lets developers compile minimal and mature agents wit
     assert.equal(inspection.report.audit.reportSurface, "runtime.inspection.frameworkInspectionReport");
     assert.equal(inspection.report.storage.writesSecrets, false);
     assert.equal(inspection.report.toolReadiness.total, mature.manifest.harness.tools.length);
-    assert.ok(inspection.report.toolReadiness.tools.some((tool) => tool.toolId === "shell.commandExecution"));
+    assert.ok(inspection.report.toolReadiness.tools.some((tool) => tool.toolId === "shell.run"));
     assert.equal(
       inspection.report.toolReadiness.byDeveloperReadiness.adapterRequired > 0 ||
         inspection.report.toolReadiness.byDeveloperReadiness.usableWithApproval > 0 ||

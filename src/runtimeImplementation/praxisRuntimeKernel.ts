@@ -31,7 +31,7 @@ import {
   type ProviderToolNameMapping,
   type ProviderToolSchemaFamily,
 } from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
-import type { BaseToolExecutorPort } from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolExecutorPort } from "../basetool/types.js";
 import { receiveTextInput } from "../executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
 import { exposeTextOutput } from "../executionEngine/IOTransceiver/outputExposer/textExposer.js";
 import {

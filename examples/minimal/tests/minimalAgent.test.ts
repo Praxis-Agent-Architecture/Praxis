@@ -20,6 +20,6 @@ test("minimal repo inspector compiles into a valid manifest", () => {
   assert.equal(validation.manifest.storage.kind, "memory");
   assert.equal(validation.manifest.promptPack.promptPackId, "prompt.example.minimal.repoInspector");
   assert.equal(validation.manifest.harness.tools.length, 2);
-  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "code.read"), true);
-  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "git.getRepositoryStatus"), true);
+  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "file.read"), true);
+  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "file.search"), true);
 });

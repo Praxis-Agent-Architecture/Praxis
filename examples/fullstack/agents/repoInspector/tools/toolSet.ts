@@ -81,13 +81,10 @@ export function createRepoInspectorToolSet(options: NormalizedRepoInspectorOptio
 
   return [
     ...praxis.toolSets.coding.readonly({
-      includeGit: true,
       includeSearch: options.mode === "deep",
     }),
     ...(options.includeShell ? praxis.toolSets.shell.safe() : []),
     ...(options.includeSkillAuthoring ? praxis.toolSets.skill.authoring() : []),
-    ...(options.includeOmni ? omniTestableTools() : []),
-    ...(options.includeComputerUse ? computerUseTestableTools() : []),
     praxis.baseTools.skill.ripgrep({
       description: "只读检索本机可用的 skill/context 材料。",
     }),

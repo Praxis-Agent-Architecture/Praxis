@@ -83,8 +83,6 @@ test("rax build init custom supports a non-interactive wizard input path", async
     "sqlite",
     "--shell-tools",
     "no",
-    "--git-tools",
-    "yes",
     "--interface",
     "yes",
     "--dry-run",
@@ -255,10 +253,10 @@ test("rax inspect reports selected BaseTools through CLI host adapter readiness"
     "  storage = praxis.storage.memory();",
     "  harness = praxis.harness({",
     "    tools: praxis.tools([",
-    "      praxis.baseTools.code.read(),",
-    "      praxis.baseTools.code.searchRipgrep(),",
-    "      praxis.baseTools.git.getRepositoryStatus(),",
-    "      praxis.baseTools.skill.ripgrep(),",
+      "      praxis.baseTools.code.read(),",
+      "      praxis.baseTools.code.searchRipgrep(),",
+      "      praxis.baseTools.search.fetch(),",
+      "      praxis.baseTools.skill.ripgrep(),",
     "    ]),",
     "    loop: praxis.loop.single(),",
     "  });",
@@ -293,7 +291,7 @@ test("rax inspect reports selected BaseTools through CLI host adapter readiness"
   }
 });
 
-test("rax test --all-testable reports the full 176 BaseTool readiness matrix", async () => {
+test("rax test --all-testable reports the single-agent core BaseTool readiness matrix", async () => {
   const targetDir = path.join(scratchRoot, "all-testable-readiness");
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
@@ -325,33 +323,33 @@ test("rax test --all-testable reports the full 176 BaseTool readiness matrix", a
       };
     };
   };
-  assert.equal(payload.readiness?.toolReadiness?.total, 176);
-  assert.equal(payload.readiness?.toolReadiness?.ready, 176);
+  assert.equal(payload.readiness?.toolReadiness?.total, 16);
+  assert.equal(payload.readiness?.toolReadiness?.ready, 16);
   assert.deepEqual(payload.readiness?.toolReadiness?.missing, []);
-  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "mcp.call"), true);
-  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "computeruse.mouseClick"), true);
+  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "mcp.use"), true);
+  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "tool.describe"), true);
 });
 
-test("rax test can run full dependency preparation for selected LSP tools", async () => {
+test("rax test can run full dependency preparation for selected core tools", async () => {
   const targetDir = path.join(scratchRoot, "dependency-full");
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
   const managedRoot = path.join(targetDir, ".rax_workspace", "tool-deps");
   const binDir = path.join(managedRoot, "bin");
   await mkdir(binDir, { recursive: true });
-  const executable = path.join(binDir, "typescript-language-server");
+  const executable = path.join(binDir, "ripgrep");
   await writeFile(executable, "#!/usr/bin/env sh\necho 4.0.0\n", "utf8");
   await chmod(executable, 0o755);
 
-  const agentPath = path.join(targetDir, "lspAgent.ts");
+  const agentPath = path.join(targetDir, "dependencyAgent.ts");
   await writeFile(agentPath, [
     "import { praxis } from \"../../../../src/agentCore/index.js\";",
-    "export class LspAgent extends praxis.Agent {",
-    "  identity = \"agent.lsp-dependency-full\";",
+    "export class DependencyAgent extends praxis.Agent {",
+    "  identity = \"agent.core-dependency-full\";",
     "  model = praxis.model(\"gpt-5.5\");",
     "  storage = praxis.storage.memory();",
     "  harness = praxis.harness({",
-    "    tools: praxis.tools([praxis.tool(\"code.lsp_locateDefinition\")]),",
+    "    tools: praxis.tools([praxis.baseTools.code.searchRipgrep()]),",
     "    loop: praxis.loop.single(),",
     "  });",
     "}",
@@ -375,7 +373,7 @@ test("rax test can run full dependency preparation for selected LSP tools", asyn
   assert.equal(payload.dependencyPreparation?.ready, 1);
   assert.equal(payload.dependencyPreparation?.blocked, 0);
   assert.deepEqual(payload.dependencyPreparation?.results?.map((entry) => [entry.toolId, entry.decision]), [
-    ["code.lsp_locateDefinition", "ready"],
+    ["file.search", "ready"],
   ]);
 });
 

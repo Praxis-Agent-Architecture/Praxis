@@ -179,7 +179,6 @@ async function customOptions(args: readonly string[]): Promise<RaxBuildInitOptio
   const toolPolicyProfile = (argValue(args, "--tool-policy") ?? await ask("Tool policy standard/permissive/restricted/yolo/bapr", "standard")) as RaxBuildInitOptions["toolPolicyProfile"];
   const sessionPersistence = (argValue(args, "--session") ?? await ask("Session persistence memory/sqlite", "sqlite")) as RaxBuildInitOptions["sessionPersistence"];
   const includeShellTools = parseBoolean(argValue(args, "--shell-tools") ?? await ask("Include shell tools yes/no", "yes"));
-  const includeGitTools = parseBoolean(argValue(args, "--git-tools") ?? await ask("Include git tools yes/no", "yes"));
   const includeInterfaceSurface = parseBoolean(argValue(args, "--interface") ?? await ask("Include interface surface yes/no", "yes"));
 
   return {
@@ -191,7 +190,6 @@ async function customOptions(args: readonly string[]): Promise<RaxBuildInitOptio
     toolPolicyProfile,
     sessionPersistence,
     includeShellTools,
-    includeGitTools,
     includeInterfaceSurface,
   };
 }

@@ -98,12 +98,12 @@ export class MinimalRepoInspectorAgent extends praxis.Agent {
 
   /*
    * harness：最小能力外壳。
-   * 只挂两个只读工具，开发者不需要背 toolId 字符串。
+   * 挂核心只读工具，开发者不需要背 toolId 字符串。
    */
   harness = praxis.harness({
     tools: praxis.tools([
       praxis.baseTools.code.read(),
-      praxis.baseTools.git.getRepositoryStatus(),
+      praxis.baseTools.code.searchRipgrep(),
     ]),
     policy: praxis.policy({
       allowProviderCall: true,

@@ -244,7 +244,7 @@ if (!compiled.ok) {
         projection: tool.projection,
         modelRequired: tool.modelRequired,
       })),
-      directHelper: praxis.baseTools.git.getRepositoryStatus(),
+      directHelper: praxis.baseTools.code.searchRipgrep(),
       unknownLookup: praxis.tryBaseToolById("code.thisToolDoesNotExist"),
     });
 

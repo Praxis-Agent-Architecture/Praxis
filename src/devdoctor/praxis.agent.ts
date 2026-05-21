@@ -45,7 +45,7 @@ export class PraxisDoctorAgent extends praxis.Agent {
   harness = praxis.harness({
     tools: praxis.tools([
       praxis.baseTools.code.read(),
-      praxis.baseTools.git.getRepositoryStatus(),
+      praxis.baseTools.code.searchRipgrep(),
     ]),
     policy: praxis.policy({
       allowProviderCall: true,
