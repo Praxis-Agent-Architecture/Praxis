@@ -13,6 +13,7 @@ import type {
   SandboxProviderFamily,
   SandboxSpec,
 } from "../runtimeAgentManifest.js";
+import { canonicalDependencyId } from "../runtime.dependencyPlane/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -130,12 +131,19 @@ function providerFamilyFor(spec: SandboxSpec): SandboxProviderFamily {
 function dependencyRefsFor(spec: SandboxSpec): readonly string[] {
   const refs = spec.dependencyRefs ?? [];
   if (providerFamilyFor(spec) === "linux-bubblewrap" && refs.length === 0) {
-    return ["binary:bwrap"];
+    return ["dependency.binary.bwrap"];
   }
-  return refs;
+  return refs.map(canonicalDependencyId);
 }
 
 function dependencyBinary(ref: string): string | undefined {
+  const canonical = canonicalDependencyId(ref);
+  if (canonical === "dependency.binary.bwrap") return "bwrap";
+  if (canonical === "dependency.binary.rg") return "rg";
+  if (canonical === "dependency.binary.ffmpeg") return "ffmpeg";
+  if (canonical === "dependency.binary.imagemagick") return "magick";
+  if (canonical === "dependency.binary.xdotool") return "xdotool";
+  if (canonical === "dependency.binary.ydotool") return "ydotool";
   if (!ref.startsWith("binary:")) return undefined;
   return ref.slice("binary:".length).split("|")[0]?.trim() || undefined;
 }
@@ -247,7 +255,7 @@ function repairHints(input: {
       requiresApproval: false,
     }];
   }
-  if (input.missingDependencies.includes("binary:bwrap")) {
+  if (input.missingDependencies.includes("dependency.binary.bwrap")) {
     return [{
       hintId: "linux-bubblewrap:install-bwrap",
       severity: "warning",
@@ -275,8 +283,8 @@ function dependencyInstallEnvelopes(input: {
     dependencyId,
     providerFamily: input.providerFamily,
     action: "installDependency",
-    installTarget: dependencyId === "binary:bwrap" ? "system-global" : "manual",
-    commandPreview: dependencyId === "binary:bwrap"
+    installTarget: dependencyId === "dependency.binary.bwrap" ? "system-global" : "manual",
+    commandPreview: dependencyId === "dependency.binary.bwrap"
       ? ["apt install bubblewrap", "dnf install bubblewrap", "pacman -S bubblewrap"]
       : [],
     requiresApproval: true,

@@ -370,6 +370,32 @@ test("validateAgentManifest rejects malformed manifests with public-safe errors"
     assert.equal(secretHash.error.code, "RAW_SECRET_REJECTED");
     assert.equal(secretHash.error.boundary, "security");
   }
+
+  class DependencySecretAgent extends PraxisAgent {
+    identity = "agent.dependency-secret";
+    model = model("gpt-5.4");
+    dependencies = [{
+      dependencyId: "dependency.secret.openai",
+      kind: "secret-ref",
+      required: true,
+      metadata: { apiKey: "sk-raw-secret" },
+    }] as const;
+    harness = harness({
+      loop: loop({ strategy: "single" }),
+    });
+  }
+  const dependencySecret = compileAgent(DependencySecretAgent, {
+    compiledAt: "2026-05-04T00:00:00.000Z",
+    manifestId: "manifest.dependency.secret",
+  });
+  assert.equal(dependencySecret.ok, true);
+  if (!dependencySecret.ok) return;
+  const dependencySecretValidation = validateAgentManifest(dependencySecret.manifest);
+  assert.equal(dependencySecretValidation.ok, false);
+  if (!dependencySecretValidation.ok) {
+    assert.equal(dependencySecretValidation.error.code, "RAW_SECRET_REJECTED");
+    assert.equal(dependencySecretValidation.error.boundary, "security");
+  }
 });
 
 test("tool policy profiles and host-observed sandbox compile into Manifest views", () => {
@@ -568,12 +594,68 @@ test("compileAgent supports custom sandbox, policy, mainLoop refs, and statePlan
   assert.equal(result.manifest.sandbox.providerFamily, "workspace-policy");
   assert.equal(result.manifest.sandbox.isolationLevel, "workspace-policy");
   assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["policy:workspace-only"]);
+  assert.equal(result.manifest.dependencies.find((dependency) => dependency.dependencyId === "policy:workspace-only")?.kind, "runtime");
   assert.equal(result.manifest.toolPolicy.profile, "custom");
   assert.equal(result.manifest.toolPolicy.familyRules[0]?.family, "coreBase");
   assert.equal(result.manifest.mainLoop.hooks.some((hook) => hook.hook === "onApproval" && hook.handlerRef === "loop.final.approval"), true);
   assert.equal(result.manifest.statePlane.control.includes("rotateSecretRef"), true);
   assert.equal(result.manifest.harness.sandbox.providerFamily, "workspace-policy");
   assert.equal(result.manifest.harness.toolPolicy.matrixId, "toolPolicy.final.custom");
+});
+
+test("compileAgent preserves sandbox binary dependency kind in manifest facts", () => {
+  class BubblewrapAgent extends PraxisAgent {
+    identity = "agent.bwrap-kind";
+    model = model("gpt-5.4");
+    sandbox = sandbox.linuxBubblewrap();
+    harness = harness({
+      loop: loop({ strategy: "single" }),
+    });
+  }
+
+  const result = compileAgent(BubblewrapAgent, {
+    compiledAt: "2026-05-25T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["dependency.binary.bwrap"]);
+  assert.equal(result.manifest.dependencies.find((dependency) => dependency.dependencyId === "dependency.binary.bwrap")?.kind, "binary");
+});
+
+test("compileAgent does not let agent dependencies weaken sandbox requirements", () => {
+  class BubblewrapOverrideAgent extends PraxisAgent {
+    identity = "agent.bwrap-override";
+    model = model("gpt-5.4");
+    sandbox = sandbox.linuxBubblewrapReadonly();
+    dependencies = [{
+      dependencyId: "binary:bwrap",
+      kind: "custom",
+      required: false,
+      reason: "agent-level optional hint",
+      metadata: { declaredBy: "agent" },
+    }] as const;
+    harness = harness({
+      loop: loop({ strategy: "single" }),
+    });
+  }
+
+  const result = compileAgent(BubblewrapOverrideAgent, {
+    compiledAt: "2026-05-25T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const dependency = result.manifest.dependencies.find((item) => item.dependencyId === "dependency.binary.bwrap");
+  assert.ok(dependency);
+  assert.equal(dependency.kind, "binary");
+  assert.equal(dependency.required, true);
+  assert.equal(dependency.metadata?.source, "sandbox");
+  assert.equal(dependency.metadata?.declaredBy, "agent");
+  assert.match(dependency.reason ?? "", /required by sandbox sandbox\.linuxBubblewrap\.readonly/);
+  assert.match(dependency.reason ?? "", /agent-level optional hint/);
 });
 
 test("compileAgent rejects missing agent input with public-safe error", () => {

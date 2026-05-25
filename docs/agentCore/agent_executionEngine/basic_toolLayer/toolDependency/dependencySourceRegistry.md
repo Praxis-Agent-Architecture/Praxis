@@ -26,13 +26,13 @@
 
 ## 4. 源码头部能力注释
 
-- 文件定位：Agent 执行引擎 / 基础工具原语层 / 工具依赖管理层 / 依赖源注册表。
-- 核心目的：管理可信依赖源、安装目标、版本策略和可审计安装计划。
-- 能力要求1：需要把内置依赖源和用户/系统越界源明确分级。
-- 能力要求2：正常 Praxis managed 安装不交给 TAP，越界安装才进入治理确认。
-- 边界：只生成依赖源和安装计划，不直接执行安装命令。
-- 对接：被 dependencyChecker、dependencyIterationManager 和 LSP runtime 前置依赖链消费。
-- 实现提示：优先保持 registry 数据驱动，避免把不同语言的安装逻辑散落到工具实现里。
+- 文件定位：Agent 执行引擎 / basic_toolLayer / toolDependency / dependencySourceRegistry。
+- 核心目的：兼容旧依赖源查询 API，并委托 runtime.dependencyPlane 管理官方依赖源。
+- 能力要求1：保留 trusted managed install plan 行为。
+- 能力要求2：保留 detect-only 依赖不可静默安装的边界。
+- 边界：不直接安装依赖，不读取 secret。
+- 对接：runtime.dependencyPlane.dependencySourceRegistry。
+- 实现提示：旧返回形状使用 ok/value，内部使用新版点号 dependency id。
 
 ## 5. 需要提供的能力
 

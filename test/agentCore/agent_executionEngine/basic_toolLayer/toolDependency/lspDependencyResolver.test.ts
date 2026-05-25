@@ -14,15 +14,15 @@ defineAgentCoreContractTest({
 
 test("resolveLspDependency resolves mainstream languages from file extension and workspace markers", () => {
   const cases = [
-    ["src/app.ts", "typescript", "lsp.server.typescript-language-server"],
-    ["Program.cs", "csharp", "lsp.server.csharp-ls"],
-    ["src/Main.java", "java", "lsp.server.jdtls"],
-    ["native/main.cpp", "cpp", "lsp.server.clangd"],
-    ["Package.swift", "swift", "lsp.server.sourcekit-lsp"],
-    ["build.gradle.kts", "kotlin", "lsp.server.kotlin-language-server"],
-    ["main.py", "python", "lsp.server.pyright-langserver"],
-    ["src/lib.rs", "rust", "lsp.server.rust-analyzer"],
-    ["main.go", "go", "lsp.server.gopls"],
+    ["src/app.ts", "typescript", "dependency.lsp.typescriptLanguageServer"],
+    ["Program.cs", "csharp", "dependency.lsp.csharpLs"],
+    ["src/Main.java", "java", "dependency.lsp.jdtls"],
+    ["native/main.cpp", "cpp", "dependency.lsp.clangd"],
+    ["Package.swift", "swift", "dependency.lsp.sourcekitLsp"],
+    ["build.gradle.kts", "kotlin", "dependency.lsp.kotlinLanguageServer"],
+    ["main.py", "python", "dependency.lsp.pyrightLangserver"],
+    ["src/lib.rs", "rust", "dependency.lsp.rustAnalyzer"],
+    ["main.go", "go", "dependency.lsp.gopls"],
   ] as const;
 
   for (const [filePath, languageId, dependencyId] of cases) {
@@ -64,10 +64,25 @@ test("declarationsFromLspProfile converts the profile into dependencyManager inp
   }
 
   const declarations = declarationsFromLspProfile(result.profile);
-  assert.equal(declarations[0]?.dependencyId, "lsp.server.typescript-language-server");
+  assert.equal(declarations[0]?.dependencyId, "dependency.lsp.typescriptLanguageServer");
   assert.equal(declarations[0]?.metadata?.lspProfile !== undefined, true);
   assert.equal(declarations[0]?.metadata?.dependencySource !== undefined, true);
   assert.deepEqual((declarations[0]?.metadata?.lspProfile as { serverArgs?: readonly string[] }).serverArgs, ["--stdio"]);
+});
+
+test("declarationsFromLspProfile preserves non-npm LSP dependency kinds", () => {
+  const result = resolveLspDependency({
+    target: { filePath: "Program.cs" },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    return;
+  }
+
+  const declarations = declarationsFromLspProfile(result.profile);
+  assert.equal(declarations[0]?.dependencyId, "dependency.lsp.csharpLs");
+  assert.equal(declarations[0]?.kind, "dotnet-tool");
 });
 
 test("resolveLspDependency returns public-safe errors for missing or unknown targets", () => {

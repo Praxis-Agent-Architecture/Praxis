@@ -37,6 +37,10 @@ export type BaseToolFamily =
 
 export type BaseToolDependencyKind =
   | "binary"
+  | "npm"
+  | "dotnet-tool"
+  | "secret-ref"
+  | "mcp-server"
   | "package"
   | "service"
   | "permission"
@@ -51,6 +55,12 @@ export type BaseToolDependencyDeclaration = {
   kind: BaseToolDependencyKind;
   required: boolean;
   description: string;
+  version?: string;
+  acceptedVersions?: readonly string[];
+  install?: "auto" | "manual" | "disabled";
+  sourceRef?: string;
+  requiredScopes?: readonly string[];
+  secretRef?: string;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
