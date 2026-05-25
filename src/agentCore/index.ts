@@ -62,6 +62,30 @@ import {
   resolveRaxWorkspace,
 } from "../runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 import {
+  capabilities,
+  capability,
+  createProvisionPlan,
+  dependencies,
+  dependencyAuthoring,
+  provisionRuntimeDescriptor,
+} from "../runtimeImplementation/runtime.provisionPlane/index.js";
+import {
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+} from "../runtimeImplementation/runtime.componentPlane/index.js";
+import {
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+} from "../runtimeImplementation/runtime.dependencyPlane/index.js";
+import {
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
 } from "../runtimeImplementation/praxisRuntimeKernel.js";
@@ -202,6 +226,51 @@ export {
   type ToolSpec,
   type ToolPolicyCustomInput,
 } from "../runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  capabilities,
+  capability,
+  createProvisionPlan,
+  dependencies,
+  dependencyAuthoring,
+  provisionRuntimeDescriptor,
+  type CapabilityFallbackSpec,
+  type CapabilityInput,
+  type CapabilityKind,
+  type CapabilityPolicySpec,
+  type CapabilityReadiness,
+  type CapabilitySpec,
+  type CodeIntelligenceCapabilityInput,
+  type ProvisionPlan,
+  type SandboxCapabilityInput,
+} from "../runtimeImplementation/runtime.provisionPlane/index.js";
+
+export {
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+  type RuntimeComponentKind,
+  type RuntimeComponentRegistry,
+  type RuntimeComponentSpec,
+} from "../runtimeImplementation/runtime.componentPlane/index.js";
+
+export {
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+  type DependencyAvailability,
+  type DependencyDeclaration,
+  type DependencyInstallPlan,
+  type DependencyKind,
+  type DependencyPlaneContext,
+  type DependencySource,
+} from "../runtimeImplementation/runtime.dependencyPlane/index.js";
 
 export {
   adjudicateRuntimeDecision,
@@ -681,6 +750,33 @@ export const storagePlane = Object.freeze({
   resolveRaxWorkspace,
 });
 
+export const provisionPlane = Object.freeze({
+  capabilities,
+  capability,
+  dependencies,
+  dependency: dependencyAuthoring,
+  createProvisionPlan,
+  provisionRuntimeDescriptor,
+});
+
+export const componentPlane = Object.freeze({
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+});
+
+export const dependencyPlane = Object.freeze({
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+});
+
 export const sandboxPlane = Object.freeze({
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
@@ -737,6 +833,11 @@ export const praxis = Object.freeze({
   mainLoop,
   policy,
   sandbox,
+  capabilities,
+  capability,
+  dependencies,
+  dependency: dependencyAuthoring,
+  component,
   session,
   statePlane,
   storage,
@@ -758,6 +859,9 @@ export const praxis = Object.freeze({
   baseToolCodingCoreDescriptor,
 
   runtime: runtimeKernel,
+  provision: provisionPlane,
+  dependencyPlane,
+  componentPlane,
   execution: executionCore,
   inspection,
   storagePlane,

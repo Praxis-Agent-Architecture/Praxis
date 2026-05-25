@@ -82,6 +82,27 @@ test("manageToolDependencies rejects missing declarations, duplicate ids, and re
     assert.equal(duplicate.error.boundary, "contract");
   }
 
+  const missingDependencyId = manageToolDependencies({
+    toolId: "search.fetch",
+    declarations: [{ kind: "binary" }],
+  });
+  assert.equal(missingDependencyId.ok, false);
+  if (!missingDependencyId.ok) {
+    assert.equal(missingDependencyId.error.code, "MISSING_DEPENDENCY_ID");
+    assert.equal(missingDependencyId.error.boundary, "input");
+  }
+
+  const missingProbeId = manageToolDependencies({
+    toolId: "search.fetch",
+    declarations: [{ dependencyId: "network" }],
+    probes: [{ dependencyId: "", available: true }],
+  });
+  assert.equal(missingProbeId.ok, false);
+  if (!missingProbeId.ok) {
+    assert.equal(missingProbeId.error.code, "MISSING_DEPENDENCY_PROBE_ID");
+    assert.equal(missingProbeId.error.boundary, "input");
+  }
+
   const real = manageToolDependencies({
     toolId: "search.fetch",
     context: { dryRun: false },
@@ -126,4 +147,43 @@ test("manageToolDependencies classifies missing, conflict, blocked, and scope de
     assert.equal(denied.error.code, "SCOPE_DENIED");
     assert.equal(denied.error.boundary, "scope");
   }
+});
+
+test("manageToolDependencies degrades instead of blocking for optional blocked dependencies", () => {
+  const result = manageToolDependencies({
+    toolId: "browser.optional",
+    declarations: [
+      { dependencyId: "playwright", required: false },
+    ],
+    probes: [
+      { dependencyId: "playwright", blocked: true, detail: "browser runtime disabled" },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.report.status, "degraded");
+  assert.equal(result.report.summary.requiredUnsatisfied, 0);
+  assert.equal(result.report.resolutions[0]?.status, "blocked");
+  assert.equal(result.report.resolutions[0]?.required, false);
+});
+
+test("manageToolDependencies treats available probes without versions as stale when acceptedVersions is declared", () => {
+  const result = manageToolDependencies({
+    toolId: "python.lsp",
+    declarations: [
+      { dependencyId: "python", acceptedVersions: ["3.13"] },
+    ],
+    probes: [
+      { dependencyId: "python", available: true },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.report.status, "stale");
+  assert.equal(result.report.summary.stale, 1);
+  assert.equal(result.report.resolutions[0]?.status, "stale");
 });
