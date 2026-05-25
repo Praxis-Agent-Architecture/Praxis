@@ -21,15 +21,25 @@ import {
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
   type RuntimeAgentReviewResolver,
+  type RuntimeAuthResolver,
+  type RuntimeAuthResolverRequest,
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
   type BaseToolProfileName,
 } from "../agentCore/index.js";
-import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import {
+  invokeOpenAIV1Responses,
+  type OpenAIV1ResponsesProviderCaller,
+  type OpenAIV1ResponsesResult,
+} from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import type { DeepMindV1BetaModelsGenerateContentTransport } from "../modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.js";
 import { invokeChatGPTCodexResponses } from "../modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
+import type {
+  AuthEnvelope,
+  ProviderAuthMaterial,
+} from "../modelAdapter/authProfileLayer/authEnvelope.js";
 import { resolveProviderModelMetadata } from "../modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import type {
   PraxisApplicationCommand,
@@ -41,6 +51,7 @@ import type {
   PraxisApplicationInputEnvelope,
   PraxisApplicationManifestView,
   PraxisApplicationModelState,
+  PraxisApplicationAuthState,
   PraxisApplicationPermissionProfile,
   PraxisApplicationReasoningEffort,
   PraxisApplicationRuntime,
@@ -59,11 +70,14 @@ import {
 } from "./applicationProject.js";
 
 export type PraxisApplicationLiveProvider = {
-  auth: AuthEnvelope;
+  auth?: AuthEnvelope;
+  runtimeAuthResolver?: RuntimeAuthResolver;
+  authSelection?: RuntimeAuthResolverRequest;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
   openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
   openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
   anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
+  geminiGenerateContentTransport?: DeepMindV1BetaModelsGenerateContentTransport;
   provider?: string;
   endpointShape?: string;
   baseURL?: string;
@@ -108,6 +122,12 @@ export type PraxisApplicationRuntimeOptions = {
     onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void;
     onProviderStreamEvent?: (event: Readonly<Record<string, unknown>>) => void;
   }) => Promise<PraxisApplicationLiveProvider | undefined>;
+  authStateProvider?: (context: {
+    sessionId: string;
+    runtimeId: string;
+    manifest?: AgentManifest;
+    model: PraxisApplicationModelState;
+  }) => PraxisApplicationAuthState | Promise<PraxisApplicationAuthState | undefined> | undefined;
   now?: () => string;
 };
 
@@ -145,6 +165,7 @@ type RuntimeState = {
   toolContextSelections: Map<string, BaseToolContextSelection>;
   toolContextUsage: Map<string, BaseToolContextUsageRecord[]>;
   alwaysApprovedApprovalKeys: Set<string>;
+  auth?: PraxisApplicationAuthState;
 };
 
 type ApplicationConversationMessage = {
@@ -163,6 +184,12 @@ type ApplicationConversationSummary = {
 };
 
 type ApplicationInputAttachment = PraxisApplicationAttachment;
+type ApplicationAuthSupplier = () => Promise<AuthEnvelope | undefined>;
+export type OpenAIResponsesApplicationAdapterRoute = {
+  kind: "openai_responses" | "chatgpt_codex_responses";
+  providerCaller: OpenAIV1ResponsesProviderCaller;
+  baseURL?: string;
+};
 
 const APPLICATION_SESSION_HISTORY_MAX_MESSAGES = 24;
 const APPLICATION_SESSION_HISTORY_KEEP_RECENT_MESSAGES = 12;
@@ -1814,18 +1841,198 @@ function readResponseSources(raw: unknown): Array<{ title?: string; url: string;
   return dedupeSources(sources);
 }
 
-function openAIResponsesCallerFor(liveProvider: PraxisApplicationLiveProvider | undefined): OpenAIV1ResponsesProviderCaller | undefined {
+function openAIResponsesRouteFor(liveProvider: PraxisApplicationLiveProvider | undefined): OpenAIResponsesApplicationAdapterRoute | undefined {
   if (liveProvider === undefined) return undefined;
   const provider = liveProvider.provider?.trim();
   const endpointShape = liveProvider.endpointShape?.trim();
   if (provider !== undefined && provider !== "openai") return undefined;
-  if (endpointShape !== undefined && endpointShape !== "responses") return undefined;
-  return liveProvider.openaiResponsesCaller ?? liveProvider.providerCaller;
+  if (endpointShape !== undefined && endpointShape !== "responses" && endpointShape !== "chatgpt_codex_responses") return undefined;
+  const providerCaller = liveProvider.openaiResponsesCaller ?? liveProvider.providerCaller;
+  if (providerCaller === undefined) return undefined;
+  const providerRoute = liveProvider.providerRoute?.trim();
+  const kind = providerRoute === "chatgpt_codex_responses" ||
+    endpointShape === "chatgpt_codex_responses" ||
+    liveProvider.auth?.credentialRef?.credentialType === "chatgpt_codex_oauth"
+    ? "chatgpt_codex_responses"
+    : "openai_responses";
+  return {
+    kind,
+    providerCaller,
+    baseURL: liveProvider.baseURL,
+  };
+}
+
+function responsesBaseRoute(input: {
+  baseURL?: string;
+  defaultEndpointPath: "/v1/responses" | "/responses";
+}): { baseUrl?: string; endpointPath: "/v1/responses" | "/responses" } {
+  const base = input.baseURL?.trim().replace(/\/+$/u, "");
+  if (base === undefined || base.length === 0) {
+    return { endpointPath: input.defaultEndpointPath };
+  }
+  if (base.endsWith("/v1/responses")) {
+    return { baseUrl: base.slice(0, -"/v1/responses".length) || undefined, endpointPath: "/v1/responses" };
+  }
+  if (base.endsWith("/responses")) {
+    return { baseUrl: base.slice(0, -"/responses".length) || undefined, endpointPath: "/responses" };
+  }
+  if (base.endsWith("/v1")) {
+    return { baseUrl: base, endpointPath: "/responses" };
+  }
+  return { baseUrl: base, endpointPath: input.defaultEndpointPath };
+}
+
+function adapterRequiredScopes(
+  route: OpenAIResponsesApplicationAdapterRoute,
+  extraScopes: readonly string[] = [],
+): readonly string[] {
+  const routeScope = route.kind === "chatgpt_codex_responses" ? "chatgpt.codex.responses" : "openai.responses";
+  return ["model.invoke", routeScope, ...extraScopes];
+}
+
+function adapterBackend(route: OpenAIResponsesApplicationAdapterRoute, suffix: string): string {
+  return route.kind === "chatgpt_codex_responses"
+    ? `chatgpt-codex-responses-${suffix}`
+    : `openai-responses-${suffix}`;
+}
+
+function isChatGPTCodexAuth(auth: AuthEnvelope): boolean {
+  return auth.credentialRef?.credentialType === "chatgpt_codex_oauth";
+}
+
+function effectiveOpenAIResponsesApplicationRoute(
+  route: OpenAIResponsesApplicationAdapterRoute,
+  auth: AuthEnvelope,
+): OpenAIResponsesApplicationAdapterRoute {
+  return isChatGPTCodexAuth(auth)
+    ? { ...route, kind: "chatgpt_codex_responses" }
+    : route;
+}
+
+function adapterRouteScopes(
+  route: OpenAIResponsesApplicationAdapterRoute,
+  requestedScopes: readonly string[],
+): readonly string[] {
+  return adapterRequiredScopes(
+    route,
+    requestedScopes.filter((scope) =>
+      scope !== "model.invoke" && scope !== "openai.responses" && scope !== "chatgpt.codex.responses"
+    ),
+  );
+}
+
+export function invokeOpenAIResponsesApplicationAdapter(input: {
+  route: OpenAIResponsesApplicationAdapterRoute;
+  auth: AuthEnvelope;
+  runtimeId: string;
+  invocationId: string;
+  callerId: string;
+  requiredScopes: readonly string[];
+  body: unknown;
+}): Promise<OpenAIV1ResponsesResult> {
+  const effectiveRoute = effectiveOpenAIResponsesApplicationRoute(input.route, input.auth);
+  const requiredScopes = adapterRouteScopes(effectiveRoute, input.requiredScopes);
+  if (effectiveRoute.kind === "chatgpt_codex_responses") {
+    const route = responsesBaseRoute({ baseURL: effectiveRoute.baseURL, defaultEndpointPath: "/responses" });
+    return invokeChatGPTCodexResponses({
+      operation: "create",
+      method: "POST",
+      auth: input.auth,
+      caller: effectiveRoute.providerCaller,
+      runtime: {
+        runtimeId: input.runtimeId,
+        invocationId: input.invocationId,
+        callerId: input.callerId,
+      },
+      requiredScopes,
+      governance: { accepted: true },
+      contract: { accepted: true },
+      dryRun: false,
+      headers: { "content-type": "application/json" },
+      expectResponseObject: false,
+      baseUrl: route.baseUrl,
+      endpointPath: route.endpointPath,
+      body: input.body,
+    });
+  }
+
+  const route = responsesBaseRoute({ baseURL: effectiveRoute.baseURL, defaultEndpointPath: "/v1/responses" });
+  return invokeOpenAIV1Responses({
+    operation: "create",
+    method: "POST",
+    auth: input.auth,
+    caller: effectiveRoute.providerCaller,
+    runtime: {
+      runtimeId: input.runtimeId,
+      invocationId: input.invocationId,
+      callerId: input.callerId,
+    },
+    requiredScopes,
+    governance: { accepted: true },
+    contract: { accepted: true },
+    dryRun: false,
+    headers: { "content-type": "application/json" },
+    expectResponseObject: false,
+    baseUrl: route.baseUrl,
+    endpointPath: route.endpointPath,
+    body: input.body,
+  });
+}
+
+function authEnvelopeWithPrivateMaterial(auth: AuthEnvelope, privateMaterial: ProviderAuthMaterial | undefined): AuthEnvelope {
+  if (privateMaterial?.headers === undefined) return auth;
+  return {
+    ...auth,
+    headerPlan: Object.entries(privateMaterial.headers).map(([name, value]) => ({
+      name: name.trim().toLowerCase(),
+      value,
+      redacted: true,
+    })),
+  };
+}
+
+function liveProviderHasAuthSource(liveProvider: PraxisApplicationLiveProvider | undefined): boolean {
+  return liveProvider?.auth !== undefined ||
+    (liveProvider?.runtimeAuthResolver !== undefined && liveProvider.authSelection !== undefined);
+}
+
+function liveProviderAuthSupplier(liveProvider: PraxisApplicationLiveProvider | undefined): ApplicationAuthSupplier {
+  let cachedResolvedAuth: Promise<AuthEnvelope | undefined> | undefined;
+  return async () => {
+    if (liveProvider?.auth !== undefined) return liveProvider.auth;
+    if (liveProvider?.runtimeAuthResolver === undefined || liveProvider.authSelection === undefined) {
+      return undefined;
+    }
+    cachedResolvedAuth ??= liveProvider.runtimeAuthResolver.resolve(liveProvider.authSelection).then((resolved) => {
+      if (!resolved.ok) return undefined;
+      return authEnvelopeWithPrivateMaterial(resolved.value.auth, resolved.value.resolved.privateMaterial);
+    });
+    return await cachedResolvedAuth;
+  };
+}
+
+async function requireAdapterAuth(
+  authSupplier: ApplicationAuthSupplier,
+  adapterLabel: string,
+): Promise<{ ok: true; auth: AuthEnvelope } | { ok: false; result: BaseToolExecutorResult<never> }> {
+  const auth = await authSupplier();
+  if (auth?.present === true) return { ok: true, auth };
+  return {
+    ok: false,
+    result: {
+      ok: false,
+      error: {
+        code: "AUTH_REQUIRED",
+        message: `${adapterLabel} requires resolved provider auth material`,
+        publicSafe: true,
+      },
+    },
+  };
 }
 
 function createProviderNativeSearchAdapter(input: {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: ApplicationAuthSupplier;
+  route: OpenAIResponsesApplicationAdapterRoute;
   runtimeId: string;
 }): NonNullable<NonNullable<BaseToolExecutorPort["network"]>["nativeWebSearch"]> {
   return async (request): Promise<BaseToolExecutorResult<{
@@ -1845,22 +2052,17 @@ function createProviderNativeSearchAdapter(input: {
         },
       };
     }
-    const result = await invokeChatGPTCodexResponses({
-      operation: "create",
-      method: "POST",
-      auth: input.auth,
-      caller: input.providerCaller,
-      runtime: {
-        runtimeId: input.runtimeId,
-        invocationId: `native-web-search:${Date.now()}`,
-        callerId: "raxode.application.nativeWebSearch",
-      },
-      requiredScopes: ["model.invoke", "chatgpt.codex.responses"],
-      governance: { accepted: true },
-      contract: { accepted: true },
-      dryRun: false,
-      headers: { "content-type": "application/json" },
-      expectResponseObject: false,
+    const resolvedAuth = await requireAdapterAuth(input.auth, "provider-native search adapter");
+    if (!resolvedAuth.ok) return resolvedAuth.result;
+    const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
+
+    const result = await invokeOpenAIResponsesApplicationAdapter({
+      route,
+      auth: resolvedAuth.auth,
+      runtimeId: input.runtimeId,
+      invocationId: `native-web-search:${Date.now()}`,
+      callerId: "raxode.application.nativeWebSearch",
+      requiredScopes: adapterRequiredScopes(route),
       body: {
         model: request.model ?? "gpt-5.5",
         input: request.query,
@@ -1902,7 +2104,7 @@ function createProviderNativeSearchAdapter(input: {
         })),
         providerMetadata: {
           provider: request.provider,
-          backend: "openai-web-search",
+          backend: adapterBackend(route, "web-search"),
           sourceCount: sources.length,
         },
       },
@@ -2025,8 +2227,8 @@ function resolveImageAttachment(input: {
 }
 
 function createOpenAIResponsesImageVisionAdapter(input: {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: ApplicationAuthSupplier;
+  route: OpenAIResponsesApplicationAdapterRoute;
   runtimeId: string;
   model: string;
   attachments?: readonly ApplicationInputAttachment[];
@@ -2061,22 +2263,17 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       if (quality !== undefined) imageTool.quality = quality;
       if (outputFormat !== undefined) imageTool.output_format = outputFormat;
 
-      const result = await invokeChatGPTCodexResponses({
-        operation: "create",
-        method: "POST",
-        auth: input.auth,
-        caller: input.providerCaller,
-        runtime: {
-          runtimeId: input.runtimeId,
-          invocationId: `omni-generate-image:${Date.now()}`,
-          callerId: "raxode.application.omniGenerateImage",
-        },
-        requiredScopes: ["model.invoke", "chatgpt.codex.responses", "omni.image.generate"],
-        governance: { accepted: true },
-        contract: { accepted: true },
-        dryRun: false,
-        headers: { "content-type": "application/json" },
-        expectResponseObject: false,
+      const resolvedAuth = await requireAdapterAuth(input.auth, "omni.generateImage OpenAI Responses adapter");
+      if (!resolvedAuth.ok) return resolvedAuth.result;
+      const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
+
+      const result = await invokeOpenAIResponsesApplicationAdapter({
+        route,
+        auth: resolvedAuth.auth,
+        runtimeId: input.runtimeId,
+        invocationId: `omni-generate-image:${Date.now()}`,
+        callerId: "raxode.application.omniGenerateImage",
+        requiredScopes: adapterRequiredScopes(route, ["omni.image.generate"]),
         body: {
           model: input.model,
           input: prompt,
@@ -2124,7 +2321,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         },
         metadata: {
           provider: "openai",
-          backend: "chatgpt-codex-responses-image-generation",
+          backend: adapterBackend(route, "image-generation"),
           model: input.model,
           outputPath,
           mimeType,
@@ -2183,22 +2380,17 @@ function createOpenAIResponsesImageVisionAdapter(input: {
 
     const mimeType = imageMimeTypeFromPath(imagePath, stringValue(parameters.mediaType) ?? attachment?.mimeType);
     const detail = responsesImageDetail(stringValue(parameters.detail));
-    const result = await invokeChatGPTCodexResponses({
-      operation: "create",
-      method: "POST",
-      auth: input.auth,
-      caller: input.providerCaller,
-      runtime: {
-        runtimeId: input.runtimeId,
-        invocationId: `omni-view-image:${Date.now()}`,
-        callerId: "raxode.application.omniViewImage",
-      },
-      requiredScopes: ["model.invoke", "chatgpt.codex.responses"],
-      governance: { accepted: true },
-      contract: { accepted: true },
-      dryRun: false,
-      headers: { "content-type": "application/json" },
-      expectResponseObject: false,
+    const resolvedAuth = await requireAdapterAuth(input.auth, "omni.viewImage OpenAI Responses adapter");
+    if (!resolvedAuth.ok) return resolvedAuth.result;
+    const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
+
+    const result = await invokeOpenAIResponsesApplicationAdapter({
+      route,
+      auth: resolvedAuth.auth,
+      runtimeId: input.runtimeId,
+      invocationId: `omni-view-image:${Date.now()}`,
+      callerId: "raxode.application.omniViewImage",
+      requiredScopes: adapterRequiredScopes(route),
       body: {
         model: input.model,
         input: [{
@@ -2244,7 +2436,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       },
       metadata: {
         provider: "openai",
-        backend: "chatgpt-codex-responses-vision",
+        backend: adapterBackend(route, "vision"),
         model: input.model,
         imagePath,
         mimeType,
@@ -2476,7 +2668,44 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     toolContextSelections: new Map(),
     toolContextUsage: new Map(),
     alwaysApprovedApprovalKeys: new Set(),
+    auth: undefined,
   };
+
+  async function refreshAuthState(): Promise<void> {
+    const next = await options.authStateProvider?.({
+      sessionId: state.sessionId,
+      runtimeId: state.runtimeId,
+      manifest: state.manifest,
+      model: state.model,
+    });
+    if (next !== undefined) {
+      state.auth = next;
+    }
+  }
+
+  async function safeRefreshAuthState(): Promise<void> {
+    try {
+      await refreshAuthState();
+    } catch (error) {
+      state.auth = {
+        profiles: [],
+        lastAuditEventKind: "application.auth.state.failed",
+        lastAuditAt: now(),
+        publicSafe: true,
+      };
+      publish({
+        eventId: "application.auth.state.failed",
+        kind: "error",
+        status: state.status,
+        message: "Application auth state provider failed",
+        metadata: { code: "AUTH_STATE_PROVIDER_FAILED" },
+      });
+    }
+  }
+
+  function commandSessionId(command: PraxisApplicationCommand): string | undefined {
+    return "sessionId" in command ? command.sessionId : undefined;
+  }
 
   function publish(input: Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> & { createdAt?: string }): PraxisApplicationEvent {
     const output = event({
@@ -2593,6 +2822,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       workspaceRoot: state.cwd,
       mode: state.mode,
       model: state.model,
+      auth: state.auth,
       permissionProfile: state.permissionProfile,
       toolProfile: state.toolProfile,
       sessions: [...state.sessions.values()].sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt)),
@@ -2773,10 +3003,13 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           allowProviderCall: (command.mode ?? state.mode) === "live",
           allowToolExecution: false,
           auth: liveProvider?.auth,
+          runtimeAuthResolver: liveProvider?.runtimeAuthResolver,
+          authSelection: liveProvider?.authSelection,
           providerCaller: liveProvider?.providerCaller,
           openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
           openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
           anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+          geminiGenerateContentTransport: liveProvider?.geminiGenerateContentTransport,
           exposeProviderTools: false,
           approvalResolver: approvalResolverForRun(),
           agentReviewResolver: options.agentReviewResolver,
@@ -2928,6 +3161,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       });
       return { ok: false, view: view(), events: [failed], error: state.error };
     }
+    await safeRefreshAuthState();
 
     publish({
       eventId: `${turnId}.manifest.ready`,
@@ -3019,6 +3253,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
 
     const runtime = praxis.runtime.createPraxisRuntimeKernel({ runtimeId: state.runtimeId });
     const emittedToolProgress = new Set<string>();
+    const openAIResponsesRoute = openAIResponsesRouteFor(liveProvider);
+    const nativeAdapterAuth = liveProviderAuthSupplier(liveProvider);
+    const mountOpenAIResponsesNativeAdapters = openAIResponsesRoute !== undefined && liveProviderHasAuthSource(liveProvider);
     const result = await runtime.runManifest(compiled.manifest, taskText, {
       runtimeId: state.runtimeId,
       sessionId: state.sessionId,
@@ -3026,10 +3263,13 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       allowProviderCall: state.mode === "live",
       allowToolExecution: state.mode === "live",
       auth: liveProvider?.auth,
+      runtimeAuthResolver: liveProvider?.runtimeAuthResolver,
+      authSelection: liveProvider?.authSelection,
       providerCaller: liveProvider?.providerCaller,
       openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
       openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
       anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+      geminiGenerateContentTransport: liveProvider?.geminiGenerateContentTransport,
       previousProviderResponse: state.lastProviderResponseBySession.get(state.sessionId),
       exposeProviderTools: true,
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
@@ -3045,21 +3285,21 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       baseToolAdapters: {
         ...(options.contextArtifactAdapters ?? {}),
         ...(options.baseToolAdapters ?? {}),
-        ...(openAIResponsesCallerFor(liveProvider)
+        ...(mountOpenAIResponsesNativeAdapters
         ? {
           network: {
             ...(options.baseToolAdapters?.network ?? {}),
             nativeWebSearch: createProviderNativeSearchAdapter({
-              auth: liveProvider!.auth,
-              providerCaller: openAIResponsesCallerFor(liveProvider)!,
+              auth: nativeAdapterAuth,
+              route: openAIResponsesRoute!,
               runtimeId: state.runtimeId,
             }),
           },
           omni: {
             ...(options.baseToolAdapters?.omni ?? {}),
             transformMedia: createOpenAIResponsesImageVisionAdapter({
-              auth: liveProvider!.auth,
-              providerCaller: openAIResponsesCallerFor(liveProvider)!,
+              auth: nativeAdapterAuth,
+              route: openAIResponsesRoute!,
               runtimeId: state.runtimeId,
               model: state.model.model,
               attachments: command.input.attachments,
@@ -3156,6 +3396,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       return () => listeners.delete(listener);
     },
     async dispatch(command): Promise<PraxisApplicationCommandResult> {
+      if (command.type !== "application.createSession") {
+        applyCommandSession(commandSessionId(command));
+      }
+      await safeRefreshAuthState();
       switch (command.type) {
         case "application.start": {
           applyCommandSession(command.sessionId);
@@ -3175,6 +3419,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             return { ok: false, view: view(), events: [failed], error: state.error };
           }
           state.status = "ready";
+          await safeRefreshAuthState();
           const ready = publish({
             eventId: "application.ready",
             kind: "lifecycle",
@@ -3230,6 +3475,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
               maxOutputTokens: command.maxOutputTokens ?? state.model.maxOutputTokens,
             }),
           };
+          await safeRefreshAuthState();
           const changed = publish({
             eventId: "application.model.changed",
             kind: "model",
@@ -3296,6 +3542,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             lastActiveAt: now(),
             turns: state.turns,
           });
+          await safeRefreshAuthState();
           const created = publish({
             eventId: "application.session.created",
             kind: "lifecycle",

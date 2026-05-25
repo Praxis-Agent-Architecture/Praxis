@@ -41,7 +41,7 @@ class ResearchAgent extends PraxisAgent {
   model = model("gpt-5.4", { carrierId: "carrier.research" });
   harness = harness({
     tools: tools([
-      tool("code.read", { scopes: ["tool.execute", "tool.code.read"] }),
+      tool("file.read", { scopes: ["tool.execute", "tool.file.read"] }),
     ]),
     policy: policy({ allowProviderCall: true, allowToolExecution: true }),
     loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
@@ -120,9 +120,9 @@ class CodingAgentArchetype extends PraxisAgentArchetype {
   });
   harness = harness({
     tools: tools([
-      tool("code.read", { family: "codeBase", group: "explore" }),
-      tool("shell.commandExecution", { family: "shellBase", group: "shellExecution" }),
-      tool("git.getRepositoryStatus", { family: "gitBase", group: "inspection" }),
+      tool("file.read", { family: "coreBase", group: "filesystem" }),
+      tool("shell.run", { family: "coreBase", group: "shell" }),
+      tool("file.search", { family: "coreBase", group: "filesystem" }),
     ]),
     policy: policy({ allowProviderCall: true, allowToolExecution: true }),
     loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 4, maxToolCalls: 6 }),
@@ -143,7 +143,7 @@ test("compileAgent compiles a PraxisAgent class into a stable AgentManifest", ()
   assert.equal(result.manifest.model.carrierId, "carrier.research");
   assert.equal(result.manifest.source.kind, "class");
   assert.equal(result.manifest.source.constructorSideEffectsAllowed, false);
-  assert.equal(result.manifest.harness.tools[0]?.toolId, "code.read");
+  assert.equal(result.manifest.harness.tools[0]?.toolId, "file.read");
   assert.equal(result.manifest.harness.loop.maxModelTurns, 2);
   assert.equal(result.manifest.sandbox.profile, "host-observed");
   assert.equal(result.manifest.harness.sandbox.profile, "host-observed");
@@ -451,7 +451,7 @@ test("compileAgent rejects unknown or mismatched BaseTool authoring with public-
     identity = "agent.mismatched-tool";
     model = model("gpt-5.4");
     harness = harness({
-      tools: tools([tool("code.read", { family: "gitBase", group: "inspection" })]),
+      tools: tools([tool("file.read", { family: "gitBase", group: "inspection" })]),
     });
   }
 
@@ -534,10 +534,10 @@ test("compileAgent supports custom sandbox, policy, mainLoop refs, and statePlan
       matrixId: "toolPolicy.final.custom",
       defaultDecision: "approval",
       familyRules: [
-        { scope: "family", family: "codeBase", decision: "allow", risk: "safe", log: "full", approval: "none" },
+        { scope: "family", family: "coreBase", decision: "allow", risk: "safe", log: "full", approval: "none" },
       ],
       toolRules: [
-        { scope: "toolId", toolId: "shell.commandExecution", decision: "approval", risk: "dangerous", log: "full", approval: "required" },
+        { scope: "toolId", toolId: "shell.run", decision: "approval", risk: "dangerous", log: "full", approval: "required" },
       ],
     });
     mainLoop = mainLoop.standard({
@@ -553,8 +553,8 @@ test("compileAgent supports custom sandbox, policy, mainLoop refs, and statePlan
     });
     harness = harness({
       tools: tools([
-        tool("code.read"),
-        tool("shell.commandExecution"),
+        tool("file.read"),
+        tool("shell.run"),
       ]),
     });
   }
@@ -569,7 +569,7 @@ test("compileAgent supports custom sandbox, policy, mainLoop refs, and statePlan
   assert.equal(result.manifest.sandbox.isolationLevel, "workspace-policy");
   assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["policy:workspace-only"]);
   assert.equal(result.manifest.toolPolicy.profile, "custom");
-  assert.equal(result.manifest.toolPolicy.familyRules[0]?.family, "codeBase");
+  assert.equal(result.manifest.toolPolicy.familyRules[0]?.family, "coreBase");
   assert.equal(result.manifest.mainLoop.hooks.some((hook) => hook.hook === "onApproval" && hook.handlerRef === "loop.final.approval"), true);
   assert.equal(result.manifest.statePlane.control.includes("rotateSecretRef"), true);
   assert.equal(result.manifest.harness.sandbox.providerFamily, "workspace-policy");

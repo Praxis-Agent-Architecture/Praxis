@@ -2,11 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  bindProviderRoleModel,
   bindRaxodeRoleModel,
+  createProviderModelEntry,
+  createProviderProfileConfiguration,
+  createProviderSecret,
   createRaxodeModelEntry,
   createRaxodeProviderProfile,
   createRaxodeSecret,
+  maskProviderSecret,
   maskRaxodeSecret,
+  resolveProviderRequestUrl,
   resolveRaxodeProviderRequestUrl,
 } from "../../../../src/modelAdapter/authProfileLayer/providerConfiguration.js";
 
@@ -133,4 +139,13 @@ test("providerConfiguration builds provider profiles with nested model entries a
   assert.equal(core.binding.roleId, "core.main");
   assert.equal(tui.binding.roleId, "tui.main");
   assert.notEqual(core.binding.roleId, tui.binding.roleId);
+});
+
+test("providerConfiguration exposes product-neutral names while keeping Raxode aliases", () => {
+  assert.equal(maskProviderSecret("sk-1234567890abcdef"), maskRaxodeSecret("sk-1234567890abcdef"));
+  assert.equal(resolveProviderRequestUrl, resolveRaxodeProviderRequestUrl);
+  assert.equal(createProviderSecret, createRaxodeSecret);
+  assert.equal(createProviderModelEntry, createRaxodeModelEntry);
+  assert.equal(createProviderProfileConfiguration, createRaxodeProviderProfile);
+  assert.equal(bindProviderRoleModel, bindRaxodeRoleModel);
 });

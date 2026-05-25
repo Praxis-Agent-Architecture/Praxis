@@ -4,7 +4,7 @@ export class AllToolAgent extends praxis.Agent {
   model = praxis.model("gpt-5.5");
   storage = praxis.storage.memory();
   harness = praxis.harness({
-    tools: praxis.tools([praxis.baseTools.code.read()]),
+    tools: praxis.tools([praxis.basetool.core.fileRead({ profileName: "codingCore" })]),
     loop: praxis.loop.single(),
   });
 }

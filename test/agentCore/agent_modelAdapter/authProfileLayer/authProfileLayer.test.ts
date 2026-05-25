@@ -149,6 +149,94 @@ test("authResolver resolves Anthropic API keys with standard messages headers", 
   assert.equal(JSON.stringify(resolved.resolved.envelope).includes("sk-ant-secret"), false);
 });
 
+test("authResolver uses custom header hints without forwarding the hint header", () => {
+  const customRef = createCredentialRef({
+    id: "custom-default",
+    provider: "custom",
+    credentialType: "custom",
+    source: { kind: "test", label: "unit" },
+  });
+  assert.equal(customRef.ok, true);
+  if (!customRef.ok) {
+    throw new Error("expected custom ref");
+  }
+
+  const resolved = resolveAuthEnvelope({
+    credentialRef: customRef.credentialRef,
+    injectedSecret: "custom-secret-abcdef123456",
+    extraHeaders: {
+      "x-praxis-auth-header": "x-api-key",
+      "x-provider-feature": "enabled",
+    },
+  });
+
+  assert.equal(resolved.ok, true);
+  assert.equal(resolved.resolved.privateMaterial?.headers?.["x-api-key"], "custom-secret-abcdef123456");
+  assert.equal(resolved.resolved.privateMaterial?.headers?.["x-praxis-auth-header"], undefined);
+  assert.equal(resolved.resolved.privateMaterial?.headers?.["x-provider-feature"], "enabled");
+  assert.equal(JSON.stringify(resolved.resolved.envelope).includes("custom-secret"), false);
+});
+
+test("authResolver preserves provider-specific headers when resolving stored Gemini and custom credentials", () => {
+  const geminiRef = createCredentialRef({
+    id: "gemini-store",
+    provider: "gemini",
+    credentialType: "gemini_api_key",
+    source: { kind: "profile-store", label: "unit" },
+  });
+  const customRef = createCredentialRef({
+    id: "custom-store",
+    provider: "custom",
+    credentialType: "custom",
+    source: { kind: "profile-store", label: "unit" },
+  });
+  assert.equal(geminiRef.ok, true);
+  assert.equal(customRef.ok, true);
+  if (!geminiRef.ok || !customRef.ok) {
+    throw new Error("expected credential refs");
+  }
+
+  const store = createCredentialStore([
+    {
+      credentialRef: geminiRef.credentialRef,
+      redactedIdentity: "[stored-gemini-key]",
+      privateMaterial: {
+        headers: { "x-goog-api-key": "gemini-store-secret-abcdef123456" },
+      },
+    },
+    {
+      credentialRef: customRef.credentialRef,
+      redactedIdentity: "[stored-custom-key]",
+      privateMaterial: {
+        headers: { "x-api-key": "custom-store-secret-abcdef123456" },
+      },
+    },
+  ]);
+
+  const gemini = resolveAuthEnvelope({ credentialRef: geminiRef.credentialRef, store });
+  assert.equal(gemini.ok, true);
+  assert.equal(gemini.resolved.envelope.headerPlan[0]?.name, "x-goog-api-key");
+  assert.equal(gemini.resolved.privateMaterial?.headers?.["x-goog-api-key"], "gemini-store-secret-abcdef123456");
+  assert.equal(gemini.resolved.privateMaterial?.headers?.authorization, undefined);
+  assert.equal(JSON.stringify(gemini.resolved.envelope).includes("gemini-store-secret"), false);
+
+  const custom = resolveAuthEnvelope({
+    credentialRef: customRef.credentialRef,
+    store,
+    extraHeaders: {
+      "x-praxis-auth-header": "x-api-key",
+      "x-provider-feature": "enabled",
+    },
+  });
+  assert.equal(custom.ok, true);
+  assert.equal(custom.resolved.envelope.headerPlan.some((header) => header.name === "x-api-key"), true);
+  assert.equal(custom.resolved.envelope.headerPlan.some((header) => header.name === "x-praxis-auth-header"), false);
+  assert.equal(custom.resolved.privateMaterial?.headers?.["x-api-key"], "custom-store-secret-abcdef123456");
+  assert.equal(custom.resolved.privateMaterial?.headers?.["x-provider-feature"], "enabled");
+  assert.equal(custom.resolved.privateMaterial?.headers?.["x-praxis-auth-header"], undefined);
+  assert.equal(JSON.stringify(custom.resolved.envelope).includes("custom-store-secret"), false);
+});
+
 test("Codex auth parser follows CLI auth.json and JWT claim shape without exposing tokens", () => {
   const idToken = fakeJwt({
     email: "user@example.com",

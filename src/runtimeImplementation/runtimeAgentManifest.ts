@@ -27,6 +27,9 @@ export type ModelSpec = {
   endpointShape?: "responses" | "chat_completions" | "messages" | "custom" | (string & {});
   carrierId?: string;
   credentialRef?: CredentialRef;
+  providerProfileRef?: string;
+  modelEntryRef?: string;
+  credentialRefId?: string;
   reasoning?: ProviderReasoningConfig;
   baseURL?: string;
   clientName?: string;
@@ -109,6 +112,9 @@ export type ModelEndpointSpec = {
   carrierId?: string;
   baseURL?: string;
   credentialRef?: CredentialRef;
+  providerProfileRef?: string;
+  modelEntryRef?: string;
+  credentialRefId?: string;
   probe?: ModelEndpointProbeResult;
   capabilityMatrix?: ModelCapabilityMatrix;
   failurePolicy?: ModelFailurePolicy;
@@ -764,6 +770,9 @@ export function model(modelName: string, input: Omit<ModelSpec, "provider" | "mo
     endpointShape: input.endpointShape ?? "responses",
     carrierId: input.carrierId,
     credentialRef: input.credentialRef,
+    providerProfileRef: input.providerProfileRef,
+    modelEntryRef: input.modelEntryRef,
+    credentialRefId: input.credentialRefId,
     reasoning: input.reasoning,
     baseURL: input.baseURL,
     clientName: input.clientName,
@@ -806,6 +815,9 @@ export function endpoint(
     carrierId: input.carrierId,
     baseURL: input.baseURL,
     credentialRef: input.credentialRef,
+    providerProfileRef: input.providerProfileRef,
+    modelEntryRef: input.modelEntryRef,
+    credentialRefId: input.credentialRefId,
     probe: input.probe,
     capabilityMatrix: input.capabilityMatrix,
     failurePolicy: input.failurePolicy,
@@ -1604,6 +1616,9 @@ function defaultEndpointForModel(modelSpec: ModelSpec, identityId: string): Mode
     carrierId: modelSpec.carrierId ?? `${identityId}:carrier:${modelSpec.provider}:${modelSpec.model}`,
     baseURL: modelSpec.baseURL,
     credentialRef: modelSpec.credentialRef,
+    providerProfileRef: modelSpec.providerProfileRef,
+    modelEntryRef: modelSpec.modelEntryRef,
+    credentialRefId: modelSpec.credentialRefId,
   });
 }
 
