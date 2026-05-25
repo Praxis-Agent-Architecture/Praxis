@@ -73,6 +73,30 @@ import {
   createPraxisConversationManager,
 } from "../runtimeImplementation/runtime.conversationPlane/index.js";
 import {
+  capabilities,
+  capability,
+  createProvisionPlan,
+  dependencies,
+  dependencyAuthoring,
+  provisionRuntimeDescriptor,
+} from "../runtimeImplementation/runtime.provisionPlane/index.js";
+import {
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+} from "../runtimeImplementation/runtime.componentPlane/index.js";
+import {
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+} from "../runtimeImplementation/runtime.dependencyPlane/index.js";
+import {
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
 } from "../runtimeImplementation/praxisRuntimeKernel.js";
@@ -146,6 +170,9 @@ import {
   createFallbackMemoryRef,
   createObservationMaterial,
 } from "../executionEngine/coreLogic/observationIntegrator.js";
+import {
+  runtimeAuth,
+} from "../runtimeImplementation/runtime.authPlane/index.js";
 
 export {
   PromptPack,
@@ -213,6 +240,51 @@ export {
   type ToolSpec,
   type ToolPolicyCustomInput,
 } from "../runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  capabilities,
+  capability,
+  createProvisionPlan,
+  dependencies,
+  dependencyAuthoring,
+  provisionRuntimeDescriptor,
+  type CapabilityFallbackSpec,
+  type CapabilityInput,
+  type CapabilityKind,
+  type CapabilityPolicySpec,
+  type CapabilityReadiness,
+  type CapabilitySpec,
+  type CodeIntelligenceCapabilityInput,
+  type ProvisionPlan,
+  type SandboxCapabilityInput,
+} from "../runtimeImplementation/runtime.provisionPlane/index.js";
+
+export {
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+  type RuntimeComponentKind,
+  type RuntimeComponentRegistry,
+  type RuntimeComponentSpec,
+} from "../runtimeImplementation/runtime.componentPlane/index.js";
+
+export {
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+  type DependencyAvailability,
+  type DependencyDeclaration,
+  type DependencyInstallPlan,
+  type DependencyKind,
+  type DependencyPlaneContext,
+  type DependencySource,
+} from "../runtimeImplementation/runtime.dependencyPlane/index.js";
 
 export {
   adjudicateRuntimeDecision,
@@ -538,12 +610,31 @@ export {
 } from "../runtimeImplementation/runtimeSessionStateEventStore.js";
 
 export {
+  bindProviderRoleModel,
   bindRaxodeRoleModel,
+  createProviderModelEntry,
+  createProviderProfileConfiguration,
+  createProviderSecret,
   createRaxodeModelEntry,
   createRaxodeProviderProfile,
   createRaxodeSecret,
+  maskProviderSecret,
   maskRaxodeSecret,
+  resolveProviderRequestUrl,
   resolveRaxodeProviderRequestUrl,
+  type ProviderConfigurationError,
+  type ProviderEndpointShape,
+  type ProviderModelEntry,
+  type ProviderModelEntryResult,
+  type ProviderProfileConfiguration,
+  type ProviderProfileConfigurationResult,
+  type ProviderRequestUrlPlan,
+  type ProviderRequestUrlResult,
+  type ProviderRoleBinding,
+  type ProviderRoleBindingResult,
+  type ProviderSecret,
+  type ProviderSecretResult,
+  type ProviderUrlMode,
   type RaxodeEndpointShape,
   type RaxodeModelEntry,
   type RaxodeModelEntryResult,
@@ -612,6 +703,43 @@ export {
   type BaseToolRegistryMountStatus,
   type BaseToolStorageRealityStatus,
 } from "../runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+
+export {
+  runtimeAuth,
+  runtimeAuth as auth,
+  authAuditEvent,
+  bindRuntimeAuthRole,
+  createInMemoryRuntimeAuthSecretVault,
+  createRuntimeAuthModelEntry,
+  createRuntimeAuthProviderProfile,
+  createRuntimeAuthRegistry,
+  createRuntimeAuthResolver,
+  createRuntimeAuthSecretRecord,
+  decryptRuntimeAuthSecretRecord,
+  runtimeAuthCredentialRef,
+  toRuntimeAuthSecretPublicView,
+  type RuntimeAuthAuditEvent,
+  type RuntimeAuthAuditEventKind,
+  type RuntimeAuthCredentialRef,
+  type RuntimeAuthEndpointShape,
+  type RuntimeAuthEncryptedPayload,
+  type RuntimeAuthModelEntry,
+  type RuntimeAuthProviderKind,
+  type RuntimeAuthProviderProfile,
+  type RuntimeAuthRegistry,
+  type RuntimeAuthRegistrySnapshot,
+  type RuntimeAuthResolver,
+  type RuntimeAuthResolverRequest,
+  type RuntimeAuthResolverResult,
+  type RuntimeAuthRole,
+  type RuntimeAuthRoleBinding,
+  type RuntimeAuthSecretKind,
+  type RuntimeAuthSecretPlaintext,
+  type RuntimeAuthSecretPublicView,
+  type RuntimeAuthSecretRecord,
+  type RuntimeAuthSecretVault,
+  type RuntimeAuthVaultKeyProvider,
+} from "../runtimeImplementation/runtime.authPlane/index.js";
 
 export {
   type BaseToolContextSelection,
@@ -763,6 +891,33 @@ export const projectPlane = Object.freeze({
   createConversationManager: createPraxisConversationManager,
 });
 
+export const provisionPlane = Object.freeze({
+  capabilities,
+  capability,
+  dependencies,
+  dependency: dependencyAuthoring,
+  createProvisionPlan,
+  provisionRuntimeDescriptor,
+});
+
+export const componentPlane = Object.freeze({
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+});
+
+export const dependencyPlane = Object.freeze({
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+});
+
 export const sandboxPlane = Object.freeze({
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
@@ -813,12 +968,18 @@ export const praxis = Object.freeze({
   endpoint,
   model,
   modelFleet,
+  auth: runtimeAuth,
 
   harness,
   loop,
   mainLoop,
   policy,
   sandbox,
+  capabilities,
+  capability,
+  dependencies,
+  dependency: dependencyAuthoring,
+  component,
   session,
   project: defineProject,
   statePlane,
@@ -842,6 +1003,9 @@ export const praxis = Object.freeze({
 
   runtime: runtimeKernel,
   projectPlane,
+  provision: provisionPlane,
+  dependencyPlane,
+  componentPlane,
   execution: executionCore,
   inspection,
   storagePlane,

@@ -19,6 +19,9 @@ export type RaxStorageHomeLayout = {
   providerProfiles: string;
   packageCache: string;
   toolDeps: string;
+  toolDepsState: string;
+  toolDepsBin: string;
+  toolDepsLocks: string;
   trust: string;
   logs: string;
   runtimeSockets: string;
@@ -41,6 +44,8 @@ export type RaxAgentWorkspaceLayout = {
 export type RaxStorageWorkspaceLayout = {
   root: string;
   config: string;
+  dependencyConfig: string;
+  dependencyLock: string;
   manifests: string;
   sessions: string;
   sessionSqlitePath: string;
@@ -153,6 +158,9 @@ export function createRaxStorageLayout(input: RaxStorageLayoutInput): RaxPathRes
       providerProfiles: child(homeRoot, "providers"),
       packageCache: child(homeRoot, "packages"),
       toolDeps: child(homeRoot, "tool-deps"),
+      toolDepsState: child(homeRoot, "tool-deps", "state.json"),
+      toolDepsBin: child(homeRoot, "tool-deps", "bin"),
+      toolDepsLocks: child(homeRoot, "tool-deps", "locks"),
       trust: child(homeRoot, "trust"),
       logs: child(homeRoot, "logs"),
       runtimeSockets: child(homeRoot, "runtime"),
@@ -161,6 +169,8 @@ export function createRaxStorageLayout(input: RaxStorageLayoutInput): RaxPathRes
     workspace: {
       root: workspaceRoot,
       config: child(workspaceRoot, "config"),
+      dependencyConfig: child(workspaceRoot, "config", "dependencies.json"),
+      dependencyLock: child(workspaceRoot, "config", "dependency-lock.json"),
       manifests: child(workspaceRoot, "manifests"),
       sessions: child(workspaceRoot, "sessions"),
       sessionSqlitePath: child(workspaceRoot, "sessions", "praxis.sqlite"),

@@ -29,13 +29,13 @@
 
 ## 4. 源码头部能力注释
 
-- 文件定位：Agent 执行引擎 / 基础工具原语层 / 工具依赖管理层。
-- 核心目的：承载 dependency Manager 这一能力位点。
-- 能力要求1：需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
-- 能力要求2：如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
-- 边界：保留 Agent 基础工具原语，不替代 TAP 的高级工具系统。
-- 对接：需要被 runtime.execEngine 拉起，并和 mainLoop、stateEngine、事件暴露、工具调用策略接通。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 文件定位：Agent 执行引擎 / basic_toolLayer / toolDependency / dependencyManager。
+- 核心目的：兼容旧 basic tool dependency 报告入口，并转向 runtime.dependencyPlane 的声明式依赖模型。
+- 能力要求1：只做 public-safe dry-run 分类，不执行安装、不探测宿主。
+- 能力要求2：输出可供 iteration/runtime preflight 消费的依赖 resolution 报告。
+- 边界：真实安装、probe、锁文件和状态写入属于 runtime.dependencyPlane。
+- 对接：需要服务旧 tests、runtime.dependencyPlane 和 baseToolDependencyRuntime。
+- 实现提示：保持兼容字段，同时规范化新版 dependency id。
 
 ## 5. 需要提供的能力
 

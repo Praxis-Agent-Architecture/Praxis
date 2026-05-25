@@ -17,6 +17,7 @@ import path from "node:path";
 import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import type { DeepMindV1BetaModelsGenerateContentTransport } from "../modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.js";
 import {
   isDeepSeekV4Model,
   mapDeepSeekV4ReasoningEffort,
@@ -101,6 +102,10 @@ import {
   createWorkspaceRollbackSandboxPlan,
 } from "./runtime.sandboxPlane/workspaceRollbackSandbox.js";
 import { invokeModelThroughRuntime } from "./runtime.modelAdapter/modelInvocationRuntime.js";
+import type {
+  RuntimeAuthResolver,
+  RuntimeAuthResolverRequest,
+} from "./runtime.authPlane/runtimeAuthResolver.js";
 import {
   normalizeAllowedRoots,
   normalizeToolCwd,
@@ -177,10 +182,13 @@ export type PraxisRuntimeKernelOptions = {
   runtimeId?: string;
   sessionId?: string;
   auth?: AuthEnvelope;
+  runtimeAuthResolver?: RuntimeAuthResolver;
+  authSelection?: RuntimeAuthResolverRequest;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
   openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
   openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
   anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
+  geminiGenerateContentTransport?: DeepMindV1BetaModelsGenerateContentTransport;
   allowPreviousResponseId?: boolean;
   previousProviderResponse?: {
     responseId: string;
@@ -507,6 +515,40 @@ function sessionIdFor(runtimeId: string, manifest: AgentManifest): string {
   return `${runtimeId}:session:${manifest.manifestHash.slice(0, 12)}`;
 }
 
+function runtimeAuthSelectionForManifest(
+  manifest: AgentManifest,
+  explicit: RuntimeAuthResolverRequest | undefined,
+): RuntimeAuthResolverRequest | undefined {
+  if (explicit !== undefined) return explicit;
+  const providerProfileRef = manifest.model.providerProfileRef;
+  const credentialRefId = manifest.model.credentialRefId;
+  const modelEntryRef = manifest.model.modelEntryRef;
+  if (!hasText(providerProfileRef) && !hasText(credentialRefId)) return undefined;
+  if (!hasText(providerProfileRef)) {
+    if (!hasText(credentialRefId)) return undefined;
+    const selection: RuntimeAuthResolverRequest = {
+      credentialRefId: credentialRefId.trim(),
+    };
+    if (hasText(modelEntryRef)) {
+      return {
+        ...selection,
+        modelEntryRef: modelEntryRef.trim(),
+      };
+    }
+    return selection;
+  }
+  const selection: RuntimeAuthResolverRequest = {
+    providerProfileRef: providerProfileRef.trim(),
+  };
+  if (hasText(modelEntryRef)) {
+    return {
+      ...selection,
+      modelEntryRef: modelEntryRef.trim(),
+    };
+  }
+  return selection;
+}
+
 function event(
   sessionId: string,
   eventId: string,
@@ -725,6 +767,7 @@ function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMap
 
 function providerToolSchemaFamilyForModel(model: AgentManifest["model"]): ProviderToolSchemaFamily {
   if (model.provider === "anthropic" || model.endpointShape === "messages") return "anthropicMessages";
+  if (model.provider === "gemini" || model.endpointShape === "gemini_generate_content") return "geminiGenerateContent";
   if (model.endpointShape === "chat_completions") return "openaiChatCompletions";
   return "openaiResponses";
 }
@@ -737,6 +780,9 @@ function providerRouteForModel(model: AgentManifest["model"]): string | undefine
 function modelInvocationCapabilityForModel(model: AgentManifest["model"]): { capabilityId: string; kind: string } {
   if (model.provider === "anthropic" || model.endpointShape === "messages") {
     return { capabilityId: "anthropic-messages", kind: "messages" };
+  }
+  if (model.provider === "gemini" || model.endpointShape === "gemini_generate_content") {
+    return { capabilityId: "gemini-generate-content", kind: "gemini_generate_content" };
   }
   if (model.endpointShape === "chat_completions") {
     return { capabilityId: "openai-chat-completions", kind: "chat_completions" };
@@ -1977,12 +2023,35 @@ function extractAnthropicMessagesOutputItems(raw: unknown): readonly Readonly<Re
   return [{ role: "assistant", content: raw.content }];
 }
 
+function extractGeminiGenerateContentOutputItems(raw: unknown): readonly Readonly<Record<string, unknown>>[] {
+  if (!isRecord(raw)) return [];
+  const contents: Readonly<Record<string, unknown>>[] = [];
+  const collectContent = (content: unknown) => {
+    if (!isRecord(content) || !Array.isArray(content.parts) || content.parts.length === 0) return;
+    contents.push({
+      role: readString(content.role) ?? "model",
+      parts: content.parts.filter(isRecord),
+    });
+  };
+
+  if (Array.isArray(raw.candidates)) {
+    for (const candidate of raw.candidates) {
+      if (isRecord(candidate)) collectContent(candidate.content);
+    }
+  }
+  collectContent(raw.content);
+  return contents;
+}
+
 function extractProviderOutputItems(
   raw: unknown,
   providerFamily: ProviderToolSchemaFamily,
 ): readonly Readonly<Record<string, unknown>>[] {
   if (providerFamily === "anthropicMessages") {
     return extractAnthropicMessagesOutputItems(raw);
+  }
+  if (providerFamily === "geminiGenerateContent") {
+    return extractGeminiGenerateContentOutputItems(raw);
   }
   return extractOpenAIResponseOutputItems(raw);
 }
@@ -2368,6 +2437,54 @@ function composeAnthropicMessages(input: {
   return appendAnthropicUserText(messages, input.dynamicInputText);
 }
 
+function geminiFunctionCallIds(content: Readonly<Record<string, unknown>>): readonly string[] {
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  return parts
+    .map((part) => isRecord(part) && isRecord(part.functionCall) ? readString(part.functionCall.id) : undefined)
+    .filter((callId): callId is string => callId !== undefined);
+}
+
+function geminiFunctionResponseId(content: Readonly<Record<string, unknown>>): string | undefined {
+  const parts = Array.isArray(content.parts) ? content.parts : [];
+  for (const part of parts) {
+    if (isRecord(part) && isRecord(part.functionResponse)) {
+      return readString(part.functionResponse.id);
+    }
+  }
+  return undefined;
+}
+
+function composeGeminiGenerateContentContents(input: {
+  dynamicInputText: string;
+  previousProviderOutputItems: readonly Readonly<Record<string, unknown>>[];
+  toolResultContents: readonly Readonly<Record<string, unknown>>[];
+}): readonly Readonly<Record<string, unknown>>[] {
+  const toolContentsByCallId = new Map<string, Readonly<Record<string, unknown>>[]>();
+  for (const toolContent of input.toolResultContents) {
+    const callId = geminiFunctionResponseId(toolContent);
+    if (callId === undefined) continue;
+    toolContentsByCallId.set(callId, [...(toolContentsByCallId.get(callId) ?? []), toolContent]);
+  }
+
+  const contents: Readonly<Record<string, unknown>>[] = [];
+  const consumedToolContents = new Set<Readonly<Record<string, unknown>>>();
+  for (const previousItem of input.previousProviderOutputItems) {
+    contents.push(previousItem);
+    for (const callId of geminiFunctionCallIds(previousItem)) {
+      for (const toolContent of toolContentsByCallId.get(callId) ?? []) {
+        contents.push(toolContent);
+        consumedToolContents.add(toolContent);
+      }
+    }
+  }
+
+  contents.push(
+    ...input.toolResultContents.filter((toolContent) => !consumedToolContents.has(toolContent)),
+    { role: "user", parts: [{ text: input.dynamicInputText }] },
+  );
+  return contents;
+}
+
 function normalizedSelection(values: readonly string[] | undefined): string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))].sort();
 }
@@ -2687,6 +2804,40 @@ function buildAnthropicMessagesBodyFromPromptPack(
   };
 }
 
+function buildGeminiGenerateContentBodyFromPromptPack(
+  manifest: AgentManifest,
+  promptPack: StandardPromptPack,
+  providerToolBundle: ProviderToolDeclarationBundle,
+  options: {
+    exposeProviderTools?: boolean;
+    observations?: readonly RuntimeObservationMaterial[];
+    previousProviderOutputItems?: readonly Readonly<Record<string, unknown>>[];
+  } = {},
+): Readonly<Record<string, unknown>> {
+  const promptSplit = splitPromptPackForProvider(promptPack);
+  const systemText = [
+    "You are running inside PraxisRuntimeKernel. Use the Praxis PromptPack as current situation context.",
+    PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+    promptSplit.instructionText,
+  ].filter((part) => part.trim().length > 0).join("\n\n");
+  const dynamicInputText = promptSplit.dynamicInputText.length > 0
+    ? promptSplit.dynamicInputText
+    : "Current Praxis turn has no dynamic prompt material.";
+  const toolResultContents = providerToolResultsFromObservations(options.observations ?? [])
+    .map((result) => lowerProviderToolResult({ providerFamily: "geminiGenerateContent", result }));
+
+  return {
+    model: manifest.model.model,
+    contents: composeGeminiGenerateContentContents({
+      dynamicInputText,
+      previousProviderOutputItems: options.previousProviderOutputItems ?? [],
+      toolResultContents,
+    }),
+    ...(systemText.length === 0 ? {} : { systemInstruction: { parts: [{ text: systemText }] } }),
+    ...(options.exposeProviderTools === false || providerToolBundle.tools.length === 0 ? {} : providerToolBundle.providerPayload),
+  };
+}
+
 function buildProviderBodyFromPromptPack(
   manifest: AgentManifest,
   promptPack: StandardPromptPack,
@@ -2705,6 +2856,9 @@ function buildProviderBodyFromPromptPack(
   }
   if (manifest.model.endpointShape === "chat_completions") {
     return buildOpenAIChatCompletionsBodyFromPromptPack(manifest, promptPack, providerToolBundle, options);
+  }
+  if (manifest.model.provider === "gemini" || manifest.model.endpointShape === "gemini_generate_content") {
+    return buildGeminiGenerateContentBodyFromPromptPack(manifest, promptPack, providerToolBundle, options);
   }
   return buildCodexResponsesBodyFromPromptPack(manifest, promptPack, mappings, options);
 }
@@ -3971,6 +4125,7 @@ export class PraxisRuntimeKernel {
     const sessionId = options.sessionId ?? sessionIdFor(runtimeId, manifest);
     const now = options.now ?? defaultNow;
     const events: string[] = [];
+    const authSelection = runtimeAuthSelectionForManifest(manifest, options.authSelection);
     const storageRuntimeResult = createStoragePlaneRuntime({
       cwd: options.storage?.cwd,
       raxHome: options.storage?.raxHome,
@@ -4411,10 +4566,13 @@ export class PraxisRuntimeKernel {
         dryRun,
         allowProviderCall: options.allowProviderCall ?? manifest.harness.policy.allowProviderCall ?? !dryRun,
         auth: options.auth,
+        runtimeAuthResolver: options.runtimeAuthResolver,
+        authSelection,
         providerCaller: options.providerCaller,
         openaiResponsesCaller: options.openaiResponsesCaller,
         openaiChatCompletionsCaller: options.openaiChatCompletionsCaller,
         anthropicMessagesCaller: options.anthropicMessagesCaller,
+        geminiGenerateContentTransport: options.geminiGenerateContentTransport,
         providerBody,
         governance: { accepted: true },
         contract: { accepted: true },

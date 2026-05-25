@@ -26,6 +26,16 @@ import {
 } from "../../../src/runtimeImplementation/runtimeAgentManifest.js";
 import { createPraxisRuntimeKernel } from "../../../src/runtimeImplementation/praxisRuntimeKernel.js";
 import { createInMemorySessionStateEventStore } from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
+import {
+  bindRuntimeAuthRole,
+  createInMemoryRuntimeAuthSecretVault,
+  createRuntimeAuthModelEntry,
+  createRuntimeAuthProviderProfile,
+  createRuntimeAuthRegistry,
+  createRuntimeAuthResolver,
+  createRuntimeAuthSecretRecord,
+  runtimeAuthCredentialRef,
+} from "../../../src/runtimeImplementation/runtime.authPlane/index.js";
 
 defineAgentCoreContractTest({
   sourcePath: "src/runtimeImplementation/praxisRuntimeKernel.ts",
@@ -85,7 +95,7 @@ function apiKeyAuthEnvelope(input: {
     apiKey: input.apiKey,
     ...(input.provider === "anthropic"
       ? { headerName: "x-api-key", extraHeaders: { "anthropic-version": "2023-06-01" } }
-      : {}),
+    : {}),
   }).envelope;
 }
 
@@ -118,6 +128,154 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   assert.equal(result.toolCalls.length, 0);
   assert.equal(result.state.session?.status, "completed");
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest resolves manifest auth refs through runtime authPlane", async () => {
+  class RuntimeAuthAgent extends PraxisAgent {
+    identity = "agent.kernel-runtime-auth";
+    model = model("gpt-5.5", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-runtime-auth",
+      providerProfileRef: "profile.openai.kernel-runtime",
+      modelEntryRef: "model.gpt-5.5.kernel-runtime",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const secret = await createRuntimeAuthSecretRecord({
+    secretId: "secret.openai.kernel-runtime",
+    provider: "openai",
+    secretKind: "api_key",
+    plaintext: { apiKey: "sk-runtime-kernel-secret" },
+    keyProvider: () => "kernel-runtime-master-key",
+  });
+  assert.equal(secret.ok, true);
+  if (!secret.ok) return;
+  const profile = createRuntimeAuthProviderProfile({
+    profileId: "profile.openai.kernel-runtime",
+    provider: "openai",
+    endpointShape: "responses",
+    baseURL: "https://api.openai.com",
+    credentialRef: runtimeAuthCredentialRef({
+      credentialRefId: "credential.openai.kernel-runtime",
+      secretId: "secret.openai.kernel-runtime",
+      provider: "openai",
+      credentialType: "openai_api_key",
+      secretKind: "api_key",
+      publicSafe: true,
+    }),
+  });
+  const modelEntry = createRuntimeAuthModelEntry({
+    modelEntryId: "model.gpt-5.5.kernel-runtime",
+    providerProfileRef: "profile.openai.kernel-runtime",
+    model: "gpt-5.5",
+  });
+  assert.equal(profile.ok, true);
+  assert.equal(modelEntry.ok, true);
+  if (!profile.ok || !modelEntry.ok) return;
+
+  const baseResolver = createRuntimeAuthResolver({
+    registry: createRuntimeAuthRegistry({ profiles: [profile.value], modelEntries: [modelEntry.value] }),
+    vault: createInMemoryRuntimeAuthSecretVault([secret.value]),
+    keyProvider: () => "kernel-runtime-master-key",
+  });
+  const authSelections: unknown[] = [];
+  const runtimeAuthResolver = {
+    resolve: async (request: Parameters<typeof baseResolver.resolve>[0]) => {
+      authSelections.push(request);
+      return await baseResolver.resolve(request);
+    },
+  };
+
+  const compiled = compileAgent(new RuntimeAuthAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-runtime-auth" }).runManifest(
+    compiled.manifest,
+    "say hello",
+    {
+      sessionId: "session-kernel-runtime-auth",
+      dryRun: false,
+      allowProviderCall: true,
+      runtimeAuthResolver,
+      openaiResponsesCaller: async (request) => {
+        assert.equal(request.endpoint, "/v1/responses");
+        assert.equal(request.url, "https://api.openai.com/v1/responses");
+        return {
+          id: "resp_runtime_auth",
+          output_text: "hello from runtime authPlane",
+          usage: { input_tokens: 7, output_tokens: 5 },
+        };
+      },
+      now: () => "2026-05-25T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(authSelections, [{
+    providerProfileRef: "profile.openai.kernel-runtime",
+    modelEntryRef: "model.gpt-5.5.kernel-runtime",
+  }]);
+  assert.equal(result.finalOutput, "hello from runtime authPlane");
+  assert.equal(result.modelCalls[0]?.usage?.inputTokens, 7);
+  assert.equal(result.modelCalls[0]?.usage?.outputTokens, 5);
+  assert.equal(JSON.stringify(result).includes("sk-runtime-kernel-secret"), false);
+
+  class CredentialRefAuthAgent extends PraxisAgent {
+    identity = "agent.kernel-runtime-auth-credential";
+    model = model("gpt-5.5", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-runtime-auth-credential",
+      credentialRefId: "credential.openai.kernel-runtime",
+      modelEntryRef: "model.gpt-5.5.kernel-runtime",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+  const credentialAuthSelections: unknown[] = [];
+  const credentialRuntimeAuthResolver = {
+    resolve: async (request: Parameters<typeof baseResolver.resolve>[0]) => {
+      credentialAuthSelections.push(request);
+      return await baseResolver.resolve(request);
+    },
+  };
+  const credentialCompiled = compileAgent(new CredentialRefAuthAgent());
+  assert.equal(credentialCompiled.ok, true);
+  if (!credentialCompiled.ok) return;
+  const credentialResult = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-runtime-auth-credential" }).runManifest(
+    credentialCompiled.manifest,
+    "say hello again",
+    {
+      sessionId: "session-kernel-runtime-auth-credential",
+      dryRun: false,
+      allowProviderCall: true,
+      runtimeAuthResolver: credentialRuntimeAuthResolver,
+      openaiResponsesCaller: async () => ({
+        id: "resp_runtime_auth_credential",
+        output_text: "hello from credential ref authPlane",
+        usage: { input_tokens: 3, output_tokens: 4 },
+      }),
+      now: () => "2026-05-25T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(credentialResult.ok, true);
+  assert.deepEqual(credentialAuthSelections, [{
+    credentialRefId: "credential.openai.kernel-runtime",
+    modelEntryRef: "model.gpt-5.5.kernel-runtime",
+  }]);
+  assert.equal(credentialResult.ok ? credentialResult.finalOutput : undefined, "hello from credential ref authPlane");
+  assert.equal(JSON.stringify(credentialResult).includes("sk-runtime-kernel-secret"), false);
 });
 
 test("PraxisRuntimeKernel.run routes OpenAI chat completions with chat tool schemas", async () => {
@@ -399,6 +557,179 @@ test("PraxisRuntimeKernel.run routes Anthropic messages and reads message text",
   assert.equal(result.finalOutput, "hello from anthropic messages");
   assert.equal(result.modelCalls[0]?.usage?.source, "anthropic.messages.usage");
   assert.equal(result.modelCalls[0]?.usage?.inputTokens, 11);
+});
+
+test("PraxisRuntimeKernel.run routes Gemini generateContent with native contents, tools, and tool-result replay", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-gemini-tool-"));
+  await writeFile(path.join(workspace, "notes.txt"), "needle from gemini tool\n", "utf8");
+
+  class GeminiToolAgent extends PraxisAgent {
+    identity = "agent.kernel-gemini-tool";
+    model = model("gemini-3.5-flash", {
+      provider: "gemini",
+      endpointShape: "gemini_generate_content",
+      carrierId: "carrier.kernel-gemini-tool",
+      baseURL: "https://generativelanguage.googleapis.com",
+    });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("file.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const bodies: unknown[] = [];
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-kernel-gemini-tool",
+    sessionId: "session-kernel-gemini-tool",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const secret = await createRuntimeAuthSecretRecord({
+    secretId: "secret.kernel.gemini-tool",
+    provider: "gemini",
+    secretKind: "api_key",
+    plaintext: { apiKey: "gemini-kernel-secret" },
+    keyProvider: () => "kernel-gemini-master-key",
+  });
+  assert.equal(secret.ok, true);
+  if (!secret.ok) return;
+  const profile = createRuntimeAuthProviderProfile({
+    profileId: "profile.kernel.gemini-tool",
+    provider: "gemini",
+    endpointShape: "gemini_generate_content",
+    baseURL: "https://generativelanguage.googleapis.com",
+    credentialRef: runtimeAuthCredentialRef({
+      credentialRefId: "credential.kernel.gemini-tool",
+      secretId: "secret.kernel.gemini-tool",
+      provider: "gemini",
+      credentialType: "gemini_api_key",
+      secretKind: "api_key",
+      publicSafe: true,
+    }),
+  });
+  const modelEntry = createRuntimeAuthModelEntry({
+    modelEntryId: "model.kernel.gemini-tool",
+    providerProfileRef: "profile.kernel.gemini-tool",
+    model: "gemini-3.5-flash",
+  });
+  const binding = bindRuntimeAuthRole({
+    role: "primary",
+    providerProfileRef: "profile.kernel.gemini-tool",
+    modelEntryRef: "model.kernel.gemini-tool",
+  });
+  assert.equal(profile.ok, true);
+  assert.equal(modelEntry.ok, true);
+  assert.equal(binding.ok, true);
+  if (!profile.ok || !modelEntry.ok || !binding.ok) return;
+  const runtimeAuthResolver = createRuntimeAuthResolver({
+    registry: createRuntimeAuthRegistry({ profiles: [profile.value], modelEntries: [modelEntry.value], roleBindings: [binding.value] }),
+    vault: createInMemoryRuntimeAuthSecretVault([secret.value]),
+    keyProvider: () => "kernel-gemini-master-key",
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-gemini-tool" }).run(
+    new GeminiToolAgent(),
+    "read notes",
+    {
+      sessionId: "session-kernel-gemini-tool",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      runtimeAuthResolver,
+      authSelection: { role: "primary" },
+      executor,
+      geminiGenerateContentTransport: (envelope) => {
+        calls += 1;
+        bodies.push(envelope.body);
+        assert.equal(envelope.url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent");
+        assert.equal(envelope.headers["x-goog-api-key"], "gemini-kernel-secret");
+
+        const body = envelope.body as {
+          contents?: Array<{ role?: string; parts?: Array<Record<string, unknown>> }>;
+          config?: { tools?: Array<{ functionDeclarations?: Array<{ name?: string }> }> };
+          input?: unknown;
+          tools?: unknown;
+        };
+        assert.equal(body.input, undefined);
+        assert.equal(body.tools, undefined);
+        assert.equal(body.config?.tools?.[0]?.functionDeclarations?.some((declaration) => declaration.name === "praxis_tool_file_read"), true);
+        assert.ok((body.contents?.length ?? 0) > 0);
+
+        if (calls === 1) {
+          return {
+            statusCode: 200,
+            body: {
+              candidates: [{
+                content: {
+                  role: "model",
+                  parts: [
+                    { text: "I will inspect the file." },
+                    {
+                      functionCall: {
+                        id: "gemini-tool-call-1",
+                        name: "praxis_tool_file_read",
+                        args: {
+                          workspaceRoot: workspace,
+                          path: "notes.txt",
+                          dryRun: false,
+                          context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+                        },
+                      },
+                    },
+                  ],
+                },
+              }],
+            },
+          };
+        }
+
+        const contents = body.contents ?? [];
+        const modelFunctionCallIndex = contents.findIndex((content) =>
+          content.role === "model" &&
+          (content.parts ?? []).some((part) =>
+            typeof part.functionCall === "object" &&
+            part.functionCall !== null &&
+            !Array.isArray(part.functionCall) &&
+            (part.functionCall as { id?: unknown }).id === "gemini-tool-call-1"
+          )
+        );
+        const functionResponseIndex = contents.findIndex((content) =>
+          content.role === "user" &&
+          (content.parts ?? []).some((part) =>
+            typeof part.functionResponse === "object" &&
+            part.functionResponse !== null &&
+            !Array.isArray(part.functionResponse) &&
+            (part.functionResponse as { id?: unknown }).id === "gemini-tool-call-1"
+          )
+        );
+        assert.notEqual(modelFunctionCallIndex, -1);
+        assert.notEqual(functionResponseIndex, -1);
+        assert.ok(modelFunctionCallIndex < functionResponseIndex);
+        return {
+          statusCode: 200,
+          body: {
+            candidates: [{
+              content: { role: "model", parts: [{ text: "found needle from gemini tool" }] },
+            }],
+          },
+        };
+      },
+      now: () => "2026-05-25T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.toolId, "file.read");
+  assert.equal(result.finalOutput, "found needle from gemini tool");
+  assert.equal(bodies.length, 2);
 });
 
 test("PraxisRuntimeKernel.run replays Anthropic assistant tool_use before tool_result", async () => {
