@@ -72,6 +72,29 @@ export type PraxisApplicationModelState = {
   metadataSource?: string;
 };
 
+export type PraxisApplicationAuthProfileView = {
+  profileId: string;
+  provider: string;
+  providerLabel: string;
+  endpointShape?: string;
+  baseURL?: string;
+  credentialRefId?: string;
+  secretId?: string;
+  secretPresent: boolean;
+  expiresAt?: string;
+  status: "unknown" | "active" | "expired" | "missing" | "error";
+  publicSafe: true;
+};
+
+export type PraxisApplicationAuthState = {
+  defaultRole?: string;
+  activeProfileId?: string;
+  profiles: readonly PraxisApplicationAuthProfileView[];
+  lastAuditEventKind?: string;
+  lastAuditAt?: string;
+  publicSafe: true;
+};
+
 export type PraxisApplicationToolCatalogState = {
   profile: PraxisApplicationToolProfile;
   availableProfiles: readonly PraxisApplicationToolProfile[];
@@ -163,6 +186,7 @@ export type PraxisApplicationViewModel = {
   workspaceRoot: string;
   mode: PraxisApplicationRuntimeMode;
   model: PraxisApplicationModelState;
+  auth?: PraxisApplicationAuthState;
   permissionProfile: PraxisApplicationPermissionProfile;
   toolProfile: PraxisApplicationToolProfile;
   sessions: readonly PraxisApplicationSessionSummary[];

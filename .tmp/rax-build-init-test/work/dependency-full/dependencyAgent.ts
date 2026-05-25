@@ -1,10 +1,10 @@
 import { praxis } from "../../../../src/agentCore/index.js";
-export class LspAgent extends praxis.Agent {
-  identity = "agent.lsp-dependency-full";
+export class DependencyAgent extends praxis.Agent {
+  identity = "agent.core-dependency-full";
   model = praxis.model("gpt-5.5");
   storage = praxis.storage.memory();
   harness = praxis.harness({
-    tools: praxis.tools([praxis.tool("code.lsp_locateDefinition")]),
+    tools: praxis.tools([praxis.basetool.core.fileSearch({ profileName: "codingCore" })]),
     loop: praxis.loop.single(),
   });
 }
