@@ -62,6 +62,17 @@ import {
   resolveRaxWorkspace,
 } from "../runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 import {
+  openPraxisProject,
+  project as defineProject,
+  projectDescriptor,
+} from "../runtimeImplementation/runtime.projectPlane/index.js";
+import {
+  createPraxisSessionManager,
+} from "../runtimeImplementation/runtime.sessionPlane/index.js";
+import {
+  createPraxisConversationManager,
+} from "../runtimeImplementation/runtime.conversationPlane/index.js";
+import {
   capabilities,
   capability,
   createProvisionPlan,
@@ -514,6 +525,60 @@ export {
 } from "../runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 
 export {
+  openPraxisProject,
+  projectDescriptor,
+  project,
+  type PraxisArtifactRecord,
+  type PraxisConversationMessageRecord,
+  type PraxisConversationRole,
+  type PraxisConversationSummaryRecord,
+  type PraxisFoundationProjectSnapshot,
+  type PraxisFoundationSessionSnapshot,
+  type PraxisFoundationStatus,
+  type PraxisFoundationStore,
+  type PraxisProjectAgentEntrySpec,
+  type PraxisProjectArtifactsSpec,
+  type PraxisProjectKind,
+  type PraxisProjectLeaseRecord,
+  type PraxisProjectOpenMode,
+  type PraxisProjectOpenOptions,
+  type PraxisProjectOpenResult,
+  type PraxisProjectRecord,
+  type PraxisProjectRuntime,
+  type PraxisProjectSessionsSpec,
+  type PraxisProjectSpec,
+  type PraxisProjectSpecInput,
+  type PraxisProjectStub,
+  type PraxisProjectWorkspaceRecord,
+  type PraxisProjectWorkspaceSpec,
+  type PraxisSessionAgentBindingRecord,
+  type PraxisSessionRecord,
+  type PraxisTurnRecord,
+  createInMemoryProjectStore,
+  createSqliteProjectStore,
+} from "../runtimeImplementation/runtime.projectPlane/index.js";
+
+export {
+  createPraxisSessionManager,
+  type CreatePraxisSessionInput,
+  type ForkPraxisSessionInput,
+  type PraxisSessionManager,
+  type SwitchSessionAgentInput,
+} from "../runtimeImplementation/runtime.sessionPlane/index.js";
+
+export {
+  createPraxisConversationManager,
+  type AppendAssistantTurnInput,
+  type AppendConversationMessageInput,
+  type AppendUserTurnInput,
+  type CreateConversationTurnInput,
+  type ForkConversationMessagesInput,
+  type PraxisConversationManager,
+  type ReadConversationWindowInput,
+  type WriteConversationSummaryInput,
+} from "../runtimeImplementation/runtime.conversationPlane/index.js";
+
+export {
   type BaseToolExecutorPort,
   type BaseToolExecutorResult,
 } from "../basetool/types.js";
@@ -766,6 +831,15 @@ export const runtimeKernel = Object.freeze({
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
   createInMemorySessionStateEventStore,
+  project: Object.freeze({
+    open: openPraxisProject,
+  }),
+  session: Object.freeze({
+    createPraxisSessionManager,
+  }),
+  conversation: Object.freeze({
+    createPraxisConversationManager,
+  }),
 });
 
 export const executionCore = Object.freeze({
@@ -807,6 +881,14 @@ export const storagePlane = Object.freeze({
   planRaxStorageInit,
   resolveRaxHome,
   resolveRaxWorkspace,
+});
+
+export const projectPlane = Object.freeze({
+  project: defineProject,
+  descriptor: projectDescriptor,
+  open: openPraxisProject,
+  createSessionManager: createPraxisSessionManager,
+  createConversationManager: createPraxisConversationManager,
 });
 
 export const provisionPlane = Object.freeze({
@@ -899,6 +981,7 @@ export const praxis = Object.freeze({
   dependency: dependencyAuthoring,
   component,
   session,
+  project: defineProject,
   statePlane,
   storage,
 
@@ -919,6 +1002,7 @@ export const praxis = Object.freeze({
   baseToolCodingCoreDescriptor,
 
   runtime: runtimeKernel,
+  projectPlane,
   provision: provisionPlane,
   dependencyPlane,
   componentPlane,

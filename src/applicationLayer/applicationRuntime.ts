@@ -26,6 +26,7 @@ import {
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
   type BaseToolProfileName,
+  type PraxisProjectRuntime,
 } from "../agentCore/index.js";
 import {
   invokeOpenAIV1Responses,
@@ -115,6 +116,8 @@ export type PraxisApplicationRuntimeOptions = {
   contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
   onApplicationToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
+  foundationProject?: PraxisProjectRuntime;
+  openFoundationProject?: boolean;
   liveProviderResolver?: (manifest: AgentManifest, context?: {
     sessionId: string;
     runtimeId: string;
@@ -165,6 +168,7 @@ type RuntimeState = {
   toolContextSelections: Map<string, BaseToolContextSelection>;
   toolContextUsage: Map<string, BaseToolContextUsageRecord[]>;
   alwaysApprovedApprovalKeys: Set<string>;
+  foundationProject?: PraxisProjectRuntime;
   auth?: PraxisApplicationAuthState;
 };
 
@@ -2668,6 +2672,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     toolContextSelections: new Map(),
     toolContextUsage: new Map(),
     alwaysApprovedApprovalKeys: new Set(),
+    foundationProject: options.foundationProject,
     auth: undefined,
   };
 
@@ -2825,6 +2830,13 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       auth: state.auth,
       permissionProfile: state.permissionProfile,
       toolProfile: state.toolProfile,
+      foundationProject: state.foundationProject === undefined ? undefined : {
+        projectId: state.foundationProject.project.projectId,
+        kind: state.foundationProject.project.kind,
+        workspaceRoot: state.foundationProject.project.mainWorkspaceRoot,
+        sessionSqlitePath: state.foundationProject.paths.sessionSqlitePath,
+        locked: state.foundationProject.lease !== undefined,
+      },
       sessions: [...state.sessions.values()].sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt)),
       approvals: [...state.approvals.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       manifest: summarizeManifest(state.manifest),
@@ -3542,6 +3554,14 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             lastActiveAt: now(),
             turns: state.turns,
           });
+          if (state.foundationProject !== undefined) {
+            await praxis.runtime.session.createPraxisSessionManager(state.foundationProject).create({
+              sessionId: state.sessionId,
+              title: command.name,
+              now: now(),
+              metadata: { source: "application.createSession" },
+            });
+          }
           await safeRefreshAuthState();
           const created = publish({
             eventId: "application.session.created",
@@ -3646,6 +3666,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         case "application.close": {
           applyCommandSession(command.sessionId);
           state.status = "closed";
+          await state.foundationProject?.release();
           const closed = publish({
             eventId: "application.closed",
             kind: "lifecycle",
@@ -3668,11 +3689,35 @@ export async function createApplicationProjectRuntime(
 > {
   const loaded = await loadApplicationProject(projectRoot);
   if (!loaded.ok) return loaded;
+  const foundationProject = options.foundationProject ?? (
+    options.openFoundationProject === true
+      ? (await praxis.runtime.project.open({
+        cwd: loaded.project.projectRoot,
+        kind: "chat",
+        mode: "open-or-create",
+        runtimeId: options.runtimeId,
+        ownerId: options.applicationId ?? loaded.project.applicationId,
+      }))
+      : undefined
+  );
+  if (foundationProject !== undefined && !("kind" in foundationProject)) {
+    if (!foundationProject.ok) {
+      return {
+        ok: false,
+        error: foundationProject.error,
+      };
+    }
+  }
   return {
     ok: true,
     runtime: createPraxisApplicationRuntime({
       ...options,
       project: loaded.project,
+      foundationProject: foundationProject === undefined
+        ? undefined
+        : "kind" in foundationProject
+          ? foundationProject
+          : foundationProject.runtime,
     }),
   };
 }

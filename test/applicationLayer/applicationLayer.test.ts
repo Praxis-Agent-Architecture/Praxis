@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 
 import {
@@ -641,4 +644,39 @@ test("applicationLayer commands can steer session, workspace, model, and permiss
   assert.equal(toolProfile.view.toolProfile, "workCore");
   assert.equal(toolProfile.view.tools.profile, "workCore");
   assert.equal(toolProfile.view.tools.extensionSlots.includes("pdf"), true);
+});
+
+test("applicationLayer can open the foundation project plane without taking over project logic", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-application-foundation-"));
+  await writeFile(path.join(root, "agent.ts"), "export default {};\n");
+  await writeFile(path.join(root, "rax.project.json"), JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: "application-project",
+    id: "application.foundation.fixture",
+    entry: "agent.ts",
+    application: { id: "application.foundation.fixture" },
+    agent: { id: "agent.foundation.fixture" },
+  }, null, 2));
+
+  const created = await createApplicationProjectRuntime(root, {
+    openFoundationProject: true,
+    applicationId: "application.foundation.fixture",
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+  try {
+    const transport = createLocalApplicationTransport(created.runtime);
+    const result = await transport.dispatch({
+      type: "application.createSession",
+      sessionId: "session.foundation.fixture",
+      name: "Foundation fixture",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.view.foundationProject?.kind, "chat");
+    assert.equal(result.view.foundationProject?.locked, true);
+    assert.equal(result.view.sessions[0]?.sessionId, "session.foundation.fixture");
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

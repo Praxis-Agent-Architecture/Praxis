@@ -189,6 +189,13 @@ export type PraxisApplicationViewModel = {
   auth?: PraxisApplicationAuthState;
   permissionProfile: PraxisApplicationPermissionProfile;
   toolProfile: PraxisApplicationToolProfile;
+  foundationProject?: {
+    projectId: string;
+    kind: "chat" | "workspace-project";
+    workspaceRoot: string;
+    sessionSqlitePath: string;
+    locked: boolean;
+  };
   sessions: readonly PraxisApplicationSessionSummary[];
   approvals: readonly PraxisApplicationApprovalSummary[];
   manifest?: PraxisApplicationManifestView;
