@@ -43,6 +43,7 @@ export type OpenAiV1ChatCompletionsMockCallerRequest = {
     project?: string;
   };
   timeoutMs: number;
+  signal?: AbortSignal;
   trace: OpenAiV1ChatCompletionsTrace;
 };
 
@@ -74,6 +75,7 @@ export type OpenAiV1ChatCompletionsInvocationRequest = {
   dryRun?: boolean;
   caller?: OpenAiV1ChatCompletionsProviderCaller;
   mockCaller?: OpenAiV1ChatCompletionsMockCaller;
+  signal?: AbortSignal;
 };
 
 export type OpenAiV1ChatCompletionsErrorCode =
@@ -496,10 +498,14 @@ export async function invokeOpenAiV1ChatCompletions(
       requestBody,
       headers: requestHeaders(request),
       timeoutMs: request.timeoutMs ?? 30_000,
+      signal: request.signal,
       trace: cleanTrace(request.trace),
     };
 
     try {
+      if (request.signal?.aborted === true) {
+        return failure("UPSTREAM_TIMEOUT", "OpenAI v1 chat completions invocation was aborted before provider call", "provider");
+      }
       const providerEnvelope = await request.caller(callerRequest);
       const raw = unwrapProviderCallerBody(providerEnvelope);
       if (raw === undefined || raw === null) {

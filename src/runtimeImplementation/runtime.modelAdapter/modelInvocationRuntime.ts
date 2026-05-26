@@ -146,6 +146,7 @@ export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & 
   chatgptAccountId?: string;
   clientName?: string;
   clientVersion?: string;
+  signal?: AbortSignal;
 };
 
 export type ModelInvocationProviderResult =
@@ -651,6 +652,7 @@ export async function invokeModelThroughRuntime(
       clientName: request.clientName,
       clientVersion: request.clientVersion,
       expectResponseObject: false,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -706,6 +708,7 @@ export async function invokeModelThroughRuntime(
       requiredScopes: request.requiredScopes ?? ["model.invoke", "openai.responses"],
       allowedScopes: request.allowedScopes,
       expectResponseObject: false,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -751,6 +754,7 @@ export async function invokeModelThroughRuntime(
       auth: providerAuth,
       trace: { correlationId: planResult.plan.invocationId, callerId: planResult.plan.caller.id },
       caller,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -804,6 +808,7 @@ export async function invokeModelThroughRuntime(
       requiredScopes: request.requiredScopes ?? ["model.invoke", "anthropic.messages"],
       allowedScopes: request.allowedScopes,
       expectResponseObject: false,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -862,6 +867,7 @@ export async function invokeModelThroughRuntime(
         traceId: planResult.plan.caller.id,
       },
       transport,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {

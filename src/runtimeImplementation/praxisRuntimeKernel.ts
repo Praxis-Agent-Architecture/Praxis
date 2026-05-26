@@ -40,11 +40,11 @@ import {
   decideMainLoopFinalAcceptance,
   planFrameworkMainLoopHandoff,
   runMainLoop,
-  runMainLoopRunner,
   type MainLoopRunnerError,
   type MainLoopTurnRecord,
   type MainLoopStepRecord,
 } from "../executionEngine/coreLogic/mainLoop.js";
+import { runMainLoopEngine } from "../executionEngine/coreLogic/mainLoopEngine.js";
 import {
   interpretModelDecision,
 } from "../executionEngine/coreLogic/modelDecision.js";
@@ -52,6 +52,10 @@ import {
   type EphemeralProcedurePlan,
   type EphemeralProcedureStep,
 } from "../executionEngine/coreLogic/ephemeralProcedure.js";
+import {
+  runToolExecutionUnits,
+  toolExecutionUnitsFromEphemeralProcedure,
+} from "../executionEngine/coreLogic/toolScheduler.js";
 import {
   createObservationMaterial,
   DEFAULT_OBSERVATION_TURN_INLINE_BUDGET_BYTES,
@@ -162,6 +166,7 @@ export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
   | "TEXT_INPUT_REJECTED"
   | "PROMPT_PACK_FAILED"
+  | "MAIN_LOOP_INTERRUPTED"
   | "MODEL_INVOCATION_FAILED"
   | "MODEL_DECISION_FAILED"
   | "TOOL_INVOCATION_FAILED"
@@ -231,6 +236,7 @@ export type PraxisRuntimeKernelOptions = {
   onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void | Promise<void>;
   onModelCallProgress?: (event: AgentModelCallProgressEvent) => void | Promise<void>;
   onToolCallProgress?: (event: AgentToolCallProgressEvent) => void | Promise<void>;
+  interruptSignal?: AbortSignal;
   now?: () => string;
 };
 
@@ -3937,6 +3943,7 @@ async function executeEphemeralProcedure(input: {
   preparedSandbox?: SandboxRuntimePrepareResult;
   dependencyRuntime?: NonNullable<PraxisRuntimeKernelOptions["baseToolDependencyRuntime"]>;
   onToolCallProgress?: (event: AgentToolCallProgressEvent) => void | Promise<void>;
+  interruptSignal?: AbortSignal;
   now: () => string;
   events: string[];
 }): Promise<{
@@ -4013,30 +4020,31 @@ async function executeEphemeralProcedure(input: {
     }
   }
 
-  const pending = new Map<string, EphemeralProcedureStep>(input.plan.steps.map((step) => [step.stepId, step]));
-  const completed = new Set<string>();
   const records: AgentToolCallRecord[] = [];
   const observations: RuntimeObservationMaterial[] = [];
-
-  while (pending.size > 0) {
-    const ready = [...pending.values()].filter((step) => step.dependsOn.every((dependency) => completed.has(dependency)));
-    if (ready.length === 0) {
-      return {
-        ok: false,
-        records,
-        observations,
-        error: kernelError("PROCEDURE_INVOCATION_FAILED", `procedure has unresolved dependencies: ${input.plan.procedureId}`, "tool"),
-      };
-    }
-
-    const wave = input.plan.executionMode === "serial" ? ready.slice(0, 1) : ready;
-    const results = await Promise.all(wave.map(async (step) => {
-      const toolCallId = `${input.plan.procedureId}:${step.stepId}`;
+  const stepByUnitId = new Map(
+    input.plan.steps.map((step) => [`${input.plan.procedureId}:${step.stepId}`, step]),
+  );
+  const schedulerResult = await runToolExecutionUnits(
+    toolExecutionUnitsFromEphemeralProcedure(input.plan),
+    async ({ unit }) => {
+      const step = stepByUnitId.get(unit.unitId);
+      if (step === undefined) {
+        return {
+          ok: false,
+          error: {
+            code: "PROCEDURE_STEP_NOT_FOUND",
+            message: `procedure step not found: ${unit.unitId}`,
+            publicSafe: true,
+          },
+        };
+      }
+      const toolCallId = unit.unitId;
       await input.onToolCallProgress?.({
         phase: "started",
         callId: toolCallId,
-        toolId: step.baseToolId,
-        arguments: step.input,
+        toolId: unit.toolId,
+        arguments: unit.input,
       });
       const result = await executeBaseToolDecision({
         runtimeId: input.runtimeId,
@@ -4044,8 +4052,8 @@ async function executeEphemeralProcedure(input: {
         manifest: input.manifest,
         executor: input.executor,
         toolCallId,
-        toolId: step.baseToolId,
-        args: step.input,
+        toolId: unit.toolId,
+        args: unit.input,
         workspaceRoot: input.workspaceRoot,
         allowedRoots: input.allowedRoots,
         allowToolExecution: input.allowToolExecution,
@@ -4061,40 +4069,73 @@ async function executeEphemeralProcedure(input: {
         phase: result.record.ok ? "completed" : "failed",
         record: result.record,
       });
-      return { step, result };
-    }));
+      return result.record.ok
+        ? { ok: true, result: { step, record: result.record } }
+        : {
+            ok: false,
+            error: {
+              code: "PROCEDURE_STEP_FAILED",
+              message: `procedure step failed: ${step.stepId}`,
+              publicSafe: true,
+            },
+            metadata: { step, record: result.record },
+          };
+    },
+    {
+      executionMode: input.plan.executionMode,
+      continueOnStepFailure: input.plan.metadata.continueOnStepFailure === true,
+      now: input.now,
+      signal: input.interruptSignal,
+    },
+  );
+  input.events.push(...schedulerResult.events);
 
-    for (const { step, result } of results) {
-      records.push(result.record);
+  for (const unitRecord of schedulerResult.records) {
+    const step = stepByUnitId.get(unitRecord.unit.unitId);
+    const record = unitRecord.status === "completed"
+      ? (unitRecord.result as { record?: AgentToolCallRecord } | undefined)?.record
+      : (unitRecord.metadata as { record?: AgentToolCallRecord } | undefined)?.record;
+    if (record !== undefined) {
+      records.push(record);
+    }
+    if (step !== undefined) {
       observations.push(createObservationMaterial({
         observationId: `${input.sessionId}:observation:${input.plan.procedureId}:${step.stepId}`,
         source: "ephemeralProcedure",
-        status: result.record.ok ? "completed" : "failed",
+        status: unitRecord.status === "completed" ? "completed" : isInterruptedProcedureUnitStatus(unitRecord.status) ? "interrupted" : "failed",
         title: `EphemeralProcedure ${input.plan.procedureId} step ${step.stepId}`,
-        summary: result.record.ok ? "procedure step completed" : "procedure step failed",
-        refs: [input.plan.procedureId, step.stepId, result.record.callId],
-        payload: result.record.ok ? result.record.output : result.record.error,
+        summary: unitRecord.status === "completed" ? "procedure step completed" : `procedure step ${unitRecord.status}`,
+        refs: [input.plan.procedureId, step.stepId, record?.callId ?? unitRecord.unit.unitId],
+        payload: record?.ok === true ? record.output : record?.error ?? unitRecord.error,
         metadata: metadataRecord({
           procedureId: input.plan.procedureId,
           stepId: step.stepId,
           baseToolId: step.baseToolId,
           outputRef: step.outputRef,
+          schedulerStatus: unitRecord.status,
         }),
       }));
-      pending.delete(step.stepId);
-      if (!result.record.ok) {
-        return {
-          ok: false,
-          records,
-          observations,
-          error: kernelError("PROCEDURE_INVOCATION_FAILED", `procedure step failed: ${step.stepId}`, "tool"),
-        };
-      }
-      completed.add(step.stepId);
     }
   }
 
+  if (!schedulerResult.ok) {
+    const interrupted = input.interruptSignal?.aborted === true ||
+      schedulerResult.records.some((record) => record.status === "cancelled");
+    return {
+      ok: false,
+      records,
+      observations,
+      error: interrupted
+        ? kernelError("MAIN_LOOP_INTERRUPTED", `procedure interrupted: ${input.plan.procedureId}`, "runtime-state")
+        : kernelError("PROCEDURE_INVOCATION_FAILED", `procedure failed: ${input.plan.procedureId}`, "tool"),
+    };
+  }
+
   return { ok: true, records, observations };
+}
+
+function isInterruptedProcedureUnitStatus(status: string): boolean {
+  return status === "skipped" || status === "cancelled";
 }
 
 export class PraxisRuntimeKernel {
@@ -4396,7 +4437,47 @@ export class PraxisRuntimeKernel {
 
     type KernelPromptPackage = Extract<Awaited<ReturnType<typeof buildPromptPackAndLower>>, { ok: true }>;
     let runnerError: PraxisRuntimeKernelError | undefined;
-    const runnerResult = await runMainLoopRunner<KernelPromptPackage, unknown>({
+    const runnerResult = await runMainLoopEngine<KernelPromptPackage, unknown>({
+      sessionId,
+      recorder: {
+        recordEvent: async (coreEvent) => {
+          await store.appendEvent(event(
+            sessionId,
+            `event:mainLoopEngine:${coreEvent.eventId}`,
+            `runtime.mainLoop.${coreEvent.name}`,
+            coreEvent.createdAt,
+            coreEvent.payload,
+          ));
+        },
+        recordStep: async (stepRecord) => {
+          await recordMainLoopStep({
+            store,
+            sessionId,
+            createdAt: now(),
+            events,
+            mainLoopSteps,
+            step: stepRecord,
+          });
+        },
+        recordTurnState: async (turnState) => {
+          await store.appendState(state(
+            sessionId,
+            `state:mainLoopEngine:${turnState.turnId}:${turnState.revision}`,
+            turnState.phase,
+            turnState.updatedAt,
+            {
+              turnId: turnState.turnId,
+              turnIndex: turnState.turnIndex,
+              revision: turnState.revision,
+              resumeToken: turnState.resumeToken,
+              budgetUsage: turnState.budgetUsage,
+              pendingInputQueueSize: turnState.pendingInputQueue.length,
+              observationRefs: turnState.observationRefs,
+            },
+          ));
+        },
+      },
+      interruptSignal: options.interruptSignal,
       maxModelTurns,
       maxToolCalls,
       prepareTurn: async (turn) => {
@@ -4578,6 +4659,7 @@ export class PraxisRuntimeKernel {
         contract: { accepted: true },
         clientName: manifest.model.clientName,
         clientVersion: manifest.model.clientVersion,
+        signal: options.interruptSignal,
       });
       const modelUsage = modelResult.ok && modelResult.usage
         ? {
@@ -4675,7 +4757,10 @@ export class PraxisRuntimeKernel {
       });
 
       if (!modelResult.ok) {
-        const error = kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model");
+        const interrupted = options.interruptSignal?.aborted === true;
+        const error = interrupted
+          ? kernelError("MAIN_LOOP_INTERRUPTED", modelResult.error.message, "runtime-state")
+          : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model");
         runnerError = error;
         await recordKernelError({ store, sessionId, errorId: `error:model:${turn + 1}`, error, createdAt: now(), metadata: { modelInvocationId } });
         return {
@@ -4703,6 +4788,14 @@ export class PraxisRuntimeKernel {
         ok: true,
         modelCallId: modelInvocationId,
         raw: modelResult.raw,
+        usage: modelUsage === undefined
+          ? undefined
+          : {
+            inputTokens: modelUsage.inputTokens,
+            outputTokens: modelUsage.outputTokens,
+            totalTokens: modelUsage.totalTokens,
+            providerRaw: modelResult.usage,
+          },
         events: modelResult.events,
       };
       },
@@ -5337,6 +5430,7 @@ export class PraxisRuntimeKernel {
             preparedSandbox: sandboxPrepared.sandbox,
             dependencyRuntime: options.baseToolDependencyRuntime,
             onToolCallProgress: options.onToolCallProgress,
+            interruptSignal: options.interruptSignal,
             now,
             events,
           });
@@ -5449,6 +5543,19 @@ export class PraxisRuntimeKernel {
                 approvalRequired: error.code === "APPROVAL_REQUIRED",
               },
             });
+            if (error.code === "MAIN_LOOP_INTERRUPTED") {
+              runnerError = error;
+              return {
+                ok: false,
+                error: {
+                  code: error.code,
+                  message: error.message,
+                  boundary: "model",
+                  publicSafe: true,
+                },
+                events: [],
+              };
+            }
             if (error.code !== "APPROVAL_REQUIRED") {
               return {
                 ok: true,
@@ -5488,8 +5595,11 @@ export class PraxisRuntimeKernel {
 
     events.push(...runnerResult.events);
     if (!runnerResult.ok) {
+      const interrupted = runnerResult.error.code === "MAIN_LOOP_INTERRUPTED";
       const fallbackCode: PraxisRuntimeKernelErrorCode =
-        runnerResult.error.boundary === "prompt"
+        interrupted
+          ? "MAIN_LOOP_INTERRUPTED"
+          : runnerResult.error.boundary === "prompt"
           ? "PROMPT_PACK_FAILED"
           : runnerResult.error.boundary === "model" || runnerResult.error.boundary === "model-decision"
             ? "MODEL_DECISION_FAILED"
@@ -5501,7 +5611,9 @@ export class PraxisRuntimeKernel {
                   ? "APPROVAL_REQUIRED"
                   : "TEXT_OUTPUT_REJECTED";
       const fallbackBoundary: PraxisRuntimeKernelError["boundary"] =
-        runnerResult.error.boundary === "model" || runnerResult.error.boundary === "model-decision"
+        interrupted
+          ? "runtime-state"
+          : runnerResult.error.boundary === "model" || runnerResult.error.boundary === "model-decision"
           ? "model"
           : runnerResult.error.boundary === "tool" || runnerResult.error.boundary === "procedure" || runnerResult.error.boundary === "approval"
             ? "tool"
@@ -5509,7 +5621,7 @@ export class PraxisRuntimeKernel {
               ? "io"
               : "runtime-state";
       const error = runnerError ?? kernelError(fallbackCode, runnerResult.error.message, fallbackBoundary);
-      await store.updateSessionStatus(sessionId, error.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed");
+      await store.updateSessionStatus(sessionId, interrupted ? "interrupted" : error.code === "APPROVAL_REQUIRED" ? "waitingApproval" : "failed");
       const snapshot = await store.readSession(sessionId);
       return {
         ok: false,
