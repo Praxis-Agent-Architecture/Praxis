@@ -56,7 +56,7 @@ const RAX_USAGE = [
   "Usage:",
   "  rax build init minimal|fullstack|custom [--dir path] [--dry-run]",
   "  rax inspect/test/run agent.ts",
-  "  rax devdoctor run|inspect|report|cache-xray",
+  "  rax devdoctor run|inspect|report|monitor|cache-xray",
   "",
 ].join("\n");
 
