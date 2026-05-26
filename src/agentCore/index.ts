@@ -39,6 +39,12 @@ import {
   sandboxRuntimeProviderDescriptor,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
+  createSandboxCommandPlan,
+  createLocalSandboxRemoteWorkerAdapter,
+  runSandboxCommand,
+  sandboxCommandRunnerDescriptor,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxCommandRunner.js";
+import {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
   eventInterfaceEnvelope,
@@ -521,6 +527,21 @@ export {
 } from "../executionEngine/promptPack/promptDefiner.js";
 
 export {
+  createSandboxCommandPlan,
+  createLocalSandboxRemoteWorkerAdapter,
+  runSandboxCommand,
+  sandboxCommandRunnerDescriptor,
+  type SandboxCommandDenial,
+  type SandboxCommandFilesystemPolicy,
+  type SandboxCommandNetworkPolicy,
+  type SandboxCommandPlan,
+  type SandboxCommandProviderFamily,
+  type SandboxCommandRequest,
+  type SandboxCommandRunResult,
+  type SandboxRemoteWorkerAdapter,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxCommandRunner.js";
+
+export {
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
   sandboxRuntimeProviderDescriptor,
@@ -988,8 +1009,12 @@ export const dependencyPlane = Object.freeze({
 });
 
 export const sandboxPlane = Object.freeze({
+  createSandboxCommandPlan,
+  createLocalSandboxRemoteWorkerAdapter,
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
+  runSandboxCommand,
+  sandboxCommandRunnerDescriptor,
   sandboxRuntimeProviderDescriptor,
 });
 

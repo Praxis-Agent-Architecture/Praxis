@@ -104,6 +104,11 @@ import {
 } from "./runtime.sandboxPlane/baseToolSandboxPlanner.js";
 import {
   createWorkspaceRollbackSandboxPlan,
+  createWorkspaceRollbackSnapshot,
+  finalizeWorkspaceRollbackSnapshot,
+  restoreWorkspaceRollbackSnapshot,
+  type WorkspaceRollbackFinalizeResult,
+  type WorkspaceRollbackSnapshot,
 } from "./runtime.sandboxPlane/workspaceRollbackSandbox.js";
 import { invokeModelThroughRuntime } from "./runtime.modelAdapter/modelInvocationRuntime.js";
 import type {
@@ -157,6 +162,7 @@ import {
   prepareSandboxRuntime,
   type SandboxRuntimePrepareResult,
 } from "./runtime.sandboxPlane/sandboxRuntimeProvider.js";
+import type { SandboxRemoteWorkerAdapter } from "./runtime.sandboxPlane/sandboxCommandRunner.js";
 import {
   describeShellWorkspaceWrite,
   shellWorkspaceWriteGuardMessage,
@@ -232,6 +238,7 @@ export type PraxisRuntimeKernelOptions = {
     cwd?: string;
     runSmoke?: boolean;
     failOnUnavailable?: boolean;
+    remoteWorker?: SandboxRemoteWorkerAdapter;
   };
   onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void | Promise<void>;
   onModelCallProgress?: (event: AgentModelCallProgressEvent) => void | Promise<void>;
@@ -317,6 +324,28 @@ async function inferFilesystemActionForTool(input: {
     if (typeof error === "object" && error !== null && (error as { code?: unknown }).code === "ENOENT") return "create";
     return undefined;
   }
+}
+
+function shouldSnapshotWorkspaceRollbackTool(toolId: string): boolean {
+  return toolId === "patch.apply";
+}
+
+async function startWorkspaceRollbackSnapshot(input: {
+  toolId: string;
+  plan?: ReturnType<typeof createWorkspaceRollbackSandboxPlan>;
+}): Promise<WorkspaceRollbackSnapshot | undefined> {
+  if (input.plan === undefined || !shouldSnapshotWorkspaceRollbackTool(input.toolId)) return undefined;
+  return await createWorkspaceRollbackSnapshot(input.plan);
+}
+
+async function finalizeWorkspaceRollbackToolSnapshot(input: {
+  snapshot?: WorkspaceRollbackSnapshot;
+  shouldRestore: boolean;
+}): Promise<WorkspaceRollbackFinalizeResult | undefined> {
+  if (input.snapshot === undefined) return undefined;
+  const diff = await finalizeWorkspaceRollbackSnapshot(input.snapshot);
+  if (!input.shouldRestore) return diff;
+  return await restoreWorkspaceRollbackSnapshot(input.snapshot, diff);
 }
 
 export type AgentToolCallRecord = {
@@ -684,6 +713,7 @@ function approvedRuntimeTapApproval(input: {
   return {
     ...rawApproval,
     accepted: true,
+    runtimeApproved: true,
     approvalId: readString(rawApproval.approvalId) ?? `runtime-profile-${input.profile}`,
     reason: readString(rawApproval.reason) ?? input.reason,
   };
@@ -812,6 +842,8 @@ function enrichToolArguments(
   },
 ): Readonly<Record<string, unknown>> {
   const rawContext = isRecord(args.context) ? args.context : {};
+  const safeRawContext: Record<string, unknown> = { ...rawContext };
+  delete safeRawContext.approval;
   const workspaceRoot = manifest.harness.policy.workspaceRoot ?? runtimeContext.workspaceRoot;
   const allowedRoots = manifest.harness.policy.allowedRoots ?? runtimeContext.allowedRoots;
   const grantedPermissions = grantedPermissionsForTool(toolId, rawContext.grantedPermissions, manifest.toolPolicy.profile);
@@ -838,7 +870,7 @@ function enrichToolArguments(
     ...(args.dryRun === undefined ? { dryRun: false } : {}),
     ...(workspaceRoot === undefined ? {} : { workspaceRoot }),
     context: {
-      ...rawContext,
+      ...safeRawContext,
       runtimeId: readString(rawContext.runtimeId) ?? runtimeContext.runtimeId,
       sessionId: readString(rawContext.sessionId) ?? runtimeContext.sessionId,
       invocationId: readString(rawContext.invocationId) ?? runtimeContext.invocationId,
@@ -3162,7 +3194,7 @@ async function prepareKernelSandbox(input: {
     { sandbox },
   ));
 
-  const failOnUnavailable = input.options.sandbox?.failOnUnavailable ?? true;
+  const failOnUnavailable = input.options.sandbox?.failOnUnavailable ?? false;
   if (!sandbox.ready && failOnUnavailable) {
     return {
       ok: false,
@@ -3855,6 +3887,40 @@ async function executeBaseToolDecision(input: {
     return { record, observation, events: [...governance.events, ...dependencyPreflight.events], governance, policyAdjudication, sandboxPlan };
   }
 
+  let workspaceRollbackSnapshot: WorkspaceRollbackSnapshot | undefined;
+  let workspaceRollbackDiff: WorkspaceRollbackFinalizeResult | undefined;
+  try {
+    workspaceRollbackSnapshot = await startWorkspaceRollbackSnapshot({
+      toolId: input.toolId,
+      plan: workspaceRollback,
+    });
+    input.events.push(...(workspaceRollbackSnapshot?.events ?? []));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "workspace rollback snapshot failed";
+    const record: AgentToolCallRecord = {
+      callId: input.toolCallId,
+      toolId: input.toolId,
+      arguments: toolArguments,
+      ok: false,
+      error: {
+        code: "WORKSPACE_ROLLBACK_SNAPSHOT_FAILED",
+        message,
+        publicSafe: true,
+      },
+    };
+    const observation = createObservationMaterial({
+      observationId: `${input.sessionId}:observation:${input.toolCallId}:workspace-rollback`,
+      source: "baseTool",
+      status: "failed",
+      title: `BaseTool ${input.toolId}`,
+      summary: message,
+      refs: [input.toolCallId, input.toolId],
+      payload: record.error,
+      metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId, workspaceRollbackStatus: "snapshotFailed" }),
+    });
+    return { record, observation, events: [...governance.events, "runtime.sandboxPlane.workspaceRollback.snapshotFailed"], governance, policyAdjudication, sandboxPlan };
+  }
+
   const toolResult = await invokeMountedBaseTool({
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
@@ -3893,6 +3959,13 @@ async function executeBaseToolDecision(input: {
       ...(workspaceRollback === undefined ? {} : { workspaceRollback }),
     },
   });
+  if (workspaceRollbackSnapshot !== undefined) {
+    workspaceRollbackDiff = await finalizeWorkspaceRollbackToolSnapshot({
+      snapshot: workspaceRollbackSnapshot,
+      shouldRestore: !(toolResult.ok && toolResult.toolResult.ok),
+    });
+    input.events.push(...(workspaceRollbackDiff?.events ?? []));
+  }
   input.events.push(...toolResult.events);
   const record: AgentToolCallRecord = {
     callId: input.toolCallId,
@@ -3923,9 +3996,10 @@ async function executeBaseToolDecision(input: {
       toolId: input.toolId,
       providerToolName: input.providerToolName ?? "",
       createdAt: input.now(),
+      ...(workspaceRollbackDiff === undefined ? {} : { workspaceRollbackDiff }),
     }),
   });
-  return { record, observation, events: toolResult.events, governance, policyAdjudication, sandboxPlan };
+  return { record, observation, events: [...(workspaceRollbackSnapshot?.events ?? []), ...(workspaceRollbackDiff?.events ?? []), ...toolResult.events], governance, policyAdjudication, sandboxPlan };
 }
 
 async function executeEphemeralProcedure(input: {
@@ -4401,6 +4475,10 @@ export class PraxisRuntimeKernel {
         mountPolicy: manifest.sandbox.mountPolicy,
         networkPolicy: manifest.sandbox.networkPolicy,
       },
+      sandboxSpec: manifest.sandbox,
+      preparedSandbox: sandboxPrepared.sandbox,
+      policyProfile: manifest.toolPolicy.profile,
+      remoteSandboxWorker: options.sandbox?.remoteWorker,
       emitEvent: (runtimeEvent) => {
         events.push(runtimeEvent.type);
       },

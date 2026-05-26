@@ -113,7 +113,18 @@ test("contract-only sandbox providers explain readiness instead of pretending to
   const prepared = await praxis.sandboxPlane.prepareSandboxRuntime(spec, { runSmoke: true });
 
   assert.equal(prepared.ready, false);
-  assert.equal(prepared.probe.status, "contractOnly");
-  assert.equal(prepared.probe.nextAction, "manualProviderSetup");
-  assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "manualProviderSetup"), true);
+  if (process.platform === "win32") {
+    assert.equal(prepared.probe.status, "contractOnly");
+    assert.equal(prepared.probe.nextAction, "installDependency");
+    assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "installDependency" && hint.requiresApproval), true);
+    assert.equal(prepared.probe.dependencyInstallEnvelopes.some((envelope) =>
+      envelope.dependencyId === "dependency.praxis.windowsSandboxHelper" &&
+      envelope.installTarget === "provider-managed" &&
+      envelope.requiresApproval &&
+      envelope.approvalSurface === "interface/application"
+    ), true);
+    return;
+  }
+  assert.equal(prepared.probe.status, "unsupportedPlatform");
+  assert.equal(prepared.probe.nextAction, "chooseDifferentProfile");
 });
