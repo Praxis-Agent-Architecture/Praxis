@@ -130,7 +130,7 @@ test("baseToolDependencyRuntime exposes approval and provider-unavailable depend
     executor,
     implementedPortPaths,
   });
-  const available = await preflightBaseToolDependencies({
+  const unavailable = await preflightBaseToolDependencies({
     executor,
     readiness: mcpReadiness,
     catalogEntry: mcpReadiness.entry,
@@ -144,9 +144,9 @@ test("baseToolDependencyRuntime exposes approval and provider-unavailable depend
       governanceAccepted: true,
     },
   });
-  assert.equal(available.decision, "ready");
-  assert.equal(available.status, "available");
-  assert.deepEqual(available.providerUnavailableDependencies, []);
+  assert.equal(unavailable.decision, "blocked");
+  assert.equal(unavailable.status, "providerUnavailable");
+  assert.deepEqual(unavailable.providerUnavailableDependencies, ["runtime.executor.mcp.call"]);
 });
 
 test("baseToolDependencyRuntime resolves LSP target dependencies into managed installable plans", async () => {
