@@ -15,7 +15,7 @@ export async function invokeWebFetchCore(
   const fetch = namespaceMethod(definition, request, "network", "fetch");
   if (!fetch.ok) return fetch.result;
 
-  return callRuntimePort(definition, fetch.value(compactRecord({ url: url.value, maxBytes: maxBytes.value })), {
+  return callRuntimePort(definition, fetch.value(compactRecord({ url: url.value, maxBytes: maxBytes.value, context: input.value.context })), {
     portPath: "network.fetch",
     metadata: { url: url.value, maxBytes: maxBytes.value },
   });

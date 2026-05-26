@@ -1,6 +1,6 @@
 import type { BaseToolDefinition, BaseToolInvokeRequest, BaseToolInvokeResult } from "../types.js";
 import { callRuntimePort } from "./results.js";
-import { inputRecord, namespaceMethod, requiredStringField, stringField } from "./validation.js";
+import { compactRecord, inputRecord, namespaceMethod, requiredStringField, stringField } from "./validation.js";
 
 export async function invokeProcessKillCore(
   definition: BaseToolDefinition,
@@ -15,7 +15,7 @@ export async function invokeProcessKillCore(
   const kill = namespaceMethod(definition, request, "process", "kill");
   if (!kill.ok) return kill.result;
 
-  return callRuntimePort(definition, kill.value({ processId: processId.value, signal: signal.value ?? "SIGTERM" }), {
+  return callRuntimePort(definition, kill.value(compactRecord({ processId: processId.value, signal: signal.value ?? "SIGTERM", context: input.value.context })), {
     portPath: "process.kill",
     metadata: { processId: processId.value, signal: signal.value ?? "SIGTERM" },
   });

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -1369,6 +1369,7 @@ test("PraxisRuntimeKernel.runManifest fails before model invocation when sandbox
         providerCalls += 1;
         return { output_text: "should not run" };
       },
+      sandbox: { failOnUnavailable: true },
       now: () => "2026-05-06T00:00:00.000Z",
     },
   );
@@ -2344,6 +2345,89 @@ test("PraxisRuntimeKernel.runManifest defaults patch.apply permissions for permi
   assert.equal(grantedPermissions?.includes("patch:apply"), true);
 });
 
+test("PraxisRuntimeKernel wraps patch.apply with workspace rollback in yolo profile", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-patch-rollback-"));
+
+  class PatchRollbackAgent extends PraxisAgent {
+    identity = "agent.patch-rollback";
+    model = model("gpt-5.4", { carrierId: "carrier.patch-rollback" });
+    toolPolicy = toolPolicies.yolo();
+    sandbox = sandboxHelper.hostObserved();
+    harness = harness({
+      tools: tools([tool("patch.apply")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-patch-rollback",
+    sessionId: "session-patch-rollback",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowFilesystemWrite: true,
+    },
+    sandboxSpec: sandboxHelper.hostObserved(),
+    policyProfile: "yolo",
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-patch-rollback" }).run(
+    new PatchRollbackAgent(),
+    "apply a partially failing patch",
+    {
+      sessionId: "session-patch-rollback",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      approvalResolver: async () => ({ status: "approved", reason: "unit test approves yolo patch.apply" }),
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "patch.apply",
+              call_id: "patch-rollback-call",
+              arguments: JSON.stringify({
+                patch: [
+                  "*** Begin Patch",
+                  "*** Add File: generated.txt",
+                  "+generated before failure",
+                  "*** Update File: missing.txt",
+                  "@@",
+                  "-before",
+                  "+after",
+                  "*** End Patch",
+                  "",
+                ].join("\n"),
+              }),
+            }],
+          };
+        }
+        return { output_text: "patch rollback provider was reached" };
+      },
+      now: () => "2026-05-09T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, false);
+  assert.equal(existsSync(path.join(workspace, "generated.txt")), false);
+  const rollbackEvents = result.events.filter((item) => item.includes("workspaceRollback"));
+  assert.ok(rollbackEvents.length > 0);
+  await assert.rejects(readFile(path.join(workspace, "generated.txt"), "utf8"));
+});
+
 test("PraxisRuntimeKernel.runManifest grants shell.run runtime permissions", async () => {
   class ShellRunAgent extends PraxisAgent {
     identity = "agent.shell-run";
@@ -2562,7 +2646,7 @@ test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for 
   assert.equal(result.mainLoopSteps.some((step) => step.observationRefs.includes("session-tool-failure:observation:tool-call-missing")), true);
 });
 
-test("PraxisRuntimeKernel.runManifest feeds governed shell tool calls back as model observations", async () => {
+test("PraxisRuntimeKernel.runManifest degrades unavailable strong sandbox shell calls to workspace rollback observations", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-sandbox-tool-"));
 
   class SandboxToolBlockedAgent extends PraxisAgent {
@@ -2637,7 +2721,7 @@ test("PraxisRuntimeKernel.runManifest feeds governed shell tool calls back as mo
             }],
           };
         }
-        return { output_text: "The sandbox blocked the shell command, so I can explain the missing bwrap dependency." };
+        return { output_text: "The sandbox degraded to workspace rollback and returned the shell observation." };
       },
       now: () => "2026-05-09T00:00:00.000Z",
     },
@@ -2645,14 +2729,14 @@ test("PraxisRuntimeKernel.runManifest feeds governed shell tool calls back as mo
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.finalOutput, "The sandbox blocked the shell command, so I can explain the missing bwrap dependency.");
+  assert.equal(result.finalOutput, "The sandbox degraded to workspace rollback and returned the shell observation.");
   assert.equal(result.modelCalls.length, 2);
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.ok, true);
   const secondProviderBody = providerBodies[1] as { input?: readonly { type?: string; call_id?: string; output?: string }[] };
   const nativeToolResult = secondProviderBody.input?.find((item) => item.type === "function_call_output");
   assert.equal(nativeToolResult?.call_id, "tool-call-sandbox-blocked");
-  assert.match(nativeToolResult?.output ?? "", /exitCode|stdout|pwd/i);
+  assert.match(nativeToolResult?.output ?? "", /workspace-rollback|exitCode|stdout/i);
   assert.equal(result.mainLoopSteps.some((step) => step.observationRefs.includes("session-sandbox-tool-blocked:observation:tool-call-sandbox-blocked")), true);
 });
 

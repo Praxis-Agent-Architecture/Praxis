@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 
 import type {
@@ -8,6 +9,13 @@ import type {
   BaseToolExecutorResult,
 } from "../../basetool/types.js";
 import { getSemanticBaseToolDefinition, listSemanticBaseToolDefinitions } from "../../basetool/catalog.js";
+import { sandbox, type BaseToolPolicyProfile, type SandboxSpec } from "../runtimeAgentManifest.js";
+import type { SandboxRuntimePrepareResult } from "../runtime.sandboxPlane/sandboxRuntimeProvider.js";
+import {
+  runSandboxCommand,
+  type SandboxRemoteWorkerAdapter,
+} from "../runtime.sandboxPlane/sandboxCommandRunner.js";
+import { normalizeToolCwd, normalizeWorkspacePath, workspacePathMetadata, workspaceRelativePath } from "./workspacePathPolicy.js";
 
 export type RuntimeBaseToolExecutorEvent = {
   type: string;
@@ -20,6 +28,7 @@ export type RuntimeBaseToolExecutorEvent = {
 export type RuntimeBaseToolExecutorPolicy = {
   workspaceRoot?: string;
   allowedRoots?: readonly string[];
+  allowedWriteRoots?: readonly string[];
   allowShellExecution?: boolean;
   allowGitExecution?: boolean;
   allowProcessExecution?: boolean;
@@ -66,6 +75,10 @@ export type RuntimeBaseToolExecutorContext = {
   policy?: RuntimeBaseToolExecutorPolicy;
   resourceLimits?: RuntimeBaseToolExecutorResourceLimits;
   sandbox?: RuntimeBaseToolExecutorSandbox;
+  sandboxSpec?: SandboxSpec;
+  preparedSandbox?: SandboxRuntimePrepareResult;
+  policyProfile?: BaseToolPolicyProfile;
+  remoteSandboxWorker?: SandboxRemoteWorkerAdapter;
   mcpServers?: readonly unknown[];
   environment?: Readonly<Record<string, string | undefined>>;
   adapters?: Partial<BaseToolExecutorPort>;
@@ -101,6 +114,7 @@ export const baseToolExecutorPortFactoryDescriptor = {
     "tool.discover",
     "tool.describe",
     "userInteraction.ask",
+    "sandbox.run",
   ],
 } as const;
 
@@ -125,6 +139,10 @@ function isInside(root: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
+function isSecretPath(candidate: string): boolean {
+  return path.basename(candidate) === ".env" || path.basename(candidate).startsWith(".env.");
+}
+
 function resolvePath(context: RuntimeBaseToolExecutorContext, inputPath: unknown): BaseToolExecutorResult<string> {
   if (typeof inputPath !== "string" || inputPath.trim().length === 0) {
     return fail("INVALID_PATH", "A non-empty path is required.");
@@ -135,16 +153,136 @@ function resolvePath(context: RuntimeBaseToolExecutorContext, inputPath: unknown
   if (!allowedRoots.some((allowedRoot) => isInside(allowedRoot, absolute))) {
     return fail("PATH_OUTSIDE_ALLOWED_ROOTS", `Path ${inputPath} is outside allowed runtime roots.`);
   }
+  const profile = policyProfileForContext(context);
+  if (profile !== "bapr" && profile !== "yolo" && isSecretPath(absolute)) {
+    return fail("SECRET_PATH_DENIED", "Secret environment files require explicit runtime approval before model-visible tools may access them.", {
+      needsApproval: true,
+      path: inputPath,
+      policyProfile: profile,
+    });
+  }
   return ok(absolute);
 }
 
-function truncate(context: RuntimeBaseToolExecutorContext, value: string): string {
-  const max = context.resourceLimits?.maxOutputBytes ?? 256_000;
-  return value.length <= max ? value : value.slice(0, max);
+function truncateUtf8(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  let used = 0;
+  let output = "";
+  for (const char of value) {
+    const size = Buffer.byteLength(char, "utf8");
+    if (used + size > maxBytes) break;
+    output += char;
+    used += size;
+  }
+  return output;
+}
+
+function truncate(context: RuntimeBaseToolExecutorContext, value: string, requestedMaxBytes?: unknown): string {
+  const requestMax = typeof requestedMaxBytes === "number" && Number.isFinite(requestedMaxBytes) && requestedMaxBytes > 0
+    ? Math.floor(requestedMaxBytes)
+    : undefined;
+  const max = requestMax ?? context.resourceLimits?.maxOutputBytes ?? 256_000;
+  return truncateUtf8(value, max);
 }
 
 function emit(context: RuntimeBaseToolExecutorContext, portPath: string, type: string, metadata?: Readonly<Record<string, unknown>>): void {
   context.emitEvent?.({ type, runtimeId: context.runtimeId, sessionId: context.sessionId, portPath, metadata });
+}
+
+function policyProfileForContext(context: RuntimeBaseToolExecutorContext): BaseToolPolicyProfile {
+  return context.policyProfile ?? (typeof context.sandbox?.policyProfile === "string" ? context.sandbox.policyProfile as BaseToolPolicyProfile : "standard");
+}
+
+function strongSandboxFamily(value: string | undefined): boolean {
+  return value === "linux-bubblewrap" || value === "macos-containerization" || value === "windows-sandbox" || value === "remote-worker";
+}
+
+function legacySandboxSpec(value: RuntimeBaseToolExecutorSandbox | undefined, profile: BaseToolPolicyProfile): SandboxSpec | undefined {
+  if (value === undefined) return undefined;
+  if (value.providerFamily === "host-observed") return sandbox.hostObserved();
+  if (value.providerFamily === "workspace-policy") return sandbox.workspaceOnly();
+  if (value.providerFamily === "linux-bubblewrap") return profile === "yolo" ? sandbox.linuxBubblewrapWorkspaceWrite() : sandbox.linuxBubblewrap();
+  if (value.providerFamily === "macos-containerization") return sandbox.macosContainerization();
+  if (value.providerFamily === "windows-sandbox") return sandbox.windowsSandbox();
+  if (value.providerFamily === "remote-worker") return sandbox.remoteWorker();
+  return undefined;
+}
+
+function legacyPreparedSandbox(value: RuntimeBaseToolExecutorSandbox | undefined): SandboxRuntimePrepareResult | undefined {
+  if (value === undefined || value.providerFamily === undefined || value.profile === undefined || value.ready === undefined || value.probe === undefined) return undefined;
+  return {
+    providerFamily: value.providerFamily as SandboxRuntimePrepareResult["providerFamily"],
+    profile: value.profile as SandboxRuntimePrepareResult["profile"],
+    ready: value.ready,
+    probe: value.probe as SandboxRuntimePrepareResult["probe"],
+    smoke: value.smoke as SandboxRuntimePrepareResult["smoke"],
+    events: [],
+  };
+}
+
+function sandboxModeForContext(context: RuntimeBaseToolExecutorContext): "none" | "workspace-rollback" | "isolated" {
+  const profile = policyProfileForContext(context);
+  if (profile === "bapr") return "none";
+  const explicitProviderFamily = context.sandboxSpec?.providerFamily ?? context.sandbox?.providerFamily;
+  const prepared = context.preparedSandbox ?? legacyPreparedSandbox(context.sandbox);
+  if (strongSandboxFamily(explicitProviderFamily)) {
+    return prepared?.ready === true ? "isolated" : "workspace-rollback";
+  }
+  if (profile === "yolo") return "workspace-rollback";
+  return "isolated";
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function approvedByRuntimeContext(value: unknown): boolean {
+  const context = isRecord(value) ? value : {};
+  const approval = isRecord(context.approval) ? context.approval : {};
+  return approval.accepted === true && approval.runtimeApproved === true;
+}
+
+function resolveCommandCwd(context: RuntimeBaseToolExecutorContext, inputCwd: string | undefined): BaseToolExecutorResult<string> {
+  const root = workspaceRoot(context);
+  const result = normalizeToolCwd(inputCwd, {
+    workspaceRoot: root,
+    allowedRoots: context.policy?.allowedRoots ?? [root],
+  });
+  if (!result.ok) return fail(result.reason, result.message, workspacePathMetadata(result, "cwd"));
+  return ok(result.normalizedPath, workspacePathMetadata(result, "cwd"));
+}
+
+function resolveCommandPathArgument(context: RuntimeBaseToolExecutorContext, inputPath: string | undefined): BaseToolExecutorResult<string> {
+  const root = workspaceRoot(context);
+  const result = normalizeWorkspacePath(inputPath ?? ".", {
+    workspaceRoot: root,
+    allowedRoots: context.policy?.allowedRoots ?? [root],
+    kind: "path",
+  });
+  if (!result.ok) return fail(result.reason, result.message, workspacePathMetadata(result, "path"));
+  const relative = workspaceRelativePath(result.normalizedPath, root);
+  return ok(relative ?? result.normalizedPath, workspacePathMetadata(result, "path"));
+}
+
+function secretPathsAreHidden(context: RuntimeBaseToolExecutorContext): boolean {
+  const profile = policyProfileForContext(context);
+  return profile !== "bapr" && profile !== "yolo";
+}
+
+function parseProcessId(value: unknown): number | undefined {
+  const text = typeof value === "number" ? String(value) : typeof value === "string" ? value.trim() : "";
+  if (!/^\d+$/u.test(text)) return undefined;
+  const pid = Number(text);
+  return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return typeof error === "object" && error !== null && (error as { code?: unknown }).code === "EPERM";
+  }
 }
 
 function adapter(context: RuntimeBaseToolExecutorContext, namespace: string, method: string): ((request: any) => any) | undefined {
@@ -166,7 +304,7 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): Base
       const resolved = resolvePath(context, request?.path ?? request?.targetPath);
       if (!resolved.ok) return resolved;
       const content = await readFile(String(resolved.output), "utf8");
-      return { content: truncate(context, content), path: resolved.output };
+      return { content: truncate(context, content, request?.maxBytes), path: resolved.output };
     }),
     writeText: withAdapter(context, "filesystem", "writeText", async (request) => {
       if (context.policy?.allowFilesystemWrite === false) return fail("FILESYSTEM_WRITE_DISABLED", "Filesystem writes are disabled by runtime policy.");
@@ -186,16 +324,77 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): Base
     list: withAdapter(context, "filesystem", "list", async (request) => {
       const resolved = resolvePath(context, request?.path ?? ".");
       if (!resolved.ok) return resolved;
-      const entries = await readdir(String(resolved.output));
+      const entries = (await readdir(String(resolved.output)))
+        .filter((entry) => !secretPathsAreHidden(context) || !isSecretPath(entry));
       return { path: resolved.output, entries: entries.slice(0, context.resourceLimits?.maxListEntries ?? 1000) };
     }),
   };
 }
 
-function runCommand(context: RuntimeBaseToolExecutorContext, command: string, args: readonly string[] = [], cwd?: string): Promise<BaseToolExecutorResult> {
+async function runCommand(
+  context: RuntimeBaseToolExecutorContext,
+  command: string,
+  args: readonly string[] = [],
+  cwd?: string,
+  input: {
+    toolId?: string;
+    invocationId?: string;
+    shellScript?: boolean;
+    network?: "allow" | "deny" | "approval" | "provider-policy";
+  } = {},
+): Promise<BaseToolExecutorResult> {
+  const profile = policyProfileForContext(context);
+  const spec = context.sandboxSpec ?? legacySandboxSpec(context.sandbox, profile);
+  const program = input.shellScript === true ? "sh" : command;
+  const finalArgs = input.shellScript === true ? ["-lc", command] : [...args];
+  const resolvedCwd = resolveCommandCwd(context, cwd);
+  if (!resolvedCwd.ok) return resolvedCwd;
+  const commandCwd = String(resolvedCwd.output);
+  if (spec !== undefined) {
+    const result = await runSandboxCommand({
+      runtimeId: context.runtimeId,
+      sessionId: context.sessionId,
+      invocationId: input.invocationId ?? `${context.sessionId}:${input.toolId ?? "command"}:${Date.now()}`,
+      toolId: input.toolId ?? "process.run",
+      command: program,
+      args: finalArgs,
+      cwd: commandCwd,
+      env: context.environment,
+      timeoutMs: context.resourceLimits?.timeoutMs,
+      maxOutputBytes: context.resourceLimits?.maxOutputBytes,
+      sandbox: spec,
+      preparedSandbox: context.preparedSandbox ?? legacyPreparedSandbox(context.sandbox),
+      policyProfile: profile,
+      sandboxMode: sandboxModeForContext(context),
+      filesystem: {
+        workspaceRoot: workspaceRoot(context),
+        allowedReadRoots: context.policy?.allowedRoots ?? [workspaceRoot(context)],
+        ...(context.policy?.allowedWriteRoots === undefined ? {} : { allowedWriteRoots: context.policy.allowedWriteRoots }),
+      },
+      network: input.network,
+    }, {
+      remoteWorker: context.remoteSandboxWorker,
+    });
+    if (!result.ok) {
+      return fail(result.error.code, result.error.message, {
+        sandbox: result.plan,
+        denial: result.error.denial,
+        rollback: result.rollback,
+      });
+    }
+    return ok({
+      exitCode: result.exitCode,
+      stdout: truncate(context, result.stdout),
+      stderr: truncate(context, result.stderr),
+    }, {
+      ...resolvedCwd.metadata,
+      sandbox: result.plan,
+      rollback: result.rollback,
+    });
+  }
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd: cwd ?? workspaceRoot(context),
+    const child = spawn(program, finalArgs, {
+      cwd: commandCwd,
       env: { ...process.env, ...(context.environment ?? {}) },
       shell: false,
     });
@@ -208,7 +407,7 @@ function runCommand(context: RuntimeBaseToolExecutorContext, command: string, ar
       exitCode: exitCode ?? 0,
       stdout: truncate(context, stdout),
       stderr: truncate(context, stderr),
-    })));
+    }, resolvedCwd.metadata)));
   });
 }
 
@@ -219,7 +418,11 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): BaseToolE
       const command = String(request?.command ?? "");
       if (command.trim().length === 0) return fail("INVALID_COMMAND", "A non-empty command is required.");
       emit(context, "shell.run", "runtime.execEngine.shell.run");
-      return runCommand(context, command, [], typeof request?.cwd === "string" ? request.cwd : undefined);
+      return runCommand(context, command, [], typeof request?.cwd === "string" ? request.cwd : undefined, {
+        toolId: "shell.run",
+        invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
+        shellScript: true,
+      });
     }),
   };
 }
@@ -228,10 +431,46 @@ function createProcessExecutor(context: RuntimeBaseToolExecutorContext): BaseToo
   return {
     run: withAdapter(context, "process", "run", async (request) => {
       if (context.policy?.allowProcessExecution === false) return fail("PROCESS_EXECUTION_DISABLED", "Process execution is disabled by runtime policy.");
-      return runCommand(context, String(request?.command ?? ""), Array.isArray(request?.args) ? request.args.map(String) : [], typeof request?.cwd === "string" ? request.cwd : undefined);
+      return runCommand(context, String(request?.command ?? ""), Array.isArray(request?.args) ? request.args.map(String) : [], typeof request?.cwd === "string" ? request.cwd : undefined, {
+        toolId: "process.run",
+        invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
+      });
     }),
-    wait: withAdapter(context, "process", "wait", async () => unavailable("process.wait")),
-    kill: withAdapter(context, "process", "kill", async () => unavailable("process.kill")),
+    wait: withAdapter(context, "process", "wait", async (request) => {
+      const pid = parseProcessId(request?.processId ?? request?.pid);
+      if (pid === undefined) return fail("INVALID_PROCESS_ID", "process.wait requires a numeric processId.");
+      const timeoutMs = typeof request?.timeoutMs === "number" && request.timeoutMs > 0 ? request.timeoutMs : 10_000;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeoutMs) {
+        if (!processExists(pid)) return { processId: String(pid), status: "exited", waitedMs: Date.now() - startedAt };
+        await sleep(100);
+      }
+      return { processId: String(pid), status: "running", timedOut: true, waitedMs: Date.now() - startedAt };
+    }),
+    kill: withAdapter(context, "process", "kill", async (request) => {
+      const pid = parseProcessId(request?.processId ?? request?.pid);
+      if (pid === undefined) return fail("INVALID_PROCESS_ID", "process.kill requires a numeric processId.");
+      const profile = policyProfileForContext(context);
+      if (profile !== "bapr" && profile !== "yolo" && !approvedByRuntimeContext(request?.context)) {
+        return fail("PROCESS_KILL_APPROVAL_REQUIRED", `process.kill requires runtime approval under ${profile}.`, {
+          needsApproval: true,
+          approvalScopeKey: `process.kill:process:${pid}`,
+          approvalScopeKind: "process",
+          processId: String(pid),
+          policyProfile: profile,
+        });
+      }
+      const signal = typeof request?.signal === "string" && request.signal.trim().length > 0 ? request.signal : "SIGTERM";
+      try {
+        process.kill(pid, signal);
+        return { processId: String(pid), signal, killed: true };
+      } catch (error) {
+        return fail("PROCESS_KILL_FAILED", error instanceof Error ? error.message : "process.kill failed", {
+          processId: String(pid),
+          signal,
+        });
+      }
+    }),
   };
 }
 
@@ -239,7 +478,10 @@ function createGitExecutor(context: RuntimeBaseToolExecutorContext): BaseToolExe
   return {
     runGit: withAdapter(context, "git", "runGit", async (request) => {
       if (context.policy?.allowGitExecution === false) return fail("GIT_EXECUTION_DISABLED", "Git execution is disabled by runtime policy.");
-      return runCommand(context, "git", Array.isArray(request?.args) ? request.args.map(String) : ["status", "--short"], typeof request?.cwd === "string" ? request.cwd : undefined);
+      return runCommand(context, "git", Array.isArray(request?.args) ? request.args.map(String) : ["status", "--short"], typeof request?.cwd === "string" ? request.cwd : undefined, {
+        toolId: "git.runGit",
+        invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
+      });
     }),
   };
 }
@@ -250,7 +492,24 @@ function createSearchExecutor(context: RuntimeBaseToolExecutorContext): BaseTool
       if (context.policy?.allowRipgrep === false) return fail("RIPGREP_DISABLED", "Ripgrep is disabled by runtime policy.");
       const query = String(request?.query ?? request?.pattern ?? "");
       if (query.trim().length === 0) return fail("INVALID_QUERY", "A non-empty query is required.");
-      return runCommand(context, "rg", ["--line-number", "--no-heading", query, String(request?.cwd ?? ".")], workspaceRoot(context));
+      const searchTarget = resolveCommandPathArgument(context, typeof request?.cwd === "string" ? request.cwd : undefined);
+      if (!searchTarget.ok) return searchTarget;
+      const searchMetadata = searchTarget.metadata as { normalizedPath?: unknown } | undefined;
+      if (secretPathsAreHidden(context) && typeof searchMetadata?.normalizedPath === "string" && isSecretPath(searchMetadata.normalizedPath)) {
+        return fail("SECRET_PATH_DENIED", "Secret environment files require explicit runtime approval before model-visible tools may access them.", {
+          needsApproval: true,
+          path: request?.cwd,
+          policyProfile: policyProfileForContext(context),
+        });
+      }
+      const args = ["--line-number", "--no-heading"];
+      if (typeof request?.glob === "string" && request.glob.trim().length > 0) args.push("--glob", request.glob);
+      if (secretPathsAreHidden(context)) args.push("--glob", "!.env", "--glob", "!.env.*", "--glob", "!**/.env", "--glob", "!**/.env.*");
+      args.push(query, String(searchTarget.value));
+      return runCommand(context, "rg", args, workspaceRoot(context), {
+        toolId: "file.search",
+        invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
+      });
     }),
   };
 }
@@ -259,8 +518,28 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): BaseToo
   return {
     fetch: withAdapter(context, "network", "fetch", async (request) => {
       if (context.policy?.allowNetworkFetch === false) return fail("NETWORK_FETCH_DISABLED", "Network fetch is disabled by runtime policy.");
-      const response = await fetch(String(request?.url));
-      return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body: truncate(context, await response.text()) };
+      const url = String(request?.url);
+      const profile = policyProfileForContext(context);
+      const outbound = context.sandboxSpec?.networkPolicy?.outbound ?? context.sandbox?.networkPolicy?.outbound ?? "approval";
+      let domain = "unknown-domain";
+      try {
+        domain = new URL(url).hostname.toLowerCase();
+      } catch {
+        return fail("INVALID_URL", "Network fetch requires a valid URL.");
+      }
+      const requiresApproval = profile !== "bapr" && profile !== "yolo" && (outbound === "deny" || outbound === "approval");
+      if (requiresApproval && !approvedByRuntimeContext(request?.context)) {
+        return fail("NETWORK_POLICY_DENIED", `Network access to ${domain} requires runtime approval under ${profile}.`, {
+          needsApproval: true,
+          approvalScopeKey: `web.fetch:domain:${domain}`,
+          approvalScopeKind: "domain",
+          domain,
+          outbound,
+          policyProfile: profile,
+        });
+      }
+      const response = await fetch(url);
+      return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body: truncate(context, await response.text(), request?.maxBytes) };
     }),
     search: withAdapter(context, "network", "search", async () => unavailable("network.search")),
     ground: withAdapter(context, "network", "ground", async () => unavailable("network.ground")),
@@ -370,7 +649,17 @@ export function createRuntimeBaseToolExecutorPort(
     device: createUnavailableNamespace("device", ["requestPermission", "releasePermission"]),
     office: createUnavailableNamespace("office", ["read", "write"]),
     approval: createUnavailableNamespace("approval", ["request", "check"]),
-    sandbox: createUnavailableNamespace("sandbox", ["run"]),
+    sandbox: {
+      run: withAdapter(context, "sandbox", "run", async (request) => {
+        const command = String(request?.command ?? "");
+        if (command.trim().length === 0) return fail("INVALID_COMMAND", "sandbox.run requires a command.");
+        return runCommand(context, command, Array.isArray(request?.args) ? request.args.map(String) : [], typeof request?.cwd === "string" ? request.cwd : undefined, {
+          toolId: typeof request?.toolId === "string" ? request.toolId : "sandbox.run",
+          invocationId: typeof request?.invocationId === "string" ? request.invocationId : undefined,
+          network: request?.network === "allow" ? "allow" : undefined,
+        });
+      }),
+    },
     output: {
       truncate: withAdapter(context, "output", "truncate", async (request) => ({ text: truncate(context, String(request?.text ?? "")) })),
     },
