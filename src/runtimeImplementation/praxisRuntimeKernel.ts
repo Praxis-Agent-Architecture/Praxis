@@ -47,7 +47,18 @@ import {
   createRuntimeFallbackCompactExecutor,
   decideTurnBoundaryCompact,
   type CompactExecutor,
+  type CompactExecutorRequest,
 } from "../executionEngine/coreLogic/contextCompact.js";
+import {
+  createNoopPreCompactGovernanceExecutor,
+  packetMaterialRefs,
+  preCompactGovernanceInstruction,
+  type PreCompactGovernanceExecutor,
+  type PreCompactGovernancePacket,
+  type PreCompactGovernancePacketMaterial,
+  type PreCompactGovernanceRecord,
+  type PreCompactGovernanceResult,
+} from "../executionEngine/coreLogic/preCompactGovernance.js";
 import { runMainLoopEngine } from "../executionEngine/coreLogic/mainLoopEngine.js";
 import {
   interpretModelDecision,
@@ -223,6 +234,8 @@ export type PraxisRuntimeKernelOptions = {
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
   compactExecutor?: CompactExecutor;
+  preCompactGovernanceExecutor?: PreCompactGovernanceExecutor;
+  preCompactGovernanceEnabled?: boolean;
   compactContextWindowTokens?: number;
   compactThresholdRatio?: number;
   dryRun?: boolean;
@@ -3030,6 +3043,11 @@ async function buildPromptPackAndLower(input: {
   contextWindowTokens?: number;
   sessionSummary?: PromptContextSessionSummary;
   conversationWindow?: readonly PromptContextConversationMessage[];
+  projectContextGovernanceMaterials?: readonly {
+    id: string;
+    text: string;
+    metadata?: Readonly<Record<string, string | number | boolean | object>>;
+  }[];
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
 }): Promise<
@@ -3083,6 +3101,17 @@ async function buildPromptPackAndLower(input: {
       budget: contextWindowTokens === undefined ? undefined : { contextWindowTokens },
       sessionSummary: input.sessionSummary,
       conversationWindow: input.conversationWindow,
+      projectContextGovernanceMaterials: input.projectContextGovernanceMaterials?.map((material) => ({
+        id: material.id,
+        kind: "runtime",
+        text: material.text,
+        source: "runtime.preCompactGovernance.projectContext",
+        sourceCategory: "process-product",
+        trusted: true,
+        scope: "runtime.preCompactGovernance.projectContext",
+        promptSegmentKind: "projectContext",
+        metadata: material.metadata,
+      })),
       toolContextSelection: input.toolContextSelection,
       toolContextUsage: input.toolContextUsage,
     }).materials,
@@ -3152,6 +3181,182 @@ async function buildPromptPackAndLower(input: {
     turnRecord: preparedTurn.turnRecord,
     events: [...mainLoopRun.events, ...lowered.events],
   };
+}
+
+function preCompactMaterialText(text: string, maxChars = 12_000): string {
+  const trimmed = text.trim();
+  if (trimmed.length <= maxChars) return trimmed;
+  return `${trimmed.slice(0, maxChars).trimEnd()}\n[truncated for preCompactGovernance packet; full material remains available by ref]`;
+}
+
+function governancePacketMaterial(input: {
+  id: string;
+  kind: string;
+  segmentKind: PromptPackSegmentKind;
+  text: string;
+  source?: string;
+  trusted?: boolean;
+  metadata?: Readonly<Record<string, unknown>>;
+}): PreCompactGovernancePacketMaterial {
+  return {
+    id: input.id,
+    kind: input.kind,
+    segmentKind: input.segmentKind,
+    text: input.text,
+    ...(input.source === undefined ? {} : { source: input.source }),
+    ...(input.trusted === undefined ? {} : { trusted: input.trusted }),
+    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+  };
+}
+
+function buildPreCompactGovernancePacket(input: {
+  runtimeId: string;
+  sessionId: string;
+  turnIndex: number;
+  trigger: "turnBoundary" | "toolLoopBoundary";
+  currentUserTurnText: string;
+  promptPackId: string;
+  promptPack: StandardPromptPack;
+  compactDecision: Readonly<Record<string, unknown>>;
+}): PreCompactGovernancePacket {
+  const materialsBySegment = (segmentKind: PromptPackSegmentKind) =>
+    input.promptPack.materials
+      .filter((material) => material.promptSegmentKind === segmentKind)
+      .map((material) => governancePacketMaterial({
+        id: material.id,
+        kind: material.kind,
+        segmentKind,
+        text: material.text,
+        source: material.source,
+        trusted: material.trusted,
+        metadata: material.metadata,
+      }));
+
+  const indexedSegment = (segmentKind: "memoryContext" | "retrievedContext" | "observations") =>
+    input.promptPack.materials
+      .filter((material) => material.promptSegmentKind === segmentKind)
+      .map((material) => {
+        const artifactRefs = material.metadata.artifactRefs;
+        const refs = Array.isArray(artifactRefs)
+          ? artifactRefs.filter((ref): ref is string => typeof ref === "string")
+          : [];
+        const status = typeof material.metadata.observationStatus === "string"
+          ? material.metadata.observationStatus
+          : typeof material.metadata.status === "string" ? material.metadata.status : undefined;
+        return {
+          id: material.id,
+          segmentKind,
+          summary: preCompactMaterialText(material.text, 2_000),
+          ...(status === undefined ? {} : { status }),
+          refs: refs.length === 0 ? [material.id] : refs,
+          source: material.source,
+          metadata: material.metadata,
+        };
+      });
+
+  return {
+    kind: "praxis.preCompactGovernance.packet",
+    version: 1,
+    runtimeId: input.runtimeId,
+    sessionId: input.sessionId,
+    turnIndex: input.turnIndex,
+    trigger: input.trigger,
+    currentUserTurnText: input.currentUserTurnText,
+    governanceInstruction: preCompactGovernanceInstruction(),
+    projectContext: materialsBySegment("projectContext"),
+    sessionSummary: materialsBySegment("sessionSummary"),
+    recentConversation: materialsBySegment("recentConversation"),
+    memoryContext: indexedSegment("memoryContext"),
+    retrievedContext: indexedSegment("retrievedContext"),
+    observations: indexedSegment("observations"),
+    excludedSegmentKinds: ["toolDeclarations", "assistantScratchpadPlan"],
+    metadata: {
+      promptPackId: input.promptPackId,
+      totalEstimatedTokens: input.promptPack.totalEstimatedTokens,
+      compactDecision: input.compactDecision,
+    },
+  };
+}
+
+function governedSessionSummaryText(input: {
+  compactSummaryText: string;
+  governanceResult?: PreCompactGovernanceResult;
+}): string {
+  const candidate = input.governanceResult?.sessionSummaryCandidate;
+  if (candidate === undefined) return input.compactSummaryText;
+  if (candidate.mode === "append") {
+    return [input.compactSummaryText.trim(), candidate.text.trim()].filter(Boolean).join("\n\nPre-compact governance addition:\n");
+  }
+  return [
+    candidate.text.trim(),
+    input.compactSummaryText.trim().length === 0 ? "" : `\nCompact executor summary:\n${input.compactSummaryText.trim()}`,
+  ].filter(Boolean).join("\n");
+}
+
+function projectContextMaterialsFromGovernance(input: {
+  governanceResult?: PreCompactGovernanceResult;
+  governanceRecord?: PreCompactGovernanceRecord;
+}): readonly { id: string; text: string; metadata?: Readonly<Record<string, string | number | boolean | object>> }[] {
+  const updates = input.governanceResult?.projectContextUpdates ?? [];
+  return updates.map((update, index) => ({
+    id: update.id ?? `preCompactGovernance.projectContext:${input.governanceRecord?.governanceId ?? "unknown"}:${index + 1}`,
+    text: update.text,
+    metadata: {
+      governanceId: input.governanceRecord?.governanceId ?? "",
+      reason: update.reason ?? "",
+      confidence: update.confidence ?? 0,
+      evidenceRefs: [...(update.evidenceRefs ?? [])],
+    },
+  }));
+}
+
+function compactRequestMaterials(input: {
+  promptPack: StandardPromptPack;
+  governanceResult?: PreCompactGovernanceResult;
+  projectContextGovernanceMaterials?: readonly {
+    id: string;
+    text: string;
+    metadata?: Readonly<Record<string, string | number | boolean | object>>;
+  }[];
+}): NonNullable<CompactExecutorRequest["materials"]> {
+  const governedSessionSummary = input.governanceResult?.sessionSummaryCandidate;
+  const originalMaterials = input.promptPack.materials.map((material) => ({
+    id: material.id,
+    promptSegmentKind: material.promptSegmentKind,
+    text: material.promptSegmentKind === "sessionSummary" && governedSessionSummary !== undefined
+      ? governedSessionSummary.mode === "append"
+        ? [material.text.trim(), governedSessionSummary.text.trim()]
+          .filter(Boolean)
+          .join("\n\nPre-compact governance addition:\n")
+        : governedSessionSummary.text
+      : material.text,
+    source: material.source,
+    metadata: material.metadata,
+  }));
+  const governedProjectContext = (input.projectContextGovernanceMaterials ?? []).map((material) => ({
+    id: material.id,
+    promptSegmentKind: "projectContext",
+    text: material.text,
+    source: "runtime.preCompactGovernance.projectContext",
+    metadata: {
+      ...(material.metadata ?? {}),
+      generatedBy: "preCompactGovernance",
+    },
+  }));
+  const hasSessionSummary = originalMaterials.some((material) => material.promptSegmentKind === "sessionSummary");
+  const governedSessionSummaryMaterial = governedSessionSummary === undefined || hasSessionSummary
+    ? []
+    : [{
+      id: "preCompactGovernance.sessionSummaryCandidate",
+      promptSegmentKind: "sessionSummary",
+      text: governedSessionSummary.text,
+      source: "runtime.preCompactGovernance.sessionSummaryCandidate",
+      metadata: {
+        generatedBy: "preCompactGovernance",
+        mode: governedSessionSummary.mode,
+      },
+    }];
+  return [...originalMaterials, ...governedSessionSummaryMaterial, ...governedProjectContext];
 }
 
 async function executeBaseToolDecision(input: {
@@ -4249,8 +4454,16 @@ export class PraxisRuntimeKernel {
     });
     let compactSessionSummary: PromptContextSessionSummary | undefined;
     let compactConversationWindow: readonly PromptContextConversationMessage[] | undefined;
+    let preCompactGovernanceProjectContextMaterials: readonly {
+      id: string;
+      text: string;
+      metadata?: Readonly<Record<string, string | number | boolean | object>>;
+    }[] = [];
     const compactContextWindowTokens = manifestContextWindowTokens(manifest, options.compactContextWindowTokens);
     const compactExecutor = options.compactExecutor ?? createRuntimeFallbackCompactExecutor();
+    const preCompactGovernanceExecutor = options.preCompactGovernanceExecutor
+      ?? createNoopPreCompactGovernanceExecutor();
+    const preCompactGovernanceEnabled = options.preCompactGovernanceEnabled ?? options.preCompactGovernanceExecutor !== undefined;
     let previousModelCacheDebug: AgentModelCacheDebugRecord | undefined;
 
     type KernelPromptPackage = Extract<Awaited<ReturnType<typeof buildPromptPackAndLower>>, { ok: true }>;
@@ -4316,6 +4529,7 @@ export class PraxisRuntimeKernel {
         contextWindowTokens: compactContextWindowTokens,
         sessionSummary: compactSessionSummary,
         conversationWindow: compactConversationWindow,
+        projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
         toolContextSelection,
         toolContextUsage: toolContextHeatState.usage,
       });
@@ -4437,10 +4651,82 @@ export class PraxisRuntimeKernel {
           }),
         });
         if (compactDecision.shouldCompact) {
+          let preCompactGovernanceResult: PreCompactGovernanceResult | undefined;
+          let preCompactGovernanceRecord: PreCompactGovernanceRecord | undefined;
+          if (preCompactGovernanceEnabled) {
+            const governancePacket = buildPreCompactGovernancePacket({
+              runtimeId,
+              sessionId,
+              turnIndex: turn,
+              trigger: compactDecision.trigger,
+              currentUserTurnText: input.input.normalizedText,
+              promptPackId: prompt.promptPackId,
+              promptPack: prompt.promptPack,
+              compactDecision,
+            });
+            const governance = await preCompactGovernanceExecutor.govern({
+              packet: governancePacket,
+              now: now(),
+              metadata: {
+                promptPackId: prompt.promptPackId,
+                compactTrigger: compactDecision.trigger,
+              },
+            });
+            preCompactGovernanceRecord = governance.record;
+            events.push(...governance.events);
+            promptBoundaryEvents.push(...governance.events);
+            await store.appendEvent(event(
+              sessionId,
+              `event:preCompactGovernance:${turn + 1}`,
+              "runtime.preCompactGovernance.result",
+              now(),
+              governance.record,
+            ));
+            await store.appendState(state(sessionId, `state:preCompactGovernance:${turn + 1}`, governance.ok ? "completed" : "failed", now(), {
+              record: governance.record,
+            }));
+            await recordMainLoopStep({
+              store,
+              sessionId,
+              createdAt: now(),
+              events,
+              mainLoopSteps,
+              step: createMainLoopStepRecord({
+                sessionId,
+                turnIndex: turn,
+                stepIndex: stepBase + 5,
+                actionPrimitive: "updateSummaryStateEvent",
+                status: governance.ok ? "completed" : "failed",
+                inputRefs: packetMaterialRefs(governancePacket),
+                outputRefs: [governance.record.governanceId],
+                promptPackRef: prompt.promptPackId,
+                now: now(),
+                metadata: {
+                  governanceRecord: governance.record,
+                  note: governance.ok
+                    ? "preCompactGovernance completed before compactExecutor"
+                    : "preCompactGovernance failed or skipped; continuing normal compact",
+                },
+              }),
+            });
+            if (governance.ok) {
+              preCompactGovernanceResult = governance.result;
+              preCompactGovernanceProjectContextMaterials = projectContextMaterialsFromGovernance({
+                governanceResult: governance.result,
+                governanceRecord: governance.record,
+              });
+            }
+          }
+          const compactMaterials = compactRequestMaterials({
+            promptPack: prompt.promptPack,
+            governanceResult: preCompactGovernanceResult,
+            projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
+          });
           const compactResult = await compactExecutor.compact({
             sessionId,
             trigger: compactDecision.trigger,
-            materialRefs: prompt.promptPack.materials.map((material) => material.id),
+            materialRefs: compactMaterials.map((material) => material.id),
+            materials: compactMaterials,
             currentUserTurnText: input.input.normalizedText,
             estimatedTokens: prompt.promptPack.totalEstimatedTokens,
             contextWindowTokens,
@@ -4449,6 +4735,8 @@ export class PraxisRuntimeKernel {
             metadata: {
               promptPackId: prompt.promptPackId,
               turnIndex: turn,
+              preCompactGovernanceRecord: preCompactGovernanceRecord ?? null,
+              preCompactGovernanceResult: preCompactGovernanceResult ?? null,
             },
           });
           events.push(...compactResult.events);
@@ -4456,12 +4744,16 @@ export class PraxisRuntimeKernel {
           if (compactResult.ok) {
             compactSessionSummary = {
               summaryId: compactResult.record.after.sessionSummaryRef,
-              text: compactResult.sessionSummaryText,
+              text: governedSessionSummaryText({
+                compactSummaryText: compactResult.sessionSummaryText,
+                governanceResult: preCompactGovernanceResult,
+              }),
               compactedUntilTurnId: `${sessionId}:turn:${turn}`,
               updatedAt: compactResult.record.createdAt,
               metadata: {
                 compactId: compactResult.record.compactId,
                 executor: compactResult.record.executor,
+                preCompactGovernanceId: preCompactGovernanceRecord?.governanceId ?? "",
               },
             };
             compactConversationWindow = compactResult.recentConversationText.trim().length === 0
@@ -4485,7 +4777,7 @@ export class PraxisRuntimeKernel {
               manifest,
               task: input.input.normalizedText,
               turnIndex: turn,
-              startStepIndex: stepBase + 5,
+              startStepIndex: stepBase + 6,
               now: now(),
               modelCaller,
               toolMappings,
@@ -4493,6 +4785,7 @@ export class PraxisRuntimeKernel {
               events,
               sessionSummary: compactSessionSummary,
               conversationWindow: compactConversationWindow,
+              projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
               toolContextSelection,
               toolContextUsage: toolContextHeatState.usage,
             });
