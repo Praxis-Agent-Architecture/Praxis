@@ -232,7 +232,7 @@ CMP 的上下文管理应该围绕 promptPack 展开。CMP 负责更高级的上
 - `factMatrix`：给 policy、sandbox、readiness、application view 使用的事实矩阵。
 - `registry`：同一批语义工具的 handler 调度入口。
 
-`context.load` 只是 runtime-registered artifact、observation、session material 和 workspace index 的读取端口，不代表要新增独立的 context 管理池。上下文治理继续挂在 PromptPack、compact 和 application/runtime 注入面上。
+`context.load` 只是 runtime-registered artifact、observation、session material 和 workspace index 的按需读取端口：调用方必须声明 `kind`，并提供具体 `ref` 或 workspace index `query`。它不代表要新增独立的 context 管理池。上下文治理继续挂在 PromptPack、compact 和 application/runtime 注入面上。
 
 TAP 应基于这些基础语义继续构建更高级的工具治理、审批、选择、替换、组合和专业能力库。文档、表格、演示、PDF、GUI、browser/computer/media 等产品级或插件级能力，应在 TAP/application 层承接，不回写成 Praxis 核心 basetool 的大而全工具家族。
 

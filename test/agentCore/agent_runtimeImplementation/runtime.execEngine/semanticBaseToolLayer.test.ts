@@ -12,6 +12,7 @@ import {
   model,
   PraxisAgent,
 } from "../../../../src/agentCore/index.js";
+import { semanticBaseToolCatalog } from "../../../../src/basetool/catalog.js";
 import type { BaseToolExecutorPort } from "../../../../src/basetool/types.js";
 
 const coreToolIds = [
@@ -320,8 +321,13 @@ test("skill.load and context.load validate and call extension ports", async () =
   const registry = createBaseToolRegistry();
   const skillLookup = registry.lookupHandler("skill.load");
   const contextLookup = registry.lookupHandler("context.load");
+  const contextDefinition = semanticBaseToolCatalog.find((tool) => tool.toolId === "context.load");
+  const planDefinition = semanticBaseToolCatalog.find((tool) => tool.toolId === "plan.update");
   assert.equal(skillLookup.ok, true);
   assert.equal(contextLookup.ok, true);
+  assert.deepEqual(contextDefinition?.inputSchema.schema.required, ["kind"]);
+  assert.deepEqual(contextDefinition?.permissionHints, ["context:read", "artifact:read"]);
+  assert.equal(planDefinition?.inputSchema.schema.required, undefined);
   if (!skillLookup.ok || !contextLookup.ok) return;
 
   const invalidSkill = await skillLookup.handler.invoke({
@@ -331,6 +337,27 @@ test("skill.load and context.load validate and call extension ports", async () =
   });
   assert.equal(invalidSkill.ok, false);
   assert.equal(invalidSkill.error?.code, "MISSING_REQUIRED_FIELD");
+  const invalidContext = await contextLookup.handler.invoke({
+    toolId: "context.load",
+    input: {},
+    executor: {},
+  });
+  assert.equal(invalidContext.ok, false);
+  assert.equal(invalidContext.error?.code, "MISSING_REQUIRED_FIELD");
+  const missingContextSelector = await contextLookup.handler.invoke({
+    toolId: "context.load",
+    input: { kind: "workspaceIndex" },
+    executor: {},
+  });
+  assert.equal(missingContextSelector.ok, false);
+  assert.equal(missingContextSelector.error?.code, "MISSING_CONTEXT_SELECTOR");
+  const missingContextRef = await contextLookup.handler.invoke({
+    toolId: "context.load",
+    input: { kind: "artifact", query: "not-enough" },
+    executor: {},
+  });
+  assert.equal(missingContextRef.ok, false);
+  assert.equal(missingContextRef.error?.code, "MISSING_CONTEXT_REF");
 
   let skillInput: unknown;
   const skillResult = await skillLookup.handler.invoke({

@@ -65,6 +65,25 @@ test("baseTool policy adjudicator preserves profile-specific approval semantics"
   });
   assert.equal(restrictedKill.action, "requiresApproval");
   assert.equal(restrictedKill.agentReviewStatus, "required");
+
+  const permissiveSpawn = adjudicateBaseToolPolicy({
+    toolId: "agent.spawn",
+    profile: "permissive",
+    approvalScopeKey: "agent.spawn:agent:abc",
+    humanApprovalCacheHit: false,
+  });
+  assert.equal(permissiveSpawn.action, "requiresApproval");
+  assert.equal(permissiveSpawn.risk, "risky");
+
+  const cachedAgentKill = adjudicateBaseToolPolicy({
+    toolId: "agent.kill",
+    profile: "permissive",
+    approvalScopeKey: "agent.kill:agent:child-1",
+    humanApprovalCacheHit: true,
+    hasAgentReviewer: true,
+  });
+  assert.equal(cachedAgentKill.action, "guarded");
+  assert.equal(cachedAgentKill.agentReviewStatus, "required");
 });
 
 test("shell risk classifier separates common read commands from destructive commands", () => {
@@ -90,6 +109,31 @@ test("baseTool approval scope is session-backed and target-specific", async () =
     args: { url: "https://example.com/docs/page" },
   });
   assert.equal(scope.scopeKey, "web.fetch:domain:example.com");
+  const contextRefScope = createBaseToolApprovalScope({
+    toolId: "context.load",
+    args: { kind: "artifact", ref: "artifact:abc" },
+  });
+  assert.equal(contextRefScope.scopeKey, "context.load:registered-source:artifact:artifact:abc");
+  const contextQueryScope = createBaseToolApprovalScope({
+    toolId: "context.load",
+    args: { kind: "workspaceIndex", query: "basetool" },
+  });
+  assert.equal(contextQueryScope.scopeKey, "context.load:registered-source:workspaceIndex:basetool");
+  const numericProcessScope = createBaseToolApprovalScope({
+    toolId: "process.kill",
+    args: { processId: 1234 },
+  });
+  assert.equal(numericProcessScope.scopeKey, "process.kill:process:1234");
+  const agentKillScope = createBaseToolApprovalScope({
+    toolId: "agent.kill",
+    args: { sessionId: "child-agent-1" },
+  });
+  assert.equal(agentKillScope.scopeKey, "agent.kill:agent:child-agent-1");
+  const agentMessageScope = createBaseToolApprovalScope({
+    toolId: "agent.message",
+    args: { toSessionId: "child-agent-2" },
+  });
+  assert.equal(agentMessageScope.scopeKey, "agent.message:agent:message:child-agent-2");
   assert.equal(await hasApprovedBaseToolScope({ store, sessionId: "session-1", approvalScopeKey: scope.scopeKey }), false);
   await store.appendApproval({
     sessionId: "session-1",

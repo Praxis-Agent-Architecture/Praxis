@@ -28,7 +28,7 @@ The compact semantic catalog currently contains 24 tools:
 - `plan.update`
 - `user.ask`
 - `skill.load`
-- `context.load`
+- `context.load` (requires an explicit `kind` plus `ref` for registered material, or `query`/`ref` for `workspaceIndex`)
 - `mcp.use`
 - `mcp.resources`
 - `process.wait`

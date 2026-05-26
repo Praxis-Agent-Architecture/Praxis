@@ -283,7 +283,7 @@ export const semanticBaseToolCatalog = [
     description: "Load runtime-registered contextual material, artifacts, observations, session material, or workspace index entries.",
     risk: "read",
     runtimePorts: ["context.load"],
-    permissionHints: ["context:read"],
+    permissionHints: ["context:read", "artifact:read"],
     inputSchema: schema({
       type: "object",
       properties: {
@@ -292,6 +292,7 @@ export const semanticBaseToolCatalog = [
         query: { type: "string" },
         limit: { type: "integer", minimum: 0 },
       },
+      required: ["kind"],
       additionalProperties: false,
     }),
   }),
