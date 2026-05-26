@@ -1,8 +1,10 @@
-# BaseTool Full Readiness Task List
+# Historical BaseTool Full Readiness Task List
 
-本文是 `agentCore` / `BaseTool` 后续收尾的总纲清单。
+本文记录旧 176-tool baseTools 路线的历史验收材料。它不再代表当前 Praxis basetool 完成度口径。
 
-目标不是继续证明“工具已经挂载”，而是把 176 个 BaseTool 推进到真实可用：
+当前有效方向是 `docs/basetool/profileApplicationContract.md` 中的 compact semantic basetool catalog：少量稳定语义工具、profile-aware describe、统一 factMatrix/registry/runtime port。下面内容仅作为迁移前的背景证据，不能作为新 basetool 的任务清单继续执行。
+
+旧目标不是继续证明“工具已经挂载”，而是把 176 个 BaseTool 推进到真实可用：
 
 ```text
 mounted

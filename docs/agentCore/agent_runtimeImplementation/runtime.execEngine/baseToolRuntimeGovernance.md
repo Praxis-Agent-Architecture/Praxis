@@ -101,4 +101,4 @@
 
 ## 14. 与系统链路的关系
 
-它位于 `ModelDecision -> BaseTool governance -> approval/session/event -> invokeMountedBaseTool -> observation material` 的中间层，让 176 个 BaseTool 从“能挂载”变成“能被 runtime 统一治理、解释、审计”。
+它位于 `ModelDecision -> BaseTool governance -> approval/session/event -> invokeMountedBaseTool -> observation material` 的中间层，让当前 semantic basetool catalog 从“能挂载”变成“能被 runtime 统一治理、解释、审计”。旧 176-tool baseTools 路线只作为迁移背景，不再是当前 basetool 完成度口径。

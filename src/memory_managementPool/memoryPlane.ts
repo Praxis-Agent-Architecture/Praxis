@@ -82,9 +82,30 @@ export function createMemoryPlane(options: MemoryPlaneOptions = {}): MemoryPlane
       return statusFromIndex(profile, layouts, indexed);
     },
     async search(input: MemorySearchRequest) {
+      if (profile === "off") {
+        return {
+          kind: "basetool.file.search.guide",
+          query: input.query.trim(),
+          toolId: "file.search",
+          roots: [],
+          suggestedInputs: [],
+          instructions: "Memory profile is off. Do not search or read memory roots unless the application enables memory.",
+        };
+      }
       return buildSearchGuide(layouts, input);
     },
     async buildPromptGuide(input = {}) {
+      if (profile === "off") {
+        const guide = "Memory profile is off. Do not search or read memory roots unless the application enables memory.";
+        const budget = input.budgetChars ?? guide.length;
+        return {
+          kind: "memory.promptGuide",
+          profile,
+          enabled: false,
+          roots: [],
+          guide: guide.slice(0, Math.max(0, budget)),
+        } satisfies MemoryPromptGuide;
+      }
       const query = input.query?.trim();
       const searchGuide = query !== undefined && query.length > 0 ? buildSearchGuide(layouts, { query }) : undefined;
       const fullGuide = [
@@ -100,7 +121,7 @@ export function createMemoryPlane(options: MemoryPlaneOptions = {}): MemoryPlane
       return {
         kind: "memory.promptGuide",
         profile,
-        enabled: profile !== "off",
+        enabled: true,
         roots: layouts,
         guide: fullGuide.slice(0, Math.max(0, budget)),
         searchGuide,

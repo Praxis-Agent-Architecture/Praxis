@@ -569,7 +569,7 @@ runtime request
 
 ### Task Checklist
 
-- [x] Confirm 176-tool catalog coverage.
+- [x] Confirm semantic basetool catalog coverage.
 - [x] Add policy lookup by family/group/toolId.
 - [x] Map tool risk to safe/risky/dangerous.
 - [x] Implement standard profile behavior.

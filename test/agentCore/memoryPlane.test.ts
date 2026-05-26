@@ -140,6 +140,25 @@ test("memoryPlane search returns basetool file.search guidance instead of a mode
       sourceTypes: ["longTerm", "dailyNote"],
     });
     assert.equal(broadGuide.suggestedInputs[0]?.glob, "**/*.md");
+
+    const offGuide = await memoryPlane.search({
+      projectMemoryRoot: path.join(tmp, "project-memory"),
+      profile: "off",
+      query: "must not search",
+    });
+    assert.equal(offGuide.roots.length, 0);
+    assert.equal(offGuide.suggestedInputs.length, 0);
+    assert.match(offGuide.instructions, /Memory profile is off/);
+
+    const offPromptGuide = await memoryPlane.buildPromptGuide({
+      projectMemoryRoot: path.join(tmp, "project-memory"),
+      profile: "off",
+      query: "must not search",
+    });
+    assert.equal(offPromptGuide.enabled, false);
+    assert.equal(offPromptGuide.roots.length, 0);
+    assert.equal(offPromptGuide.searchGuide, undefined);
+    assert.match(offPromptGuide.guide, /Memory profile is off/);
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
