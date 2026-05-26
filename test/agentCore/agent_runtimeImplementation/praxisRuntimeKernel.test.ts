@@ -118,7 +118,7 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
     now: () => "2026-04-30T00:00:00.000Z",
   });
 
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
   if (!result.ok) return;
   assert.equal(result.finalOutput, "hello from live model shim");
   assert.equal(result.modelCalls.length, 1);
@@ -130,6 +130,136 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);
   const mainLoopBudgetState = result.state.states.find((stateRecord) => stateRecord.stateId.startsWith("state:mainLoopEngine:") && stateRecord.phase === "completed");
   assert.equal((mainLoopBudgetState?.metadata.budgetUsage as { totalTokens?: number } | undefined)?.totalTokens, 26);
+});
+
+test("PraxisRuntimeKernel.runManifest executes compact at a prompt boundary and rebuilds before model invocation", async () => {
+  class CompactAgent extends PraxisAgent {
+    identity = "agent.compact-boundary";
+    model = model("gpt-5.4", {
+      carrierId: "carrier.compact-boundary",
+      metadata: {
+        contextWindowTokens: 100_000,
+        maxOutputTokens: 16,
+      },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(new CompactAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const compactCalls: unknown[] = [];
+  const providerBodies: unknown[] = [];
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-compact-boundary", store }).runManifest(
+    compiled.manifest,
+    "say hello after compact",
+    {
+      sessionId: "session-compact-boundary",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      compactExecutor: {
+        compact: async (request) => {
+          compactCalls.push(request);
+          return {
+            ok: true,
+            sessionSummaryText: "Compacted prompt history summary for the next model call.",
+            recentConversationText: "runtime-summary: keep the active focus after compact.",
+            record: {
+              kind: "praxis.contextCompact.record",
+              compactId: "compact.boundary.1",
+              sessionId: request.sessionId,
+              trigger: request.trigger,
+              thresholdRatio: request.thresholdRatio ?? 0.95,
+              before: {
+                estimatedTokens: request.estimatedTokens,
+                materialRefs: request.materialRefs,
+              },
+              after: {
+                estimatedTokens: 24,
+                sessionSummaryRef: "summary.compact.boundary.1",
+                recentConversationRefs: ["recent.compact.boundary.1"],
+              },
+              compactedMaterialRefs: request.materialRefs,
+              artifactRefs: [],
+              createdAt: "2026-05-26T00:00:00.000Z",
+              executor: "application",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["contextCompact.application.completed"],
+          };
+        },
+      },
+      providerCaller: async (request) => {
+        providerBodies.push(request.body);
+        return {
+          output_text: "hello after compact",
+          usage: { input_tokens: 11, output_tokens: 3 },
+        };
+      },
+      now: () => "2026-05-26T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello after compact");
+  assert.equal(compactCalls.length, 1);
+  assert.equal(providerBodies.length, 1);
+  const providerBodyText = JSON.stringify(providerBodies[0]);
+  assert.match(providerBodyText, /Compacted prompt history summary/);
+  assert.match(providerBodyText, /keep the active focus after compact/);
+  assert.equal(result.mainLoopSteps.filter((step) => step.actionPrimitive === "lowerPrompt").length >= 2, true);
+  assert.equal(result.mainLoopSteps.some((step) =>
+    step.actionPrimitive === "lowerPrompt" && step.metadata.compactRecordRef === "compact.boundary.1"
+  ), true);
+  assert.equal(result.state.events.some((record) => record.type === "runtime.contextCompact.thresholdDecision"), true);
+  assert.equal(result.state.states.some((record) => record.stateId === "state:contextCompact:1" && record.phase === "summarizing"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest fails before provider invocation when boundary compact fails", async () => {
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-compact-fail" }).runManifest(
+    compiled.manifest,
+    "say hello after failed compact",
+    {
+      sessionId: "session-compact-fail",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      compactExecutor: {
+        compact: async () => ({
+          ok: false,
+          error: {
+            code: "COMPACT_ENDPOINT_FAILED",
+            message: "compact endpoint failed",
+            publicSafe: true,
+          },
+          events: ["contextCompact.application.failed"],
+        }),
+      },
+      providerCaller: async () => assert.fail("provider should not be called when required compact fails"),
+      now: () => "2026-05-26T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "PROMPT_PACK_FAILED");
+  assert.equal(result.error.boundary, "runtime-state");
+  assert.match(result.error.message, /compact endpoint failed/);
+  assert.equal(result.events.includes("contextCompact.application.failed"), true);
 });
 
 test("PraxisRuntimeKernel.runManifest can interrupt before provider invocation", async () => {

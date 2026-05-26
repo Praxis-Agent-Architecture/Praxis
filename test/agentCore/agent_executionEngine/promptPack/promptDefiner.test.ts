@@ -73,7 +73,7 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
   assert.equal(result.definition.materials[1]?.source, "runtime.contractSurface");
 });
 
-test("definePromptPack supports the ten fixed PromptPack sections and internal scratchpad plans", () => {
+test("definePromptPack supports the fixed PromptPack sections and internal scratchpad plans", () => {
   const result = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
@@ -94,7 +94,7 @@ test("definePromptPack supports the ten fixed PromptPack sections and internal s
   });
 
   assert.equal(result.ok, true);
-  if (!result.ok) throw new Error("expected ten-section PromptPack definition");
+  if (!result.ok) throw new Error("expected fixed-section PromptPack definition");
 
   assert.deepEqual(
     result.definition.materials.map((material) => material.promptSegmentKind),

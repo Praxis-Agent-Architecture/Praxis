@@ -10,6 +10,7 @@ declaredRuntimeContext
 toolDeclarations
 projectContext
 sessionSummary
+recentConversation
 memoryContext
 retrievedContext
 observations
@@ -25,7 +26,8 @@ Provider adapters must not reorder these sections. Lowering may map the sections
 - `declaredRuntimeContext`: AgentManifest, HarnessSpec, runtime mode, permissions, sandbox, and governance declarations.
 - `toolDeclarations`: ToolSpec, baseTool, TAP package, official tools, custom tools, and tool policy visible to the model.
 - `projectContext`: project structure, repository summaries, file indexes, dependency maps, and development environment context.
-- `sessionSummary`: CMP-provided current-session compression, phase decisions, and unfinished work.
+- `sessionSummary`: current-session compression, phase decisions, and unfinished work. It replaces older raw history after compact; stable system/runtime/project facts are rebuilt from canonical sources instead of summarized here.
+- `recentConversation`: the small raw attention window that survives after summary. It carries the latest user/assistant/runtime messages needed for local continuity, not the full transcript.
 - `memoryContext`: memory indexes and layered summaries only. MP-retrieved memory truth belongs in `retrievedContext`.
 - `retrievedContext`: RAG, MP, search, and file-read results fetched for this turn.
 - `observations`: tool results, runtime events, errors, stdout/stderr, previous assistant visible output, and action traces. Each record must keep source and authority metadata.
@@ -42,7 +44,19 @@ Cache priority is:
 context-quality -> cost -> latency
 ```
 
-Stable and semi-stable sections may be provider-cache candidates. Dynamic sections such as retrieved context, observations, user turn, and assistant scratchpad are not stable provider cache prefixes.
+Stable and semi-stable sections may be provider-cache candidates. Dynamic sections such as recent conversation, retrieved context, observations, user turn, and assistant scratchpad are not stable provider cache prefixes.
+
+## Turn-Boundary Compact
+
+PromptPack compact is a boundary action, not an in-action interruption. Praxis lets the current model/tool action finish, assembles the next PromptPack estimate at the turn or tool-loop boundary, and triggers compact only when that estimate reaches the configured threshold. The default threshold is `0.95`.
+
+The compact executor rewrites old raw conversation into `sessionSummary`, rewrites the surviving attention set into `recentConversation`, and then the next turn resumes from:
+
+```text
+stable rebuilt facts + sessionSummary + recentConversation + current dynamic context
+```
+
+It must not build `old raw history + summary`; that doubles stale context and wastes budget.
 
 ## Tool And Commercial Boundary
 

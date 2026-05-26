@@ -120,7 +120,7 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
   );
 });
 
-test("assemblePromptPack keeps ten-section order and preserves capability provider order", () => {
+test("assemblePromptPack keeps fixed-section order and preserves capability provider order", () => {
   const defined = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
@@ -182,6 +182,14 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
         priority: 50,
         trusted: true,
         promptSegmentKind: "sessionSummary",
+      },
+      {
+        id: "recent-conversation",
+        kind: "runtime",
+        text: "assistant: The previous local focus was promptPack renew.",
+        source: "runtime.conversation.recent",
+        trusted: true,
+        promptSegmentKind: "recentConversation",
       },
       {
         id: "memory-index",
@@ -255,6 +263,7 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
       "dynamic-external",
       "project-context",
       "summary",
+      "recent-conversation",
       "memory-index",
       "retrieved-memory",
       "observation",
@@ -264,7 +273,7 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
   );
   assert.deepEqual(
     result.promptPack.cachePlan.dynamicSegmentKinds,
-    ["retrievedContext", "observations", "userTurn", "assistantScratchpadPlan"],
+    ["recentConversation", "retrievedContext", "observations", "userTurn", "assistantScratchpadPlan"],
   );
   assert.equal(result.promptPack.materials.at(-1)?.internalOnly, true);
   assert.deepEqual(result.promptPack.cachePlan.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
@@ -276,6 +285,7 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
       ["base", "tap", "mcp", "dynamic-external"],
       ["project-context"],
       ["summary"],
+      ["recent-conversation"],
       ["memory-index"],
       ["retrieved-memory"],
       ["observation"],

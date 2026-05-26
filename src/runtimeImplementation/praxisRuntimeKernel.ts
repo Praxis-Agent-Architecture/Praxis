@@ -10,7 +10,6 @@
 
 import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -44,6 +43,11 @@ import {
   type MainLoopTurnRecord,
   type MainLoopStepRecord,
 } from "../executionEngine/coreLogic/mainLoop.js";
+import {
+  createRuntimeFallbackCompactExecutor,
+  decideTurnBoundaryCompact,
+  type CompactExecutor,
+} from "../executionEngine/coreLogic/contextCompact.js";
 import { runMainLoopEngine } from "../executionEngine/coreLogic/mainLoopEngine.js";
 import {
   interpretModelDecision,
@@ -63,7 +67,6 @@ import {
 } from "../executionEngine/coreLogic/observationIntegrator.js";
 import type { StandardPromptPack } from "../executionEngine/promptPack/promptAssembler.js";
 import {
-  type PromptPackMaterialDraft,
   type PromptPackSegmentKind,
 } from "../executionEngine/promptPack/promptDefiner.js";
 import {
@@ -80,11 +83,16 @@ import {
 import {
   applyBaseToolContextUsage,
   createBaseToolContextHeatState,
-  createBaseToolContextTree,
   type BaseToolContextHeatState,
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
 } from "./runtime.execEngine/baseToolContextFolding.js";
+import {
+  assemblePromptContextMaterials,
+  PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+  type PromptContextConversationMessage,
+  type PromptContextSessionSummary,
+} from "./runtime.execEngine/promptContextAssembly.js";
 import { invokeMountedBaseTool } from "./runtime.execEngine/baseToolRuntimeMount.js";
 import { evaluateBaseToolRuntimeReadiness } from "./runtime.execEngine/baseToolSupportCatalog.js";
 import {
@@ -133,7 +141,6 @@ import {
   type BaseToolPolicyProfile,
   type PraxisAgent,
   type PraxisAgentInput,
-  type PromptMaterialSource,
 } from "./runtimeAgentManifest.js";
 import {
   approvalInterfaceEnvelope,
@@ -215,6 +222,9 @@ export type PraxisRuntimeKernelOptions = {
   exposeProviderTools?: boolean;
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
+  compactExecutor?: CompactExecutor;
+  compactContextWindowTokens?: number;
+  compactThresholdRatio?: number;
   dryRun?: boolean;
   approvalResolver?: RuntimeApprovalResolver;
   agentReviewResolver?: RuntimeAgentReviewResolver;
@@ -640,6 +650,13 @@ function readString(value: unknown): string | undefined {
 
 function readPositiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function manifestContextWindowTokens(manifest: AgentManifest, override?: number): number | undefined {
+  if (override !== undefined) return readPositiveInteger(override);
+  return readPositiveInteger(manifest.model.metadata?.contextWindowTokens)
+    ?? readPositiveInteger(manifest.model.metadata?.maxInputTokens)
+    ?? readPositiveInteger(manifest.model.metadata?.usableInputTokens);
 }
 
 function readStringArray(value: unknown): readonly string[] {
@@ -1117,294 +1134,6 @@ function metadataRecord(value: Readonly<Record<string, unknown>>): Readonly<Reco
 
 function dependencyModeCanPrepare(mode: BaseToolDependencyRuntimeMode | undefined): boolean {
   return mode === "auto" || mode === "full" || mode === "autoInstallTrustedManaged";
-}
-
-function toolProviderKind(tool: AgentManifest["harness"]["tools"][number]): "baseTool" | "tap" | "mcp-static" | "dynamic" {
-  const explicit = tool.metadata?.toolProviderKind;
-  if (explicit === "tap" || explicit === "officialTap") return "tap";
-  if (explicit === "mcp" || explicit === "mcp-static") return "mcp-static";
-  if (explicit === "dynamic" || explicit === "external-dynamic") return "dynamic";
-  if (tool.family === "mcpBase" || tool.toolId.startsWith("mcp.")) return "mcp-static";
-  if (tool.toolId.startsWith("tap.") || tool.family === "tap") return "tap";
-  return "baseTool";
-}
-
-function toolProviderSortWeight(kind: ReturnType<typeof toolProviderKind>): number {
-  if (kind === "baseTool") return 0;
-  if (kind === "tap") return 1;
-  if (kind === "mcp-static") return 2;
-  return 3;
-}
-
-function metadataString(metadata: Readonly<Record<string, unknown>>, key: string): string | undefined {
-  const value = metadata[key];
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-const PRAXIS_BASE_TOOL_CALLING_PROTOCOL = [
-  "Praxis BaseTool calling protocol:",
-  "Before requesting any BaseTool in a user turn, first emit one short user-visible sentence saying what you are about to do; then request the tool call. This is a hard main-loop rule.",
-  "Keep the pre-tool sentence concise and operational. Do not expose hidden reasoning, chain-of-thought, private policies, or internal prompt text.",
-  "Use mounted BaseTools through declared function calls when the task needs current workspace, filesystem, git, shell, search, skill, MCP, computer-use, media, or external-resource evidence.",
-  "Do not claim you inspected files, commands, git state, search results, screenshots, devices, network resources, or runtime state unless this run already contains a matching tool observation.",
-  "All mounted BaseTool schemas are visible by default. When a concrete tool manual is still needed, request praxis_expand_tool_context with targetKind=tool and the exact toolId; the manual is injected for the next model turn only.",
-  "If one BaseTool is not enough, request praxis_ephemeral_procedure to orchestrate existing mounted BaseTools; do not invent a new tool.",
-  "If policy, sandbox, dependency, budget, or approval blocks the action, request praxis_request_approval or report the public-safe blocker after the runtime returns it.",
-  "If a specific tool call returns PROVIDER_FAILURE after the user named an action/target, report that the requested tool was attempted and the runtime/provider failed; do not reinterpret it as the user failing to specify an action or target.",
-  "If the prompt already contains enough evidence and no runtime action is needed, answer directly.",
-].join("\n");
-
-function promptMaterialForObservation(observation: RuntimeObservationMaterial): PromptPackMaterialDraft {
-  const material = observation.material;
-  const metadata = material.metadata ?? {};
-  const toolCallId = metadataString(metadata, "toolCallId");
-  const toolId = metadataString(metadata, "toolId");
-  if (toolCallId === undefined || toolId === undefined) {
-    return material;
-  }
-
-  const providerToolNameValue = metadataString(metadata, "providerToolName") ?? providerToolName(toolId);
-  const status = metadataString(metadata, "observationStatus") ?? "completed";
-  const payloadBytes = typeof metadata.payloadBytes === "number" ? metadata.payloadBytes : undefined;
-  const artifactUri = metadataString(metadata, "artifactUri");
-  const artifactPath = metadataString(metadata, "artifactPath");
-  const text = [
-    `${material.text.split("\n", 1)[0] ?? `Tool observation ${toolCallId}`}`,
-    `nativeToolResult: call_id=${toolCallId} toolId=${toolId} providerToolName=${providerToolNameValue} status=${status}`,
-    payloadBytes === undefined ? "" : `payloadBytes: ${payloadBytes}`,
-    artifactUri === undefined ? "" : `payloadArtifact: ${artifactUri}`,
-    artifactPath === undefined ? "" : `payloadArtifactPath: ${artifactPath}`,
-    "payloadDelivery: full tool result is supplied separately as provider-native function_call_output; this PromptPack item is only an index.",
-    "reuseRule: use the native tool result already in this model input; do not call the same tool again unless a new missing fact is explicitly required.",
-  ].filter(Boolean).join("\n");
-
-  return {
-    ...material,
-    id: `${material.id ?? observation.observationId}:prompt-index`,
-    text,
-    metadata: {
-      ...metadata,
-      providerNativeToolResult: true,
-      originalObservationId: observation.observationId,
-      promptPayloadMode: "native-tool-result-index",
-    },
-  };
-}
-
-function promptMaterialsForTurn(input: {
-  manifest: AgentManifest;
-  task: string;
-  turnIndex: number;
-  toolMappings: readonly ProviderToolMapping[];
-  observations: readonly RuntimeObservationMaterial[];
-  events: readonly string[];
-  toolContextSelection?: BaseToolContextSelection;
-  toolContextUsage?: readonly BaseToolContextUsageRecord[];
-}): readonly PromptPackMaterialDraft[] {
-  const manifestPromptMaterials = promptPackMaterialsForManifest(input.manifest);
-  const observationUsage = input.observations
-    .map((observation) => {
-      const toolId = typeof observation.material.metadata?.toolId === "string"
-        ? observation.material.metadata.toolId
-        : undefined;
-      return toolId === undefined ? undefined : { toolId };
-    })
-    .filter((usage): usage is { toolId: string } => usage !== undefined);
-  const toolContext = createBaseToolContextTree(input.manifest.harness.tools, {
-    mode: "intelligent",
-    manual: input.toolContextSelection,
-    usage: input.toolContextUsage ?? observationUsage,
-    keepExpandedScore: 15,
-  });
-  const toolMaterials = toolContext.materials.map((materialDraft, index): PromptPackMaterialDraft => {
-    const toolId = typeof materialDraft.metadata?.toolId === "string" ? materialDraft.metadata.toolId : undefined;
-    const providerName = toolId === undefined
-      ? undefined
-      : input.toolMappings.find((mapping) => mapping.toolId === toolId)?.providerName ?? providerToolName(toolId);
-    const providerKind = toolId === undefined
-      ? undefined
-      : toolProviderKind(input.manifest.harness.tools.find((tool) => tool.toolId === toolId) ?? { toolId });
-    return {
-      ...materialDraft,
-      priority: materialDraft.priority ?? 80 - index,
-      metadata: {
-        ...(materialDraft.metadata ?? {}),
-        ...(providerKind === undefined ? {} : { toolProviderKind: providerKind }),
-        ...(providerName === undefined ? {} : { toolName: providerName }),
-      },
-    };
-  });
-
-  const observationMaterials = input.observations.map((observation) => promptMaterialForObservation(observation));
-  const observationAnswerGuard: PromptPackMaterialDraft[] = input.observations.length === 0
-    ? []
-    : [{
-        id: `runtime:observation-answer-guard:${input.turnIndex}`,
-        kind: "command-injection",
-        text: [
-          "Runtime already contains tool observations from earlier turns in this same agent run.",
-          "Use those observations to answer the user now.",
-          "Do not repeat a tool call that already produced the requested evidence unless a new missing fact is explicitly required.",
-          "If the available observation is enough, return final text instead of another tool call.",
-        ].join("\n"),
-        source: "runtime.observationAnswerGuard",
-        priority: 101,
-        trusted: true,
-        scope: "runtime.mainLoop",
-        promptSegmentKind: "userTurn",
-        metadata: {
-          promptSegmentKind: "userTurn",
-          turnIndex: input.turnIndex,
-          observationCount: input.observations.length,
-        },
-      }];
-  return [
-    ...manifestPromptMaterials,
-    {
-      id: `task:${input.turnIndex}`,
-      kind: "user",
-      text: input.task,
-      source: "runtime.input.text",
-      priority: 100,
-      trusted: false,
-      scope: "user.task",
-      promptSegmentKind: "userTurn",
-      metadata: { turnIndex: input.turnIndex },
-    },
-    {
-      id: "runtime:base-tool-protocol",
-      kind: "runtime",
-      text: PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
-      source: "runtime.baseToolCallingProtocol",
-      priority: 95,
-      trusted: true,
-      scope: "runtime.toolCalling",
-      promptSegmentKind: "stableSystemCore",
-      metadata: {
-        promptSegmentKind: "stableSystemCore",
-        mountedToolCount: input.manifest.harness.tools.length,
-      },
-    },
-    {
-      id: `runtime:${input.turnIndex}`,
-      kind: "runtime",
-      text: [
-        `turnIndex=${input.turnIndex}`,
-        `runtime mounted BaseTools=${input.manifest.harness.tools.map((tool) => tool.toolId).join(", ") || "none"}`,
-        `baseTool context mode=${toolContext.mode}`,
-        `baseTool context expanded=${toolContext.expandedNodeIds.join(", ") || "none"}`,
-        `recent events=${input.events.slice(-8).join(", ") || "none"}`,
-      ].join("\n"),
-      source: "runtime.stateProjection",
-      priority: 60,
-      trusted: true,
-      scope: "runtime.state",
-      metadata: {
-        promptSegmentKind: "observations",
-        turnIndex: input.turnIndex,
-        maxModelTurns: input.manifest.harness.loop.maxModelTurns ?? 2,
-        maxToolCalls: input.manifest.harness.loop.maxToolCalls ?? 4,
-      },
-    },
-    ...toolMaterials,
-    ...observationMaterials,
-    ...observationAnswerGuard,
-  ];
-}
-
-function promptMaterialSourceText(material: PromptMaterialSource, fallbackRef: string): string {
-  if (material.kind === "markdown") return material.text;
-  if (material.kind === "materialRef") return `Prompt material reference declared as ${material.ref || fallbackRef}.`;
-  try {
-    return readFileSync(path.resolve(material.path), "utf8");
-  } catch {
-    return `Prompt markdown file declared at ${material.path}.`;
-  }
-}
-
-function promptMaterialSourceRef(material: PromptMaterialSource, fallbackRef: string): string {
-  if (material.kind === "markdown") return material.ref || fallbackRef;
-  if (material.kind === "markdownFile") return material.ref || material.path;
-  return material.ref || fallbackRef;
-}
-
-function promptPackMaterialsForManifest(manifest: AgentManifest): readonly PromptPackMaterialDraft[] {
-  const materials: PromptPackMaterialDraft[] = [];
-  const promptPack = manifest.promptPack;
-
-  if (promptPack.base !== undefined) {
-    materials.push({
-      id: promptMaterialSourceRef(promptPack.base, `${promptPack.promptPackId}:base`),
-      kind: "system",
-      text: promptMaterialSourceText(promptPack.base, `${promptPack.promptPackId}:base`),
-      source: "manifest.promptPack.base",
-      priority: 900,
-      trusted: true,
-      scope: "manifest.promptPack",
-      promptSegmentKind: "stableSystemCore",
-      metadata: {
-        promptPackId: promptPack.promptPackId,
-        promptRole: "base",
-      },
-    });
-  }
-
-  for (const [index, inherited] of promptPack.inherits.entries()) {
-    materials.push({
-      id: `promptPack.inherits:${inherited}`,
-      kind: "runtime",
-      text: `PromptPack inherits ${inherited}.`,
-      source: "manifest.promptPack.inherits",
-      priority: 880 - index,
-      trusted: true,
-      scope: "manifest.promptPack",
-      promptSegmentKind: "projectContext",
-      metadata: {
-        promptPackId: promptPack.promptPackId,
-        promptRole: "inherit",
-      },
-    });
-  }
-
-  for (const [index, patch] of [...promptPack.patches, ...promptPack.stateMachineMutations].entries()) {
-    materials.push({
-      id: patch.patchId,
-      kind: "system",
-      text: promptMaterialSourceText(patch.material, patch.patchId),
-      source: `manifest.promptPack.${patch.operation}`,
-      priority: 870 - index,
-      trusted: true,
-      scope: "manifest.promptPack.patch",
-      promptSegmentKind: "declaredRuntimeContext",
-      metadata: {
-        promptPackId: promptPack.promptPackId,
-        promptRole: "patch",
-        patchId: patch.patchId,
-        operation: patch.operation,
-        targetRef: patch.targetRef,
-        sceneTrigger: patch.sceneTrigger ?? "",
-      },
-    });
-  }
-
-  for (const [index, materialRef] of promptPack.materials.entries()) {
-    materials.push({
-      id: `promptPack.material:${materialRef}`,
-      kind: "runtime",
-      text: `PromptPack material reference ${materialRef}.`,
-      source: "manifest.promptPack.materials",
-      priority: 830 - index,
-      trusted: true,
-      scope: "manifest.promptPack.materials",
-      promptSegmentKind: "projectContext",
-      metadata: {
-        promptPackId: promptPack.promptPackId,
-        promptRole: "materialRef",
-      },
-    });
-  }
-
-  return materials;
 }
 
 function observationPayloadText(observation: RuntimeObservationMaterial): string {
@@ -3298,6 +3027,9 @@ async function buildPromptPackAndLower(input: {
   toolMappings: readonly ProviderToolMapping[];
   observations: readonly RuntimeObservationMaterial[];
   events: readonly string[];
+  contextWindowTokens?: number;
+  sessionSummary?: PromptContextSessionSummary;
+  conversationWindow?: readonly PromptContextConversationMessage[];
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
 }): Promise<
@@ -3317,6 +3049,7 @@ async function buildPromptPackAndLower(input: {
     }
 > {
   const promptPackId = input.manifest.harness.promptPack.promptPackId ?? `${input.sessionId}:promptPack:${input.turnIndex + 1}`;
+  const contextWindowTokens = input.contextWindowTokens ?? manifestContextWindowTokens(input.manifest);
   const mainLoopRun = runMainLoop({
     runtime: {
       runtimeId: input.runtimeId,
@@ -3340,16 +3073,19 @@ async function buildPromptPackAndLower(input: {
     targetModel: input.manifest.model.model,
     loweringHint: input.manifest.model.endpointShape,
     promptPackId,
-    materials: promptMaterialsForTurn({
+    materials: assemblePromptContextMaterials({
       manifest: input.manifest,
       task: input.task,
       turnIndex: input.turnIndex,
       toolMappings: input.toolMappings,
       observations: input.observations,
       events: input.events,
+      budget: contextWindowTokens === undefined ? undefined : { contextWindowTokens },
+      sessionSummary: input.sessionSummary,
+      conversationWindow: input.conversationWindow,
       toolContextSelection: input.toolContextSelection,
       toolContextUsage: input.toolContextUsage,
-    }),
+    }).materials,
   });
   if (!mainLoopRun.ok) {
     return {
@@ -4511,6 +4247,10 @@ export class PraxisRuntimeKernel {
       usage: options.toolContextUsage,
       updatedAt: createdAt,
     });
+    let compactSessionSummary: PromptContextSessionSummary | undefined;
+    let compactConversationWindow: readonly PromptContextConversationMessage[] | undefined;
+    const compactContextWindowTokens = manifestContextWindowTokens(manifest, options.compactContextWindowTokens);
+    const compactExecutor = options.compactExecutor ?? createRuntimeFallbackCompactExecutor();
     let previousModelCacheDebug: AgentModelCacheDebugRecord | undefined;
 
     type KernelPromptPackage = Extract<Awaited<ReturnType<typeof buildPromptPackAndLower>>, { ok: true }>;
@@ -4561,7 +4301,7 @@ export class PraxisRuntimeKernel {
       prepareTurn: async (turn) => {
       await store.appendState(state(sessionId, `state:model:${turn + 1}`, "model", now(), { turn }));
       const stepBase = turn * 20 + 2;
-      const prompt = await buildPromptPackAndLower({
+      let prompt = await buildPromptPackAndLower({
         runtimeId,
         sessionId,
         manifest,
@@ -4573,6 +4313,9 @@ export class PraxisRuntimeKernel {
         toolMappings,
         observations,
         events,
+        contextWindowTokens: compactContextWindowTokens,
+        sessionSummary: compactSessionSummary,
+        conversationWindow: compactConversationWindow,
         toolContextSelection,
         toolContextUsage: toolContextHeatState.usage,
       });
@@ -4648,7 +4391,226 @@ export class PraxisRuntimeKernel {
         }),
       });
 
-      return { prompt, events: prompt.events };
+      const contextWindowTokens = compactContextWindowTokens;
+      const promptBoundaryEvents = [...prompt.events];
+      if (contextWindowTokens !== undefined) {
+        const compactDecision = decideTurnBoundaryCompact({
+          trigger: observations.length > 0 ? "toolLoopBoundary" : "turnBoundary",
+          estimatedNextPromptTokens: prompt.promptPack.totalEstimatedTokens,
+          contextWindowTokens,
+          thresholdRatio: options.compactThresholdRatio,
+        });
+        const compactEvent = compactDecision.shouldCompact
+          ? "runtime.contextCompact.thresholdReached"
+          : "runtime.contextCompact.thresholdNotReached";
+        events.push(compactEvent);
+        promptBoundaryEvents.push(compactEvent);
+        await store.appendEvent(event(
+          sessionId,
+          `event:contextCompact:decision:${turn + 1}`,
+          "runtime.contextCompact.thresholdDecision",
+          now(),
+          compactDecision,
+        ));
+        await recordMainLoopStep({
+          store,
+          sessionId,
+          createdAt: now(),
+          events,
+          mainLoopSteps,
+          step: createMainLoopStepRecord({
+            sessionId,
+            turnIndex: turn,
+            stepIndex: stepBase + 4,
+            actionPrimitive: "updateSummaryStateEvent",
+            status: compactDecision.shouldCompact ? "planned" : "completed",
+            inputRefs: [prompt.promptPackId],
+            outputRefs: [],
+            promptPackRef: prompt.promptPackId,
+            now: now(),
+            metadata: {
+              decision: compactDecision,
+              note: compactDecision.shouldCompact
+                ? "compact should run after this boundary through the configured CompactExecutor"
+                : "compact threshold not reached at this boundary",
+            },
+          }),
+        });
+        if (compactDecision.shouldCompact) {
+          const compactResult = await compactExecutor.compact({
+            sessionId,
+            trigger: compactDecision.trigger,
+            materialRefs: prompt.promptPack.materials.map((material) => material.id),
+            currentUserTurnText: input.input.normalizedText,
+            estimatedTokens: prompt.promptPack.totalEstimatedTokens,
+            contextWindowTokens,
+            thresholdRatio: compactDecision.thresholdRatio,
+            now: now(),
+            metadata: {
+              promptPackId: prompt.promptPackId,
+              turnIndex: turn,
+            },
+          });
+          events.push(...compactResult.events);
+          promptBoundaryEvents.push(...compactResult.events);
+          if (compactResult.ok) {
+            compactSessionSummary = {
+              summaryId: compactResult.record.after.sessionSummaryRef,
+              text: compactResult.sessionSummaryText,
+              compactedUntilTurnId: `${sessionId}:turn:${turn}`,
+              updatedAt: compactResult.record.createdAt,
+              metadata: {
+                compactId: compactResult.record.compactId,
+                executor: compactResult.record.executor,
+              },
+            };
+            compactConversationWindow = compactResult.recentConversationText.trim().length === 0
+              ? []
+              : [{
+                  messageId: compactResult.record.after.recentConversationRefs[0] ?? `${compactResult.record.compactId}:recentConversation`,
+                  role: "runtime-summary",
+                  text: compactResult.recentConversationText,
+                  createdAt: compactResult.record.createdAt,
+                  metadata: {
+                    compactId: compactResult.record.compactId,
+                  },
+                }];
+            await store.appendState(state(sessionId, `state:contextCompact:${turn + 1}`, "summarizing", now(), {
+              decision: compactDecision,
+              record: compactResult.record,
+            }));
+            const rebuiltPrompt = await buildPromptPackAndLower({
+              runtimeId,
+              sessionId,
+              manifest,
+              task: input.input.normalizedText,
+              turnIndex: turn,
+              startStepIndex: stepBase + 5,
+              now: now(),
+              modelCaller,
+              toolMappings,
+              observations,
+              events,
+              sessionSummary: compactSessionSummary,
+              conversationWindow: compactConversationWindow,
+              toolContextSelection,
+              toolContextUsage: toolContextHeatState.usage,
+            });
+            events.push(...rebuiltPrompt.events);
+            promptBoundaryEvents.push(...rebuiltPrompt.events);
+            if (!rebuiltPrompt.ok) {
+              return {
+                ok: false,
+                error: {
+                  code: rebuiltPrompt.error.code,
+                  message: rebuiltPrompt.error.message,
+                  boundary: "prompt",
+                  publicSafe: true,
+                } satisfies MainLoopRunnerError,
+                events: rebuiltPrompt.events,
+              };
+            }
+            for (const turnStep of rebuiltPrompt.turnRecord.stepRecords) {
+              await recordMainLoopStep({
+                store,
+                sessionId,
+                createdAt: now(),
+                events,
+                mainLoopSteps,
+                step: turnStep,
+              });
+            }
+            await recordMainLoopStep({
+              store,
+              sessionId,
+              createdAt: now(),
+              events,
+              mainLoopSteps,
+              step: createMainLoopStepRecord({
+                sessionId,
+                turnIndex: turn,
+                stepIndex: stepBase + 8,
+                actionPrimitive: "lowerPrompt",
+                status: "completed",
+                inputRefs: [rebuiltPrompt.promptPackId],
+                outputRefs: [rebuiltPrompt.loweredPrompt.loweringId],
+                promptPackRef: rebuiltPrompt.promptPackId,
+                loweredPromptRef: rebuiltPrompt.loweredPrompt.loweringId,
+                now: now(),
+                metadata: {
+                  materialRefs: rebuiltPrompt.loweredPrompt.materialRefs,
+                  targetCapability: rebuiltPrompt.loweredPrompt.target.capabilityId,
+                  compactRecordRef: compactResult.record.compactId,
+                },
+              }),
+            });
+            prompt = rebuiltPrompt;
+            await recordMainLoopStep({
+              store,
+              sessionId,
+              createdAt: now(),
+              events,
+              mainLoopSteps,
+              step: createMainLoopStepRecord({
+                sessionId,
+                turnIndex: turn,
+                stepIndex: stepBase + 9,
+                actionPrimitive: "updateSummaryStateEvent",
+                status: "completed",
+                inputRefs: [compactResult.record.compactId],
+                outputRefs: [rebuiltPrompt.promptPackId],
+                promptPackRef: rebuiltPrompt.promptPackId,
+                now: now(),
+                metadata: {
+                  decision: compactDecision,
+                  compactRecord: compactResult.record,
+                  rebuiltPromptPackTokens: rebuiltPrompt.promptPack.totalEstimatedTokens,
+                },
+              }),
+            });
+          } else {
+            runnerError = kernelError("PROMPT_PACK_FAILED", compactResult.error.message, "runtime-state");
+            const compactError: MainLoopRunnerError = {
+              code: compactResult.error.code,
+              message: compactResult.error.message,
+              boundary: "prompt",
+              publicSafe: true,
+            };
+            const compactStepError = {
+              code: compactResult.error.code,
+              message: compactResult.error.message,
+              boundary: "runtime-state",
+              publicSafe: true,
+            } as const;
+            await recordMainLoopStep({
+              store,
+              sessionId,
+              createdAt: now(),
+              events,
+              mainLoopSteps,
+              step: createMainLoopStepRecord({
+                sessionId,
+                turnIndex: turn,
+                stepIndex: stepBase + 5,
+                actionPrimitive: "updateSummaryStateEvent",
+                status: "failed",
+                inputRefs: [prompt.promptPackId],
+                outputRefs: [],
+                promptPackRef: prompt.promptPackId,
+                now: now(),
+                error: compactStepError,
+              }),
+            });
+            return {
+              ok: false,
+              error: compactError,
+              events: promptBoundaryEvents,
+            };
+          }
+        }
+      }
+
+      return { prompt, events: promptBoundaryEvents };
       },
       invokeModel: async (turn, prompt) => {
       const stepBase = turn * 20 + 2;
