@@ -157,7 +157,7 @@ import {
   approvalInterfaceEnvelope,
   type InterfaceEnvelope,
 } from "../interfaceAdapter/interfaceEnvelope.js";
-import type { ToolDependencyProbe } from "../executionEngine/basic_toolLayer/toolDependency/dependencyManager.js";
+import type { ToolDependencyProbe } from "./runtime.execEngine/baseToolDependencyRuntime.js";
 import {
   createInMemorySessionStateEventStore,
   createSqliteSessionStateEventStore,
@@ -184,7 +184,7 @@ import type { SandboxRemoteWorkerAdapter } from "./runtime.sandboxPlane/sandboxC
 import {
   describeShellWorkspaceWrite,
   shellWorkspaceWriteGuardMessage,
-} from "../storagePool/baseToolStorage/shellBase/_shared/workspaceWriteGuard.js";
+} from "./runtime.execEngine/workspaceWriteGuard.js";
 
 export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
