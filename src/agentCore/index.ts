@@ -180,6 +180,10 @@ import {
   runtimeAuth,
 } from "../runtimeImplementation/runtime.authPlane/index.js";
 import {
+  createMemoryPlane,
+  memoryPlane,
+} from "../memory_managementPool/index.js";
+import {
   ExecutionMonitor,
   analyzeExecutionMonitor,
 } from "../runtimeImplementation/runtime.executionMonitor/index.js";
@@ -250,6 +254,27 @@ export {
   type ToolSpec,
   type ToolPolicyCustomInput,
 } from "../runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  createMemoryPlane,
+  memoryPlane,
+};
+export type {
+  MemoryArtifactRef,
+  MemoryIndexStatus,
+  MemoryLayout,
+  MemoryPlane,
+  MemoryPlaneOptions,
+  MemoryPolicyRisk,
+  MemoryProfile,
+  MemoryPromptGuide,
+  MemoryReindexResult,
+  MemoryRiskMetadata,
+  MemoryScope,
+  MemorySearchGuide,
+  MemorySearchRequest,
+  MemorySourceType,
+} from "../memory_managementPool/index.js";
 
 export {
   capabilities,
@@ -1000,6 +1025,10 @@ export const storagePlane = Object.freeze({
   resolveRaxWorkspace,
 });
 
+export const memory = Object.freeze({
+  ...memoryPlane,
+});
+
 export const projectPlane = Object.freeze({
   project: defineProject,
   descriptor: projectDescriptor,
@@ -1105,6 +1134,7 @@ export const praxis = Object.freeze({
   project: defineProject,
   statePlane,
   storage,
+  memory,
 
   basetool,
   basetools: basetool,
