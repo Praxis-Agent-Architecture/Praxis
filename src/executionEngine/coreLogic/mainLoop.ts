@@ -25,6 +25,7 @@ import {
   definePromptPack,
   type PromptPackMaterialDraft,
 } from "../promptPack/promptDefiner.js";
+import { runMainLoopEngine } from "./mainLoopEngine.js";
 
 export type AgentMainLoopNextHop = "prompt-pack" | "model-adapter" | "tool-layer" | "event-exposure" | "none";
 export type MainLoopTickKind =
@@ -224,11 +225,20 @@ export type MainLoopRunnerTurnPackage<TPrompt> = {
   events: readonly string[];
 };
 
+export type MainLoopRunnerUsageReport = {
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  estimatedCostUsd?: number;
+  providerRaw?: unknown;
+};
+
 export type MainLoopRunnerModelResult<TRaw> =
   | {
       ok: true;
       modelCallId: string;
       raw: TRaw | null;
+      usage?: MainLoopRunnerUsageReport;
       events: readonly string[];
     }
   | {
@@ -1475,170 +1485,10 @@ export function runMainLoop(request: RunMainLoopRequest): RunMainLoopResult {
   };
 }
 
-function runnerFailure(
-  error: MainLoopRunnerError,
-  modelTurns: number,
-  toolCalls: number,
-  events: readonly string[],
-): MainLoopRunnerResult {
-  return { ok: false, error, modelTurns, toolCalls, events };
-}
-
-function fallbackRunnerFinal(input: MainLoopRunnerNoFinalContext): MainLoopRunnerFinalResult {
-  const finalOutput = input.reason === "tool_call_limit"
-    ? "PraxisRuntimeKernel reached the tool call limit before a final answer."
-    : input.reason === "no_continuation"
-      ? "PraxisRuntimeKernel stopped without a final answer."
-      : "PraxisRuntimeKernel reached the model turn limit before a final answer.";
-  return {
-    ok: true,
-    finalOutput,
-    events: [`agentCore.execution.mainLoop.runner.fallbackFinal.${input.reason}`],
-  };
-}
-
 export async function runMainLoopRunner<TPrompt, TRaw>(
   request: MainLoopRunnerRequest<TPrompt, TRaw>,
 ): Promise<MainLoopRunnerResult> {
-  const events: string[] = ["agentCore.execution.mainLoop.runner.started"];
-  let toolCalls = 0;
-  let completedModelTurns = 0;
-  let completedTurnToolCalls = 0;
-  let noFinalReason: MainLoopRunnerNoFinalReason = "model_turn_limit";
-
-  for (let turnIndex = 0; turnIndex < request.maxModelTurns; turnIndex += 1) {
-    completedModelTurns = turnIndex + 1;
-    let turnToolCalls = 0;
-    const prepared = await request.prepareTurn(turnIndex);
-    events.push(...prepared.events);
-    if ("ok" in prepared && prepared.ok === false) {
-      return runnerFailure(prepared.error, turnIndex + 1, toolCalls, events);
-    }
-
-    const prompt = (prepared as MainLoopRunnerTurnPackage<TPrompt>).prompt;
-    const model = await request.invokeModel(turnIndex, prompt);
-    events.push(...model.events);
-    if (!model.ok) {
-      return runnerFailure(model.error, turnIndex + 1, toolCalls, events);
-    }
-
-    if (model.raw === null) {
-      const dryRunFinal = request.onModelDryRun === undefined
-        ? {
-            ok: true as const,
-            finalOutput: "PraxisRuntimeKernel dry-run completed.",
-            events: ["agentCore.execution.mainLoop.runner.dryRunFinal"],
-          }
-        : await request.onModelDryRun({ turnIndex, prompt, model });
-      events.push(...dryRunFinal.events);
-      return dryRunFinal.ok
-        ? { ok: true, finalOutput: dryRunFinal.finalOutput, modelTurns: turnIndex + 1, toolCalls, events }
-        : runnerFailure(dryRunFinal.error, turnIndex + 1, toolCalls, events);
-    }
-
-    const interpreted = await request.interpretDecision(turnIndex, model, prompt);
-    events.push(...interpreted.events);
-    if (!interpreted.ok) {
-      return runnerFailure(interpreted.error, turnIndex + 1, toolCalls, events);
-    }
-
-    let continueLoop = false;
-    for (const [decisionIndex, decision] of interpreted.decisions.entries()) {
-      if (decision.kind === "finalOutput") {
-        const final = await request.acceptFinalOutput({ turnIndex, decisionIndex, decision, prompt });
-        events.push(...final.events);
-        return final.ok
-          ? { ok: true, finalOutput: final.finalOutput, modelTurns: turnIndex + 1, toolCalls, events }
-          : runnerFailure(final.error, turnIndex + 1, toolCalls, events);
-      }
-
-      if (decision.kind === "continue") {
-        const continued = await request.handleContinue({ turnIndex, decisionIndex, decision, prompt });
-        events.push(...continued.events);
-        if (!continued.ok) {
-          return runnerFailure(continued.error, turnIndex + 1, toolCalls, events);
-        }
-        continueLoop = continueLoop || continued.continueLoop;
-        continue;
-      }
-
-      if (decision.kind === "fail") {
-        const failed = await request.handleFailure({ turnIndex, decisionIndex, decision, prompt });
-        events.push(...failed.events);
-        return failed.ok
-          ? runnerFailure({
-              code: decision.failure?.code ?? "MODEL_DECISION_FAILED",
-              message: decision.failure?.message ?? "model decision requested failure",
-              boundary: "model-decision",
-              publicSafe: true,
-            }, turnIndex + 1, toolCalls, events)
-          : runnerFailure(failed.error, turnIndex + 1, toolCalls, events);
-      }
-
-      if (decision.kind === "requestApproval") {
-        const approval = await request.handleApproval({ turnIndex, decisionIndex, decision, prompt });
-        events.push(...approval.events);
-        if (!approval.ok) {
-          return runnerFailure(approval.error, turnIndex + 1, toolCalls, events);
-        }
-        continueLoop = continueLoop || approval.continueLoop;
-        continue;
-      }
-
-      if (decision.kind === "toolCall") {
-        if (turnToolCalls >= request.maxToolCalls) {
-          noFinalReason = "tool_call_limit";
-          events.push("agentCore.execution.mainLoop.runner.toolCallLimit");
-          completedTurnToolCalls = turnToolCalls;
-          continueLoop = false;
-          break;
-        }
-        const tool = await request.handleToolCall({ turnIndex, decisionIndex, decision, prompt });
-        events.push(...tool.events);
-        if (!tool.ok) {
-          return runnerFailure(tool.error, turnIndex + 1, toolCalls, events);
-        }
-        toolCalls += 1;
-        turnToolCalls += 1;
-        completedTurnToolCalls = turnToolCalls;
-        continueLoop = continueLoop || tool.continueLoop;
-        continue;
-      }
-
-      if (decision.kind === "ephemeralProcedurePlan") {
-        const procedure = await request.handleEphemeralProcedure({ turnIndex, decisionIndex, decision, prompt });
-        events.push(...procedure.events);
-        if (!procedure.ok) {
-          return runnerFailure(procedure.error, turnIndex + 1, toolCalls, events);
-        }
-        continueLoop = continueLoop || procedure.continueLoop;
-      }
-    }
-
-    if (!continueLoop) {
-      completedTurnToolCalls = turnToolCalls;
-      if (noFinalReason !== "tool_call_limit") {
-        noFinalReason = "no_continuation";
-      }
-      break;
-    }
-  }
-
-  const noFinalContext: MainLoopRunnerNoFinalContext = {
-    reason: noFinalReason,
-    modelTurns: completedModelTurns,
-    toolCalls,
-    turnToolCalls: completedTurnToolCalls,
-    maxModelTurns: request.maxModelTurns,
-    maxToolCalls: request.maxToolCalls,
-  };
-  const fallback = request.onNoFinalOutput === undefined
-    ? fallbackRunnerFinal(noFinalContext)
-    : await request.onNoFinalOutput(noFinalContext);
-  events.push(...fallback.events);
-  return fallback.ok
-    ? { ok: true, finalOutput: fallback.finalOutput, modelTurns: noFinalContext.modelTurns, toolCalls, events }
-    : runnerFailure(fallback.error, noFinalContext.modelTurns, toolCalls, events);
+  return await runMainLoopEngine(request);
 }
 
 function gateResult(gate: AgentExecutionStateGate | undefined): MainLoopStepGateResult {

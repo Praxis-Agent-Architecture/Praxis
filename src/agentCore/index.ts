@@ -435,6 +435,75 @@ export {
 } from "../executionEngine/coreLogic/ephemeralProcedure.js";
 
 export {
+  runMainLoopEngine,
+  type MainLoopEngineRequest,
+  type MainLoopEngineResult,
+} from "../executionEngine/coreLogic/mainLoopEngine.js";
+
+export {
+  createMainLoopCoreEvent,
+  createMainLoopRecorder,
+  type MainLoopRecorderSink,
+  type MainLoopRecorderSnapshot,
+} from "../executionEngine/coreLogic/mainLoopRecorder.js";
+
+export {
+  noopMainLoopSummarizer,
+  createMainLoopStreamAccumulator,
+  reduceMainLoopStreamAccumulator,
+  type MainLoopCoreEvent,
+  type MainLoopCoreEventName,
+  type MainLoopEnginePorts,
+  type MainLoopModelStreamEvent,
+  type MainLoopStreamAccumulatorState,
+  type MainLoopRecorderPort,
+  type MainLoopSummarizerPort,
+  type MainLoopSummarizerRequest,
+  type MainLoopSummarizerResult,
+  type MainLoopUsagePricing,
+  type MainLoopUsageReport,
+} from "../executionEngine/coreLogic/mainLoopPorts.js";
+
+export {
+  addMainLoopBudgetUsage,
+  addMainLoopObservationRefs,
+  clearMainLoopOneShotToolContextSelection,
+  consumeMainLoopPendingInputs,
+  createMainLoopBudgetUsage,
+  createMainLoopTurnState,
+  enqueueMainLoopPendingInput,
+  interruptMainLoopTurnState,
+  registerMainLoopApprovalWait,
+  resumeMainLoopTurnState,
+  setMainLoopToolContextSelection,
+  transitionMainLoopTurnState,
+  type MainLoopBudgetUsage,
+  type MainLoopInterruptCheckpoint,
+  type MainLoopPendingInput,
+  type MainLoopResumeToken,
+  type MainLoopToolContextSelection,
+  type MainLoopTurnPhase,
+  type MainLoopTurnState,
+  type MainLoopTurnStateTransition,
+  type PendingInputDisposition,
+} from "../executionEngine/coreLogic/turnState.js";
+
+export {
+  runToolExecutionUnits,
+  toolExecutionUnitFromProcedureStep,
+  toolExecutionUnitFromToolCall,
+  toolExecutionUnitsFromEphemeralProcedure,
+  type ToolExecutionStatus,
+  type ToolExecutionUnit,
+  type ToolExecutionUnitKind,
+  type ToolExecutionUnitRecord,
+  type ToolSchedulerExecuteInput,
+  type ToolSchedulerExecuteResult,
+  type ToolSchedulerPolicy,
+  type ToolSchedulerResult,
+} from "../executionEngine/coreLogic/toolScheduler.js";
+
+export {
   assemblePromptPack,
   type PromptPackCachePlan,
   type PromptPackCacheTelemetry,

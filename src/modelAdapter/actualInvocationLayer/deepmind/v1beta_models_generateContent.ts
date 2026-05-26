@@ -60,6 +60,7 @@ export type DeepMindV1BetaModelsGenerateContentProviderEnvelope = {
   headers: Readonly<Record<string, string>>;
   body: DeepMindV1BetaModelsGenerateContentBody;
   timeoutMs: number;
+  signal?: AbortSignal;
   dryRun: boolean;
   providerCallPlanned: boolean;
   runtime: DeepMindV1BetaModelsGenerateContentRuntimeContext;
@@ -89,6 +90,7 @@ export type DeepMindV1BetaModelsGenerateContentRequest = {
   contract?: DeepMindV1BetaModelsGenerateContentGate;
   governance?: DeepMindV1BetaModelsGenerateContentGate;
   transport?: DeepMindV1BetaModelsGenerateContentTransport;
+  signal?: AbortSignal;
 };
 
 export type DeepMindV1BetaModelsGenerateContentResponseEnvelope = {
@@ -304,6 +306,7 @@ export async function invokeDeepMindV1BetaModelsGenerateContent(
     headers: headers(request.apiKey),
     body: request.body,
     timeoutMs: request.timeoutMs ?? 30_000,
+    signal: request.signal,
     dryRun,
     providerCallPlanned: !dryRun,
     runtime: request.runtime ?? {},
@@ -336,6 +339,10 @@ export async function invokeDeepMindV1BetaModelsGenerateContent(
       "provider",
       envelope,
     );
+  }
+
+  if (request.signal?.aborted === true) {
+    return failure("PROVIDER_TIMEOUT", "DeepMind generateContent invocation was aborted before provider call", "provider", envelope);
   }
 
   try {

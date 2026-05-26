@@ -128,6 +128,66 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   assert.equal(result.toolCalls.length, 0);
   assert.equal(result.state.session?.status, "completed");
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);
+  const mainLoopBudgetState = result.state.states.find((stateRecord) => stateRecord.stateId.startsWith("state:mainLoopEngine:") && stateRecord.phase === "completed");
+  assert.equal((mainLoopBudgetState?.metadata.budgetUsage as { totalTokens?: number } | undefined)?.totalTokens, 26);
+});
+
+test("PraxisRuntimeKernel.runManifest can interrupt before provider invocation", async () => {
+  const store = createInMemorySessionStateEventStore();
+  const kernel = createPraxisRuntimeKernel({ runtimeId: "runtime-interrupt", store });
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const controller = new AbortController();
+  controller.abort();
+  const result = await kernel.runManifest(compiled.manifest, "stop now", {
+    sessionId: "session-kernel-interrupt",
+    dryRun: false,
+    allowProviderCall: true,
+    auth: authEnvelope(),
+    interruptSignal: controller.signal,
+    providerCaller: async () => assert.fail("provider should not be called after interrupt"),
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "MAIN_LOOP_INTERRUPTED");
+  assert.notEqual(result.state, undefined);
+  if (result.state === undefined) return;
+  assert.equal(result.state.session?.status, "interrupted");
+  assert.equal(result.state.states.some((stateRecord) => stateRecord.phase === "interrupted"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest treats in-flight provider abort as interrupted", async () => {
+  const store = createInMemorySessionStateEventStore();
+  const kernel = createPraxisRuntimeKernel({ runtimeId: "runtime-interrupt-in-flight", store });
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const controller = new AbortController();
+  const result = await kernel.runManifest(compiled.manifest, "stop during call", {
+    sessionId: "session-kernel-interrupt-in-flight",
+    dryRun: false,
+    allowProviderCall: true,
+    auth: authEnvelope(),
+    interruptSignal: controller.signal,
+    providerCaller: async () => {
+      controller.abort();
+      const error = new Error("provider call aborted");
+      error.name = "AbortError";
+      throw error;
+    },
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "MAIN_LOOP_INTERRUPTED");
+  assert.notEqual(result.state, undefined);
+  if (result.state === undefined) return;
+  assert.equal(result.state.session?.status, "interrupted");
+  assert.equal(result.state.states.some((stateRecord) => stateRecord.phase === "interrupted"), true);
 });
 
 test("PraxisRuntimeKernel.runManifest resolves manifest auth refs through runtime authPlane", async () => {
@@ -3319,4 +3379,103 @@ test("PraxisRuntimeKernel.runManifest feeds EphemeralProcedure failures back for
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.ok, false);
   assert.equal(result.state.errors.some((record) => record.code === "PROCEDURE_INVOCATION_FAILED"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest treats in-flight EphemeralProcedure abort as interrupted", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-procedure-interrupt-"));
+  await writeFile(path.join(workspace, "a.txt"), "alpha", "utf8");
+
+  class ProcedureInterruptAgent extends PraxisAgent {
+    identity = "agent.procedure-interrupt";
+    model = model("gpt-5.4", { carrierId: "carrier.procedure-interrupt" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("file.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 2 }),
+    });
+  }
+
+  const controller = new AbortController();
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-procedure-interrupt",
+    sessionId: "session-procedure-interrupt",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+    },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-procedure-interrupt" }).run(new ProcedureInterruptAgent(), "interrupt procedure", {
+    sessionId: "session-procedure-interrupt",
+    dryRun: false,
+    allowProviderCall: true,
+    allowToolExecution: true,
+    auth: authEnvelope(),
+    executor,
+    interruptSignal: controller.signal,
+    onToolCallProgress: async (progress) => {
+      if (progress.phase === "completed") {
+        controller.abort();
+      }
+    },
+    providerCaller: async () => ({
+      output: [{
+        type: "function_call",
+        name: "praxis_ephemeral_procedure",
+        call_id: "procedure-interrupt-call-1",
+        arguments: JSON.stringify({
+          procedureId: "procedure-interrupt-read",
+          purpose: "read files and interrupt",
+          executionMode: "serial",
+          steps: [
+            {
+              stepId: "read-a",
+              baseToolId: "file.read",
+              input: {
+                workspaceRoot: workspace,
+                path: "a.txt",
+                dryRun: false,
+                context: {
+                  workspaceRoot: workspace,
+                  allowedRoots: [workspace],
+                  dryRun: false,
+                },
+              },
+              riskLevel: "low",
+            },
+            {
+              stepId: "read-b",
+              baseToolId: "file.read",
+              input: {
+                workspaceRoot: workspace,
+                path: "b.txt",
+                dryRun: false,
+                context: {
+                  workspaceRoot: workspace,
+                  allowedRoots: [workspace],
+                  dryRun: false,
+                },
+              },
+              riskLevel: "low",
+            },
+          ],
+        }),
+      }],
+    }),
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  await rm(workspace, { recursive: true, force: true });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "MAIN_LOOP_INTERRUPTED");
+  assert.notEqual(result.state, undefined);
+  if (result.state === undefined) return;
+  assert.equal(result.state.session?.status, "interrupted");
+  assert.equal(result.state.states.some((stateRecord) => stateRecord.phase === "interrupted"), true);
 });

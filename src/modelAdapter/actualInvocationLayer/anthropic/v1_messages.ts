@@ -47,6 +47,7 @@ export type AnthropicV1MessagesRequestEnvelope = {
   requestedScopes: readonly string[];
   grantedScopes: readonly string[];
   dryRun: boolean;
+  signal?: AbortSignal;
   unsafeSideEffects: false;
   providerFieldsOpaque: true;
 };
@@ -72,6 +73,7 @@ export type AnthropicV1MessagesInvocationRequest = {
   mockResponse?: unknown;
   expectResponseObject?: boolean;
   caller?: AnthropicV1MessagesProviderCaller;
+  signal?: AbortSignal;
 };
 
 export type AnthropicV1MessagesErrorCode =
@@ -386,6 +388,7 @@ export async function invokeAnthropicV1Messages(
     requestedScopes,
     grantedScopes: requestedScopes,
     dryRun: input.dryRun !== false,
+    signal: input.signal,
     unsafeSideEffects: false,
     providerFieldsOpaque: true,
   };
@@ -410,6 +413,16 @@ export async function invokeAnthropicV1Messages(
     return failure(
       "CALLER_REQUIRED",
       "Anthropic v1 messages live invocation requires an injected provider caller",
+      "provider",
+      false,
+      request,
+    );
+  }
+
+  if (input.signal?.aborted === true) {
+    return failure(
+      "PROVIDER_TIMEOUT",
+      "Anthropic v1 messages invocation was aborted before provider call",
       "provider",
       false,
       request,

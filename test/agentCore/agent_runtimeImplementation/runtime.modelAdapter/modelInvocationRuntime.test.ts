@@ -163,6 +163,51 @@ test("invokeModelThroughRuntime can call the codex responses provider path when 
   }
 });
 
+test("invokeModelThroughRuntime forwards AbortSignal and stops before provider calls when aborted", async () => {
+  const ref = createCredentialRef({
+    id: "chatgpt-abort",
+    provider: "openai",
+    credentialType: "chatgpt_codex_oauth",
+    source: { kind: "test", label: "unit" },
+  });
+  assert.equal(ref.ok, true);
+  if (!ref.ok) return;
+  const auth = createChatGPTCodexAuthEnvelope({
+    credentialRef: ref.credentialRef,
+    snapshot: {
+      sourceShape: "chatgpt-auth-tokens",
+      authMode: "chatgpt",
+      accessToken: "codex-access-token-secret",
+      refreshTokenPresent: false,
+      idTokenPresent: false,
+      accountId: "workspace-secret-id",
+      accountIsFedramp: false,
+      publicSafe: false,
+    },
+  });
+  const controller = new AbortController();
+  controller.abort();
+
+  const result = await invokeModelThroughRuntime({
+    runtimeId: "runtime-abort",
+    caller: { kind: "application", id: "app-abort" },
+    loweredPrompt: { loweringId: "lowering-abort" },
+    capability: { capabilityId: "codex-responses", kind: "responses" },
+    carrier: { carrierId: "carrier-abort", provider: "openai" },
+    dryRun: false,
+    allowProviderCall: true,
+    governance: { accepted: true },
+    auth: auth.envelope,
+    providerBody: { model: "gpt-5.4", input: "hello" },
+    signal: controller.signal,
+    openaiResponsesCaller: async () => assert.fail("provider caller should not run after abort"),
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "PROVIDER_INVOCATION_FAILED");
+});
+
 test("invokeModelThroughRuntime dispatches OpenAI API responses separately from ChatGPT Codex", async () => {
   const ref = createCredentialRef({
     id: "openai-api",
