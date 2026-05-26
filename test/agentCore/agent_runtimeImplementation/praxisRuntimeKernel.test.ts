@@ -2635,6 +2635,9 @@ test("PraxisRuntimeKernel.runManifest adds a default local MCP server for model 
         async listResources(request) {
           return { ok: true as const, output: { serverId: request?.serverId, resources: [{ uri: "local-mcp://echo", name: "echo" }] } };
         },
+        async readResource(request) {
+          return { ok: true as const, output: { serverId: request?.serverId, uri: request?.uri, content: "echo" } };
+        },
       },
     },
   });

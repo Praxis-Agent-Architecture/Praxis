@@ -265,6 +265,7 @@ export async function invokeMountedBaseTool(
 
   const runtimeReadiness = evaluateBaseToolRuntimeReadiness({
     toolId,
+    toolInput: input,
     executor: request.executor,
     implementedPortPaths: request.implementedPortPaths ?? baseToolExecutorPortFactoryDescriptor.implementedAdapters,
     disabledSupports: request.disabledSupports,

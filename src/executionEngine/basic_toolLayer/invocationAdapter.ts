@@ -1,3 +1,8 @@
+/*
+ * Legacy compatibility adapter.
+ * Runtime execution should flow through semantic basetool registry/handler/runtime port.
+ */
+
 import type { BaseToolFamily } from "../../basetool/types.js";
 
 export type BasicToolAdapterFamily = BaseToolFamily | string;

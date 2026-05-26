@@ -282,12 +282,18 @@ test("rax inspect reports selected BaseTools through CLI host adapter readiness"
     };
   };
   const readiness = payload.readiness?.toolReadiness;
-  assert.equal(readiness?.ready, 4);
-  assert.deepEqual(readiness?.missing, []);
+  assert.equal(readiness?.ready, 3);
+  assert.deepEqual(readiness?.missing, ["skill.load"]);
   for (const tool of readiness?.tools ?? []) {
-    assert.equal(tool.ready, true, tool.toolId);
-    assert.equal(tool.executorSupport, "hostReady", tool.toolId);
-    assert.deepEqual(tool.missingPorts, [], tool.toolId);
+    if (tool.toolId === "skill.load") {
+      assert.equal(tool.ready, false, tool.toolId);
+      assert.equal(tool.executorSupport, "adapterRequired", tool.toolId);
+      assert.deepEqual(tool.missingPorts, ["skill.load"], tool.toolId);
+    } else {
+      assert.equal(tool.ready, true, tool.toolId);
+      assert.equal(tool.executorSupport, "hostReady", tool.toolId);
+      assert.deepEqual(tool.missingPorts, [], tool.toolId);
+    }
   }
 });
 
@@ -324,7 +330,7 @@ test("rax test --all-testable reports the core BaseTool readiness matrix", async
     };
   };
   assert.equal(payload.readiness?.toolReadiness?.total, 24);
-  assert.equal(payload.readiness?.toolReadiness?.ready, 16);
+  assert.equal(payload.readiness?.toolReadiness?.ready, 10);
   assert.deepEqual(payload.readiness?.toolReadiness?.missing, [
     "agent.inbox",
     "agent.inspect",
@@ -334,6 +340,12 @@ test("rax test --all-testable reports the core BaseTool readiness matrix", async
     "agent.spawn",
     "agent.stop",
     "agent.wait",
+    "context.load",
+    "mcp.resources",
+    "mcp.use",
+    "skill.load",
+    "user.ask",
+    "web.search",
   ]);
   assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "mcp.use"), true);
   assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "tool.describe"), true);

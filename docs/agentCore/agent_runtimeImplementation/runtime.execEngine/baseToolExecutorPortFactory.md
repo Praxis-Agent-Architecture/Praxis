@@ -2,7 +2,7 @@
 
 > 对应源码：`src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.ts`
 
-核心目的：从 runtime context 构造完整 BaseToolExecutorPort，让 176 个 storage-owned baseTool handler 通过注入端口接触宿主能力。
+核心目的：从 runtime context 构造 `BaseToolExecutorPort` 契约，让 semantic basetool 通过注入端口接触宿主能力。
 
 ## 1. 文件位置
 
@@ -15,14 +15,14 @@
 
 这个文件负责创建 runtime-owned `BaseToolExecutorPort`。
 
-它只提供宿主能力插座和第一批真实 adapter，不承载 baseTool 语义。具体工具的输入校验、dry-run、provider 选择、结果归一化仍然属于 `storagePool/baseToolStorage` 中的 `core.ts` 和 `bestPractice.ts`。
+它只提供宿主能力插座和第一批真实 adapter，不承载 baseTool 的高层语义。具体工具的输入校验、provider 选择、结果归一化属于 `src/basetool/core/*` 和 semantic registry。
 
 ## 2.1 文件名语义拆解
 
 - 原始文件名：`baseToolExecutorPortFactory.ts`。
 - 命名片段：`base` / `Tool` / `Executor` / `Port` / `Factory`。
 - 工程含义：这是 runtime 中 `runtime.execEngine` 表面下的 executor port 构造器。
-- 第一实现重点：filesystem、shell、process、git、ripgrep、network.fetch 以及 shell guard/observation 可以真实执行；其他能力先稳定返回 unavailable 或委托给注入 backend。
+- 第一实现重点：filesystem、shell、process、git、ripgrep、network.fetch、plan/tool/runtime helper 可以真实执行；其他能力先稳定返回 unavailable 或委托给注入 backend。
 - 边界提醒：runtime 是承托面，不应吞并 executionEngine、modelAdapter、interfaceAdapter 的内部实现。
 
 ## 3. 目录语义
@@ -32,20 +32,18 @@
 
 ## 4. 源码头部能力注释
 
-- 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / baseTool executor port 工厂。
-- 核心目的：从 runtime context 构造完整 BaseToolExecutorPort，让 176 个 storage-owned baseTool handler 通过注入端口接触宿主能力。
-- 能力要求1：需要提供 filesystem、shell/process/git/ripgrep/network.fetch 以及 shell guard/observation 的第一批真实 runtime adapter。
-- 能力要求2：尚未实现的长连接、设备、媒体、模型原生搜索等能力必须返回稳定 PROVIDER_UNAVAILABLE。
-- 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
-- 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / semantic basetool executor port 工厂。
+- 核心目的：从 runtime context 构造 BaseToolExecutorPort 契约，让 semantic basetool 通过注入端口接触宿主能力。
+- 边界：承托和治理运行态，不在 factory 内实现单个工具的高层语义。
+- 对接：服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
+- 实现提示：真实可用端口和稳定 unavailable fallback 必须可区分，避免 readiness 把缺 adapter 的工具误报为 ready。
 
 ## 5. 需要提供的能力
 
 - `createRuntimeBaseToolExecutorPort(context)` 返回完整 `BaseToolExecutorPort`。
 - `listRuntimeBaseToolImplementedPortPaths(context)` 返回当前 runtime 内建 adapter 加注入 backend adapter 的真实 port 列表，供 support catalog / mount preflight 使用。
-- 第一批真实 adapter：filesystem read/write/delete/list、shell.run、process.run、git.runGit、search.ripgrep、network.fetch、MCP HTTP/SSE configured runtime profiles、computeruse keyboard target gate、shell validate/control/sandbox/monitor/capture，以及 shell process lifecycle 的 foreground/background/detached 启动入口。
-- `shell.startBackground`、`shell.startDetached`、`shell.spawnProcess` 只能证明 runtime 已按治理启动或释放进程；它们会返回 `pid`、handle 和 `serviceLifecycle.verificationStatus="not-run"`，不能把进程启动误报成 HTTP/UI 服务已可达。
+- 第一批真实 adapter：filesystem read/write/delete/list、shell.run、process.run/wait/kill、git.runGit、search.ripgrep、network.fetch、plan.update、tool.discover、tool.describe、sandbox.run、output.truncate。
+- `mcpServers` 配置存在时，通过 `mcpRuntimeAdapter` 挂载 MCP stdio/http/sse provider，并暴露 semantic catalog 使用的 `mcp.call` / `mcp.listResources` / `mcp.readResource` 端口。
 - 未实现 adapter 若有 `context.adapters` 注入 backend，则先委托 backend；否则返回 public-safe `PROVIDER_UNAVAILABLE`。
 - 对 shell/process/git/filesystem write/delete/ripgrep 做最小 runtime policy gate。
 - 发出 runtime event，供后续审计、检查、debug 串接。
@@ -95,7 +93,7 @@
 
 ## 11. 不应该做什么
 
-- 不要在 factory 内实现 176 个 tool 的语义。
+- 不要在 factory 内实现每个 tool 的高层语义。
 - 不要替 TAP 做高级工具策略。
 - 不要替 storage core 做参数校验、dry-run 语义或 fallback 选择。
 - 不要静默允许 shell、git、process 或写文件副作用。
@@ -106,17 +104,16 @@
 - 第一批 adapter 只接 OS/filesystem/process/git/ripgrep 的最小安全路径。
 - background/detached 进程必须经过 policy gate、allowedRoots、sandbox 适配和启动期失败检测；成功 envelope 要保留 handle/pid/lifecycle，并把用户可达性标记为未验证，等待上层做 HTTP、浏览器或日志读回。
 - 所有真实副作用都经过 context policy 和 allowedRoots。
-- MCP 可通过 `mcpServers` 接入 runtime-owned stdio/http/sse adapter；LSP、omni、office 等仍按专用 runtime surface 逐步补齐。
-- computeruse keyboard 输入必须有明确 target：managed terminal 用 `tmux:<session>`，桌面 GUI 用 `window:active` 或 `gui:<id>`。Wayland 文本优先 `wtype`，按键可用 `ydotool`；无明确 target 时返回 unavailable，不对 ambient focus 盲打。
+- MCP 可通过 `mcpServers` 接入 runtime-owned stdio/http/sse adapter；agent/context/skill/LSP/omni/office 等仍按专用 runtime surface 或 application adapter 逐步补齐。
 
 ## 13. 最小测试建议
 
 - 验证完整 port namespace 和 unavailable fallback。
-- 验证 filesystem read/write 能被 `code.read`、`code.overwrite` handler 经 runtime mount 调用。
+- 验证 filesystem read/write 能被 `file.read`、`patch.apply` handler 经 runtime mount 调用。
 - 验证 shell/git/process/ripgrep/network.fetch adapter 能返回稳定 envelope。
 - 验证注入 backend adapter 时，未内建的长连接能力可以被 runtime 委托，而不是缺字段。
 - 验证 policy 拒绝不会抛 raw error。
-- 验证 background/detached/spawnProcess 不返回伪 started：测试需要看到进程真实产生可读副作用，同时仍明确服务 reachability 未验证。
+- 验证未配置 adapter 的能力不会被 support catalog 误判为 ready。
 
 ## 14. 与系统链路的关系
 

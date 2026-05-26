@@ -1,3 +1,8 @@
+/*
+ * Legacy compatibility shim.
+ * Current semantic basetool executor types live in src/basetool.
+ */
+
 export type {
   BaseToolExecutorNamespace,
   BaseToolExecutorPort,

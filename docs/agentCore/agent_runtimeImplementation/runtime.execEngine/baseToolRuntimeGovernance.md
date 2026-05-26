@@ -16,7 +16,7 @@
 
 ## 2.1 文件名语义拆解
 
-- `baseTool`：治理对象是现有 176 个 storage-backed BaseTool handler，不是 TAP 高级工具。
+- `baseTool`：治理对象是 compact semantic basetool catalog，不是 TAP 高级工具。
 - `Runtime`：判断发生在运行态，需要结合 session、sandbox、policy、readiness 和 resource context。
 - `Governance`：输出治理契约，包括 allow / deny / requiresApproval，而不是执行工具语义。
 

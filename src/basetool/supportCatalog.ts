@@ -78,12 +78,16 @@ export type BaseToolRuntimeReadinessPreflight = {
 
 export type BaseToolRuntimeReadinessPreflightRequest = BaseToolSupportCatalogOptions & {
   toolId: string;
+  toolInput?: unknown;
 };
 
 function hasExecutorPort(executor: BaseToolExecutorPort | undefined, portPath: string): boolean {
   const [namespace, method] = portPath.split(".", 2);
   if (namespace === undefined || method === undefined) return false;
-  return executor?.[namespace]?.[method] !== undefined;
+  const handler = executor?.[namespace]?.[method];
+  if (handler === undefined) return false;
+  if (typeof handler === "function" && (handler as { __praxisUnavailablePortFallback?: true }).__praxisUnavailablePortFallback === true) return false;
+  return true;
 }
 
 function statusForPort(portPath: string, options: BaseToolSupportCatalogOptions): BaseToolRuntimeSupportStatus {
@@ -134,6 +138,25 @@ export function createBaseToolSupportCatalog(options: BaseToolSupportCatalogOpti
   return semanticBaseToolCatalog.map((definition) => toEntry(definition, options));
 }
 
+function toolInputRecord(value: unknown): Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Readonly<Record<string, unknown>> : {};
+}
+
+function activeSupportsFor(
+  entry: BaseToolSupportCatalogEntry,
+  toolInput: unknown,
+): readonly BaseToolRuntimeSupportRequirement[] {
+  if (entry.toolId !== "mcp.resources") return entry.requiredSupports;
+  const operation = toolInputRecord(toolInput).operation;
+  if (operation === "list") {
+    return entry.requiredSupports.filter((support) => support.portPath !== "mcp.readResource");
+  }
+  if (operation === "read") {
+    return entry.requiredSupports.filter((support) => support.portPath !== "mcp.listResources");
+  }
+  return entry.requiredSupports;
+}
+
 export function snapshotBaseToolSupportCatalog(options: BaseToolSupportCatalogOptions = {}): BaseToolSupportCatalogSnapshot {
   const entries = createBaseToolSupportCatalog(options);
   const byFamily: Record<string, number> = {};
@@ -166,8 +189,9 @@ export function evaluateBaseToolRuntimeReadiness(request: BaseToolRuntimeReadine
       reason: `basetool ${request.toolId} is not present in the semantic support catalog`,
     };
   }
-  const blockingSupports = entry.requiredSupports.filter((support) => support.status === "unavailable" || support.status === "disabled" || support.status === "notImplemented");
-  const approvalSupports = entry.requiredSupports.filter((support) => support.status === "requiresApproval");
+  const activeSupports = activeSupportsFor(entry, request.toolInput);
+  const blockingSupports = activeSupports.filter((support) => support.status === "unavailable" || support.status === "disabled" || support.status === "notImplemented");
+  const approvalSupports = activeSupports.filter((support) => support.status === "requiresApproval");
   const decision: BaseToolRuntimeReadinessDecision = blockingSupports.length > 0 ? "blocked" : approvalSupports.length > 0 ? "requiresApproval" : "allowed";
   return {
     toolId: request.toolId,
@@ -177,7 +201,7 @@ export function evaluateBaseToolRuntimeReadiness(request: BaseToolRuntimeReadine
     entry,
     blockingSupports,
     approvalSupports,
-    advisorySupports: entry.requiredSupports.filter((support) => !blockingSupports.includes(support) && !approvalSupports.includes(support)),
+    advisorySupports: activeSupports.filter((support) => !blockingSupports.includes(support) && !approvalSupports.includes(support)),
     events: [`basetool.supportCatalog.preflight.${decision}`],
     reason: decision === "allowed"
       ? `basetool ${request.toolId} has required runtime support available`

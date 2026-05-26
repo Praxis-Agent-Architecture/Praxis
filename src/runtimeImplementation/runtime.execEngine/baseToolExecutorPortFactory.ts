@@ -1,3 +1,11 @@
+/*
+ * 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / semantic basetool executor port 工厂。
+ * 核心目的：从 runtime context 构造 BaseToolExecutorPort 契约，让 semantic basetool 通过注入端口接触宿主能力。
+ * 边界：承托和治理运行态，不在 factory 内实现单个工具的高层语义。
+ * 对接：服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
+ * 实现提示：真实可用端口和稳定 unavailable fallback 必须可区分，避免 readiness 把缺 adapter 的工具误报为 ready。
+ */
+
 import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -15,6 +23,10 @@ import {
   runSandboxCommand,
   type SandboxRemoteWorkerAdapter,
 } from "../runtime.sandboxPlane/sandboxCommandRunner.js";
+import {
+  createMcpRuntimeAdapter,
+  type McpRuntimeServerProfile,
+} from "./mcpRuntimeAdapter.js";
 import { normalizeToolCwd, normalizeWorkspacePath, workspacePathMetadata, workspaceRelativePath } from "./workspacePathPolicy.js";
 
 export type RuntimeBaseToolExecutorEvent = {
@@ -79,7 +91,7 @@ export type RuntimeBaseToolExecutorContext = {
   preparedSandbox?: SandboxRuntimePrepareResult;
   policyProfile?: BaseToolPolicyProfile;
   remoteSandboxWorker?: SandboxRemoteWorkerAdapter;
-  mcpServers?: readonly unknown[];
+  mcpServers?: readonly McpRuntimeServerProfile[];
   environment?: Readonly<Record<string, string | undefined>>;
   adapters?: Partial<BaseToolExecutorPort>;
   emitEvent?: (event: RuntimeBaseToolExecutorEvent) => void;
@@ -102,21 +114,19 @@ export const baseToolExecutorPortFactoryDescriptor = {
     "git.runGit",
     "search.ripgrep",
     "network.fetch",
-    "network.search",
-    "network.ground",
-    "network.nativeWebSearch",
-    "mcp.ping",
-    "mcp.call",
-    "mcp.listTools",
-    "mcp.listResources",
-    "mcp.readResource",
     "plan.update",
     "tool.discover",
     "tool.describe",
-    "userInteraction.ask",
     "sandbox.run",
+    "output.truncate",
   ],
 } as const;
+
+const unavailablePortMarker = "__praxisUnavailablePortFallback";
+
+type RuntimePortFunction = ((request: any) => any) & {
+  __praxisUnavailablePortFallback?: true;
+};
 
 function ok(output: unknown, metadata?: Readonly<Record<string, unknown>>): BaseToolExecutorResult {
   return { ok: true, output, value: output, metadata };
@@ -128,6 +138,16 @@ function fail(code: string, message: string, metadata?: Readonly<Record<string, 
 
 function unavailable(portPath: string): BaseToolExecutorResult {
   return fail("PROVIDER_UNAVAILABLE", `${portPath} is not implemented by the semantic basetool runtime port factory.`);
+}
+
+function markUnavailableFallback(fn: (request: any) => any): RuntimePortFunction {
+  const marked = fn as RuntimePortFunction;
+  marked[unavailablePortMarker] = true;
+  return marked;
+}
+
+function isUnavailableFallback(value: unknown): boolean {
+  return typeof value === "function" && (value as RuntimePortFunction)[unavailablePortMarker] === true;
 }
 
 function workspaceRoot(context: RuntimeBaseToolExecutorContext): string {
@@ -541,9 +561,9 @@ function createNetworkExecutor(context: RuntimeBaseToolExecutorContext): BaseToo
       const response = await fetch(url);
       return { status: response.status, headers: Object.fromEntries(response.headers.entries()), body: truncate(context, await response.text(), request?.maxBytes) };
     }),
-    search: withAdapter(context, "network", "search", async () => unavailable("network.search")),
-    ground: withAdapter(context, "network", "ground", async () => unavailable("network.ground")),
-    nativeWebSearch: withAdapter(context, "network", "nativeWebSearch", async () => unavailable("network.nativeWebSearch")),
+    search: withUnavailableAdapter(context, "network", "search"),
+    ground: withUnavailableAdapter(context, "network", "ground"),
+    nativeWebSearch: withUnavailableAdapter(context, "network", "nativeWebSearch"),
   };
 }
 
@@ -602,16 +622,51 @@ function createToolExecutor(context: RuntimeBaseToolExecutorContext): BaseToolEx
 }
 
 function createUnavailableNamespace(namespace: string, methods: readonly string[]): BaseToolExecutorNamespace {
-  return Object.fromEntries(methods.map((method) => [method, async () => unavailable(`${namespace}.${method}`)]));
+  return Object.fromEntries(methods.map((method) => [
+    method,
+    markUnavailableFallback(async () => unavailable(`${namespace}.${method}`)),
+  ]));
+}
+
+function withUnavailableAdapter(
+  context: RuntimeBaseToolExecutorContext,
+  namespace: string,
+  method: string,
+): RuntimePortFunction {
+  const delegated = adapter(context, namespace, method);
+  if (delegated !== undefined) return delegated as RuntimePortFunction;
+  return markUnavailableFallback(async () => unavailable(`${namespace}.${method}`));
+}
+
+function createMcpExecutor(context: RuntimeBaseToolExecutorContext): BaseToolExecutorNamespace {
+  const configured = context.mcpServers !== undefined && context.mcpServers.length > 0
+    ? createMcpRuntimeAdapter({ servers: context.mcpServers })
+    : undefined;
+  const base = configured ?? createUnavailableNamespace("mcp", ["connect", "ping", "listTools", "call", "stream", "listResources", "readResource"]);
+  const callTool = base.callTool ?? base.call;
+  const streamTool = base.streamTool ?? base.stream;
+  return {
+    ...base,
+    ...(callTool === undefined ? {} : { call: callTool, callTool }),
+    ...(streamTool === undefined ? {} : { stream: streamTool, streamTool }),
+    ...(context.adapters?.mcp ?? {}),
+  };
 }
 
 export function listRuntimeBaseToolImplementedPortPaths(
-  context: Pick<RuntimeBaseToolExecutorContext, "adapters"> = {},
+  context: Pick<RuntimeBaseToolExecutorContext, "adapters" | "mcpServers"> = {},
 ): readonly string[] {
   const ports = new Set<string>(baseToolExecutorPortFactoryDescriptor.implementedAdapters);
+  if (context.mcpServers !== undefined && context.mcpServers.length > 0) {
+    for (const portPath of ["mcp.connect", "mcp.call", "mcp.callTool", "mcp.listTools", "mcp.listResources", "mcp.readResource"]) {
+      ports.add(portPath);
+    }
+  }
   for (const [namespace, methods] of Object.entries(context.adapters ?? {})) {
     if (methods === undefined) continue;
-    for (const method of Object.keys(methods)) ports.add(`${namespace}.${method}`);
+    for (const [method, handler] of Object.entries(methods)) {
+      if (!isUnavailableFallback(handler)) ports.add(`${namespace}.${method}`);
+    }
   }
   return [...ports].sort();
 }
@@ -619,7 +674,7 @@ export function listRuntimeBaseToolImplementedPortPaths(
 export function createRuntimeBaseToolExecutorPort(
   context: RuntimeBaseToolExecutorContext,
 ): BaseToolExecutorPort {
-  return {
+  const port: BaseToolExecutorPort = {
     filesystem: createFilesystemExecutor(context),
     shell: createShellExecutor(context),
     process: createProcessExecutor(context),
@@ -627,10 +682,7 @@ export function createRuntimeBaseToolExecutorPort(
     search: createSearchExecutor(context),
     network: createNetworkExecutor(context),
     web: createNetworkExecutor(context),
-    mcp: {
-      ...createUnavailableNamespace("mcp", ["connect", "ping", "listTools", "call", "stream", "listResources", "readResource"]),
-      ...(context.adapters?.mcp ?? {}),
-    },
+    mcp: createMcpExecutor(context),
     artifact: {
       store: withAdapter(context, "artifact", "store", async (request) => ({ artifactId: request?.artifactId ?? `artifact:${Date.now()}`, stored: true })),
     },
@@ -638,7 +690,7 @@ export function createRuntimeBaseToolExecutorPort(
       update: withAdapter(context, "plan", "update", async (request) => ({ accepted: true, plan: request })),
     },
     userInteraction: {
-      ask: withAdapter(context, "userInteraction", "ask", async () => unavailable("userInteraction.ask")),
+      ask: withUnavailableAdapter(context, "userInteraction", "ask"),
     },
     context: createUnavailableNamespace("context", ["load"]),
     skill: createUnavailableNamespace("skill", ["load", "management", "summarize", "ripgrep"]),
@@ -664,6 +716,12 @@ export function createRuntimeBaseToolExecutorPort(
       truncate: withAdapter(context, "output", "truncate", async (request) => ({ text: truncate(context, String(request?.text ?? "")) })),
     },
     tool: createToolExecutor(context),
-    ...(context.adapters ?? {}),
   };
+  for (const [namespace, methods] of Object.entries(context.adapters ?? {})) {
+    port[namespace] = {
+      ...(port[namespace] ?? {}),
+      ...(methods ?? {}),
+    };
+  }
+  return port;
 }

@@ -11,7 +11,7 @@
 
 ## 2. 文件职责
 
-这个文件负责把已经完成的 176 个 baseTool 接入 runtime 的统一运行链路。
+这个文件负责把 compact semantic basetool catalog 接入 runtime 的统一运行链路。
 
 它不是单个工具实现，也不是 provider 实现；它只把 `adaptRuntimeToolInvocation`、`bridgeExecEngineInvocation`、`createBaseToolRegistry().lookupHandler` 和 `handler.invoke({ executor })` 收束为一个 runtime 可调用的窄接口。
 
@@ -95,7 +95,7 @@
 ## 11. 不应该做什么
 
 - 不要实现 shell、git、filesystem、MCP、LSP、computeruse 等具体执行逻辑。
-- 不要给 176 个 baseTool 写手工分发分支。
+- 不要给 semantic basetool 写手工分发分支。
 - 不要绕过 baseTool registry 或 `BaseToolExecutorPort`。
 - 不要把 provider 原始字段、密钥、内部错误直接暴露给上层。
 

@@ -3458,10 +3458,12 @@ async function executeBaseToolDecision(input: {
     };
   }
   toolArguments = pathContract.args;
+  const implementedPortPaths = listRuntimeBaseToolImplementedPortPaths({ adapters: input.executor });
   const runtimeReadiness = evaluateBaseToolRuntimeReadiness({
     toolId: input.toolId,
+    toolInput: toolArguments,
     executor: input.executor,
-    implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
+    implementedPortPaths,
   });
   const filesystemAction = await inferFilesystemActionForTool({
     toolId: input.toolId,
@@ -3675,7 +3677,7 @@ async function executeBaseToolDecision(input: {
 
   let dependencyPreflight = await preflightBaseToolDependencies({
     executor: input.executor,
-    implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
+    implementedPortPaths,
     readiness: runtimeReadiness,
     catalogEntry: runtimeReadiness.entry,
     probes: input.dependencyRuntime?.probes,
@@ -3777,7 +3779,7 @@ async function executeBaseToolDecision(input: {
 
     dependencyPreflight = await preflightBaseToolDependencies({
       executor: input.executor,
-      implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
+      implementedPortPaths,
       readiness: runtimeReadiness,
       catalogEntry: runtimeReadiness.entry,
       probes: input.dependencyRuntime?.probes,
@@ -3871,7 +3873,7 @@ async function executeBaseToolDecision(input: {
     executor: input.executor,
     runtimeReady: true,
     readinessMode: "observe",
-    implementedPortPaths: listRuntimeBaseToolImplementedPortPaths(),
+    implementedPortPaths,
     requestedScopes: ["tool.execute", `tool.${input.toolId}`],
     allowedScopes: [
       ...(input.manifest.harness.policy.scopes ?? []),
