@@ -100,6 +100,7 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(packagePraxis.AgentArchetype, PraxisAgentArchetype);
   assert.equal(packagePraxis.model("gpt-5.4").model, "gpt-5.4");
   assert.equal(packagePraxis.basetool.core.fileRead().toolId, "file.read");
+  assert.equal(packagePraxis.memory.describeRisk("search").risk, "safe");
   assert.equal(packagePraxis.sandbox.linuxBubblewrap().providerFamily, "linux-bubblewrap");
   assert.equal(packagePraxis.toolPolicies.custom({ matrixId: "toolPolicy.public.custom" }).profile, "custom");
   assert.equal(packagePraxis.interfaceAdapter.createInterfaceEnvelope({
