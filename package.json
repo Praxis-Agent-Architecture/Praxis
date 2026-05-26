@@ -70,7 +70,7 @@
     "lab:agentCore:tools": "node --import tsx examples/scripts/agentcore_tool_lab.ts",
     "smoke:agentCore": "node --import tsx examples/scripts/agentcore_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
-    "test:agentCore": "find test/agentCore \\( -path test/agentCore/agent_executionEngine/basic_toolLayer -o -path test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.test.ts -o -path test/agentCore/agent_runtimeImplementation/runtime.inspection/frameworkInspectionReport.test.ts -o -path test/agentCore/agent_runtimeImplementation/runtime.inspection/runtimeInspectReport.test.ts \\) -prune -o -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
+    "test:agentCore": "find test/agentCore \\( -path test/agentCore/agent_executionEngine/basic_toolLayer \\) -prune -o -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
     "test:unit": "npm run test:agentCore"
   },
   "devDependencies": {
