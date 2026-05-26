@@ -12,6 +12,7 @@ import { createCredentialRef } from "../../../src/modelAdapter/authProfileLayer/
 import { createRuntimeBaseToolExecutorPort } from "../../../src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   PraxisAgent,
+  PromptPack,
   compileAgent,
   harness,
   loop,
@@ -222,6 +223,278 @@ test("PraxisRuntimeKernel.runManifest executes compact at a prompt boundary and 
   ), true);
   assert.equal(result.state.events.some((record) => record.type === "runtime.contextCompact.thresholdDecision"), true);
   assert.equal(result.state.states.some((record) => record.stateId === "state:contextCompact:1" && record.phase === "summarizing"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest applies preCompactGovernance before compact and rebuilds governed PromptPack", async () => {
+  class GovernancePromptPack extends PromptPack {
+    base = { kind: "markdown" as const, text: "Stable system core remains untouched." };
+    inherits = ["repo-structure"];
+    materials = ["project-conventions"];
+  }
+
+  class GovernanceAgent extends PraxisAgent {
+    identity = "agent.pre-compact-governance";
+    model = model("gpt-5.4", {
+      carrierId: "carrier.pre-compact-governance",
+      metadata: {
+        contextWindowTokens: 100_000,
+        maxOutputTokens: 16,
+      },
+    });
+    promptPack = new GovernancePromptPack();
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(new GovernanceAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const compactCalls: unknown[] = [];
+  const governancePackets: unknown[] = [];
+  const providerBodies: unknown[] = [];
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-pre-compact-governance", store }).runManifest(
+    compiled.manifest,
+    "keep the current governance task",
+    {
+      sessionId: "session-pre-compact-governance",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      preCompactGovernanceExecutor: {
+        govern: async (request) => {
+          governancePackets.push(request.packet);
+          return {
+            ok: true,
+            result: {
+              kind: "praxis.preCompactGovernance.result",
+              version: 1,
+              sessionSummaryCandidate: {
+                text: "Governed session summary keeps only current preCompactGovernance facts.",
+                mode: "replace",
+              },
+              projectContextUpdates: [{
+                id: "project.context.governed",
+                text: "Governed project context update for Praxis compact-before-governance.",
+                reason: "current task evidence",
+                evidenceRefs: ["runtime.input.currentUserTurn"],
+                confidence: 0.95,
+              }],
+              staleClaims: [{ text: "old compact design is still authoritative" }],
+              preservedFacts: [{ text: "current task is preCompactGovernance" }],
+              removedNoise: [{ text: "obsolete failed experiment", reason: "stale" }],
+              uncertainty: [{ text: "future CMP remains out of scope" }],
+              evidenceRefs: ["runtime.input.currentUserTurn"],
+            },
+            record: {
+              kind: "praxis.preCompactGovernance.record",
+              governanceId: "governance.precompact.1",
+              sessionId: request.packet.sessionId,
+              turnIndex: request.packet.turnIndex,
+              trigger: request.packet.trigger,
+              status: "completed",
+              packetMaterialRefs: [
+                ...request.packet.projectContext.map((material) => material.id),
+                ...request.packet.sessionSummary.map((material) => material.id),
+                ...request.packet.recentConversation.map((material) => material.id),
+                "runtime.input.currentUserTurn",
+              ],
+              appliedSessionSummary: true,
+              appliedProjectContextUpdates: 1,
+              staleClaims: [{ text: "old compact design is still authoritative" }],
+              preservedFacts: [{ text: "current task is preCompactGovernance" }],
+              removedNoise: [{ text: "obsolete failed experiment", reason: "stale" }],
+              uncertainty: [{ text: "future CMP remains out of scope" }],
+              evidenceRefs: ["runtime.input.currentUserTurn"],
+              createdAt: "2026-05-27T00:00:00.000Z",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["preCompactGovernance.completed"],
+          };
+        },
+      },
+      compactExecutor: {
+        compact: async (request) => {
+          compactCalls.push(request);
+          const materialText = JSON.stringify(request.materials);
+          assert.match(materialText, /Governed session summary keeps only current/);
+          assert.match(materialText, /Governed project context update/);
+          assert.equal(request.materialRefs.includes("preCompactGovernance.sessionSummaryCandidate"), true);
+          assert.equal(request.materialRefs.includes("project.context.governed"), true);
+          return {
+            ok: true,
+            sessionSummaryText: "Compact executor summary after governance.",
+            recentConversationText: "runtime-summary: keep current governance focus.",
+            record: {
+              kind: "praxis.contextCompact.record",
+              compactId: "compact.pregovernance.1",
+              sessionId: request.sessionId,
+              trigger: request.trigger,
+              thresholdRatio: request.thresholdRatio ?? 0.95,
+              before: {
+                estimatedTokens: request.estimatedTokens,
+                materialRefs: request.materialRefs,
+              },
+              after: {
+                estimatedTokens: 30,
+                sessionSummaryRef: "summary.pregovernance.1",
+                recentConversationRefs: ["recent.pregovernance.1"],
+              },
+              compactedMaterialRefs: request.materialRefs,
+              artifactRefs: [],
+              createdAt: "2026-05-27T00:00:00.000Z",
+              executor: "application",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["contextCompact.application.completed"],
+          };
+        },
+      },
+      providerCaller: async (request) => {
+        providerBodies.push(request.body);
+        return {
+          output_text: "hello after governed compact",
+          usage: { input_tokens: 13, output_tokens: 4 },
+        };
+      },
+      now: () => "2026-05-27T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(compactCalls.length, 1);
+  assert.equal(governancePackets.length, 1);
+  const packetText = JSON.stringify(governancePackets[0]);
+  assert.match(packetText, /repo-structure/);
+  assert.match(packetText, /keep the current governance task/);
+  const governancePacket = governancePackets[0] as {
+    projectContext?: readonly { segmentKind?: string }[];
+    sessionSummary?: readonly { segmentKind?: string }[];
+    recentConversation?: readonly { segmentKind?: string }[];
+    memoryContext?: readonly { segmentKind?: string }[];
+    retrievedContext?: readonly { segmentKind?: string }[];
+    observations?: readonly { segmentKind?: string }[];
+  };
+  const governedSegmentKinds = [
+    ...(governancePacket.projectContext ?? []),
+    ...(governancePacket.sessionSummary ?? []),
+    ...(governancePacket.recentConversation ?? []),
+    ...(governancePacket.memoryContext ?? []),
+    ...(governancePacket.retrievedContext ?? []),
+    ...(governancePacket.observations ?? []),
+  ].map((material) => material.segmentKind);
+  assert.equal(governedSegmentKinds.includes("toolDeclarations"), false);
+  assert.equal(governedSegmentKinds.includes("assistantScratchpadPlan"), false);
+  const providerBodyText = JSON.stringify(providerBodies[0]);
+  assert.match(providerBodyText, /Governed session summary keeps only current/);
+  assert.match(providerBodyText, /Compact executor summary after governance/);
+  assert.match(providerBodyText, /Governed project context update/);
+  assert.equal(result.state.events.some((record) => record.type === "runtime.preCompactGovernance.result"), true);
+  assert.equal(result.state.states.some((record) => record.stateId === "state:preCompactGovernance:1" && record.phase === "completed"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest falls back to normal compact when preCompactGovernance fails", async () => {
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const compactCalls: unknown[] = [];
+  const providerBodies: unknown[] = [];
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-pre-compact-governance-fail", store }).runManifest(
+    compiled.manifest,
+    "continue even if governance fails",
+    {
+      sessionId: "session-pre-compact-governance-fail",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      preCompactGovernanceExecutor: {
+        govern: async (request) => ({
+          ok: false,
+          record: {
+            kind: "praxis.preCompactGovernance.record",
+            governanceId: "governance.failed.1",
+            sessionId: request.packet.sessionId,
+            turnIndex: request.packet.turnIndex,
+            trigger: request.packet.trigger,
+            status: "failed",
+            packetMaterialRefs: [],
+            appliedSessionSummary: false,
+            appliedProjectContextUpdates: 0,
+            staleClaims: [],
+            preservedFacts: [],
+            removedNoise: [],
+            uncertainty: [],
+            evidenceRefs: [],
+            error: { code: "TEST_GOVERNANCE_FAILED", message: "simulated failure", publicSafe: true },
+            createdAt: "2026-05-27T00:00:00.000Z",
+            metadata: {},
+            publicSafe: true,
+          },
+          events: ["preCompactGovernance.failed"],
+        }),
+      },
+      compactExecutor: {
+        compact: async (request) => {
+          compactCalls.push(request);
+          return {
+            ok: true,
+            sessionSummaryText: "Fallback compact summary without governance.",
+            recentConversationText: "runtime-summary: keep focus after failed governance.",
+            record: {
+              kind: "praxis.contextCompact.record",
+              compactId: "compact.governance-fallback.1",
+              sessionId: request.sessionId,
+              trigger: request.trigger,
+              thresholdRatio: request.thresholdRatio ?? 0.95,
+              before: {
+                estimatedTokens: request.estimatedTokens,
+                materialRefs: request.materialRefs,
+              },
+              after: {
+                estimatedTokens: 20,
+                sessionSummaryRef: "summary.governance-fallback.1",
+                recentConversationRefs: ["recent.governance-fallback.1"],
+              },
+              compactedMaterialRefs: request.materialRefs,
+              artifactRefs: [],
+              createdAt: "2026-05-27T00:00:00.000Z",
+              executor: "application",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["contextCompact.application.completed"],
+          };
+        },
+      },
+      providerCaller: async (request) => {
+        providerBodies.push(request.body);
+        return {
+          output_text: "hello after fallback compact",
+          usage: { input_tokens: 12, output_tokens: 3 },
+        };
+      },
+      now: () => "2026-05-27T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(compactCalls.length, 1);
+  assert.equal(providerBodies.length, 1);
+  assert.equal(result.finalOutput, "hello after fallback compact");
+  assert.equal(result.events.includes("preCompactGovernance.failed"), true);
+  assert.equal(result.state.events.some((record) => record.type === "runtime.preCompactGovernance.result"), true);
+  assert.equal(result.state.states.some((record) => record.stateId === "state:preCompactGovernance:1" && record.phase === "failed"), true);
 });
 
 test("PraxisRuntimeKernel.runManifest fails before provider invocation when boundary compact fails", async () => {

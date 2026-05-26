@@ -568,6 +568,29 @@ export {
 } from "../executionEngine/coreLogic/contextCompact.js";
 
 export {
+  PRE_COMPACT_GOVERNANCE_SCHEMA,
+  createModelPreCompactGovernanceExecutor,
+  createNoopPreCompactGovernanceExecutor,
+  createSkippedPreCompactGovernanceRecord,
+  packetMaterialRefs,
+  parsePreCompactGovernanceResult,
+  preCompactGovernanceInstruction,
+  type PreCompactGovernanceExecutor,
+  type PreCompactGovernanceExecutorRequest,
+  type PreCompactGovernanceExecutorResult,
+  type PreCompactGovernanceFact,
+  type PreCompactGovernanceIndexedMaterial,
+  type PreCompactGovernanceModelCaller,
+  type PreCompactGovernanceModelResponse,
+  type PreCompactGovernancePacket,
+  type PreCompactGovernancePacketMaterial,
+  type PreCompactGovernanceProjectContextUpdate,
+  type PreCompactGovernanceRecord,
+  type PreCompactGovernanceRemovedNoise,
+  type PreCompactGovernanceResult,
+} from "../executionEngine/coreLogic/preCompactGovernance.js";
+
+export {
   PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
   assemblePromptContextMaterials,
   promptPackMaterialsForManifest,

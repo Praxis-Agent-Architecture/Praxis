@@ -45,6 +45,13 @@ export type CompactExecutorRequest = {
   sessionId: string;
   trigger: CompactTriggerKind;
   materialRefs: readonly string[];
+  materials?: readonly {
+    id: string;
+    promptSegmentKind?: string;
+    text: string;
+    source?: string;
+    metadata?: Readonly<Record<string, unknown>>;
+  }[];
   currentUserTurnText?: string;
   estimatedTokens: number;
   contextWindowTokens: number;

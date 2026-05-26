@@ -16,3 +16,20 @@
 ## 输出
 
 成功 compact 后，上层应把旧 raw conversation 写进新的 `sessionSummary`，把保留下来的注意力窗口写成 `recentConversation`，下一轮再从稳定事实源重建 PromptPack。
+
+## preCompactGovernance
+
+`preCompactGovernance` 是 compact 前的被动治理层。它在 `decideTurnBoundaryCompact(...).shouldCompact=true` 之后、`CompactExecutor.compact(...)` 之前运行，用一次性 utility agent/model 对即将进入 compact 的上下文做结构化去噪。
+
+治理包的分层规则：
+
+- `stableSystemCore` 与 `declaredRuntimeContext` 合并成极简治理指令。
+- `toolDeclarations` 与 `assistantScratchpadPlan` 不进入治理包。
+- `projectContext` 和 `sessionSummary` 完整进入，作为主要治理对象。
+- `recentConversation` 正常进入，保留眼前注意力。
+- `memoryContext`、`retrievedContext`、`observations` 只以索引、摘要、ref、status 进入。
+- 当前 `userTurn` 通过 `currentUserTurnText` 保留，不交给治理结果覆盖。
+
+治理输出必须是 `praxis.preCompactGovernance.result` v1 JSON。runtime 会校验并应用 `sessionSummaryCandidate` 与 `projectContextUpdates`，同时记录 `staleClaims`、`preservedFacts`、`removedNoise`、`uncertainty` 和 `evidenceRefs`。治理失败、返回非法 JSON 或未配置 executor 时，不阻断原 compact；runtime 继续走正常 `CompactExecutor`。
+
+边界：这不是常态 CMP、RAG 或 memory agent，也不执行工具。它只在 compact 前做一次性上下文治理，目标是让后续 compact 的输入更干净。

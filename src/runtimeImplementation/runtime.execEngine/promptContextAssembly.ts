@@ -50,6 +50,7 @@ export type PromptContextAssemblyRequest = {
   events: readonly string[];
   sessionSummary?: PromptContextSessionSummary;
   conversationWindow?: readonly PromptContextConversationMessage[];
+  projectContextGovernanceMaterials?: readonly PromptPackMaterialDraft[];
   budget?: PromptContextAssemblyBudget;
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
@@ -308,6 +309,21 @@ function recentConversationMaterials(input: PromptContextAssemblyRequest, usedTo
 
 export function assemblePromptContextMaterials(input: PromptContextAssemblyRequest): PromptContextAssemblyResult {
   const manifestPromptMaterials = promptPackMaterialsForManifest(input.manifest);
+  const projectContextGovernanceMaterials = (input.projectContextGovernanceMaterials ?? []).map((material, index): PromptPackMaterialDraft => ({
+    ...material,
+    id: material.id ?? `preCompactGovernance.projectContext:${index + 1}`,
+    kind: material.kind,
+    source: material.source ?? "runtime.preCompactGovernance.projectContext",
+    sourceCategory: material.sourceCategory ?? "process-product",
+    priority: material.priority ?? 810 - index,
+    trusted: material.trusted ?? true,
+    scope: material.scope ?? "runtime.preCompactGovernance.projectContext",
+    promptSegmentKind: "projectContext",
+    metadata: {
+      ...(material.metadata ?? {}),
+      generatedBy: "preCompactGovernance",
+    },
+  }));
   const observationUsage = input.observations
     .map((observation) => {
       const toolId = typeof observation.material.metadata?.toolId === "string"
@@ -363,6 +379,7 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
 
   const stableAndDynamicBeforeRecent = [
     ...manifestPromptMaterials,
+    ...projectContextGovernanceMaterials,
     ...sessionSummaryMaterial,
     {
       id: `task:${input.turnIndex}`,
@@ -443,6 +460,7 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
     kind: "praxis.promptContextAssembly",
     materials: [
       ...manifestPromptMaterials,
+      ...projectContextGovernanceMaterials,
       ...sessionSummaryMaterial,
       ...recent.materials,
       stableAndDynamicBeforeRecent.find((material) => material.id === `task:${input.turnIndex}`)!,
