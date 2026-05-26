@@ -173,6 +173,10 @@ import {
 import {
   runtimeAuth,
 } from "../runtimeImplementation/runtime.authPlane/index.js";
+import {
+  ExecutionMonitor,
+  analyzeExecutionMonitor,
+} from "../runtimeImplementation/runtime.executionMonitor/index.js";
 
 export {
   PromptPack,
@@ -740,6 +744,29 @@ export {
   type RuntimeAuthSecretVault,
   type RuntimeAuthVaultKeyProvider,
 } from "../runtimeImplementation/runtime.authPlane/index.js";
+
+export {
+  ExecutionMonitor,
+  analyzeExecutionMonitor,
+  type AnalyzeExecutionMonitorInput,
+  type ExecutionMonitorArtifactPointer,
+  type ExecutionMonitorCacheShapeSummary,
+  type ExecutionMonitorFinding,
+  type ExecutionMonitorHealthGrade,
+  type ExecutionMonitorModelCallReport,
+  type ExecutionMonitorObserveInput,
+  type ExecutionMonitorOptions,
+  type ExecutionMonitorProjectReport,
+  type ExecutionMonitorPromptPackSummary,
+  type ExecutionMonitorProviderReuseSummary,
+  type ExecutionMonitorReport,
+  type ExecutionMonitorSessionReport,
+  type ExecutionMonitorSeverity,
+  type ExecutionMonitorTargetPlane,
+  type ExecutionMonitorThresholds,
+  type ExecutionMonitorTurnReport,
+  type ExecutionMonitorUsageTotals,
+} from "../runtimeImplementation/runtime.executionMonitor/index.js";
 
 export {
   type BaseToolContextSelection,
