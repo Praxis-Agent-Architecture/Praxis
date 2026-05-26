@@ -19,7 +19,7 @@ class InspectableAgent extends PraxisAgent {
   model = model("gpt-5.4");
   harness = harness({
     tools: tools([
-      tool("code.read", { family: "codeBase", group: "explore" }),
+      tool("file.read", { family: "coreBase", group: "filesystem" }),
     ]),
     loop: loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
   });
@@ -47,8 +47,8 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
     manifest: compiled.manifest,
     checkedAt: "2026-05-04T00:00:02.000Z",
     tools: [
-      { toolId: "code.read", family: "codeBase", group: "explore", ready: true, required: true },
-      { toolId: "shell.commandExecution", family: "shellBase", group: "shellExecution", ready: false, reason: "provider unavailable", required: false },
+      { toolId: "file.read", family: "coreBase", group: "filesystem", ready: true, required: true },
+      { toolId: "web.search", family: "coreBase", group: "web", ready: false, reason: "provider unavailable", required: false },
     ],
     providers: [
       { providerId: "codex_responses", role: "reasoning", ready: true, required: true },
@@ -107,10 +107,10 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
       },
       materials: [
         {
-          materialId: "tool:code.read",
+          materialId: "tool:file.read",
           kind: "tool",
           sourceCategory: "declared",
-          preview: "Tool: code.read",
+          preview: "Tool: file.read",
           trusted: true,
         },
         {
@@ -154,7 +154,7 @@ test("frameworkInspectionReport aggregates manifest, readiness, prompt preview, 
   assert.match(result.report.providerToolSchema.targets[0]?.declarationHash ?? "", /^[a-f0-9]{64}$/u);
   assert.equal(result.report.providerToolSchema.targets[0]?.schemaRejectedRisk, "low");
   assert.deepEqual(result.report.mainLoopTrace.actionPrimitives, ["handoffPromptPack"]);
-  assert.deepEqual(result.report.toolReadiness.missing, ["shell.commandExecution"]);
+  assert.deepEqual(result.report.toolReadiness.missing, ["web.search"]);
   assert.deepEqual(result.report.dependencyGraph.missing, ["ripgrep"]);
   assert.match(result.report.storage.homeRoot, /\/\.rax$/);
   assert.match(result.report.storage.workspaceRoot, /\/\.rax_workspace$/);
@@ -170,7 +170,7 @@ test("frameworkInspectionReport exposes linux bubblewrap sandbox readiness and i
     sandbox = sandbox.linuxBubblewrapReadonly();
     harness = harness({
       tools: tools([
-        tool("shell.commandExecution", { family: "shellBase", group: "shellExecution" }),
+        tool("shell.run", { family: "coreBase", group: "shell" }),
       ]),
       loop: loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
     });
