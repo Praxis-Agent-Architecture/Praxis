@@ -14,7 +14,7 @@ test("baseToolDeveloperCatalog exposes all registered tools without requiring ha
   const catalog = listBaseToolDeveloperCatalog();
   const registry = createBaseToolRegistry();
 
-  assert.equal(catalog.length, 16);
+  assert.equal(catalog.length, 24);
   for (const entry of catalog) {
     assert.equal(registry.lookup(entry.toolId).ok, true, entry.toolId);
     assert.notEqual(entry.storageFamily, "officeBase");

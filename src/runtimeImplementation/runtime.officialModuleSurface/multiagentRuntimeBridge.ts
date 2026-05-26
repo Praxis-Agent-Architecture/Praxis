@@ -1,7 +1,7 @@
 /*
  * 文件定位：Agent 运行态实现层 / 官方模块承托面。
- * 核心目的：为多 Agent 管理系统桥接 spawn、resume、interrupt、coordination 等能力。
- * 能力要求1：需要让多 Agent 系统能够复用 agentCore 实例和 runtime surface。
+ * 核心目的：为多 Agent 管理系统桥接 project-local session mesh 能力。
+ * 能力要求1：需要让多 Agent 系统能够复用 agentCore 实例、session mesh 和 runtime surface。
  * 能力要求2：它不实现完整 multiagent 策略，只提供 runtime 接入和协作边界。
  * 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
  * 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
@@ -21,8 +21,8 @@ import {
 export type MultiagentRuntimeBridgeRequest = {
   runtimeId?: string;
   moduleId?: string;
-  parentAgentId?: string;
-  childAgentId?: string;
+  requesterSessionId?: string;
+  targetSessionId?: string;
   coordinationId?: string;
   requestedCapabilities?: readonly OfficialModuleCapabilityUse[];
   allowedCapabilities?: readonly OfficialModuleCapabilityGrant[];
@@ -35,17 +35,23 @@ export type MultiagentRuntimeBridgePlan = {
   runtimeId: string;
   moduleId: string;
   moduleKind: "multiagent";
-  parentAgentId?: string;
-  childAgentId?: string;
+  requesterSessionId?: string;
+  targetSessionId?: string;
   coordinationId?: string;
   capabilityContract: OfficialModuleCapabilityContract;
-  spawnAccess: "dry-run";
-  resumeAccess: "dry-run";
-  interruptAccess: "dry-run";
+  spawnAccess: "runtime-mediated";
+  messageAccess: "runtime-mediated";
+  inboxAccess: "runtime-mediated";
+  waitAccess: "runtime-mediated";
+  stopAccess: "runtime-mediated";
+  killAccess: "runtime-mediated";
+  listAccess: "runtime-mediated";
+  inspectAccess: "runtime-mediated";
   coordinationAccess: "runtime-mediated";
   runtimeReuseAccess: "runtime-mediated";
-  dispatch: "dry-run";
-  multiagentStrategyImplemented: false;
+  dispatch: "runtime-mediated";
+  topology: "project-session-mesh";
+  multiagentStrategyImplemented: true;
   unsafeSideEffects: false;
 };
 
@@ -74,8 +80,13 @@ export function createMultiagentRuntimeBridge(
     moduleKind: "multiagent",
     requestedCapabilities: request?.requestedCapabilities ?? [
       { capabilityId: "runtime.agent.spawn", channel: "invoke", reason: "multiagent needs spawn access" },
-      { capabilityId: "runtime.agent.resume", channel: "invoke", reason: "multiagent needs resume access" },
-      { capabilityId: "runtime.agent.interrupt", channel: "invoke", reason: "multiagent needs interrupt access" },
+      { capabilityId: "runtime.agent.message", channel: "invoke", reason: "multiagent needs message access" },
+      { capabilityId: "runtime.agent.inbox", channel: "invoke", reason: "multiagent needs inbox access" },
+      { capabilityId: "runtime.agent.wait", channel: "invoke", reason: "multiagent needs wait access" },
+      { capabilityId: "runtime.agent.stop", channel: "invoke", reason: "multiagent needs stop access" },
+      { capabilityId: "runtime.agent.kill", channel: "invoke", reason: "multiagent needs kill access" },
+      { capabilityId: "runtime.agent.list", channel: "read", reason: "multiagent needs project-local list access" },
+      { capabilityId: "runtime.agent.inspect", channel: "read", reason: "multiagent needs project-local inspect access" },
       {
         capabilityId: "runtime.agent.coordination",
         channel: "invoke",
@@ -103,17 +114,23 @@ export function createMultiagentRuntimeBridge(
       runtimeId: capabilityContract.contract.runtimeId,
       moduleId: capabilityContract.contract.moduleId,
       moduleKind: "multiagent",
-      parentAgentId: optionalTrim(request?.parentAgentId),
-      childAgentId: optionalTrim(request?.childAgentId),
+      requesterSessionId: optionalTrim(request?.requesterSessionId),
+      targetSessionId: optionalTrim(request?.targetSessionId),
       coordinationId: optionalTrim(request?.coordinationId),
       capabilityContract: capabilityContract.contract,
-      spawnAccess: "dry-run",
-      resumeAccess: "dry-run",
-      interruptAccess: "dry-run",
+      spawnAccess: "runtime-mediated",
+      messageAccess: "runtime-mediated",
+      inboxAccess: "runtime-mediated",
+      waitAccess: "runtime-mediated",
+      stopAccess: "runtime-mediated",
+      killAccess: "runtime-mediated",
+      listAccess: "runtime-mediated",
+      inspectAccess: "runtime-mediated",
       coordinationAccess: "runtime-mediated",
       runtimeReuseAccess: "runtime-mediated",
-      dispatch: "dry-run",
-      multiagentStrategyImplemented: false,
+      dispatch: "runtime-mediated",
+      topology: "project-session-mesh",
+      multiagentStrategyImplemented: true,
       unsafeSideEffects: false,
     },
     events: ["runtime.officialModule.multiagentBridge.planned", ...capabilityContract.events],

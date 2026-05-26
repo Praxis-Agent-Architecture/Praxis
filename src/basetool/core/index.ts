@@ -19,6 +19,16 @@ import { invokeMcpUseCore } from "./mcpUse.js";
 import { invokeMcpResourcesCore } from "./mcpResources.js";
 import { invokeToolDiscoverCore } from "./toolDiscover.js";
 import { invokeToolDescribeCore } from "./toolDescribe.js";
+import {
+  invokeAgentInboxCore,
+  invokeAgentInspectCore,
+  invokeAgentKillCore,
+  invokeAgentListCore,
+  invokeAgentMessageCore,
+  invokeAgentSpawnCore,
+  invokeAgentStopCore,
+  invokeAgentWaitCore,
+} from "./agentTools.js";
 
 export type BaseToolCoreInvoker = (
   definition: BaseToolDefinition,
@@ -42,6 +52,14 @@ export const codingCoreToolIds = [
   "user.ask",
   "tool.discover",
   "tool.describe",
+  "agent.spawn",
+  "agent.message",
+  "agent.inbox",
+  "agent.list",
+  "agent.inspect",
+  "agent.wait",
+  "agent.stop",
+  "agent.kill",
 ] as const;
 
 export type CodingCoreToolId = (typeof codingCoreToolIds)[number];
@@ -63,6 +81,14 @@ export const codingCoreInvokers: Readonly<Record<CodingCoreToolId, BaseToolCoreI
   "user.ask": invokeUserAskCore,
   "tool.discover": invokeToolDiscoverCore,
   "tool.describe": invokeToolDescribeCore,
+  "agent.spawn": invokeAgentSpawnCore,
+  "agent.message": invokeAgentMessageCore,
+  "agent.inbox": invokeAgentInboxCore,
+  "agent.list": invokeAgentListCore,
+  "agent.inspect": invokeAgentInspectCore,
+  "agent.wait": invokeAgentWaitCore,
+  "agent.stop": invokeAgentStopCore,
+  "agent.kill": invokeAgentKillCore,
 };
 
 export function lookupBaseToolCoreInvoker(toolId: string): BaseToolCoreInvoker | undefined {
@@ -96,3 +122,4 @@ export * from "./planUpdate.js";
 export * from "./userAsk.js";
 export * from "./toolDiscover.js";
 export * from "./toolDescribe.js";
+export * from "./agentTools.js";

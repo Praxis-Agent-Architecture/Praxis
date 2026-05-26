@@ -14,7 +14,7 @@ import {
 } from "../../../../src/agentCore/index.js";
 import type { BaseToolExecutorPort } from "../../../../src/basetool/types.js";
 
-const singleAgentCoreToolIds = [
+const coreToolIds = [
   "shell.run",
   "file.read",
   "file.search",
@@ -25,6 +25,14 @@ const singleAgentCoreToolIds = [
   "user.ask",
   "skill.load",
   "context.load",
+  "agent.spawn",
+  "agent.message",
+  "agent.inbox",
+  "agent.list",
+  "agent.inspect",
+  "agent.wait",
+  "agent.stop",
+  "agent.kill",
   "mcp.use",
   "mcp.resources",
   "process.wait",
@@ -52,10 +60,10 @@ test("semantic basetool codingCore profile compiles through OAO harness", () => 
   assert.equal(result.manifest.harness.tools[0]?.metadata?.profileName, "codingCore");
 });
 
-test("semantic basetool registry is narrowed to the single-agent core surface", () => {
+test("semantic basetool registry includes the core plus multiagent mesh surface", () => {
   const registry = createBaseToolRegistry();
-  assert.deepEqual(registry.all().map((definition) => definition.toolId), singleAgentCoreToolIds);
-  assert.equal(registry.lookup("agent.spawn").ok, false);
+  assert.deepEqual(registry.all().map((definition) => definition.toolId), coreToolIds);
+  assert.equal(registry.lookup("agent.spawn").ok, true);
   assert.equal(registry.lookup("browser.use").ok, false);
   assert.equal(registry.lookup("file.write").ok, false);
 });
@@ -118,6 +126,14 @@ test("basetool Coding Core descriptor exposes the implemented core tool ids", ()
     "user.ask",
     "tool.discover",
     "tool.describe",
+    "agent.spawn",
+    "agent.message",
+    "agent.inbox",
+    "agent.list",
+    "agent.inspect",
+    "agent.wait",
+    "agent.stop",
+    "agent.kill",
   ]);
 });
 
@@ -587,7 +603,7 @@ test("semantic basetool support catalog reports readiness from implemented ports
   const shellRun = catalog.find((entry) => entry.toolId === "shell.run");
   const fileRead = catalog.find((entry) => entry.toolId === "file.read");
 
-  assert.equal(catalog.length, 16);
+  assert.equal(catalog.length, 24);
   assert.equal(shellRun?.readiness, "available");
   assert.equal(fileRead?.readiness, "unavailable");
 

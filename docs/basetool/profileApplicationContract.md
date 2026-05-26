@@ -12,12 +12,12 @@ Praxis now exposes a compact semantic tool surface for agents. Product-scale too
 | `researchCore` | Web and local evidence gathering with minimal write capability. | `permissive` | Keeps write/shell actions deferred. |
 | `workCore` | Documents, reports, spreadsheets, PDFs, data work, and helper scripts. | `permissive` | Uses coding-shaped primitives until application plugins register richer office/artifact tools. |
 | `runtimeCore` | Runtime inspection, process handles, tool discovery, and diagnostics. | `permissive` | Intended for framework/runtime operators. |
-| `agentCore` | Complete Praxis-designed single-agent core. | `permissive` | For developers who want the standard Praxis core without product full mode. |
+| `agentCore` | Complete Praxis-designed agent core with project-local mesh tools. | `permissive` | For developers who want the standard Praxis core without product full mode. |
 | `fullCore` | Application-owned full-open mode. | `permissive` | Raxode can use this after registering product plugins and application-specific ports. |
 
 ## Tool Facts
 
-The single-agent catalog currently contains 16 semantic tools:
+The compact semantic catalog currently contains 24 tools:
 
 - `shell.run`
 - `file.read`
@@ -35,6 +35,14 @@ The single-agent catalog currently contains 16 semantic tools:
 - `process.kill`
 - `tool.discover`
 - `tool.describe`
+- `agent.spawn`
+- `agent.message`
+- `agent.inbox`
+- `agent.list`
+- `agent.inspect`
+- `agent.wait`
+- `agent.stop`
+- `agent.kill`
 
 `src/basetool/profiles.ts` owns profile membership and profile-aware descriptions.
 `src/basetool/catalog.ts` owns schemas and base definitions.

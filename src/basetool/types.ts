@@ -253,6 +253,7 @@ export type BaseToolShellServiceStatusSnapshot = {
 
 export type BaseToolExecutorPort = {
   [namespace: string]: BaseToolExecutorNamespace | undefined;
+  agent?: BaseToolExecutorNamespace;
   artifact?: BaseToolExecutorNamespace;
   computeruse?: BaseToolExecutorNamespace;
   custom?: BaseToolExecutorNamespace;
