@@ -20,7 +20,7 @@ import {
 import {
   adaptRuntimeToolInvocation,
   type BasicToolAdapterFamily,
-} from "../../executionEngine/basic_toolLayer/invocationAdapter.js";
+} from "../../basetool/invocationAdapter.js";
 import {
   bridgeExecEngineInvocation,
 } from "./execEngineInvocationBridge.js";

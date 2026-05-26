@@ -5,8 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+import type { BaseToolExecutorPort } from "../../src/basetool/types.js";
+import { createBaseToolRegistry } from "../../src/basetool/registry.js";
 import { assemblePromptPack } from "../../src/executionEngine/promptPack/promptAssembler.js";
 import { definePromptPack } from "../../src/executionEngine/promptPack/promptDefiner.js";
 import { mapPromptMaterials } from "../../src/executionEngine/promptPack/promptMapper.js";
@@ -304,24 +304,6 @@ async function executeShellToolCall(call: LiveToolCall, executor: BaseToolExecut
 function liveShellExecutor(): BaseToolExecutorPort {
   return {
     shell: {
-      async generateCommand() {
-        return {
-          ok: true,
-          output: {
-            kind: "agentCore.basicTool.shell.commandGeneration",
-            shell: "bash",
-            commandLine: "printf praxis-live-shell-ok",
-            argv: ["printf", "praxis-live-shell-ok"],
-            executable: "printf",
-            environmentKeys: [],
-            requiredPermission: "shell:generate",
-            dryRun: true,
-            providerCalled: false,
-            executionBlocked: true,
-            unsafeSideEffects: false,
-          },
-        };
-      },
       async run(request) {
         return {
           ok: true,
@@ -329,19 +311,6 @@ function liveShellExecutor(): BaseToolExecutorPort {
             exitCode: 0,
             stdout: request.command === "printf" ? `${request.args?.join(" ") ?? ""}` : "praxis-live-shell-ok",
             stderr: "",
-          },
-        };
-      },
-      async captureOutput() {
-        return {
-          ok: true,
-          output: {
-            sessionId: "live-shell-session",
-            streams: ["stdout"],
-            chunks: [{ stream: "stdout", text: "praxis-live-shell-ok", bytes: 20 }],
-            totalBytes: 20,
-            truncated: false,
-            realBufferReadBlocked: false,
           },
         };
       },
@@ -387,37 +356,13 @@ test(
   async () => {
     const scenarios = [
       {
-        label: "list shell capability via command generation",
-        expectedTool: "shell.commandGeneration",
-        expectedNeedle: "praxis-live-shell-ok",
-        arguments: {
-          argv: ["printf", "praxis-live-shell-ok"],
-          shell: "bash",
-          context: { dryRun: false, guard: { allowed: true } },
-        },
-      },
-      {
         label: "execute harmless command",
-        expectedTool: "shell.commandExecution",
+        expectedTool: "shell.run",
         expectedNeedle: "praxis-live-shell-ok",
         arguments: {
           command: "printf",
           args: ["praxis-live-shell-ok"],
           context: { dryRun: false, guard: { allowed: true } },
-        },
-      },
-      {
-        label: "summarize captured output",
-        expectedTool: "shell.outputCapture",
-        expectedNeedle: "praxis-live-shell-ok",
-        arguments: {
-          target: { sessionId: "live-shell-session" },
-          context: {
-            dryRun: false,
-            guard: { allowed: true },
-            grantedPermissions: ["shell:output:capture"],
-            allowedSessionIds: ["live-shell-session"],
-          },
         },
       },
     ] as const;

@@ -784,7 +784,7 @@ function formatApplicationInputAttachments(attachments: readonly ApplicationInpu
   const lines = [
     "Application input attachments for this user request.",
     "If an image attachment has localPath, inspect it through omni.viewImage before answering image-specific questions.",
-    "If a file attachment has localPath, use the appropriate code/search/file baseTool before claiming its contents.",
+    "If a file attachment has localPath, use the appropriate file/search baseTool before claiming its contents.",
     "",
     ...attachments.map(formatAttachmentForPrompt),
   ];
@@ -808,8 +808,8 @@ function buildTaskTextWithSessionHistory(input: {
   return sections.join("\n\n---\n\n");
 }
 
-function summarizeCodeToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("code.")) return undefined;
+function summarizeFileToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("file.") && !toolCall.toolId.startsWith("patch.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const targetPath = stringValue(args.targetPath) ?? stringValue(args.path) ?? stringValue(args.filePath);
   const targetPaths = [
@@ -825,29 +825,16 @@ function summarizeCodeToolInput(toolCall: AgentToolCallRecord): string | undefin
   const pathSummary = targetPaths.length > 0 ? formatPathList(targetPaths) : targetPath;
 
   switch (toolCall.toolId) {
-    case "code.scan": {
-      const depth = numberValue(args.depth);
-      const maxEntries = numberValue(args.maxEntries);
-      const detail = [
-        depth !== undefined ? `depth ${depth}` : undefined,
-        maxEntries !== undefined ? `up to ${maxEntries} entries` : undefined,
-      ].filter((item): item is string => item !== undefined).join(", ");
-      return `Scanning ${directoryPath ?? "."}${detail ? ` (${detail})` : ""}`;
-    }
-    case "code.read":
+    case "file.read":
       return `Reading ${pathSummary ?? "file"}`;
-    case "code.search_Ripgrep":
+    case "file.search":
       return `Searching ${directoryPath ?? "."}${query ? ` for ${JSON.stringify(truncateMiddle(query, 80))}` : ""}`;
-    case "code.overwrite":
+    case "file.write":
       return `Writing ${targetPath ?? "file"}${bytesSuffix ? ` (${bytesSuffix})` : ""}`;
-    case "code.modify":
+    case "file.edit":
       return `Editing ${targetPath ?? "file"}`;
-    case "code.replaceFile":
-      return `Replacing ${targetPath ?? "file"}`;
-    case "code.delete":
-      return `Deleting from ${targetPath ?? "file"}`;
-    case "code.format":
-      return `Formatting ${targetPath ?? pathSummary ?? "file"}`;
+    case "patch.apply":
+      return `Applying patch${pathSummary ? ` to ${pathSummary}` : ""}`;
     default:
       if (pathSummary) return `${toolCall.toolId} on ${pathSummary}`;
       if (directoryPath) return `${toolCall.toolId} in ${directoryPath}`;
@@ -889,8 +876,8 @@ function summarizeShellToolInput(toolCall: AgentToolCallRecord): string | undefi
   return undefined;
 }
 
-function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
-  if (!toolCall.toolId.startsWith("code.")) return undefined;
+function summarizeFileToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("file.") && !toolCall.toolId.startsWith("patch.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const targetPath = stringValue(output?.targetPath) ?? stringValue(args.targetPath) ?? stringValue(args.path);
   const targetPaths = [
@@ -899,15 +886,16 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
   ];
   const directoryPath = stringValue(output?.directoryPath) ?? stringValue(args.directoryPath);
 
-  if (toolCall.toolId === "code.scan") {
+  if (toolCall.toolId === "file.search") {
     const entries = Array.isArray(output?.entries) ? output.entries : [];
+    const matches = Array.isArray(output?.matches) ? output.matches : [];
     const truncated = booleanValue(output?.truncated);
     return [
-      `Scanned ${directoryPath ?? "."}: ${entries.length} entr${entries.length === 1 ? "y" : "ies"}${truncated ? " (truncated)" : ""}`,
+      `Searched ${directoryPath ?? "."}: ${Math.max(entries.length, matches.length)} result${Math.max(entries.length, matches.length) === 1 ? "" : "s"}${truncated ? " (truncated)" : ""}`,
     ];
   }
 
-  if (toolCall.toolId === "code.read") {
+  if (toolCall.toolId === "file.read") {
     const bytes = numberValue(output?.bytes);
     const files = Array.isArray(output?.files) ? output.files : [];
     const count = files.length > 0 ? files.length : Math.max(targetPaths.length, targetPath ? 1 : 0);
@@ -917,7 +905,7 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
     ];
   }
 
-  if (toolCall.toolId === "code.overwrite") {
+  if (toolCall.toolId === "file.write") {
     const applied = booleanValue(output?.applied);
     const bytes = numberValue(output?.bytesWritten) ?? numberValue(output?.contentBytes);
     const verb = applied === false ? "Planned write" : "Wrote";
@@ -926,12 +914,12 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
     ];
   }
 
-  if (toolCall.toolId === "code.modify" || toolCall.toolId === "code.replaceFile" || toolCall.toolId === "code.delete" || toolCall.toolId === "code.format") {
+  if (toolCall.toolId === "file.edit" || toolCall.toolId === "patch.apply") {
     const bytes = numberValue(output?.bytesWritten);
     const lines = [
       `${toolCall.toolId} completed${targetPath ? ` for ${targetPath}` : ""}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
     ];
-    if (toolCall.toolId === "code.modify") {
+    if (toolCall.toolId === "file.edit") {
       const searchText = rawStringValue(args.searchText);
       const replacementText = rawStringValue(args.replacementText);
       if (searchText !== undefined && replacementText !== undefined) {
@@ -1052,29 +1040,29 @@ function summarizeGitToolInput(toolCall: AgentToolCallRecord): string | undefine
   ]);
   const scope = repositoryPath ? ` in ${repositoryPath}` : "";
   switch (toolCall.toolId) {
-    case "git.getRepositoryStatus":
+    case "git.status":
       return `Checking repository status${scope}`;
-    case "git.getWorkingTreeDiff":
+    case "git.diff":
       return `Inspecting working tree diff${pathSummary !== "file" ? ` for ${pathSummary}` : scope}`;
-    case "git.getCommitHistory":
+    case "git.log":
       return `Reading commit history${branch ? ` on ${branch}` : scope}`;
-    case "git.showGitObjectDetails":
+    case "git.show":
       return `Inspecting git object ${ref ?? "ref"}${scope}`;
-    case "git.traceLineOwnership":
+    case "git.blame":
       return `Tracing line ownership${pathSummary !== "file" ? ` for ${pathSummary}` : scope}`;
-    case "git.addToStaging":
+    case "git.add":
       return `Staging ${pathSummary}`;
-    case "git.resetStagingOrCommit":
+    case "git.reset":
       return `Resetting git state${ref ? ` from ${ref}` : scope}`;
-    case "git.restoreWorkingTree":
+    case "git.restore":
       return `Restoring ${pathSummary}`;
-    case "git.stashChanges":
+    case "git.stash":
       return `Stashing working tree changes${scope}`;
-    case "git.fetchRemoteUpdates":
+    case "git.fetch":
       return `Fetching remote updates${scope}`;
-    case "git.pullRemoteChanges":
+    case "git.pull":
       return `Pulling remote changes${branch ? ` for ${branch}` : scope}`;
-    case "git.pushLocalChanges":
+    case "git.push":
       return `Pushing local changes${branch ? ` for ${branch}` : scope}`;
     default:
       return repositoryPath ? `${toolCall.toolId} in ${repositoryPath}` : toolCall.toolId;
@@ -1092,11 +1080,11 @@ function summarizeGitToolOutputForHumans(toolCall: AgentToolCallRecord, output: 
   const behind = numberValue(envelope?.behind) ?? numberValue(output?.behindCount);
   const exitCode = numberValue(output?.exitCode);
   const lines: string[] = [];
-  if (toolCall.toolId === "git.getRepositoryStatus") {
+  if (toolCall.toolId === "git.status") {
     lines.push(`Repository status read${branch ? ` on ${branch}` : ""}`);
-  } else if (toolCall.toolId === "git.getWorkingTreeDiff") {
+  } else if (toolCall.toolId === "git.diff") {
     lines.push("Working tree diff read");
-  } else if (toolCall.toolId === "git.getCommitHistory") {
+  } else if (toolCall.toolId === "git.log") {
     lines.push("Commit history read");
   } else if (commitHash) {
     lines.push(`${toolCall.toolId} completed at ${commitHash.slice(0, 12)}`);
@@ -1274,8 +1262,8 @@ function summarizeOmniToolOutputForHumans(toolCall: AgentToolCallRecord, output:
 }
 
 function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  const codeSummary = summarizeCodeToolInput(toolCall);
-  if (codeSummary !== undefined) return codeSummary;
+  const fileSummary = summarizeFileToolInput(toolCall);
+  if (fileSummary !== undefined) return fileSummary;
   const shellSummary = summarizeShellToolInput(toolCall);
   if (shellSummary !== undefined) return shellSummary;
   const gitSummary = summarizeGitToolInput(toolCall);
@@ -1340,8 +1328,8 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
   }
 
   const output = objectValue(toolCall.output);
-  const codeSummary = summarizeCodeToolOutputForHumans(toolCall, output);
-  if (codeSummary !== undefined) return codeSummary;
+  const fileSummary = summarizeFileToolOutputForHumans(toolCall, output);
+  if (fileSummary !== undefined) return fileSummary;
   const shellSummary = summarizeShellToolOutputForHumans(toolCall, output);
   if (shellSummary !== undefined) return shellSummary;
   const gitSummary = summarizeGitToolOutputForHumans(toolCall, output);

@@ -4,9 +4,9 @@ import path from "node:path";
 import type {
   BaseToolExecutorPort,
   BaseToolExecutorResult,
-} from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+} from "../../src/basetool/types.js";
+import { createBaseToolRegistry } from "../../src/basetool/registry.js";
+import { adaptRuntimeToolInvocation } from "../../src/basetool/invocationAdapter.js";
 import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 export type ShellLiveToolCall = {
