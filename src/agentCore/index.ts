@@ -170,8 +170,16 @@ import {
   interpretModelDecision,
 } from "../executionEngine/coreLogic/modelDecision.js";
 import {
+  createRuntimeFallbackCompactExecutor,
+  decideTurnBoundaryCompact,
+} from "../executionEngine/coreLogic/contextCompact.js";
+import {
   assemblePromptPack,
 } from "../executionEngine/promptPack/promptAssembler.js";
+import {
+  assemblePromptContextMaterials,
+  promptPackMaterialsForManifest,
+} from "../runtimeImplementation/runtime.execEngine/promptContextAssembly.js";
 import {
   createFallbackMemoryRef,
   createObservationMaterial,
@@ -522,6 +530,28 @@ export {
   type PromptPackSegmentStability,
   type StandardPromptPack,
 } from "../executionEngine/promptPack/promptAssembler.js";
+
+export {
+  createRuntimeFallbackCompactExecutor,
+  decideTurnBoundaryCompact,
+  type CompactExecutor,
+  type CompactExecutorRequest,
+  type CompactExecutorResult,
+  type CompactRecord,
+  type CompactThresholdDecision,
+  type CompactTriggerKind,
+} from "../executionEngine/coreLogic/contextCompact.js";
+
+export {
+  PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+  assemblePromptContextMaterials,
+  promptPackMaterialsForManifest,
+  type PromptContextAssemblyBudget,
+  type PromptContextAssemblyRequest,
+  type PromptContextAssemblyResult,
+  type PromptContextConversationMessage,
+  type PromptContextSessionSummary,
+} from "../runtimeImplementation/runtime.execEngine/promptContextAssembly.js";
 
 export {
   PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
@@ -903,9 +933,11 @@ export const authoringPrimitives = Object.freeze({
 export const promptPack = Object.freeze({
   PromptPack,
   append,
+  assemblePromptContextMaterials,
   markdown,
   markdownFile,
   overwrite,
+  promptPackMaterialsForManifest,
   prepend,
   replaceLastLines,
 });
@@ -970,6 +1002,7 @@ export const executionCore = Object.freeze({
   createMainLoopTimelineRef,
   createUserTurn,
   decideMainLoopFinalAcceptance,
+  decideTurnBoundaryCompact,
   exposeMainLoopState,
   interpretModelDecision,
   planFrameworkMainLoopHandoff,
@@ -978,6 +1011,7 @@ export const executionCore = Object.freeze({
   resolveMainLoopBudget,
   runMainLoop,
   selectMainLoopModel,
+  createRuntimeFallbackCompactExecutor,
   createFallbackMemoryRef,
   createObservationMaterial,
 });
