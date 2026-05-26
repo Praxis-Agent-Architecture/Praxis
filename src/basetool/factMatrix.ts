@@ -28,6 +28,7 @@ export type BaseToolEffectKind =
   | "process.control"
   | "user.interaction"
   | "runtime.metadata"
+  | "agent.mesh"
   | "extension.call";
 
 export type BaseToolSandboxHint = {
@@ -130,6 +131,7 @@ function effectKindsFor(definition: BaseToolDefinition): readonly BaseToolEffect
   const ports = new Set(definition.runtimePorts);
   const effects = new Set<BaseToolEffectKind>();
   if (definition.toolId === "plan.update" || definition.toolId.startsWith("tool.")) effects.add("runtime.metadata");
+  if (definition.toolId.startsWith("agent.")) effects.add("agent.mesh");
   if (definition.toolId === "user.ask") effects.add("user.interaction");
   if (ports.has("filesystem.readText") || ports.has("search.ripgrep")) effects.add("filesystem.read");
   if (ports.has("filesystem.writeText") || ports.has("filesystem.deletePath")) effects.add("filesystem.write");

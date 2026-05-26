@@ -17,6 +17,14 @@ const coreToolIds = [
   "user.ask",
   "skill.load",
   "context.load",
+  "agent.spawn",
+  "agent.message",
+  "agent.inbox",
+  "agent.list",
+  "agent.inspect",
+  "agent.wait",
+  "agent.stop",
+  "agent.kill",
   "mcp.use",
   "mcp.resources",
   "process.wait",
@@ -25,12 +33,12 @@ const coreToolIds = [
   "tool.describe",
 ] as const;
 
-test("baseTool fact matrix covers the single-agent core catalog without runtime decisions", () => {
+test("baseTool fact matrix covers the core and multiagent mesh catalog without runtime decisions", () => {
   const matrix = createBaseToolFactMatrixSnapshot();
 
   assert.equal(matrix.surface, "basetool.factMatrix");
   assert.equal(matrix.version, "praxis.basetool.factMatrix.v1");
-  assert.equal(matrix.total, 16);
+  assert.equal(matrix.total, 24);
   assert.deepEqual(matrix.profiles.map((row) => row.name), [
     "codingCore",
     "researchCore",
