@@ -39,6 +39,12 @@ import {
   sandboxRuntimeProviderDescriptor,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
+  createSandboxCommandPlan,
+  createLocalSandboxRemoteWorkerAdapter,
+  runSandboxCommand,
+  sandboxCommandRunnerDescriptor,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxCommandRunner.js";
+import {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
   eventInterfaceEnvelope,
@@ -62,6 +68,41 @@ import {
   resolveRaxWorkspace,
 } from "../runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 import {
+  openPraxisProject,
+  project as defineProject,
+  projectDescriptor,
+} from "../runtimeImplementation/runtime.projectPlane/index.js";
+import {
+  createPraxisSessionManager,
+} from "../runtimeImplementation/runtime.sessionPlane/index.js";
+import {
+  createPraxisConversationManager,
+} from "../runtimeImplementation/runtime.conversationPlane/index.js";
+import {
+  capabilities,
+  capability,
+  createProvisionPlan,
+  dependencies,
+  dependencyAuthoring,
+  provisionRuntimeDescriptor,
+} from "../runtimeImplementation/runtime.provisionPlane/index.js";
+import {
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+} from "../runtimeImplementation/runtime.componentPlane/index.js";
+import {
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+} from "../runtimeImplementation/runtime.dependencyPlane/index.js";
+import {
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
 } from "../runtimeImplementation/praxisRuntimeKernel.js";
@@ -73,8 +114,14 @@ import {
 } from "../runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
 import {
   baseToolDeveloperCatalogDescriptor,
-  baseTools,
+  baseToolCodingCoreDescriptor,
+  basetool,
+  baseToolProfile,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
 } from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
@@ -123,12 +170,30 @@ import {
   interpretModelDecision,
 } from "../executionEngine/coreLogic/modelDecision.js";
 import {
+  createRuntimeFallbackCompactExecutor,
+  decideTurnBoundaryCompact,
+} from "../executionEngine/coreLogic/contextCompact.js";
+import {
   assemblePromptPack,
 } from "../executionEngine/promptPack/promptAssembler.js";
 import {
-  createFallbackMemoryRef,
+  assemblePromptContextMaterials,
+  promptPackMaterialsForManifest,
+} from "../runtimeImplementation/runtime.execEngine/promptContextAssembly.js";
+import {
   createObservationMaterial,
 } from "../executionEngine/coreLogic/observationIntegrator.js";
+import {
+  runtimeAuth,
+} from "../runtimeImplementation/runtime.authPlane/index.js";
+import {
+  createMemoryPlane,
+  memoryPlane,
+} from "../memory_managementPool/index.js";
+import {
+  ExecutionMonitor,
+  analyzeExecutionMonitor,
+} from "../runtimeImplementation/runtime.executionMonitor/index.js";
 
 export {
   PromptPack,
@@ -196,6 +261,72 @@ export {
   type ToolSpec,
   type ToolPolicyCustomInput,
 } from "../runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  createMemoryPlane,
+  memoryPlane,
+};
+export type {
+  MemoryArtifactRef,
+  MemoryIndexStatus,
+  MemoryLayout,
+  MemoryPlane,
+  MemoryPlaneOptions,
+  MemoryPolicyRisk,
+  MemoryProfile,
+  MemoryPromptGuide,
+  MemoryReindexResult,
+  MemoryRiskMetadata,
+  MemoryScope,
+  MemorySearchGuide,
+  MemorySearchRequest,
+  MemorySourceType,
+} from "../memory_managementPool/index.js";
+
+export {
+  capabilities,
+  capability,
+  createProvisionPlan,
+  dependencies,
+  dependencyAuthoring,
+  provisionRuntimeDescriptor,
+  type CapabilityFallbackSpec,
+  type CapabilityInput,
+  type CapabilityKind,
+  type CapabilityPolicySpec,
+  type CapabilityReadiness,
+  type CapabilitySpec,
+  type CodeIntelligenceCapabilityInput,
+  type ProvisionPlan,
+  type SandboxCapabilityInput,
+} from "../runtimeImplementation/runtime.provisionPlane/index.js";
+
+export {
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+  type RuntimeComponentKind,
+  type RuntimeComponentRegistry,
+  type RuntimeComponentSpec,
+} from "../runtimeImplementation/runtime.componentPlane/index.js";
+
+export {
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+  type DependencyAvailability,
+  type DependencyDeclaration,
+  type DependencyInstallPlan,
+  type DependencyKind,
+  type DependencyPlaneContext,
+  type DependencySource,
+} from "../runtimeImplementation/runtime.dependencyPlane/index.js";
 
 export {
   adjudicateRuntimeDecision,
@@ -312,9 +443,7 @@ export {
   DEFAULT_OBSERVATION_SUMMARY_DELEGATION_POLICY,
   DEFAULT_SUMMARY_AGENT_REF,
   DEFAULT_TOOL_RESULT_SIZE_POLICY,
-  createFallbackMemoryRef,
   createObservationMaterial,
-  type FallbackMemoryRef,
   type LargeObservationSelectionFlow,
   type ObservationArtifactRef,
   type ObservationCompressionPolicy,
@@ -346,6 +475,75 @@ export {
 } from "../executionEngine/coreLogic/ephemeralProcedure.js";
 
 export {
+  runMainLoopEngine,
+  type MainLoopEngineRequest,
+  type MainLoopEngineResult,
+} from "../executionEngine/coreLogic/mainLoopEngine.js";
+
+export {
+  createMainLoopCoreEvent,
+  createMainLoopRecorder,
+  type MainLoopRecorderSink,
+  type MainLoopRecorderSnapshot,
+} from "../executionEngine/coreLogic/mainLoopRecorder.js";
+
+export {
+  noopMainLoopSummarizer,
+  createMainLoopStreamAccumulator,
+  reduceMainLoopStreamAccumulator,
+  type MainLoopCoreEvent,
+  type MainLoopCoreEventName,
+  type MainLoopEnginePorts,
+  type MainLoopModelStreamEvent,
+  type MainLoopStreamAccumulatorState,
+  type MainLoopRecorderPort,
+  type MainLoopSummarizerPort,
+  type MainLoopSummarizerRequest,
+  type MainLoopSummarizerResult,
+  type MainLoopUsagePricing,
+  type MainLoopUsageReport,
+} from "../executionEngine/coreLogic/mainLoopPorts.js";
+
+export {
+  addMainLoopBudgetUsage,
+  addMainLoopObservationRefs,
+  clearMainLoopOneShotToolContextSelection,
+  consumeMainLoopPendingInputs,
+  createMainLoopBudgetUsage,
+  createMainLoopTurnState,
+  enqueueMainLoopPendingInput,
+  interruptMainLoopTurnState,
+  registerMainLoopApprovalWait,
+  resumeMainLoopTurnState,
+  setMainLoopToolContextSelection,
+  transitionMainLoopTurnState,
+  type MainLoopBudgetUsage,
+  type MainLoopInterruptCheckpoint,
+  type MainLoopPendingInput,
+  type MainLoopResumeToken,
+  type MainLoopToolContextSelection,
+  type MainLoopTurnPhase,
+  type MainLoopTurnState,
+  type MainLoopTurnStateTransition,
+  type PendingInputDisposition,
+} from "../executionEngine/coreLogic/turnState.js";
+
+export {
+  runToolExecutionUnits,
+  toolExecutionUnitFromProcedureStep,
+  toolExecutionUnitFromToolCall,
+  toolExecutionUnitsFromEphemeralProcedure,
+  type ToolExecutionStatus,
+  type ToolExecutionUnit,
+  type ToolExecutionUnitKind,
+  type ToolExecutionUnitRecord,
+  type ToolSchedulerExecuteInput,
+  type ToolSchedulerExecuteResult,
+  type ToolSchedulerPolicy,
+  type ToolSchedulerResult,
+} from "../executionEngine/coreLogic/toolScheduler.js";
+
+export {
   assemblePromptPack,
   type PromptPackCachePlan,
   type PromptPackCacheTelemetry,
@@ -356,11 +554,71 @@ export {
 } from "../executionEngine/promptPack/promptAssembler.js";
 
 export {
+  createRuntimeFallbackCompactExecutor,
+  decideTurnBoundaryCompact,
+  type CompactExecutor,
+  type CompactExecutorRequest,
+  type CompactExecutorResult,
+  type CompactRecord,
+  type CompactThresholdDecision,
+  type CompactTriggerKind,
+} from "../executionEngine/coreLogic/contextCompact.js";
+
+export {
+  PRE_COMPACT_GOVERNANCE_SCHEMA,
+  createModelPreCompactGovernanceExecutor,
+  createNoopPreCompactGovernanceExecutor,
+  createSkippedPreCompactGovernanceRecord,
+  packetMaterialRefs,
+  parsePreCompactGovernanceResult,
+  preCompactGovernanceInstruction,
+  type PreCompactGovernanceExecutor,
+  type PreCompactGovernanceExecutorRequest,
+  type PreCompactGovernanceExecutorResult,
+  type PreCompactGovernanceFact,
+  type PreCompactGovernanceIndexedMaterial,
+  type PreCompactGovernanceModelCaller,
+  type PreCompactGovernanceModelResponse,
+  type PreCompactGovernancePacket,
+  type PreCompactGovernancePacketMaterial,
+  type PreCompactGovernanceProjectContextUpdate,
+  type PreCompactGovernanceRecord,
+  type PreCompactGovernanceRemovedNoise,
+  type PreCompactGovernanceResult,
+} from "../executionEngine/coreLogic/preCompactGovernance.js";
+
+export {
+  PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
+  assemblePromptContextMaterials,
+  promptPackMaterialsForManifest,
+  type PromptContextAssemblyBudget,
+  type PromptContextAssemblyRequest,
+  type PromptContextAssemblyResult,
+  type PromptContextConversationMessage,
+  type PromptContextSessionSummary,
+} from "../runtimeImplementation/runtime.execEngine/promptContextAssembly.js";
+
+export {
   PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS,
   PROMPT_PACK_SEGMENT_KINDS,
   inferPromptPackSegmentKind,
   type PromptPackSegmentKind,
 } from "../executionEngine/promptPack/promptDefiner.js";
+
+export {
+  createSandboxCommandPlan,
+  createLocalSandboxRemoteWorkerAdapter,
+  runSandboxCommand,
+  sandboxCommandRunnerDescriptor,
+  type SandboxCommandDenial,
+  type SandboxCommandFilesystemPolicy,
+  type SandboxCommandNetworkPolicy,
+  type SandboxCommandPlan,
+  type SandboxCommandProviderFamily,
+  type SandboxCommandRequest,
+  type SandboxCommandRunResult,
+  type SandboxRemoteWorkerAdapter,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxCommandRunner.js";
 
 export {
   createSandboxRuntimeProvider,
@@ -436,9 +694,63 @@ export {
 } from "../runtimeImplementation/runtime.storagePlane/storagePlaneRuntime.js";
 
 export {
+  openPraxisProject,
+  projectDescriptor,
+  project,
+  type PraxisArtifactRecord,
+  type PraxisConversationMessageRecord,
+  type PraxisConversationRole,
+  type PraxisConversationSummaryRecord,
+  type PraxisFoundationProjectSnapshot,
+  type PraxisFoundationSessionSnapshot,
+  type PraxisFoundationStatus,
+  type PraxisFoundationStore,
+  type PraxisProjectAgentEntrySpec,
+  type PraxisProjectArtifactsSpec,
+  type PraxisProjectKind,
+  type PraxisProjectLeaseRecord,
+  type PraxisProjectOpenMode,
+  type PraxisProjectOpenOptions,
+  type PraxisProjectOpenResult,
+  type PraxisProjectRecord,
+  type PraxisProjectRuntime,
+  type PraxisProjectSessionsSpec,
+  type PraxisProjectSpec,
+  type PraxisProjectSpecInput,
+  type PraxisProjectStub,
+  type PraxisProjectWorkspaceRecord,
+  type PraxisProjectWorkspaceSpec,
+  type PraxisSessionAgentBindingRecord,
+  type PraxisSessionRecord,
+  type PraxisTurnRecord,
+  createInMemoryProjectStore,
+  createSqliteProjectStore,
+} from "../runtimeImplementation/runtime.projectPlane/index.js";
+
+export {
+  createPraxisSessionManager,
+  type CreatePraxisSessionInput,
+  type ForkPraxisSessionInput,
+  type PraxisSessionManager,
+  type SwitchSessionAgentInput,
+} from "../runtimeImplementation/runtime.sessionPlane/index.js";
+
+export {
+  createPraxisConversationManager,
+  type AppendAssistantTurnInput,
+  type AppendConversationMessageInput,
+  type AppendUserTurnInput,
+  type CreateConversationTurnInput,
+  type ForkConversationMessagesInput,
+  type PraxisConversationManager,
+  type ReadConversationWindowInput,
+  type WriteConversationSummaryInput,
+} from "../runtimeImplementation/runtime.conversationPlane/index.js";
+
+export {
   type BaseToolExecutorPort,
   type BaseToolExecutorResult,
-} from "../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+} from "../basetool/types.js";
 
 export {
   PraxisRuntimeKernel,
@@ -455,6 +767,9 @@ export {
   type RuntimeApprovalEnvelope,
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
+  type RuntimeAgentReviewEnvelope,
+  type RuntimeAgentReviewResolution,
+  type RuntimeAgentReviewResolver,
 } from "../runtimeImplementation/praxisRuntimeKernel.js";
 
 export {
@@ -463,13 +778,46 @@ export {
   type RuntimeSessionStateEventStore,
 } from "../runtimeImplementation/runtimeSessionStateEventStore.js";
 
-export * from "../modelAdapter/index.js";
 export {
-  invokeRaxModelThroughRuntime,
-  type RaxModelRuntimeInvokeMode,
-  type RaxModelRuntimeRequest,
-  type RaxModelRuntimeResult,
-} from "../runtimeImplementation/runtime.modelAdapter/raxModelRequestRuntime.js";
+  bindProviderRoleModel,
+  bindRaxodeRoleModel,
+  createProviderModelEntry,
+  createProviderProfileConfiguration,
+  createProviderSecret,
+  createRaxodeModelEntry,
+  createRaxodeProviderProfile,
+  createRaxodeSecret,
+  maskProviderSecret,
+  maskRaxodeSecret,
+  resolveProviderRequestUrl,
+  resolveRaxodeProviderRequestUrl,
+  type ProviderConfigurationError,
+  type ProviderEndpointShape,
+  type ProviderModelEntry,
+  type ProviderModelEntryResult,
+  type ProviderProfileConfiguration,
+  type ProviderProfileConfigurationResult,
+  type ProviderRequestUrlPlan,
+  type ProviderRequestUrlResult,
+  type ProviderRoleBinding,
+  type ProviderRoleBindingResult,
+  type ProviderSecret,
+  type ProviderSecretResult,
+  type ProviderUrlMode,
+  type RaxodeEndpointShape,
+  type RaxodeModelEntry,
+  type RaxodeModelEntryResult,
+  type RaxodeProviderConfigurationError,
+  type RaxodeProviderProfile,
+  type RaxodeProviderProfileResult,
+  type RaxodeProviderRequestUrlPlan,
+  type RaxodeProviderRequestUrlResult,
+  type RaxodeRoleBinding,
+  type RaxodeRoleBindingResult,
+  type RaxodeSecret,
+  type RaxodeSecretResult,
+  type RaxodeUrlMode,
+} from "../modelAdapter/authProfileLayer/providerConfiguration.js";
 
 export {
   createFrameworkInspectionReport,
@@ -485,15 +833,24 @@ export {
 
 export {
   baseToolDeveloperCatalogDescriptor,
-  baseTools,
+  baseToolCodingCoreDescriptor,
+  basetool,
+  baseToolProfile,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   listBaseToolDeveloperCatalog,
+  listBaseToolProfiles,
   toolSets,
   tryBaseToolById,
+  type BaseToolDefinition,
   type BaseToolDeveloperCatalogEntry,
   type BaseToolDeveloperLookupResult,
+  type BaseToolProfile,
+  type BaseToolProfileName,
   type BaseToolSpecInput,
   type CodingToolSetOptions,
-} from "../runtimeImplementation/runtime.execEngine/baseToolDeveloperCatalog.js";
+} from "../basetool/index.js";
 
 export {
   baseToolRealityLedgerDescriptor,
@@ -517,9 +874,91 @@ export {
 } from "../runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 
 export {
+  runtimeAuth,
+  runtimeAuth as auth,
+  authAuditEvent,
+  bindRuntimeAuthRole,
+  createInMemoryRuntimeAuthSecretVault,
+  createRuntimeAuthModelEntry,
+  createRuntimeAuthProviderProfile,
+  createRuntimeAuthRegistry,
+  createRuntimeAuthResolver,
+  createRuntimeAuthSecretRecord,
+  decryptRuntimeAuthSecretRecord,
+  runtimeAuthCredentialRef,
+  toRuntimeAuthSecretPublicView,
+  type RuntimeAuthAuditEvent,
+  type RuntimeAuthAuditEventKind,
+  type RuntimeAuthCredentialRef,
+  type RuntimeAuthEndpointShape,
+  type RuntimeAuthEncryptedPayload,
+  type RuntimeAuthModelEntry,
+  type RuntimeAuthProviderKind,
+  type RuntimeAuthProviderProfile,
+  type RuntimeAuthRegistry,
+  type RuntimeAuthRegistrySnapshot,
+  type RuntimeAuthResolver,
+  type RuntimeAuthResolverRequest,
+  type RuntimeAuthResolverResult,
+  type RuntimeAuthRole,
+  type RuntimeAuthRoleBinding,
+  type RuntimeAuthSecretKind,
+  type RuntimeAuthSecretPlaintext,
+  type RuntimeAuthSecretPublicView,
+  type RuntimeAuthSecretRecord,
+  type RuntimeAuthSecretVault,
+  type RuntimeAuthVaultKeyProvider,
+} from "../runtimeImplementation/runtime.authPlane/index.js";
+
+export {
+  ExecutionMonitor,
+  analyzeExecutionMonitor,
+  type AnalyzeExecutionMonitorInput,
+  type ExecutionMonitorArtifactPointer,
+  type ExecutionMonitorCacheShapeSummary,
+  type ExecutionMonitorFinding,
+  type ExecutionMonitorHealthGrade,
+  type ExecutionMonitorModelCallReport,
+  type ExecutionMonitorObserveInput,
+  type ExecutionMonitorOptions,
+  type ExecutionMonitorProjectReport,
+  type ExecutionMonitorPromptPackSummary,
+  type ExecutionMonitorProviderReuseSummary,
+  type ExecutionMonitorReport,
+  type ExecutionMonitorSessionReport,
+  type ExecutionMonitorSeverity,
+  type ExecutionMonitorTargetPlane,
+  type ExecutionMonitorThresholds,
+  type ExecutionMonitorTurnReport,
+  type ExecutionMonitorUsageTotals,
+} from "../runtimeImplementation/runtime.executionMonitor/index.js";
+
+export {
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
 } from "../runtimeImplementation/runtime.execEngine/baseToolContextFolding.js";
+
+export {
+  createProviderToolMappings,
+  createPraxisToolDeclarations,
+  lowerPraxisToolsForProvider,
+  lowerProviderToolResult,
+  normalizeProviderInputSchema,
+  providerToolName,
+  raiseProviderToolCalls,
+  type LowerProviderToolResultRequest,
+  type LowerPraxisToolsForProviderRequest,
+  type ProviderCacheHintPlan,
+  type ProviderToolCallEnvelope,
+  type ProviderToolDeclarationBundle,
+  type ProviderToolNameMapping,
+  type ProviderToolResultContentBlock,
+  type ProviderToolResultEnvelope,
+  type ProviderToolSchemaFamily,
+  type PraxisToolDeclaration,
+  type PraxisToolProviderKind,
+  type RaiseProviderToolCallsRequest,
+} from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
 
 /**
  * Recommended developer authoring boxes.
@@ -539,9 +978,11 @@ export const authoringPrimitives = Object.freeze({
 export const promptPack = Object.freeze({
   PromptPack,
   append,
+  assemblePromptContextMaterials,
   markdown,
   markdownFile,
   overwrite,
+  promptPackMaterialsForManifest,
   prepend,
   replaceLastLines,
 });
@@ -564,7 +1005,12 @@ export const harnessRuntimePolicy = Object.freeze({
 });
 
 export const baseTool = Object.freeze({
-  baseTools,
+  basetool,
+  profile: baseToolProfile,
+  profiles: listBaseToolProfiles,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   tool,
   tools,
   toolPolicies,
@@ -572,12 +1018,22 @@ export const baseTool = Object.freeze({
   tryBaseToolById,
   listBaseToolDeveloperCatalog,
   baseToolDeveloperCatalogDescriptor,
+  baseToolCodingCoreDescriptor,
 });
 
 export const runtimeKernel = Object.freeze({
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
   createInMemorySessionStateEventStore,
+  project: Object.freeze({
+    open: openPraxisProject,
+  }),
+  session: Object.freeze({
+    createPraxisSessionManager,
+  }),
+  conversation: Object.freeze({
+    createPraxisConversationManager,
+  }),
 });
 
 export const executionCore = Object.freeze({
@@ -591,6 +1047,7 @@ export const executionCore = Object.freeze({
   createMainLoopTimelineRef,
   createUserTurn,
   decideMainLoopFinalAcceptance,
+  decideTurnBoundaryCompact,
   exposeMainLoopState,
   interpretModelDecision,
   planFrameworkMainLoopHandoff,
@@ -599,7 +1056,7 @@ export const executionCore = Object.freeze({
   resolveMainLoopBudget,
   runMainLoop,
   selectMainLoopModel,
-  createFallbackMemoryRef,
+  createRuntimeFallbackCompactExecutor,
   createObservationMaterial,
 });
 
@@ -621,9 +1078,52 @@ export const storagePlane = Object.freeze({
   resolveRaxWorkspace,
 });
 
+export const memory = Object.freeze({
+  ...memoryPlane,
+});
+
+export const projectPlane = Object.freeze({
+  project: defineProject,
+  descriptor: projectDescriptor,
+  open: openPraxisProject,
+  createSessionManager: createPraxisSessionManager,
+  createConversationManager: createPraxisConversationManager,
+});
+
+export const provisionPlane = Object.freeze({
+  capabilities,
+  capability,
+  dependencies,
+  dependency: dependencyAuthoring,
+  createProvisionPlan,
+  provisionRuntimeDescriptor,
+});
+
+export const componentPlane = Object.freeze({
+  component,
+  createRuntimeComponentRegistry,
+  lookupRuntimeComponent,
+  officialRuntimeComponents,
+});
+
+export const dependencyPlane = Object.freeze({
+  canonicalDependencyId,
+  createDependencySourceRegistry,
+  defaultManagedRoot,
+  ensureDependencyAvailable,
+  lookupDependencySource,
+  officialDependencySources,
+  planDependencyInstallation,
+  probeDependency,
+});
+
 export const sandboxPlane = Object.freeze({
+  createSandboxCommandPlan,
+  createLocalSandboxRemoteWorkerAdapter,
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
+  runSandboxCommand,
+  sandboxCommandRunnerDescriptor,
   sandboxRuntimeProviderDescriptor,
 });
 
@@ -648,7 +1148,7 @@ export const interfaceAdapter = Object.freeze({
  * ```
  *
  * 然后用 `praxis.AgentArchetype`、`praxis.prompt.append`、
- * `praxis.model(...)`、`praxis.baseTools.code.read()` 来定义 Agent。
+ * `praxis.model(...)`、`praxis.basetool.core.fileRead()` 来定义 Agent。
  */
 export const praxis = Object.freeze({
   Agent: PraxisAgent,
@@ -671,25 +1171,45 @@ export const praxis = Object.freeze({
   endpoint,
   model,
   modelFleet,
+  auth: runtimeAuth,
 
   harness,
   loop,
   mainLoop,
   policy,
   sandbox,
+  capabilities,
+  capability,
+  dependencies,
+  dependency: dependencyAuthoring,
+  component,
   session,
+  project: defineProject,
   statePlane,
   storage,
+  memory,
 
-  baseTools,
+  basetool,
+  basetools: basetool,
+  baseTool,
+  baseToolProfile,
+  listBaseToolProfiles,
+  createBaseToolRegistry,
+  createBaseToolSupportCatalog,
+  evaluateBaseToolRuntimeReadiness,
   tool,
   tools,
   toolPolicies,
   toolSets,
   tryBaseToolById,
   listBaseToolDeveloperCatalog,
+  baseToolCodingCoreDescriptor,
 
   runtime: runtimeKernel,
+  projectPlane,
+  provision: provisionPlane,
+  dependencyPlane,
+  componentPlane,
   execution: executionCore,
   inspection,
   storagePlane,

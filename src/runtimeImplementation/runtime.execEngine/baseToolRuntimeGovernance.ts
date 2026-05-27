@@ -8,7 +8,7 @@
  * 实现提示：先输出稳定 governance decision，再由 Kernel 负责 approval envelope、event/session persistence 和实际 mount 调用。
  */
 
-import type { BaseToolRiskLevel } from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
+import type { BaseToolRiskLevel } from "../../basetool/types.js";
 import type {
   BaseToolPolicyDecision,
   BaseToolPolicyMatrixSpec,
@@ -22,7 +22,7 @@ import type {
   BaseToolSupportCatalogEntry,
 } from "./baseToolSupportCatalog.js";
 
-export type BaseToolRuntimeGovernanceStatus = "allow" | "deny" | "requiresApproval";
+export type BaseToolRuntimeGovernanceStatus = "allow" | "guarded" | "deny" | "requiresApproval";
 
 export type BaseToolRuntimeGovernanceRequest = {
   toolId: string;
@@ -126,12 +126,12 @@ function statusFromDecision(
   if (decision === "deny") return "deny";
   if (decision === "approval") return "requiresApproval";
   if (decision === "approval-on-destructive") return risk === "dangerous" ? "requiresApproval" : "allow";
+  if (decision === "guarded") return "guarded";
   return "allow";
 }
 
 function filesystemCreateCanRelaxApproval(request: BaseToolRuntimeGovernanceRequest, matchedRule: BaseToolPolicyRule | undefined): boolean {
   if (request.metadata?.filesystemAction !== "create") return false;
-  if (request.toolId.startsWith("omni.")) return false;
   if (request.policyMatrix.profile === "restricted") return false;
   if (matchedRule !== undefined && matchedRule.scope !== "action") return false;
   return true;
@@ -194,6 +194,8 @@ export function evaluateBaseToolRuntimeGovernance(
     events: [
       status === "allow"
         ? "runtime.execEngine.baseTool.governance.allowed"
+        : status === "guarded"
+          ? "runtime.execEngine.baseTool.governance.guarded"
         : status === "requiresApproval"
           ? "runtime.execEngine.baseTool.governance.requiresApproval"
           : "runtime.execEngine.baseTool.governance.denied",

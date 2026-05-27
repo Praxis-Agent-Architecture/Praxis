@@ -15,12 +15,11 @@
   "exclude": [
     "node_modules",
     "dist",
-    "test/agentCore/agent_executionEngine/basic_toolLayer/**/*.ts",
-    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/**/*.ts",
-    "examples/scripts/agentcore_*_live_matrix.ts",
-    "examples/scripts/agentcore_all_tools_matrix.ts",
-    "examples/scripts/agentcore_mcp_external_transport_smoke.ts",
-    "examples/scripts/agentcore_tool_lab.ts",
-    "examples/scripts/shellFullCapabilities.ts"
+    "test/agentCore/agent_executionEngine/basic_toolLayer",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.test.ts",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.test.ts",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.test.ts",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.test.ts",
+    "examples/scripts/agentcore_tool_lab.ts"
   ]
 }

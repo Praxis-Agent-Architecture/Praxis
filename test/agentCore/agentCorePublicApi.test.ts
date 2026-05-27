@@ -8,7 +8,6 @@ import {
   PraxisRuntimeKernel,
   authoringPrimitives,
   baseTool,
-  baseTools,
   compileAgent,
   createFrameworkInspectionReport,
   endpoint,
@@ -46,7 +45,7 @@ class MinimalDeveloperAgent extends PraxisAgent {
   model = model("gpt-5.4");
   harness = harness({
     tools: tools([
-      baseTools.code.read(),
+      baseTool.basetool.core.fileRead({ profileName: "codingCore" }),
     ]),
     policy: policy({ allowProviderCall: true, allowToolExecution: true }),
     loop: loop.standard({ maxModelTurns: 1, maxToolCalls: 1 }),
@@ -76,8 +75,8 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
   statePlane = statePlane({ expose: ["phase", "toolCalls"], control: ["pause"] });
   harness = harness({
     tools: tools([
-      baseTools.shell.commandExecution(),
-      ...toolSets.git.inspection(),
+      baseTool.basetool.core.shellRun({ profileName: "codingCore" }),
+      baseTool.basetool.core.fileSearch({ profileName: "codingCore" }),
     ]),
     loop: loop.standard({ maxModelTurns: 2, maxToolCalls: 2 }),
   });
@@ -85,14 +84,23 @@ class MatureDeveloperAgent extends PraxisAgentArchetype {
 
 test("public agentCore API lets developers compile minimal and mature agents without runtime internals", async () => {
   assert.equal(authoringPrimitives.PraxisAgent, PraxisAgent);
-  assert.equal(baseTool.baseTools.code.read().toolId, "code.read");
+  assert.equal(baseTool.basetool.core.fileRead().toolId, "file.read");
+  assert.deepEqual(baseTool.profiles().map((profile) => profile.name), [
+    "codingCore",
+    "researchCore",
+    "workCore",
+    "runtimeCore",
+    "agentCore",
+    "fullCore",
+  ]);
   assert.equal(packageAuthoringPrimitives.PraxisAgentArchetype, PraxisAgentArchetype);
   assert.equal(packageModelAuthoring.model("gpt-5.4").model, "gpt-5.4");
-  assert.equal(packageBaseTool.baseTools.git.getRepositoryStatus().toolId, "git.getRepositoryStatus");
+  assert.equal(packageBaseTool.basetool.core.fileSearch().toolId, "file.search");
   assert.equal(praxis.Agent, PraxisAgent);
   assert.equal(packagePraxis.AgentArchetype, PraxisAgentArchetype);
   assert.equal(packagePraxis.model("gpt-5.4").model, "gpt-5.4");
-  assert.equal(packagePraxis.baseTools.code.read().toolId, "code.read");
+  assert.equal(packagePraxis.basetool.core.fileRead().toolId, "file.read");
+  assert.equal(packagePraxis.memory.describeRisk("search").risk, "safe");
   assert.equal(packagePraxis.sandbox.linuxBubblewrap().providerFamily, "linux-bubblewrap");
   assert.equal(packagePraxis.toolPolicies.custom({ matrixId: "toolPolicy.public.custom" }).profile, "custom");
   assert.equal(packagePraxis.interfaceAdapter.createInterfaceEnvelope({
@@ -108,8 +116,8 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   if (!minimal.ok) return;
   assert.equal(minimal.manifest.sandbox.profile, "host-observed");
   assert.equal(minimal.manifest.toolPolicy.profile, "standard");
-  assert.equal(minimal.manifest.harness.tools[0]?.family, "codeBase");
-  assert.equal(minimal.manifest.harness.tools[0]?.group, "explore");
+  assert.equal(minimal.manifest.harness.tools[0]?.family, "coreBase");
+  assert.equal(minimal.manifest.harness.tools[0]?.group, "filesystem");
 
   const mature = compileAgent(MatureDeveloperAgent, { compiledAt: "2026-05-04T00:00:00.000Z" });
   assert.equal(mature.ok, true);
@@ -120,7 +128,7 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(mature.manifest.harness.sandbox.profile, "host-observed");
   assert.equal(mature.manifest.harness.storage.kind, "rax-workspace");
   assert.equal(mature.manifest.harness.storage.sessionStoreRef, "session.sqlite.workspace");
-  assert.equal(mature.manifest.harness.tools.some((item) => item.toolId === "git.getRepositoryStatus"), true);
+  assert.equal(mature.manifest.harness.tools.some((item) => item.toolId === "file.search"), true);
   const validation = validateAgentManifest(mature.manifest);
   assert.equal(validation.ok, true);
   if (!validation.ok) return;
@@ -160,7 +168,7 @@ test("public agentCore API lets developers compile minimal and mature agents wit
     assert.equal(inspection.report.audit.reportSurface, "runtime.inspection.frameworkInspectionReport");
     assert.equal(inspection.report.storage.writesSecrets, false);
     assert.equal(inspection.report.toolReadiness.total, mature.manifest.harness.tools.length);
-    assert.ok(inspection.report.toolReadiness.tools.some((tool) => tool.toolId === "shell.commandExecution"));
+    assert.ok(inspection.report.toolReadiness.tools.some((tool) => tool.toolId === "shell.run"));
     assert.equal(
       inspection.report.toolReadiness.byDeveloperReadiness.adapterRequired > 0 ||
         inspection.report.toolReadiness.byDeveloperReadiness.usableWithApproval > 0 ||

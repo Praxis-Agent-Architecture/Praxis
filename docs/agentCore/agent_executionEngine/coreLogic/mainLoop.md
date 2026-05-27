@@ -83,6 +83,7 @@
 - `createMainLoopAgentInterfacePrimitive` 只生成 agent interface handoff，不直接嵌套调用另一个 Agent。未来 multiagent 只能规模化接管 interface primitive，不能绕开 agentCore/MainLoop 合同。
 - `createMainLoopStateProgressionRecord` 记录 receive input、model invoked、tool running、approval pending、observation integrated、final output、failure、interrupt、resume 等关键动作如何推进 state/event。
 - `decideMainLoopPromptPackRebuild` 统一判断 PromptPack 是否需要重建：新用户输入、observation 变化、memory/context 变化、capability set 变化、model family 切换、compression/summary 完成、behavior ref 请求都能成为 trigger。
+- `decideTurnBoundaryCompact` 是上下文压缩的边界判定：当前 model/tool action 先完成，边界后用下一轮 PromptPack token 估算和默认 `0.95` 阈值决定是否 compact。白话说，它不在工具跑到一半时拦腰打断，而是在一轮动作结束后整理行李。
 
 输出边界必须稳定：上层应该依赖这里给出的标准结构，而不是依赖内部临时变量、provider 原始字段或工具底层细节。
 
@@ -139,5 +140,5 @@
 
 ## 15. 后续任务
 
-- `memoryBase` 暂不并入 MainLoop。本轮只保留 session-local fallback memory 与 `SummaryAgentRef`，后续应以 skillBase 风格设计一个可索引的 markdown memory 库，并允许 MP 接管。
+- `memoryBase` 暂不并入 MainLoop。本轮只保留观测材料、artifact 引用与 `SummaryAgentRef`；不建立 session-local fallback memory，也不让 MP 在这里接管隐藏记忆索引。
 - 如果新增 `memoryBase` BaseTool，必须继续走 BaseTool registry/handler/executor，不得让 MainLoop 直接读写长期记忆。

@@ -1,68 +1,46 @@
-import path from "node:path";
+/*
+ * 文件定位：Agent 执行引擎 / basic_toolLayer / toolDependency / dependencySourceRegistry。
+ * 核心目的：兼容旧依赖源查询 API，并委托 runtime.dependencyPlane 管理官方依赖源。
+ * 能力要求1：保留 trusted managed install plan 行为。
+ * 能力要求2：保留 detect-only 依赖不可静默安装的边界。
+ * 边界：不直接安装依赖，不读取 secret。
+ * 对接：runtime.dependencyPlane.dependencySourceRegistry。
+ * 实现提示：旧返回形状使用 ok/value，内部使用新版点号 dependency id。
+ */
 
-export type ToolDependencyProbeCommand = {
-  command: string;
-  args?: readonly string[];
-};
+import {
+  defaultManagedRoot,
+  lookupDependencySource as lookupRuntimeDependencySource,
+  planDependencyInstallation as planRuntimeDependencyInstallation,
+  dependencySourceRegistryDescriptor,
+  type DependencySource,
+} from "../../../runtimeImplementation/runtime.dependencyPlane/index.js";
 
-export type ToolDependencySourceEntry = {
-  sourceId: string;
-  dependencyId: string;
-  executableName: string;
-  safety: "trusted-detect-only" | "trusted-managed" | "external";
-  versionCommand?: ToolDependencyProbeCommand;
-  metadata?: Readonly<Record<string, unknown>>;
-};
+export { dependencySourceRegistryDescriptor };
 
-export type ToolDependencySourceLookupResult =
-  | { ok: true; source: ToolDependencySourceEntry }
-  | { ok: false; error: { code: "DEPENDENCY_SOURCE_NOT_FOUND"; message: string; publicSafe: true } };
-
-const sources: readonly ToolDependencySourceEntry[] = [
-  {
-    sourceId: "binary.git",
-    dependencyId: "git",
-    executableName: "git",
-    safety: "trusted-detect-only",
-    versionCommand: { command: "git", args: ["--version"] },
-  },
-  {
-    sourceId: "binary.rg",
-    dependencyId: "runtime.binary.rg",
-    executableName: "rg",
-    safety: "trusted-detect-only",
-    versionCommand: { command: "rg", args: ["--version"] },
-  },
-];
-
-export function lookupDependencySource(dependencyId: string): ToolDependencySourceLookupResult {
-  const source = sources.find((candidate) => candidate.dependencyId === dependencyId);
-  if (source !== undefined) return { ok: true, source };
-  return {
-    ok: false,
-    error: {
-      code: "DEPENDENCY_SOURCE_NOT_FOUND",
-      message: `Dependency source ${dependencyId} is not registered`,
-      publicSafe: true,
-    },
-  };
+export function managedBinDir(input: { managedRoot?: string; env?: Readonly<Record<string, string | undefined>>; homeDir?: string } = {}): string {
+  return `${defaultManagedRoot({ raxToolDepsRoot: input.managedRoot, env: input.env, homeDir: input.homeDir })}/bin`;
 }
 
-export function managedBinDir(input: {
-  managedRoot?: string;
-  env?: Readonly<Record<string, string | undefined>>;
-  homeDir?: string;
-} = {}): string {
-  return path.join(input.managedRoot ?? input.env?.PRAXIS_MANAGED_ROOT ?? input.homeDir ?? process.cwd(), "bin");
+export function lookupDependencySource(dependencyId: string):
+  | { ok: true; source: DependencySource; events: readonly string[] }
+  | { ok: false; error: { code: string; message: string; publicSafe: true }; events: readonly string[] } {
+  const result = lookupRuntimeDependencySource(dependencyId);
+  if (!result.ok) {
+    return { ok: false, error: { code: result.error.code, message: result.error.message, publicSafe: true }, events: result.events };
+  }
+  return { ok: true, source: result.value, events: result.events };
 }
 
 export function planDependencyInstallation(input: {
   dependencyId: string;
   managedRoot?: string;
-}): { dependencyId: string; approvalRequired: boolean; managedRoot?: string } {
-  return {
-    dependencyId: input.dependencyId,
-    approvalRequired: true,
-    managedRoot: input.managedRoot,
-  };
+  env?: Readonly<Record<string, string | undefined>>;
+  homeDir?: string;
+}) {
+  const result = planRuntimeDependencyInstallation(input);
+  if (!result.ok) {
+    return { ok: false as const, error: { code: result.error.code, message: result.error.message, publicSafe: true }, events: result.events };
+  }
+  return { ok: true as const, plan: result.value, events: result.events };
 }

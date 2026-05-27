@@ -19,7 +19,7 @@ test("interface envelope carries approval and runtime events to application surf
     sessionId: "session.interface",
     payload: {
       reason: "tool requires approval",
-      requestedScopes: ["tool.shell.commandExecution"],
+      requestedScopes: ["tool.shell.run"],
     },
   });
 

@@ -12,7 +12,7 @@ defineAgentCoreContractTest({
 test("evaluateRuntimeGovernancePlane returns a stable approval decision without side effects", () => {
   const result = evaluateRuntimeGovernancePlane({
     runtimeId: " runtime-alpha ",
-    action: " shellBase.run ",
+    action: " shell.run ",
     actionKind: "tool",
     caller: { kind: "official-module", id: "tap", moduleId: "tap" },
     requestedScopes: ["tool.invoke"],
@@ -22,7 +22,7 @@ test("evaluateRuntimeGovernancePlane returns a stable approval decision without 
       {
         id: " high-risk-tools ",
         decision: "requires-approval",
-        actions: ["shellBase.run"],
+        actions: ["shell.run"],
         callerKinds: ["official-module"],
         requiredScopes: ["tool.invoke"],
         approvalChannel: "tap.humanApproval",
@@ -38,7 +38,7 @@ test("evaluateRuntimeGovernancePlane returns a stable approval decision without 
   }
 
   assert.equal(result.decision.runtimeId, "runtime-alpha");
-  assert.equal(result.decision.action, "shellBase.run");
+  assert.equal(result.decision.action, "shell.run");
   assert.equal(result.decision.status, "requires-approval");
   assert.equal(result.decision.approvalRequired, true);
   assert.equal(result.decision.approvalChannel, "tap.humanApproval");
@@ -46,7 +46,7 @@ test("evaluateRuntimeGovernancePlane returns a stable approval decision without 
   assert.deepEqual(result.decision.auditTrail, [
     "runtime.governance.plane.evaluated",
     "runtime:runtime-alpha",
-    "action:shellBase.run",
+    "action:shell.run",
     "tool-call",
   ]);
   assert.equal(result.decision.unsafeSideEffects, false);

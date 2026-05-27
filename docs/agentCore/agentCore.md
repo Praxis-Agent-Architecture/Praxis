@@ -219,28 +219,22 @@ CMP 的上下文管理应该围绕 promptPack 展开。CMP 负责更高级的上
 
 它不负责真正执行能力，而负责把执行过程变成 runtime 可观察、可调试、可订阅、可治理的事件流。
 
-### 6.5 basic_toolLayer
+### 6.5 semantic basetool
 
-`basic_toolLayer` 是 Agent 基础工具原语层。
+`basetool` 是 Agent 基础工具语义层。
 
-它是 agentCore 的一部分，因为没有这些基础能力，Agent 很难成立，TAP 也无从构建高级能力系统。
+它是 agentCore 的一部分，因为没有少量稳定、模型熟悉、可治理的工具语义，Agent 很难成立，TAP 也无从构建高级能力系统。
 
-`baseTools` 当前覆盖：
+当前公开方向不是继续扩张旧的 176 个细粒度 `baseTools` 家族，而是收束为 compact semantic catalog。事实源由 `src/basetool/catalog.ts`、`src/basetool/profiles.ts`、`src/basetool/factMatrix.ts` 和 `src/basetool/registry.ts` 共同投影：
 
-- codeBase：代码读写、编辑、LSP、调试、测试。
-- shellBase：命令生成、命令执行、进程控制、交互控制、沙箱和权限。
-- gitBase：仓库、分支、文件、暂存区、提交、远端、stash、检查和高级操作。
-- mcpBase：连接、鉴权、工具、资源、调用、订阅、缓存和监控。
-- computeruseBase：截图、录屏、鼠标、键盘、摄像头、麦克风。
-- omniBase：图像、音频、视频生成和转换。
-- searchBase：搜索、抓取、事实锚定。
-- skillBase：skill 生成、迭代、管理、删除、搜索、总结。
+- `catalog`：工具 id、schema、风险、runtime port 和权限提示。
+- `profiles`：`codingCore`、`researchCore`、`workCore`、`runtimeCore`、`agentCore`、`fullCore` 的工具集合和描述。
+- `factMatrix`：给 policy、sandbox、readiness、application view 使用的事实矩阵。
+- `registry`：同一批语义工具的 handler 调度入口。
 
-`officeBase` 不再作为后续 baseTool 完成目标推进。文档、表格、演示和 PDF 这类 Office 能力应迁移到 TAP 的高级工具系统中承接；baseTools 只保留 Agent 成立所需的底层原语。
+`context.load` 只是 runtime-registered artifact、observation、session material 和 workspace index 的按需读取端口：调用方必须声明 `kind`，并提供具体 `ref` 或 workspace index `query`。它不代表要新增独立的 context 管理池。上下文治理继续挂在 PromptPack、compact 和 application/runtime 注入面上。
 
-当前已按 baseTool 厚度推进完成的家族是 `shellBase`、`gitBase`、`mcpBase`、`codeBase`、`searchBase` 和 `skillBase`。后续 baseTool 完成目标只剩 `computeruseBase` 和 `omniBase`。
-
-TAP 应基于这些基础原语继续构建更高级的工具治理、审批、选择、替换、组合和专业能力库。比如未来替代 CAD 画手的能力库应属于 TAP 的高级能力系统，但它仍然需要底层工具原语支持。
+TAP 应基于这些基础语义继续构建更高级的工具治理、审批、选择、替换、组合和专业能力库。文档、表格、演示、PDF、GUI、browser/computer/media 等产品级或插件级能力，应在 TAP/application 层承接，不回写成 Praxis 核心 basetool 的大而全工具家族。
 
 ## 7. modelAdapter 细分
 
@@ -499,7 +493,7 @@ runtime.invocationMethod/toolInvocationEntrypoint
   -> runtime.governancePlane
   -> TAP approval bridge
   -> runtime.execEngine
-  -> agent_executionEngine/basic_toolLayer/baseTools
+  -> basetool registry/handler/runtime port
   -> eventExposurePlane
 ```
 
@@ -562,7 +556,7 @@ CMP / MP / TAP / multiagent
 ```text
 11. agent_executionEngine/coreLogic
 12. agent_executionEngine/IOTransceiver
-13. agent_executionEngine/basic_toolLayer
+13. semantic basetool
 14. runtime.execEngine
 ```
 
@@ -585,11 +579,11 @@ CMP / MP / TAP / multiagent
 
 - 不要让 provider 字段形状反向定义 agentCore。
 - 不要把 promptPack 写成简单 prompt 字符串拼接器。
-- 不要把 baseTools 和 TAP 高级工具系统混成一层。
+- 不要把 semantic basetool 和 TAP 高级工具系统混成一层。
 - 不要让官方模块绕过 runtime。
 - 不要让上层应用直接碰 executionEngine 内部状态。
 - 不要把 runtime 写成普通启动器。
-- 不要把 488 个文件全部一次性填满。
+- 不要用旧的细粒度 baseTools 文件数量作为新 basetool 完成度指标。
 - 不要把 Raxode/Raxos 产品逻辑写回 agentCore 内核。
 
 ## 14. 当前结论

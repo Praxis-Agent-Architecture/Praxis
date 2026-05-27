@@ -3,9 +3,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import type { BaseToolExecutorPort } from "../../src/basetool/types.js";
+import { createBaseToolRegistry } from "../../src/basetool/registry.js";
+import { adaptRuntimeToolInvocation } from "../../src/basetool/invocationAdapter.js";
 import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 import { createMcpRuntimeAdapter } from "../../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
 

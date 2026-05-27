@@ -12,6 +12,15 @@ import { createHash } from "node:crypto";
 
 import type { RaxAuthRef, RaxReasoningEffort } from "../modelAdapter/index.js";
 import { createBaseToolSupportCatalog } from "./runtime.execEngine/baseToolSupportCatalog.js";
+import {
+  canonicalDependencyId,
+  dependencyKindFromId,
+  type DependencyDeclaration,
+} from "./runtime.dependencyPlane/index.js";
+import {
+  capability as capabilityAuthoring,
+  type CapabilitySpec,
+} from "./runtime.provisionPlane/index.js";
 
 export type CredentialRef = RaxAuthRef & {
   credentialId?: string;
@@ -37,6 +46,9 @@ export type ModelSpec = {
   endpointShape?: "responses" | "chat_completions" | "messages" | "custom" | (string & {});
   carrierId?: string;
   credentialRef?: CredentialRef;
+  providerProfileRef?: string;
+  modelEntryRef?: string;
+  credentialRefId?: string;
   reasoning?: ProviderReasoningConfig;
   baseURL?: string;
   clientName?: string;
@@ -119,6 +131,9 @@ export type ModelEndpointSpec = {
   carrierId?: string;
   baseURL?: string;
   credentialRef?: CredentialRef;
+  providerProfileRef?: string;
+  modelEntryRef?: string;
+  credentialRefId?: string;
   probe?: ModelEndpointProbeResult;
   capabilityMatrix?: ModelCapabilityMatrix;
   failurePolicy?: ModelFailurePolicy;
@@ -555,6 +570,8 @@ export type HarnessSpec = {
   statePlane?: StatePlaneSpec;
   modules?: Readonly<Record<string, unknown>>;
   runtimeRequirements?: readonly string[];
+  capabilities?: readonly CapabilitySpec[];
+  dependencies?: readonly DependencyDeclaration[];
   metadata?: Readonly<Record<string, unknown>>;
 };
 
@@ -573,6 +590,8 @@ export abstract class PraxisAgent {
   toolPolicy?: BaseToolPolicyMatrixSpec;
   session?: SessionSpec;
   statePlane?: StatePlaneSpec;
+  capabilities?: readonly CapabilitySpec[] | { capabilities?: readonly CapabilitySpec[]; dependencies?: readonly DependencyDeclaration[] };
+  dependencies?: readonly DependencyDeclaration[];
   behaviors?: BehaviorSpec;
   hooks?: AgentHooks;
 }
@@ -586,6 +605,8 @@ export abstract class PraxisAgentArchetype extends PraxisAgent {
   declare toolPolicy?: BaseToolPolicyMatrixSpec;
   declare session?: SessionSpec;
   declare statePlane?: StatePlaneSpec;
+  declare capabilities?: readonly CapabilitySpec[] | { capabilities?: readonly CapabilitySpec[]; dependencies?: readonly DependencyDeclaration[] };
+  declare dependencies?: readonly DependencyDeclaration[];
 }
 
 export type AgentSourceKind = "class" | "instance";
@@ -624,6 +645,8 @@ export type AgentManifest = {
   toolPolicy: BaseToolPolicyMatrixSpec;
   session: SessionSpec;
   statePlane: StatePlaneSpec;
+  capabilities: readonly CapabilitySpec[];
+  dependencies: readonly DependencyDeclaration[];
   frameworkCore: FrameworkCoreContractSpec;
   harness: Required<Pick<HarnessSpec, "context" | "memory" | "storage" | "promptPack" | "tools" | "policy" | "loop">> & {
     modelRef: string;
@@ -644,6 +667,8 @@ export type AgentManifest = {
     toolPolicy: BaseToolPolicyMatrixSpec;
     session: SessionSpec;
     statePlane: StatePlaneSpec;
+    capabilities: readonly CapabilitySpec[];
+    dependencies: readonly DependencyDeclaration[];
     frameworkCore: FrameworkCoreContractSpec;
     modules: Readonly<Record<string, unknown>>;
     runtimeRequirements: readonly string[];
@@ -774,6 +799,9 @@ export function model(modelName: string, input: Omit<ModelSpec, "provider" | "mo
     endpointShape: input.endpointShape ?? "responses",
     carrierId: input.carrierId,
     credentialRef: input.credentialRef,
+    providerProfileRef: input.providerProfileRef,
+    modelEntryRef: input.modelEntryRef,
+    credentialRefId: input.credentialRefId,
     reasoning: input.reasoning,
     baseURL: input.baseURL,
     clientName: input.clientName,
@@ -816,6 +844,9 @@ export function endpoint(
     carrierId: input.carrierId,
     baseURL: input.baseURL,
     credentialRef: input.credentialRef,
+    providerProfileRef: input.providerProfileRef,
+    modelEntryRef: input.modelEntryRef,
+    credentialRefId: input.credentialRefId,
     probe: input.probe,
     capabilityMatrix: input.capabilityMatrix,
     failurePolicy: input.failurePolicy,
@@ -1419,12 +1450,13 @@ export const toolPolicies = {
       profile: "codingAgentFull",
       defaultDecision: "deny",
       familyRules: [
-        { scope: "family", family: "codeBase", action: "read", decision: input.read ?? "allow", risk: "low", log: "full", approval: "none" },
-        { scope: "family", family: "codeBase", action: "write", decision: input.write ?? "approval", risk: "medium", log: "full", approval: "required" },
-        { scope: "family", family: "shellBase", decision: input.shell ?? "guarded", risk: "high", log: "full", approval: "on-risk" },
         { scope: "family", family: "gitBase", decision: input.git ?? "approval-on-destructive", risk: "destructive", log: "full", approval: "on-destructive" },
       ],
-      groupRules: [],
+      groupRules: [
+        { scope: "group", family: "coreBase", group: "filesystem", action: "read", decision: input.read ?? "allow", risk: "low", log: "full", approval: "none" },
+        { scope: "group", family: "coreBase", group: "edit", action: "write", decision: input.write ?? "approval", risk: "medium", log: "full", approval: "required" },
+        { scope: "group", family: "coreBase", group: "shell", decision: input.shell ?? "guarded", risk: "high", log: "full", approval: "on-risk" },
+      ],
       toolRules: [],
       actionRules: [],
       readinessPolicy: "observe",
@@ -1469,6 +1501,14 @@ function hasText(value: string | undefined): value is string {
 
 function cleanList(values: readonly string[] | undefined): readonly string[] {
   return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function mergeTextList(...lists: readonly (readonly (string | undefined)[] | undefined)[]): readonly string[] {
+  const values: string[] = [];
+  for (const list of lists) {
+    values.push(...(list ?? []).filter((value): value is string => value !== undefined));
+  }
+  return cleanList(values);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1614,6 +1654,9 @@ function defaultEndpointForModel(modelSpec: ModelSpec, identityId: string): Mode
     carrierId: modelSpec.carrierId ?? `${identityId}:carrier:${modelSpec.provider}:${modelSpec.model}`,
     baseURL: modelSpec.baseURL,
     credentialRef: modelSpec.credentialRef,
+    providerProfileRef: modelSpec.providerProfileRef,
+    modelEntryRef: modelSpec.modelEntryRef,
+    credentialRefId: modelSpec.credentialRefId,
   });
 }
 
@@ -1800,7 +1843,7 @@ function normalizeSandbox(input: SandboxSpec | undefined): NormalizeResult<Sandb
             ? "workspace-policy"
             : "custom"
       ),
-      dependencyRefs: cleanList(spec.dependencyRefs),
+      dependencyRefs: cleanList(spec.dependencyRefs).map(canonicalDependencyId),
       filesystem: spec.filesystem.trim() as SandboxFilesystemPolicy,
       network: spec.network.trim() as SandboxNetworkPolicy,
       shell: spec.shell.trim() as SandboxShellPolicy,
@@ -1831,6 +1874,130 @@ function normalizeSandbox(input: SandboxSpec | undefined): NormalizeResult<Sandb
       metadata: spec.metadata ?? {},
     },
   };
+}
+
+function dependenciesFromSandbox(spec: SandboxSpec): readonly DependencyDeclaration[] {
+  return cleanList(spec.dependencyRefs).map((dependencyId) => ({
+    dependencyId: canonicalDependencyId(dependencyId),
+    kind: dependencyKindFromId(dependencyId),
+    required: true,
+    reason: `required by sandbox ${spec.sandboxId}`,
+    metadata: {
+      source: "sandbox",
+      sandboxId: spec.sandboxId,
+    },
+  }));
+}
+
+function capabilityFromSandbox(spec: SandboxSpec): CapabilitySpec {
+  const isolation = spec.isolationLevel === "strong" ? "strong" : spec.isolationLevel === "workspace-policy" ? "workspace" : "none";
+  return {
+    ...capabilityAuthoring.sandbox({
+      capabilityId: `capability.sandbox.${spec.sandboxId}`,
+      isolation,
+      fallback: spec.metadata?.fallback === false ? false : true,
+      reason: `compiled from sandbox field ${spec.sandboxId}`,
+      metadata: {
+        source: "legacy-sandbox-field",
+        sandboxId: spec.sandboxId,
+        profile: spec.profile,
+      },
+    }),
+    dependencies: dependenciesFromSandbox(spec),
+  };
+}
+
+function normalizeDependencyDeclarations(
+  input: readonly DependencyDeclaration[] | undefined,
+): readonly DependencyDeclaration[] {
+  return (input ?? []).map((dependency) => ({
+    ...dependency,
+    dependencyId: canonicalDependencyId(dependency.dependencyId),
+    required: dependency.required ?? true,
+    metadata: dependency.metadata ?? {},
+  }));
+}
+
+function mergeDependencyDeclaration(
+  current: DependencyDeclaration,
+  incoming: DependencyDeclaration,
+): DependencyDeclaration {
+  return {
+    ...current,
+    version: current.version ?? incoming.version,
+    acceptedVersions: mergeTextList(current.acceptedVersions, incoming.acceptedVersions),
+    install: current.install ?? incoming.install,
+    sourceRef: current.sourceRef ?? incoming.sourceRef,
+    requiredScopes: mergeTextList(current.requiredScopes, incoming.requiredScopes),
+    secretRef: current.secretRef ?? incoming.secretRef,
+    reason: mergeTextList([current.reason], [incoming.reason]).join("; "),
+    metadata: {
+      ...(incoming.metadata ?? {}),
+      ...(current.metadata ?? {}),
+    },
+    required: current.required === true || incoming.required === true,
+    dependencyId: current.dependencyId,
+    kind: current.kind,
+  };
+}
+
+function isCapabilityArray(input: PraxisAgent["capabilities"]): input is readonly CapabilitySpec[] {
+  return Array.isArray(input);
+}
+
+function normalizeCapabilities(input: {
+  agentCapabilities?: PraxisAgent["capabilities"];
+  harnessCapabilities?: readonly CapabilitySpec[];
+  sandboxSpec: SandboxSpec;
+}): readonly CapabilitySpec[] {
+  const agentCapabilityInput = input.agentCapabilities;
+  const agentCapabilities = isCapabilityArray(agentCapabilityInput)
+    ? agentCapabilityInput
+    : agentCapabilityInput?.capabilities ?? [];
+  const harnessCapabilities = input.harnessCapabilities ?? [];
+  const sandboxCapability = capabilityFromSandbox(input.sandboxSpec);
+  const byId = new Map<string, CapabilitySpec>();
+  for (const capability of [sandboxCapability, ...harnessCapabilities, ...agentCapabilities]) {
+    byId.set(capability.capabilityId, {
+      ...capability,
+      required: capability.required ?? true,
+      fallback: capability.fallback ?? true,
+      componentRefs: cleanList(capability.componentRefs),
+      dependencies: normalizeDependencyDeclarations(capability.dependencies),
+      metadata: capability.metadata ?? {},
+    });
+  }
+  return [...byId.values()];
+}
+
+function normalizeAllDependencies(input: {
+  agentCapabilities?: PraxisAgent["capabilities"];
+  agentDependencies?: readonly DependencyDeclaration[];
+  harnessDependencies?: readonly DependencyDeclaration[];
+  capabilities: readonly CapabilitySpec[];
+  sandboxSpec: SandboxSpec;
+}): readonly DependencyDeclaration[] {
+  const agentCapabilityInput = input.agentCapabilities;
+  const dependenciesFromCapabilityBundle = isCapabilityArray(agentCapabilityInput)
+    ? []
+    : agentCapabilityInput?.dependencies ?? [];
+  const byId = new Map<string, DependencyDeclaration>();
+  for (const dependency of [
+    ...dependenciesFromSandbox(input.sandboxSpec),
+    ...input.capabilities.flatMap((capability) => capability.dependencies),
+    ...(input.harnessDependencies ?? []),
+    ...dependenciesFromCapabilityBundle,
+    ...(input.agentDependencies ?? []),
+  ]) {
+    const normalized = normalizeDependencyDeclarations([dependency])[0];
+    if (normalized === undefined) continue;
+    const current = byId.get(normalized.dependencyId);
+    byId.set(
+      normalized.dependencyId,
+      current === undefined ? normalized : mergeDependencyDeclaration(current, normalized),
+    );
+  }
+  return [...byId.values()];
 }
 
 function normalizeToolPolicy(input: BaseToolPolicyMatrixSpec | undefined): NormalizeResult<BaseToolPolicyMatrixSpec> {
@@ -1916,6 +2083,7 @@ function normalizeHarnessTools(input: readonly ToolSpec[] | undefined): Normaliz
       description: selectedTool.description ?? entry.title,
       metadata: {
         baseToolFamily: entry.family,
+        baseToolStorageFamily: entry.storageFamily,
         riskLevel: entry.riskLevel,
         ...(selectedTool.metadata ?? {}),
       },
@@ -2002,6 +2170,8 @@ function normalizeHarness(
     toolPolicy: BaseToolPolicyMatrixSpec;
     session: SessionSpec;
     statePlane: StatePlaneSpec;
+    capabilities: readonly CapabilitySpec[];
+    dependencies: readonly DependencyDeclaration[];
     frameworkCore: FrameworkCoreContractSpec;
   },
   normalizedTools: readonly ToolSpec[],
@@ -2054,6 +2224,8 @@ function normalizeHarness(
     frameworkCore: authoring.frameworkCore,
     modules: input.modules ?? {},
     runtimeRequirements: cleanList(input.runtimeRequirements),
+    capabilities: authoring.capabilities,
+    dependencies: authoring.dependencies,
     metadata: input.metadata ?? {},
   };
 }
@@ -2170,6 +2342,19 @@ export function compileAgent<TAgent extends PraxisAgent>(
     return failure(statePlaneSpec.code, statePlaneSpec.message, "agent-object");
   }
 
+  const capabilitySpecs = normalizeCapabilities({
+    agentCapabilities: agent.capabilities,
+    harnessCapabilities: agent.harness.capabilities,
+    sandboxSpec: sandboxSpec.value,
+  });
+  const dependencySpecs = normalizeAllDependencies({
+    agentCapabilities: agent.capabilities,
+    agentDependencies: agent.dependencies,
+    harnessDependencies: agent.harness.dependencies,
+    capabilities: capabilitySpecs,
+    sandboxSpec: sandboxSpec.value,
+  });
+
   const authoring = {
     identityId: identity.id,
     model: modelSpec,
@@ -2181,6 +2366,8 @@ export function compileAgent<TAgent extends PraxisAgent>(
     toolPolicy: toolPolicySpec.value,
     session: sessionSpec.value,
     statePlane: statePlaneSpec.value,
+    capabilities: capabilitySpecs,
+    dependencies: dependencySpecs,
     frameworkCore: createFrameworkCoreContract({
       promptPack: promptPackSpec.value,
       mainLoop: mainLoopSpec.value,
@@ -2206,6 +2393,8 @@ export function compileAgent<TAgent extends PraxisAgent>(
     toolPolicy: authoring.toolPolicy,
     session: authoring.session,
     statePlane: authoring.statePlane,
+    capabilities: authoring.capabilities,
+    dependencies: authoring.dependencies,
     frameworkCore: authoring.frameworkCore,
     harness: normalizeHarness(agent.harness, authoring, harnessTools.value),
     behaviors: agent.behaviors,
@@ -2287,7 +2476,12 @@ export function validateAgentManifest(input: unknown): AgentManifestValidationRe
     return manifestValidationFailure("MISSING_FRAMEWORK_CORE", "AgentManifest requires a frameworkCore contract", "manifest");
   }
 
-  if (containsRawSecretShape(manifest.model) || containsRawSecretShape(manifest.modelFleet)) {
+  if (
+    containsRawSecretShape(manifest.model) ||
+    containsRawSecretShape(manifest.modelFleet) ||
+    containsRawSecretShape(manifest.capabilities) ||
+    containsRawSecretShape(manifest.dependencies)
+  ) {
     return manifestValidationFailure("RAW_SECRET_REJECTED", "AgentManifest must contain credential refs, not raw provider secrets", "security");
   }
 

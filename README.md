@@ -36,7 +36,7 @@ The repository keeps runnable framework examples and diagnostics in separate pla
 
 - `examples/minimal`: smallest public-API agent example.
 - `examples/fullstack`: application-shaped backend example aligned with Raxode-style integration.
-- `examples/scripts`: example frontends, live chat, tool labs, and live matrix runners for the examples.
+- `examples/scripts`: current smoke entrypoints plus archived pre-semantic tool labs/matrices kept for migration reference only.
 - `src/devdoctor`: built-in diagnostic project used by `rax devdoctor`.
 - `automations`: repository maintenance automation only, such as build and dist helpers.
 

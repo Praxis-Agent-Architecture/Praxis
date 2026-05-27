@@ -1,36 +1,33 @@
-import type { ToolDependencyDeclaration } from "./dependencyManager.js";
+/*
+ * 文件定位：Agent 执行引擎 / basic_toolLayer / toolDependency / lspDependencyResolver。
+ * 核心目的：兼容旧 LSP 依赖解析入口，并转发 runtime.dependencyPlane LSP resolver。
+ * 能力要求1：按 target file/languageId 解析语言服务器依赖。
+ * 能力要求2：把 LSP profile 转成 dependencyManager declaration。
+ * 边界：不启动 LSP、不安装 server。
+ * 对接：runtime.dependencyPlane.lspDependencyResolver。
+ * 实现提示：保持 public-safe 错误形状。
+ */
 
-export type LspDependencyProfile = {
-  languageId?: string;
-  dependencyId: string;
-};
+import {
+  declarationsFromLspProfile as declarationsFromRuntimeLspProfile,
+  resolveLspDependency as resolveRuntimeLspDependency,
+  type LspDependencyProfile,
+  type LspDependencyResolverInput,
+} from "../../../runtimeImplementation/runtime.dependencyPlane/index.js";
 
-export type LspDependencyResolution =
-  | { ok: true; profile: LspDependencyProfile; events: readonly string[] }
-  | { ok: false; events: readonly string[] };
+export type { LspDependencyProfile, LspDependencyResolverInput };
 
-export function resolveLspDependency(input: {
-  toolId: string;
-  target?: { filePath?: string; languageId?: string };
-  workspaceRoot?: string;
-}): LspDependencyResolution {
-  const languageId = input.target?.languageId;
-  if (languageId === undefined) return { ok: false, events: ["agentCore.basicTool.lspDependency.unresolved"] };
+export function resolveLspDependency(input: LspDependencyResolverInput = {}) {
+  const result = resolveRuntimeLspDependency(input);
+  if (!result.ok) return result;
   return {
-    ok: true,
-    profile: {
-      languageId,
-      dependencyId: `lsp.server.${languageId}`,
-    },
-    events: ["agentCore.basicTool.lspDependency.resolved"],
+    ok: true as const,
+    profile: result.value.profile,
+    value: result.value,
+    events: result.events,
   };
 }
 
-export function declarationsFromLspProfile(profile: LspDependencyProfile): readonly ToolDependencyDeclaration[] {
-  return [{
-    dependencyId: profile.dependencyId,
-    kind: "runtime",
-    required: true,
-    displayName: profile.dependencyId,
-  }];
+export function declarationsFromLspProfile(profile?: LspDependencyProfile) {
+  return declarationsFromRuntimeLspProfile(profile);
 }

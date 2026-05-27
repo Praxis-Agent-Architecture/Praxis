@@ -12,7 +12,7 @@ test("sandbox helpers compile into provider-aware manifest fields", () => {
     model = praxis.model("gpt-5.4");
     sandbox = sandbox.linuxBubblewrap({ resourceLimits: { timeoutMs: 5_000, maxProcesses: 4 } });
     harness = praxis.harness({
-      tools: praxis.tools([praxis.baseTools.shell.commandExecution()]),
+      tools: praxis.tools([praxis.basetool.core.shellRun({ profileName: "runtimeCore" })]),
       loop: praxis.loop.single(),
     });
   }
@@ -27,7 +27,7 @@ test("sandbox helpers compile into provider-aware manifest fields", () => {
   assert.equal(result.manifest.sandbox.profile, "linux-bubblewrap");
   assert.equal(result.manifest.sandbox.providerFamily, "linux-bubblewrap");
   assert.equal(result.manifest.sandbox.isolationLevel, "process-namespace");
-  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["binary:bwrap"]);
+  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["dependency.binary.bwrap"]);
   assert.equal(result.manifest.sandbox.resourceLimits.maxProcesses, 4);
   assert.equal(result.manifest.sandbox.resourceLimits.memoryWarningPercent, 85);
   assert.equal(result.manifest.sandbox.metadata?.providerVersion, "v2");
@@ -80,11 +80,11 @@ test("sandbox runtime provider probes and smoke-tests linux bubblewrap when avai
 
   if (prepared.probe.status === "missingDependency") {
     assert.equal(prepared.ready, false);
-    assert.deepEqual(prepared.probe.missingDependencies, ["binary:bwrap"]);
-    assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "binary:bwrap"), true);
+    assert.deepEqual(prepared.probe.missingDependencies, ["dependency.binary.bwrap"]);
+    assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "dependency.binary.bwrap"), true);
     assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "installDependency"), true);
     assert.equal(prepared.probe.dependencyInstallEnvelopes.some((envelope) =>
-      envelope.dependencyId === "binary:bwrap" &&
+      envelope.dependencyId === "dependency.binary.bwrap" &&
       envelope.requiresApproval &&
       envelope.approvalSurface === "interface/application"
     ), true);
@@ -99,7 +99,7 @@ test("sandbox runtime provider probes and smoke-tests linux bubblewrap when avai
   }
 
   assert.equal(prepared.ready, true);
-  assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "binary:bwrap" && check.status === "available"), true);
+  assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "dependency.binary.bwrap" && check.status === "available"), true);
   assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "none"), true);
   assert.equal(prepared.smoke?.status, "passed");
   assert.equal(prepared.smoke?.checks?.every((check) => check.status === "passed"), true);
@@ -113,7 +113,18 @@ test("contract-only sandbox providers explain readiness instead of pretending to
   const prepared = await praxis.sandboxPlane.prepareSandboxRuntime(spec, { runSmoke: true });
 
   assert.equal(prepared.ready, false);
-  assert.equal(prepared.probe.status, "contractOnly");
-  assert.equal(prepared.probe.nextAction, "manualProviderSetup");
-  assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "manualProviderSetup"), true);
+  if (process.platform === "win32") {
+    assert.equal(prepared.probe.status, "contractOnly");
+    assert.equal(prepared.probe.nextAction, "installDependency");
+    assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "installDependency" && hint.requiresApproval), true);
+    assert.equal(prepared.probe.dependencyInstallEnvelopes.some((envelope) =>
+      envelope.dependencyId === "dependency.praxis.windowsSandboxHelper" &&
+      envelope.installTarget === "provider-managed" &&
+      envelope.requiresApproval &&
+      envelope.approvalSurface === "interface/application"
+    ), true);
+    return;
+  }
+  assert.equal(prepared.probe.status, "unsupportedPlatform");
+  assert.equal(prepared.probe.nextAction, "chooseDifferentProfile");
 });

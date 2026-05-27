@@ -120,7 +120,7 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
   );
 });
 
-test("assemblePromptPack keeps ten-section order and preserves capability provider order", () => {
+test("assemblePromptPack keeps fixed-section order and preserves capability provider order", () => {
   const defined = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
@@ -184,10 +184,18 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
         promptSegmentKind: "sessionSummary",
       },
       {
-        id: "memory-index",
+        id: "recent-conversation",
+        kind: "runtime",
+        text: "assistant: The previous local focus was promptPack renew.",
+        source: "runtime.conversation.recent",
+        trusted: true,
+        promptSegmentKind: "recentConversation",
+      },
+      {
+        id: "memory-ref",
         kind: "memory",
-        text: "Layered memory summary index.",
-        source: "mp.memory.index",
+        text: "Application-injected memory reference.",
+        source: "manifest.harness.memoryRefs",
         trusted: true,
         promptSegmentKind: "memoryContext",
       },
@@ -255,7 +263,8 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
       "dynamic-external",
       "project-context",
       "summary",
-      "memory-index",
+      "recent-conversation",
+      "memory-ref",
       "retrieved-memory",
       "observation",
       "task",
@@ -264,7 +273,7 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
   );
   assert.deepEqual(
     result.promptPack.cachePlan.dynamicSegmentKinds,
-    ["retrievedContext", "observations", "userTurn", "assistantScratchpadPlan"],
+    ["recentConversation", "retrievedContext", "observations", "userTurn", "assistantScratchpadPlan"],
   );
   assert.equal(result.promptPack.materials.at(-1)?.internalOnly, true);
   assert.deepEqual(result.promptPack.cachePlan.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
@@ -276,7 +285,8 @@ test("assemblePromptPack keeps ten-section order and preserves capability provid
       ["base", "tap", "mcp", "dynamic-external"],
       ["project-context"],
       ["summary"],
-      ["memory-index"],
+      ["recent-conversation"],
+      ["memory-ref"],
       ["retrieved-memory"],
       ["observation"],
       ["task"],
@@ -329,9 +339,9 @@ test("assemblePromptPack preserves developer input order inside the same segment
 
 test("assemblePromptPack hashes provider-visible prompt text without runtime heat metadata jitter", () => {
   const material = (score: number, expanded: boolean) => ({
-    id: "tool:code.read",
+    id: "tool:file.read",
     kind: "tool" as const,
-    text: "Tool: code.read\nDescription: Read files.",
+    text: "Tool: file.read\nDescription: Read files.",
     source: "runtime.baseToolContextFolding",
     sourceCategory: "declared-built-in" as const,
     priority: 60,
@@ -341,11 +351,11 @@ test("assemblePromptPack hashes provider-visible prompt text without runtime hea
     internalOnly: false,
     metadata: {
       toolMaterialType: "declaration",
-      toolName: "praxis_tool_code_read",
+      toolName: "praxis_tool_file_read",
       inputSchema: { type: "object", properties: { path: { type: "string" } } },
       baseToolContextExpanded: expanded,
       baseToolContextScore: score,
-      baseToolContextNodeId: "tool:code.read",
+      baseToolContextNodeId: "tool:file.read",
     },
   });
 

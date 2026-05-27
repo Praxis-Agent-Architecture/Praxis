@@ -28,6 +28,17 @@ test("planBasicToolDependencyProbe checks Praxis managed bin before PATH", () =>
   assert.equal(plan.candidates.at(-1)?.command, "typescript-language-server");
 });
 
+test("planBasicToolDependencyProbe maps canonical dependency ids to real executables", () => {
+  const plan = planBasicToolDependencyProbe(
+    { id: "dependency.lsp.typescriptLanguageServer", kind: "npm" },
+    { managedRoot: "/tmp/praxis-tool-deps" },
+  );
+
+  assert.equal(plan.dependencyId, "dependency.lsp.typescriptLanguageServer");
+  assert.equal(plan.candidates[0]?.command, "/tmp/praxis-tool-deps/bin/typescript-language-server");
+  assert.equal(plan.candidates.at(-1)?.command, "typescript-language-server");
+});
+
 test("checkBasicToolDependencies accepts provided probes without probing the host", () => {
   const result = checkBasicToolDependencies({
     context: {
@@ -60,6 +71,27 @@ test("checkBasicToolDependencies accepts provided probes without probing the hos
   assert.equal(result.report.externalProbePerformed, false);
   assert.equal(result.report.dryRun, true);
   assert.equal(result.report.unsafeSideEffects, false);
+});
+
+test("checkBasicToolDependencies matches legacy declarations with canonical probes", () => {
+  const result = checkBasicToolDependencies({
+    context: {
+      runtimeId: "runtime-1",
+      toolId: "code.lsp.locateDefinition",
+    },
+    dependencies: [
+      { id: "lsp.server.typescript-language-server", kind: "package" },
+    ],
+    probes: [
+      { id: "dependency.lsp.typescriptLanguageServer", available: true, version: "4.0.0" },
+    ],
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) {
+    assert.fail("canonical probe should satisfy legacy dependency declaration");
+  }
+  assert.deepEqual(result.report.missingRequired, []);
 });
 
 test("checkBasicToolDependencies reports missing required dependencies with a partial report", () => {

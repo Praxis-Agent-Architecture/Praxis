@@ -19,58 +19,6 @@ function knownTools(toolIds: readonly string[]): ToolSpec[] {
   });
 }
 
-function omniTestableTools(): ToolSpec[] {
-  return knownTools([
-    "omni.viewImage",
-    "omni.generateImage",
-    "omni.imageCompressor",
-    "omni.imageFormatConversion",
-    "omni.listenAudio",
-    "omni.audioLyricsGeneration",
-    "omni.generateAudio",
-    "omni.audioCompressor",
-    "omni.audioFormatConversion",
-    "omni.viewVideo",
-    "omni.videoSubtitleGeneration",
-    "omni.videoCompressor",
-    "omni.videoFormatConversion",
-    "omni.generateVideo",
-  ]);
-}
-
-function computerUseTestableTools(): ToolSpec[] {
-  return knownTools([
-    "computeruse.fullscreenScreenshot",
-    "computeruse.windowScreenshot",
-    "computeruse.rectangularSelectionScreenshot",
-    "computeruse.freeformScreenshot",
-    "computeruse.screenshotStorage",
-    "computeruse.fullscreenScreenRecording",
-    "computeruse.windowScreenRecording",
-    "computeruse.rectangularSelectionScreenRecording",
-    "computeruse.screenRecordingStorage",
-    "computeruse.microphonePermissionRequest",
-    "computeruse.microphoneSelect",
-    "computeruse.microphoneStartRecording",
-    "computeruse.microphoneStopRecording",
-    "computeruse.microphonePermissionRelease",
-    "computeruse.cameraPermissionRequest",
-    "computeruse.cameraSelect",
-    "computeruse.cameraCapturePhoto",
-    "computeruse.cameraStartRecording",
-    "computeruse.cameraStopRecording",
-    "computeruse.cameraPermissionRelease",
-    "computeruse.cameraContentStorage",
-    "computeruse.mouseClick",
-    "computeruse.mouseMove",
-    "computeruse.mouseScroll",
-    "computeruse.cursorLocate",
-    "computeruse.keyboardInputEmulation",
-    "computeruse.keyboardSubmitInput",
-    "computeruse.inputCheckboxConfirm",
-  ]);
-}
-
 export function createRepoInspectorToolSet(options: NormalizedRepoInspectorOptions): ToolSpec[] {
   if (options.includeAllTestable) {
     return praxis.listBaseToolDeveloperCatalog()
@@ -81,14 +29,12 @@ export function createRepoInspectorToolSet(options: NormalizedRepoInspectorOptio
 
   return [
     ...praxis.toolSets.coding.readonly({
-      includeGit: true,
       includeSearch: options.mode === "deep",
     }),
     ...(options.includeShell ? praxis.toolSets.shell.safe() : []),
     ...(options.includeSkillAuthoring ? praxis.toolSets.skill.authoring() : []),
-    ...(options.includeOmni ? omniTestableTools() : []),
-    ...(options.includeComputerUse ? computerUseTestableTools() : []),
-    praxis.baseTools.skill.ripgrep({
+    praxis.basetool.extension.skillLoad({
+      profileName: "codingCore",
       description: "只读检索本机可用的 skill/context 材料。",
     }),
   ];

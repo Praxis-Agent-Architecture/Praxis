@@ -11,9 +11,9 @@
 
 ## 2. 文件职责
 
-为多 Agent 管理系统桥接 spawn、resume、interrupt、coordination 等能力。
+为多 Agent 管理系统桥接 project-local session mesh 能力，包括 spawn、message、inbox、wait、stop、kill、list、inspect 和 coordination。
 
-这个文件的核心不是“占一个目录位置”，而是要在当前路径上形成一个可实现、可测试、可被 runtime 或相邻模块调用的窄能力点。它应该围绕“为多 Agent 管理系统桥接 spawn、resume、interrupt、coordination 等能力”建立清晰的输入、输出、错误和治理边界。
+这个文件的核心不是“占一个目录位置”，而是要在当前路径上形成一个可实现、可测试、可被 runtime 或相邻模块调用的窄能力点。它应该围绕“为多 Agent 管理系统桥接 project-local session mesh 能力”建立清晰的输入、输出、错误和治理边界。
 
 ## 2.1 文件名语义拆解
 
@@ -30,8 +30,8 @@
 ## 4. 源码头部能力注释
 
 - 文件定位：Agent 运行态实现层 / 官方模块承托面。
-- 核心目的：为多 Agent 管理系统桥接 spawn、resume、interrupt、coordination 等能力。
-- 能力要求1：需要让多 Agent 系统能够复用 agentCore 实例和 runtime surface。
+- 核心目的：为多 Agent 管理系统桥接 project-local session mesh 能力。
+- 能力要求1：需要让多 Agent 系统能够复用 agentCore 实例、session mesh 和 runtime surface。
 - 能力要求2：它不实现完整 multiagent 策略，只提供 runtime 接入和协作边界。
 - 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
 - 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
@@ -39,8 +39,8 @@
 
 ## 5. 需要提供的能力
 
-- 为多 Agent 管理系统桥接 spawn、resume、interrupt、coordination 等能力
-- 需要让多 Agent 系统能够复用 agentCore 实例和 runtime surface。
+- 为多 Agent 管理系统桥接 spawn、message、inbox、wait、stop、kill、list、inspect 和 coordination 等能力。
+- 需要让多 Agent 系统能够复用 agentCore 实例、session mesh 和 runtime surface。
 - 它不实现完整 multiagent 策略，只提供 runtime 接入和协作边界。
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。
 - 为上层调用方保留必要的运行上下文、治理上下文和事件线索。
@@ -94,7 +94,7 @@
 ## 12. 最小实现建议
 
 - 先定义 TypeScript 类型契约：输入、输出、错误、上下文和最小配置。
-- 实现一个最小纯函数或薄类壳，能完成“为多 Agent 管理系统桥接 spawn、resume、interrupt、coordination 等能力”的可测路径。
+- 实现一个最小纯函数或薄类壳，能完成“为多 Agent 管理系统桥接 project-local session mesh 能力”的可测路径。
 - 所有副作用先通过明确依赖注入进入，避免在文件内部偷偷读全局状态。
 
 第一版实现应该追求“能被调用、能被测、边界清楚”，不要追求一次性完整。
@@ -102,7 +102,7 @@
 ## 13. 最小测试建议
 
 - 空输入、最小合法输入、非法输入各至少一组。
-- 验证该文件确实只完成“为多 Agent 管理系统桥接 spawn、resume、interrupt、coordination 等能力”，没有越界承担相邻模块职责。
+- 验证该文件确实只完成“为多 Agent 管理系统桥接 project-local session mesh 能力”，没有越界承担相邻模块职责。
 - 验证错误结果可解释、可分类、不会泄漏不该暴露的内部细节。
 - 验证 runtime surface 在未 ready、治理拒绝、契约失败时的行为一致。
 

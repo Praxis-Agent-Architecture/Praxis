@@ -21,9 +21,9 @@ test("fullstack repo inspector compiles through project agent entry", () => {
   assert.equal(validation.manifest.storage.kind, "rax-workspace");
   assert.equal(validation.manifest.promptPack.promptPackId, "prompt.example.repoInspector");
   assert.equal(validation.manifest.promptPack.materials.includes("repoInspector.toolRules"), true);
-  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "code.read"), true);
-  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "git.getRepositoryStatus"), true);
-  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "skill.ripgrep"), true);
+  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "file.read"), true);
+  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "file.search"), true);
+  assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "skill.load"), true);
 });
 
 test("fullstack deep permissive variant expands the harness", () => {
@@ -33,7 +33,7 @@ test("fullstack deep permissive variant expands the harness", () => {
 
   assert.equal(compiled.manifest.identity.id, "agent.example.repoInspector.deep.permissive");
   assert.equal(compiled.manifest.session.persistence, "memory");
-  assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "shell.commandExecution"), true);
-  assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "skill.generate"), true);
+  assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "shell.run"), true);
+  assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "skill.load"), true);
   assert.ok(compiled.manifest.harness.tools.length > 5);
 });

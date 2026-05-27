@@ -17,7 +17,7 @@ defineAgentCoreContractTest({
 test("createTapApprovalGovernanceBridge plans a dry-run TAP approval envelope", () => {
   const governance = evaluateRuntimeGovernancePlane({
     runtimeId: "runtime-alpha",
-    action: "shellBase.run",
+    action: "shell.run",
     actionKind: "tool",
     caller: { kind: "official-module", id: "tap", moduleId: "tap" },
     requestedScopes: ["tool.invoke"],
@@ -27,7 +27,7 @@ test("createTapApprovalGovernanceBridge plans a dry-run TAP approval envelope", 
       {
         id: "tool-approval",
         decision: "requires-approval",
-        actions: ["shellBase.run"],
+        actions: ["shell.run"],
         approvalChannel: "tap.humanApproval",
       },
     ],
@@ -55,7 +55,7 @@ test("createTapApprovalGovernanceBridge plans a dry-run TAP approval envelope", 
   assert.equal(result.plan.dispatch, "dry-run");
   assert.equal(result.plan.tapCallPlanned, true);
   assert.equal(result.plan.tapStrategyImplemented, false);
-  assert.equal(result.plan.approval?.requestId, "tap:runtime-alpha:shellBase.run:tap");
+  assert.equal(result.plan.approval?.requestId, "tap:runtime-alpha:shell.run:tap");
   assert.equal(result.plan.approval?.approvalChannel, "tap.humanApproval");
   assert.equal(result.plan.approval?.delegatedToTap, true);
   assert.equal(result.plan.approval?.humanConfirmationRequired, true);
@@ -65,12 +65,12 @@ test("createTapApprovalGovernanceBridge plans a dry-run TAP approval envelope", 
 test("createTapApprovalGovernanceBridge preserves governance and TAP mount failures", () => {
   const denied = createTapApprovalGovernanceBridge({
     runtimeId: "runtime-alpha",
-    action: "shellBase.run",
+    action: "shell.run",
     caller: { kind: "application", id: "app" },
     governanceDecision: {
       status: "deny",
       runtimeId: "runtime-alpha",
-      action: "shellBase.run",
+      action: "shell.run",
       actionKind: "tool",
       caller: { kind: "application", id: "app" },
       requestedScopes: ["tool.invoke"],
@@ -95,7 +95,7 @@ test("createTapApprovalGovernanceBridge preserves governance and TAP mount failu
 
   const tapMissing = createTapApprovalGovernanceBridge({
     runtimeId: "runtime-alpha",
-    action: "shellBase.run",
+    action: "shell.run",
     targetKind: "tool-call",
     caller: { kind: "application", id: "app" },
     riskLevel: "high",
@@ -114,7 +114,7 @@ test("createTapApprovalGovernanceBridge preserves governance and TAP mount failu
 test("createTapApprovalGovernanceBridge normalizes direct approval envelope identifiers", () => {
   const result = createTapApprovalGovernanceBridge({
     runtimeId: " runtime-alpha ",
-    action: " shellBase.run ",
+    action: " shell.run ",
     targetKind: "tool-call",
     caller: { kind: "application", id: " app.main " },
     riskLevel: "high",
@@ -127,7 +127,7 @@ test("createTapApprovalGovernanceBridge normalizes direct approval envelope iden
   }
 
   assert.equal(result.plan.runtimeId, "runtime-alpha");
-  assert.equal(result.plan.action, "shellBase.run");
-  assert.equal(result.plan.approval?.requestId, "tap:runtime-alpha:shellBase.run:app.main");
+  assert.equal(result.plan.action, "shell.run");
+  assert.equal(result.plan.approval?.requestId, "tap:runtime-alpha:shell.run:app.main");
   assert.equal(result.plan.approval?.requestedBy.id, "app.main");
 });

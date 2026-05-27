@@ -1,16 +1,6 @@
-export function describeShellWorkspaceWrite(input: string | {
-  cwd?: string;
-  command?: string;
-  args?: readonly string[];
-}): string {
-  if (typeof input === "string") return input;
-  return [input.command, ...(input.args ?? [])].filter(Boolean).join(" ") || input.cwd || "workspace write";
-}
+/*
+ * Legacy compatibility shim.
+ * New runtime code should import from runtime.execEngine/workspaceWriteGuard.js.
+ */
 
-export function shellWorkspaceWriteGuardMessage(input: string | {
-  cwd?: string;
-  command?: string;
-  args?: readonly string[];
-}): string {
-  return `Shell workspace write requires approval: ${describeShellWorkspaceWrite(input)}`;
-}
+export * from "../../../../runtimeImplementation/runtime.execEngine/workspaceWriteGuard.js";

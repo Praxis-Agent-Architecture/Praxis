@@ -24,6 +24,16 @@ import {
   type PraxisApplicationViewModel,
 } from "../applicationLayer/index.js";
 import type { AgentManifest } from "../agentCore/index.js";
+import {
+  analyzeExecutionMonitor,
+  type ExecutionMonitorFinding,
+  type ExecutionMonitorReport,
+} from "../runtimeImplementation/runtime.executionMonitor/index.js";
+import { resolveAuthEnvelope } from "../modelAdapter/authProfileLayer/authResolver.js";
+import { createCredentialRef } from "../modelAdapter/authProfileLayer/credentialRef.js";
+import { createProviderCaller } from "../modelAdapter/providerAccessLayer/providerCaller.js";
+import { createChatGPTCodexResponsesCarrier } from "../modelAdapter/providerAccessLayer/providerCarrier.js";
+import { fetchProviderTransport } from "../modelAdapter/providerAccessLayer/transportCaller.js";
 import type { RaxCliResult } from "../rax_packageManager/raxCli.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -121,7 +131,8 @@ const USAGE = [
   "  rax devdoctor init [--devdoctor-dir path] [--force] [--json]",
   "  rax devdoctor inspect --run latest|path [--devdoctor-dir path] [--json]",
   "  rax devdoctor report --run latest|path [--devdoctor-dir path] [--json]",
-  "  rax devdoctor cache-xray --run latest|path [--devdoctor-dir path] [--json]",
+  "  rax devdoctor monitor [--run latest|path] [--project path] [--devdoctor-dir path] [--json] [--fail-on-error]",
+  "  rax devdoctor cache-xray --run latest|path [--devdoctor-dir path] [--json]  # compatibility alias for monitor cache diagnostics",
   "  rax devdoctor tools --run latest|path [--devdoctor-dir path] [--json]",
   "  rax devdoctor logs --run latest|path [--devdoctor-dir path] [--json]",
   "  rax devdoctor compat --run latest|path [--devdoctor-dir path] [--json]",
@@ -200,8 +211,48 @@ async function createDevdoctorLiveProvider(
     throw new Error("No Codex auth file found. Provide --codex-auth-file, AGENTCORE_CODEX_AUTH_FILE, project .rax_workspace auth, ~/.rax auth, or ~/.codex/auth.json.");
   }
 
+  const credentialRef = createCredentialRef({
+    id: `devdoctor:${manifest.identity.id}:chatgpt-codex`,
+    provider: "openai",
+    credentialType: "chatgpt_codex_oauth",
+    source: { kind: "codex-auth-file", filePath: authFile },
+  });
+  if (!credentialRef.ok) {
+    throw new Error(credentialRef.error.message);
+  }
+
+  const auth = resolveAuthEnvelope({
+    credentialRef: credentialRef.credentialRef,
+    readFile: (filePath) => {
+      try {
+        return readFileSync(filePath, "utf8");
+      } catch {
+        return undefined;
+      }
+    },
+  });
+  if (!auth.ok) {
+    throw new Error(auth.error.message);
+  }
+
+  const carrier = createChatGPTCodexResponsesCarrier({
+    carrierId: manifest.model.carrierId,
+    model: manifest.model.model,
+    credentialRef: credentialRef.credentialRef,
+    clientName: manifest.model.clientName ?? "praxis-devdoctor",
+    clientVersion: manifest.model.clientVersion ?? process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0",
+  });
+  if (!carrier.ok) {
+    throw new Error(carrier.error.message);
+  }
+
   return {
-    auth: { type: "none" },
+    auth: auth.resolved.envelope,
+    providerCaller: createProviderCaller({
+      transport: fetchProviderTransport,
+      authMaterial: auth.resolved.privateMaterial,
+      timeoutMs: Number(process.env.RAX_PROVIDER_TIMEOUT_MS ?? "60000"),
+    }),
     provider: manifest.model.provider,
     endpointShape: manifest.model.endpointShape,
   };
@@ -755,7 +806,25 @@ async function writeTranscript(runDir: string, prompt: string, view: PraxisAppli
 
 async function resolveExistingRun(args: readonly string[]): Promise<string> {
   const devdoctorDir = path.resolve(argValue(args, "--devdoctor-dir") ?? defaultDevdoctorDir());
-  const requested = argValue(args, "--run") ?? args[1] ?? "latest";
+  const optionNamesWithValue = new Set([
+    "--devdoctor-dir",
+    "--run",
+    "--project",
+    "--profile",
+    "--backend",
+    "--url",
+    "--prompt",
+    "--workspace",
+    "--cwd",
+    "--codex-auth-file",
+    "--auth-file",
+    "--model",
+    "--reasoning-effort",
+    "--permission-profile",
+    "--permission",
+  ]);
+  const positionalRun = args.find((arg, index) => !arg.startsWith("--") && !optionNamesWithValue.has(args[index - 1] ?? ""));
+  const requested = argValue(args, "--run") ?? positionalRun ?? "latest";
   if (requested !== "latest") {
     return path.resolve(requested);
   }
@@ -943,28 +1012,150 @@ async function handleInspect(args: readonly string[]): Promise<RaxCliResult> {
 }
 
 async function handleCacheXray(args: readonly string[]): Promise<RaxCliResult> {
-  const runDir = await resolveExistingRun(args);
-  const views = await readJsonl<PraxisApplicationViewModel>(path.join(runDir, "views.jsonl"));
-  const last = views.at(-1);
-  const report = {
-    runDir,
-    status: last?.usage === undefined && last?.context === undefined ? "no-cache-telemetry" : "ok",
-    usage: last?.usage,
-    context: last?.context,
-    model: last?.model,
-    note: "cache-xray reads applicationLayer usage/context fields. Provider-specific cache payloads can be added later without changing the run recorder.",
-  };
-  await writeFile(path.join(runDir, "cache-xray.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  if (hasFlag(args, "--json")) {
-    return { exitCode: 0, output: `${JSON.stringify(report, null, 2)}\n` };
-  }
+  const monitor = await buildExecutionMonitorReport(args);
+  await writeFile(path.join(monitor.report.source.runDir ?? ".", "cache-xray.json"), `${JSON.stringify(monitor.cacheAlias, null, 2)}\n`, "utf8");
+  if (hasFlag(args, "--json")) return { exitCode: 0, output: `${JSON.stringify(monitor.cacheAlias, null, 2)}\n` };
   return {
     exitCode: 0,
     output: [
-      `Cache xray: ${report.status}`,
-      `Run: ${runDir}`,
-      last?.usage === undefined ? "Usage: not captured" : `Usage: ${JSON.stringify(last.usage)}`,
-      last?.context === undefined ? "Context: not captured" : `Context: ${JSON.stringify(last.context)}`,
+      `Cache xray: ${monitor.cacheAlias.status}`,
+      `Run: ${monitor.report.source.runDir}`,
+      `Model calls: ${monitor.report.project.usage.modelCalls}`,
+      monitor.report.project.cache.weightedCacheHitRate === undefined
+        ? "Weighted cache hit: unknown"
+        : `Weighted cache hit: ${(monitor.report.project.cache.weightedCacheHitRate * 100).toFixed(1)}%`,
+      `Provider cache misses: ${monitor.report.project.cache.providerCacheMissCalls}`,
+      `Previous response reuse calls: ${monitor.report.project.cache.previousResponseReuseCalls}`,
+      "",
+    ].join("\n"),
+  };
+}
+
+type DevdoctorExecutionMonitorBuild = {
+  report: ExecutionMonitorReport;
+  cacheAlias: {
+    runDir?: string;
+    status: "ok" | "warning" | "error" | "no-model-calls";
+    usage: ExecutionMonitorReport["project"]["usage"];
+    cache: ExecutionMonitorReport["project"]["cache"];
+    health: ExecutionMonitorReport["project"]["health"];
+    findings: readonly ExecutionMonitorFinding[];
+    note: string;
+  };
+};
+
+async function buildExecutionMonitorReport(args: readonly string[]): Promise<DevdoctorExecutionMonitorBuild> {
+  const runDir = await resolveExistingRun(args);
+  const events = await readJsonl<PraxisApplicationEvent>(path.join(runDir, "events.jsonl"));
+  const views = await readJsonl<PraxisApplicationViewModel>(path.join(runDir, "views.jsonl"));
+  const config = await readJsonFile<{
+    profileName?: string;
+    profile?: DevdoctorProfileConfig;
+  }>(path.join(runDir, "config.json"));
+  const project = argValue(args, "--project")
+    ?? (config?.profile?.backend.kind === "localProject" ? config.profile.backend.project : undefined)
+    ?? views.at(-1)?.workspaceRoot;
+  const report = analyzeExecutionMonitor({
+    events,
+    views,
+    runDir,
+    profileName: config?.profileName,
+    project,
+  });
+  await writeFile(path.join(runDir, "execution-monitor.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await writeFile(path.join(runDir, "execution-monitor.md"), formatExecutionMonitorReport(report), "utf8");
+  const cacheAlias = {
+    runDir,
+    status: report.project.usage.modelCalls === 0
+      ? "no-model-calls" as const
+      : report.project.health.errors > 0
+        ? "error" as const
+        : report.project.health.warnings > 0
+          ? "warning" as const
+          : "ok" as const,
+    usage: report.project.usage,
+    cache: report.project.cache,
+    health: report.project.health,
+    findings: report.findings,
+    note: "cache-xray is a compatibility alias for rax devdoctor monitor; use execution-monitor.json for the full turn/session/project report tree.",
+  };
+  return { report, cacheAlias };
+}
+
+function severityRank(severity: ExecutionMonitorFinding["severity"]): number {
+  return severity === "error" ? 3 : severity === "warn" ? 2 : 1;
+}
+
+function topFindings(findings: readonly ExecutionMonitorFinding[], limit = 12): readonly ExecutionMonitorFinding[] {
+  return [...findings]
+    .sort((left, right) => severityRank(right.severity) - severityRank(left.severity))
+    .slice(0, limit);
+}
+
+function formatPercent(value: number | undefined): string {
+  return value === undefined ? "unknown" : `${(value * 100).toFixed(1)}%`;
+}
+
+function formatExecutionMonitorReport(report: ExecutionMonitorReport): string {
+  const lines = [
+    "# Execution Monitor",
+    "",
+    `Run: ${report.source.runDir ?? "in-memory"}`,
+    `Generated: ${report.generatedAt}`,
+    report.source.project === undefined ? undefined : `Project: ${report.source.project}`,
+    `Health: ${report.project.health.grade}`,
+    `Sessions analyzed: ${report.project.health.sessionsAnalyzed}`,
+    "",
+    "## Cache",
+    "",
+    `Model calls: ${report.project.usage.modelCalls}`,
+    `Weighted cache hit: ${formatPercent(report.project.cache.weightedCacheHitRate)}`,
+    `Telemetry coverage: ${formatPercent(report.project.cache.cacheTelemetryCoverage)}`,
+    `Provider cache miss calls: ${report.project.cache.providerCacheMissCalls}`,
+    `Previous response reuse calls: ${report.project.cache.previousResponseReuseCalls}`,
+    "",
+    "## Cost",
+    "",
+    `Input tokens: ${report.project.usage.inputTokens}`,
+    `Cached input tokens: ${report.project.usage.cachedInputTokens}`,
+    `Non-cached input tokens: ${report.project.usage.nonCachedInputTokens}`,
+    `Output tokens: ${report.project.usage.outputTokens}`,
+    `Thinking tokens: ${report.project.usage.thinkingTokens}`,
+    `Total tokens: ${report.project.usage.totalTokens}`,
+    "",
+    "## Findings",
+    "",
+    ...topFindings(report.findings).map((item) => `- [${item.severity}] ${item.id}: ${item.title} (${item.targetPlane})`),
+    report.findings.length > 12 ? `- ... ${report.findings.length - 12} more finding(s) in execution-monitor.json` : undefined,
+    "",
+    "## Sessions",
+    "",
+    ...report.sessions.flatMap((session) => [
+      `- ${session.sessionId}: ${session.turns.length} turn(s), ${session.usage.modelCalls} model call(s), cache ${formatPercent(session.cache.weightedCacheHitRate)}, health ${session.health.grade}`,
+    ]),
+    "",
+  ];
+  return `${lines.filter((line): line is string => line !== undefined).join("\n")}\n`;
+}
+
+async function handleMonitor(args: readonly string[]): Promise<RaxCliResult> {
+  const monitor = await buildExecutionMonitorReport(args);
+  const hasErrors = monitor.report.findings.some((findingItem) => findingItem.severity === "error");
+  if (hasFlag(args, "--json")) {
+    return {
+      exitCode: hasFlag(args, "--fail-on-error") && hasErrors ? 1 : 0,
+      output: `${JSON.stringify(monitor.report, null, 2)}\n`,
+    };
+  }
+  return {
+    exitCode: hasFlag(args, "--fail-on-error") && hasErrors ? 1 : 0,
+    output: [
+      `Execution monitor: ${monitor.report.project.health.grade}`,
+      `Run: ${monitor.report.source.runDir}`,
+      `Sessions: ${monitor.report.sessions.length}, model calls: ${monitor.report.project.usage.modelCalls}`,
+      `Weighted cache hit: ${formatPercent(monitor.report.project.cache.weightedCacheHitRate)}`,
+      `Findings: ${monitor.report.findings.length} (${monitor.report.project.health.errors} error, ${monitor.report.project.health.warnings} warn)`,
+      `Report: ${path.join(monitor.report.source.runDir ?? ".", "execution-monitor.json")}`,
       "",
     ].join("\n"),
   };
@@ -1073,6 +1264,7 @@ export async function runDevDoctor(argv = process.argv.slice(2)): Promise<RaxCli
     if (command === "init") return await handleInit(rest);
     if (command === "run" || command === "connect") return await handleRun(rest);
     if (command === "inspect" || command === "report") return await handleInspect(rest);
+    if (command === "monitor") return await handleMonitor(rest);
     if (command === "cache-xray") return await handleCacheXray(rest);
     if (command === "tools") return await handleTools(rest);
     if (command === "logs") return await handleLogs(rest);

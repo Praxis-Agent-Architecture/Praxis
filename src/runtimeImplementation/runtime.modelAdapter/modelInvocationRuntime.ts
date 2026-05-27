@@ -16,6 +16,7 @@ import {
   type RaxModelResponse,
   type RaxUsage,
 } from "../../modelAdapter/index.js";
+import type { AuthEnvelope } from "../../modelAdapter/authProfileLayer/authEnvelope.js";
 import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
@@ -95,9 +96,19 @@ export type ModelInvocationRuntimeRequest = {
 export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & {
   raxRequest?: RaxModelRequest;
   providerBody?: unknown;
-  auth?: RaxAuthRef;
+  auth?: RaxAuthRef | AuthEnvelope;
   modelClient?: RaxModelClient;
   dryRun?: boolean;
+  runtimeAuthResolver?: unknown;
+  authSelection?: unknown;
+  providerCaller?: unknown;
+  openaiResponsesCaller?: unknown;
+  openaiChatCompletionsCaller?: unknown;
+  anthropicMessagesCaller?: unknown;
+  geminiGenerateContentTransport?: unknown;
+  clientName?: string;
+  clientVersion?: string;
+  signal?: AbortSignal;
 };
 
 export type ModelInvocationRuntimeUsage = RaxUsage;
@@ -296,11 +307,27 @@ function requestFromRuntime(input: RuntimeModelInvocationLiveRequest, invocation
       model,
       route: input.carrier?.carrierId,
       baseUrl: input.carrier?.baseURL,
-      auth: input.auth,
+      auth: raxAuthRefFromRuntimeAuth(input.auth),
     },
     messages: [{ role: "user", content: typeof input.providerBody === "string" ? input.providerBody : String(body.input ?? "") }],
     providerOptions: { native: body },
   };
+}
+
+function raxAuthRefFromRuntimeAuth(auth: RaxAuthRef | AuthEnvelope | undefined): RaxAuthRef | undefined {
+  if (auth === undefined) return undefined;
+  if ("type" in auth) return auth;
+  if (!auth.present) return { type: "none" };
+  const headers = Object.fromEntries(auth.headerPlan.map((header) => [header.name.toLowerCase(), String(header.value)]));
+  const authorization = headers.authorization;
+  if (auth.kind === "oauth" || auth.kind === "bearer") {
+    return { type: "bearer", value: authorization?.replace(/^Bearer\\s+/iu, "") };
+  }
+  if (auth.kind === "api-key") {
+    const header = authorization === undefined ? Object.keys(headers)[0] : "Authorization";
+    return { type: "api_key", header, value: authorization?.replace(/^Bearer\\s+/iu, "") ?? Object.values(headers)[0] };
+  }
+  return { type: "none" };
 }
 
 export async function invokeModelThroughRuntime(

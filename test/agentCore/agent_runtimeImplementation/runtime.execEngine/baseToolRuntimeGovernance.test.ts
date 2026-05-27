@@ -13,55 +13,55 @@ defineAgentCoreContractTest({
 });
 
 const codeReadEntry: BaseToolSupportCatalogEntry = {
-  toolId: "code.read",
-  family: "code",
-  storageFamily: "codeBase",
-  group: "explore",
+  toolId: "file.read",
+  family: "file",
+  storageFamily: "coreBase",
+  group: "file",
   title: "Read file",
   riskLevel: "normal",
   permissionHints: [],
   dependencies: [],
   requiredSupports: [],
   readiness: "available",
-  storageDocPath: "src/storagePool/baseToolStorage/codeBase/explore",
+  storageDocPath: "src/basetool/catalog.ts#file.read",
 };
 
 const shellDangerousEntry: BaseToolSupportCatalogEntry = {
-  toolId: "shell.commandExecution",
+  toolId: "shell.run",
   family: "shell",
-  storageFamily: "shellBase",
-  group: "shellExecution",
+  storageFamily: "coreBase",
+  group: "shell",
   title: "Run shell command",
   riskLevel: "dangerous",
   permissionHints: ["shell:execute"],
   dependencies: [],
   requiredSupports: [],
   readiness: "available",
-  storageDocPath: "src/storagePool/baseToolStorage/shellBase/shellExecution",
+  storageDocPath: "src/basetool/catalog.ts#shell.run",
 };
 
 const codeOverwriteEntry: BaseToolSupportCatalogEntry = {
-  toolId: "code.overwrite",
-  family: "code",
-  storageFamily: "codeBase",
-  group: "edit",
-  title: "Overwrite file",
+  toolId: "patch.apply",
+  family: "patch",
+  storageFamily: "coreBase",
+  group: "patch",
+  title: "Apply patch",
   riskLevel: "risky",
   permissionHints: ["filesystem:write"],
   dependencies: [],
   requiredSupports: [],
   readiness: "available",
-  storageDocPath: "src/storagePool/baseToolStorage/codeBase/edit",
+  storageDocPath: "src/basetool/catalog.ts#patch.apply",
 };
 
 test("BaseTool governance allows bapr policy while preserving host-observed sandbox metadata", () => {
   const decision = evaluateBaseToolRuntimeGovernance({
-    toolId: "code.read",
+    toolId: "file.read",
     policyMatrix: toolPolicies.bapr(),
     sandbox: sandbox.hostObserved(),
     catalogEntry: codeReadEntry,
     readiness: {
-      toolId: "code.read",
+      toolId: "file.read",
       found: true,
       decision: "requiresApproval",
       readiness: "requiresApproval",
@@ -82,7 +82,7 @@ test("BaseTool governance allows bapr policy while preserving host-observed sand
 
 test("BaseTool governance requires approval under restricted policy", () => {
   const decision = evaluateBaseToolRuntimeGovernance({
-    toolId: "code.read",
+    toolId: "file.read",
     policyMatrix: toolPolicies.restricted(),
     sandbox: sandbox.hostObserved(),
     catalogEntry: codeReadEntry,
@@ -96,12 +96,12 @@ test("BaseTool governance requires approval under restricted policy", () => {
 
 test("BaseTool governance blocks unavailable runtime readiness", () => {
   const decision = evaluateBaseToolRuntimeGovernance({
-    toolId: "code.read",
+    toolId: "file.read",
     policyMatrix: toolPolicies.bapr(),
     sandbox: sandbox.hostObserved(),
     catalogEntry: codeReadEntry,
     readiness: {
-      toolId: "code.read",
+      toolId: "file.read",
       found: true,
       decision: "blocked",
       readiness: "unavailable",
@@ -120,25 +120,25 @@ test("BaseTool governance blocks unavailable runtime readiness", () => {
 
 test("BaseTool governance keeps five-mode decisions as the sandbox governance source", () => {
   const bapr = evaluateBaseToolRuntimeGovernance({
-    toolId: "shell.commandExecution",
+    toolId: "shell.run",
     policyMatrix: toolPolicies.bapr(),
     sandbox: sandbox.linuxBubblewrapReadonly(),
     catalogEntry: shellDangerousEntry,
   });
   const yolo = evaluateBaseToolRuntimeGovernance({
-    toolId: "shell.commandExecution",
+    toolId: "shell.run",
     policyMatrix: toolPolicies.yolo(),
     sandbox: sandbox.linuxBubblewrapReadonly(),
     catalogEntry: shellDangerousEntry,
   });
   const standard = evaluateBaseToolRuntimeGovernance({
-    toolId: "shell.commandExecution",
+    toolId: "shell.run",
     policyMatrix: toolPolicies.standard(),
     sandbox: sandbox.linuxBubblewrapReadonly(),
     catalogEntry: shellDangerousEntry,
   });
   const restricted = evaluateBaseToolRuntimeGovernance({
-    toolId: "shell.commandExecution",
+    toolId: "shell.run",
     policyMatrix: toolPolicies.restricted(),
     sandbox: sandbox.linuxBubblewrapReadonly(),
     catalogEntry: shellDangerousEntry,
@@ -150,26 +150,26 @@ test("BaseTool governance keeps five-mode decisions as the sandbox governance so
   assert.equal(restricted.status, "requiresApproval");
   assert.equal(standard.sandbox.providerFamily, "linux-bubblewrap");
   assert.equal(standard.sandbox.hostObserved, false);
-  assert.equal(standard.approvalReason, "BaseTool shell.commandExecution requires approval under standard policy");
+  assert.equal(standard.approvalReason, "BaseTool shell.run requires approval under standard policy");
 });
 
 test("BaseTool governance relaxes new file creation without relaxing overwrite/delete policy", () => {
   const createDecision = evaluateBaseToolRuntimeGovernance({
-    toolId: "code.overwrite",
+    toolId: "patch.apply",
     policyMatrix: toolPolicies.standard(),
     sandbox: sandbox.linuxBubblewrapReadonly(),
     catalogEntry: codeOverwriteEntry,
     metadata: { filesystemAction: "create" },
   });
   const overwriteDecision = evaluateBaseToolRuntimeGovernance({
-    toolId: "code.overwrite",
+    toolId: "patch.apply",
     policyMatrix: toolPolicies.standard(),
     sandbox: sandbox.linuxBubblewrapReadonly(),
     catalogEntry: codeOverwriteEntry,
     metadata: { filesystemAction: "overwrite" },
   });
   const restrictedCreateDecision = evaluateBaseToolRuntimeGovernance({
-    toolId: "code.overwrite",
+    toolId: "patch.apply",
     policyMatrix: toolPolicies.restricted(),
     sandbox: sandbox.linuxBubblewrapReadonly(),
     catalogEntry: codeOverwriteEntry,

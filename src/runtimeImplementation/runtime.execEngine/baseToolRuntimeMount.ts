@@ -11,16 +11,16 @@
 import type {
   BaseToolFamily,
   BaseToolInvokeResult,
-} from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import type { BaseToolExecutorPort } from "../../executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import {
+  BaseToolExecutorPort,
   BaseToolRegistry,
+} from "../../basetool/types.js";
+import {
   createBaseToolRegistry,
-} from "../../executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
+} from "../../basetool/registry.js";
 import {
   adaptRuntimeToolInvocation,
   type BasicToolAdapterFamily,
-} from "../../executionEngine/basic_toolLayer/invocationAdapter.js";
+} from "../../basetool/invocationAdapter.js";
 import {
   bridgeExecEngineInvocation,
 } from "./execEngineInvocationBridge.js";
@@ -260,11 +260,12 @@ export async function invokeMountedBaseTool(
   const registry = request.registry ?? createBaseToolRegistry();
   const lookup = registry.lookupHandler(toolId);
   if (!lookup.ok) {
-    return failure(lookup.error.code, lookup.error.message, "registry");
+    return failure("TOOL_NOT_FOUND", lookup.error.message, "registry");
   }
 
   const runtimeReadiness = evaluateBaseToolRuntimeReadiness({
     toolId,
+    toolInput: input,
     executor: request.executor,
     implementedPortPaths: request.implementedPortPaths ?? baseToolExecutorPortFactoryDescriptor.implementedAdapters,
     disabledSupports: request.disabledSupports,
@@ -284,6 +285,7 @@ export async function invokeMountedBaseTool(
   try {
     const toolResult = await lookup.handler.invoke({
       toolCallId,
+      toolId,
       runtimeId,
       sessionId,
       input,
@@ -313,9 +315,9 @@ export async function invokeMountedBaseTool(
         events: [
           "runtime.execEngine.baseToolRuntimeMount.invoked",
           ...runtimeReadiness.events,
-          ...adapted.events,
+          ...(adapted.ok ? [] : []),
           ...bridged.events,
-          ...toolResult.events,
+          ...(toolResult.events ?? []),
         ],
       };
   } catch {

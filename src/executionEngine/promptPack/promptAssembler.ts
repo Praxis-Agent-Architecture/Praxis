@@ -258,6 +258,7 @@ function segmentCachePolicy(kind: PromptPackSegmentKind): PromptPackSegmentCache
   if (
     kind === "retrievedContext" ||
     kind === "observations" ||
+    kind === "recentConversation" ||
     kind === "userTurn" ||
     kind === "assistantScratchpadPlan"
   ) {

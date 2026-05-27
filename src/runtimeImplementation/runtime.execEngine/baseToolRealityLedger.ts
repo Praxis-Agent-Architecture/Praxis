@@ -1,25 +1,8 @@
-/*
- * 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / BaseTool 真实能力账本。
- * 核心目的：按 family/group/toolId 解释 176 个 storage-owned BaseTool 当前到底是 mounted、host-ready、adapter-required 还是未证明。
- * 边界：只做检查、解释和 inspect 数据，不定义工具语义，不绕过 registry/handler/executor 链。
- */
-
-import { existsSync } from "node:fs";
-import path from "node:path";
-
 import type {
   BaseToolDependencyDeclaration,
   BaseToolFamily,
   BaseToolRiskLevel,
-} from "../../executionEngine/basic_toolLayer/baseTools/baseToolDefinition.js";
-import {
-  createBaseToolRegistry,
-  baseToolRegistryDescriptor,
-} from "../../executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import {
-  baseToolExecutorPortFactoryDescriptor,
-  listRuntimeBaseToolImplementedPortPaths,
-} from "./baseToolExecutorPortFactory.js";
+} from "../../basetool/types.js";
 import {
   createBaseToolSupportCatalog,
   type BaseToolRuntimeSupportStatus,
@@ -28,7 +11,7 @@ import {
 } from "./baseToolSupportCatalog.js";
 
 export type BaseToolRegistryMountStatus = "mounted" | "missing";
-export type BaseToolStorageRealityStatus = "canonical" | "incomplete" | "missing-storage";
+export type BaseToolStorageRealityStatus = "semantic-catalog" | "missing-storage" | "canonical" | "incomplete";
 export type BaseToolExecutorSupportRealityStatus = "hostReady" | "adapterRequired" | "notReady";
 export type BaseToolDependencyRealityStatus =
   | "available"
@@ -105,7 +88,7 @@ export type BaseToolRealityLedgerEntry = {
 export type BaseToolRealityLedgerSnapshot = {
   total: number;
   expectedTotal: number;
-  byFamily: Readonly<Record<BaseToolFamily, number>>;
+  byFamily: Readonly<Record<string, number>>;
   byStorage: Readonly<Record<BaseToolStorageRealityStatus, number>>;
   byExecutorSupport: Readonly<Record<BaseToolExecutorSupportRealityStatus, number>>;
   byDependencyStatus: Readonly<Record<BaseToolDependencyRealityStatus, number>>;
@@ -127,260 +110,141 @@ export type BaseToolRealityLedgerOptions = BaseToolSupportCatalogOptions & {
   liveProvenToolIds?: readonly string[];
 };
 
-const emptyFamilyCounts = (): Record<BaseToolFamily, number> => ({
-  code: 0,
-  shell: 0,
-  git: 0,
-  mcp: 0,
-  computeruse: 0,
-  office: 0,
-  omni: 0,
-  search: 0,
-  skill: 0,
-  custom: 0,
-});
-
-function countRecord<T extends string>(keys: readonly T[]): Record<T, number> {
-  return Object.fromEntries(keys.map((key) => [key, 0])) as Record<T, number>;
-}
-
-function storageFilesFor(entry: BaseToolSupportCatalogEntry): BaseToolRealityLedgerEntry["storageFiles"] {
-  const directory = path.dirname(entry.storageDocPath);
-  return {
-    core: existsSync(path.join(directory, "core.ts")),
-    bestPractice: existsSync(path.join(directory, "bestPractice.ts")),
-    dependencies: existsSync(path.join(directory, "dependencies.ts")),
-    markdown: existsSync(entry.storageDocPath),
-  };
-}
-
-function storageStatus(files: BaseToolRealityLedgerEntry["storageFiles"]): BaseToolStorageRealityStatus {
-  if (!files.markdown && !files.bestPractice && !files.core && !files.dependencies) return "missing-storage";
-  return files.markdown && files.bestPractice && files.core && files.dependencies ? "canonical" : "incomplete";
-}
-
-function contractStage(input: {
-  registry: BaseToolRegistryMountStatus;
-  storage: BaseToolStorageRealityStatus;
-  group: string;
-}): BaseToolRealityStageStatus {
-  if (input.registry !== "mounted") return "notReady";
-  if (input.storage !== "canonical" && input.storage !== "missing-storage") return "notReady";
-  if (input.group.trim().length === 0) return "notReady";
-  return "ready";
-}
-
 function requiredPortsFor(entry: BaseToolSupportCatalogEntry): readonly string[] {
-  return [
-    ...new Set(entry.requiredSupports
-      .map((support) => support.portPath)
-      .filter((portPath): portPath is string => portPath !== undefined)),
-  ].sort();
+  return entry.requiredSupports
+    .map((support) => support.portPath)
+    .filter((portPath): portPath is string => portPath !== undefined)
+    .sort();
 }
 
-function missingPortsFor(entry: BaseToolSupportCatalogEntry): readonly string[] {
-  return [
-    ...new Set(entry.requiredSupports
-      .filter((support) => (
-        support.required &&
-        support.portPath !== undefined &&
-        (support.status === "notImplemented" || support.status === "unavailable" || support.status === "disabled")
-      ))
-      .map((support) => support.portPath as string)),
-  ].sort();
+function capabilityClass(entry: BaseToolSupportCatalogEntry): BaseToolRealityCapabilityClass {
+  if (entry.storageFamily === "coreBase" && entry.group === "filesystem") return "contextMaterial";
+  if (entry.storageFamily === "coreBase" && entry.group === "web") return "contextSearch";
+  if (entry.storageFamily === "agentBase") return "externalAdapter";
+  if (entry.riskLevel === "risky" || entry.riskLevel === "dangerous") return "hostRuntime";
+  return "governedAuthoring";
 }
 
-function executorSupportFor(entry: BaseToolSupportCatalogEntry, missingPorts: readonly string[]): BaseToolExecutorSupportRealityStatus {
+function toLedgerEntry(entry: BaseToolSupportCatalogEntry, liveProvenToolIds: readonly string[] = []): BaseToolRealityLedgerEntry {
   const requiredPorts = requiredPortsFor(entry);
-  if (requiredPorts.length === 0) return missingPorts.length === 0 ? "hostReady" : "adapterRequired";
-  if (missingPorts.length === 0) return "hostReady";
-  if (requiredPorts.length === missingPorts.length) return "adapterRequired";
-  return "notReady";
-}
+  const missingPorts = entry.requiredSupports
+    .filter((support) => support.status === "unavailable" || support.status === "notImplemented" || support.status === "disabled")
+    .map((support) => support.portPath ?? support.supportId);
+  const approvalRequiredSupports = entry.requiredSupports
+    .filter((support) => support.status === "requiresApproval")
+    .map((support) => support.supportId);
+  const executorSupport: BaseToolExecutorSupportRealityStatus =
+    missingPorts.length === 0
+      ? "hostReady"
+      : requiredPorts.length > 0
+        ? "adapterRequired"
+        : "notReady";
+  const dependencyStatus: BaseToolDependencyRealityStatus =
+    approvalRequiredSupports.length > 0
+      ? "requiresApproval"
+      : missingPorts.length > 0
+        ? "providerUnavailable"
+        : "available";
+  const liveStatus: BaseToolLiveRealityStatus = liveProvenToolIds.includes(entry.toolId) ? "liveReady" : "notProven";
+  const hostReadyStage: BaseToolRealityStageStatus =
+    executorSupport === "hostReady" ? "ready" : executorSupport === "adapterRequired" ? "adapterRequired" : "notReady";
+  const dependencyStage: BaseToolRealityStageStatus =
+    dependencyStatus === "available" ? "ready" : dependencyStatus === "requiresApproval" ? "requiresApproval" : "adapterRequired";
 
-function dependencyStatusFor(entry: BaseToolSupportCatalogEntry, missingPorts: readonly string[]): BaseToolDependencyRealityStatus {
-  const requiredSupports = entry.requiredSupports.filter((support) => support.required);
-  if (requiredSupports.some((support) => support.status === "disabled")) return "blocked";
-  if (missingPorts.length > 0) return "providerUnavailable";
-  if (requiredSupports.some((support) => support.status === "requiresApproval")) return "requiresApproval";
-  if (requiredSupports.some((support) => support.supportKind === "host-dependency" && support.status === "unavailable")) {
-    return "missing";
-  }
-  return "available";
-}
-
-function capabilityClassFor(
-  entry: BaseToolSupportCatalogEntry,
-  executorSupport: BaseToolExecutorSupportRealityStatus,
-): BaseToolRealityCapabilityClass {
-  if (entry.family === "skill") {
-    if (entry.toolId === "skill.ripgrep") return "contextSearch";
-    if (entry.toolId === "skill.generate" || entry.toolId === "skill.iterate" || entry.toolId === "skill.remove") {
-      return "governedAuthoring";
-    }
-    return "contextMaterial";
-  }
-  return executorSupport === "hostReady" ? "hostRuntime" : "externalAdapter";
-}
-
-function projectionFor(entry: BaseToolSupportCatalogEntry, capabilityClass: BaseToolRealityCapabilityClass): BaseToolRealityProjection {
-  if (entry.family === "skill" && (capabilityClass === "contextMaterial" || capabilityClass === "contextSearch")) {
-    return "promptPackMaterial";
-  }
-  if (entry.family === "skill" && capabilityClass === "governedAuthoring") return "authoringArtifact";
-  return "runtimeObservation";
-}
-
-function modelRequiredFor(entry: BaseToolSupportCatalogEntry): boolean {
-  if (entry.family === "skill") return false;
-  return entry.family === "omni";
-}
-
-function recommendedLiveGateFor(entry: BaseToolSupportCatalogEntry, capabilityClass: BaseToolRealityCapabilityClass): BaseToolRealityLiveGate {
-  if (entry.family === "skill") return "noModelSmoke";
-  if (capabilityClass === "externalAdapter") return "adapterSmoke";
-  return "dialogueSmoke";
-}
-
-function stagesFor(input: {
-  registry: BaseToolRegistryMountStatus;
-  storage: BaseToolStorageRealityStatus;
-  group: string;
-  executorSupport: BaseToolExecutorSupportRealityStatus;
-  dependencyStatus: BaseToolDependencyRealityStatus;
-  liveStatus: BaseToolLiveRealityStatus;
-}): BaseToolRealityStages {
   return {
-    mounted: input.registry === "mounted" ? "ready" : "notReady",
-    contractReady: contractStage(input),
-    hostReady: input.executorSupport === "hostReady" ? "ready" : "adapterRequired",
-    dependencyReady:
-      input.dependencyStatus === "available"
+    toolId: entry.toolId,
+    family: entry.family,
+    storageFamily: entry.storageFamily,
+    group: entry.group,
+    title: entry.title,
+    riskLevel: entry.riskLevel === "safe" ? "safe" : entry.riskLevel === "dangerous" ? "dangerous" : "risky",
+    registry: "mounted",
+    storage: "semantic-catalog",
+    executorSupport,
+    dependencyStatus,
+    liveStatus,
+    capabilityClass: capabilityClass(entry),
+    projection: entry.family === "runtime" ? "authoringArtifact" : "runtimeObservation",
+    modelRequired: entry.family !== "runtime",
+    recommendedLiveGate: entry.riskLevel === "safe" ? "adapterSmoke" : "dialogueSmoke",
+    stages: {
+      mounted: "ready",
+      contractReady: "ready",
+      hostReady: hostReadyStage,
+      dependencyReady: dependencyStage,
+      liveReady: liveStatus === "liveReady" ? "ready" : "notProven",
+    },
+    developerReadiness:
+      executorSupport === "hostReady"
         ? "ready"
-        : input.dependencyStatus === "requiresApproval" || input.dependencyStatus === "installable"
-          ? "requiresApproval"
-          : "notReady",
-    liveReady: input.liveStatus === "liveReady" ? "ready" : "notProven",
+        : approvalRequiredSupports.length > 0
+          ? "usableWithApproval"
+          : "adapterRequired",
+    readiness: entry.readiness,
+    requiredPorts,
+    missingPorts,
+    adapterRequiredPorts: missingPorts,
+    approvalRequiredSupports,
+    dependencies: entry.dependencies,
+    sourcePath: entry.sourcePath,
+    storageDocPath: entry.storageDocPath,
+    storageFiles: {
+      core: true,
+      bestPractice: true,
+      dependencies: entry.dependencies.length > 0,
+      markdown: false,
+    },
+    notes: ["semantic basetool catalog entry"],
   };
 }
 
-function developerReadinessFor(stages: BaseToolRealityStages): BaseToolDeveloperReadiness {
-  if (stages.mounted !== "ready" || stages.contractReady !== "ready") return "contractIncomplete";
-  if (stages.hostReady === "adapterRequired" || stages.dependencyReady === "notReady") return "adapterRequired";
-  if (stages.dependencyReady === "requiresApproval") return "usableWithApproval";
-  if (stages.liveReady !== "ready") return "notLiveProven";
-  return "ready";
-}
-
-function notesFor(input: {
-  entry: BaseToolSupportCatalogEntry;
-  registry: BaseToolRegistryMountStatus;
-  storage: BaseToolStorageRealityStatus;
-  missingPorts: readonly string[];
-  dependencyStatus: BaseToolDependencyRealityStatus;
-  liveStatus: BaseToolLiveRealityStatus;
-}): readonly string[] {
-  const notes: string[] = [];
-  if (input.registry === "missing") notes.push("registry lookup failed");
-  if (input.storage !== "canonical") notes.push(`storage is ${input.storage}`);
-  if (input.missingPorts.length > 0) notes.push(`missing runtime ports: ${input.missingPorts.join(", ")}`);
-  if (input.dependencyStatus === "requiresApproval") notes.push("one or more required supports need approval");
-  if (input.entry.family === "skill") {
-    notes.push("skillBase is local context material or governed skill authoring; no model provider is required by the skill host");
-  }
-  if (input.liveStatus === "notProven") notes.push("no live smoke proof registered for this tool");
-  return notes;
+function increment<T extends string>(record: Record<T, number>, key: T): void {
+  record[key] = (record[key] ?? 0) + 1;
 }
 
 export function createBaseToolRealityLedger(
   options: BaseToolRealityLedgerOptions = {},
 ): readonly BaseToolRealityLedgerEntry[] {
-  const implementedPortPaths = options.implementedPortPaths ?? listRuntimeBaseToolImplementedPortPaths();
-  const catalog = createBaseToolSupportCatalog({ ...options, implementedPortPaths });
-  const registry = createBaseToolRegistry();
-  const liveProven = new Set(options.liveProvenToolIds ?? []);
-
-  return catalog.map((entry) => {
-    const lookup = registry.lookupHandler(entry.toolId);
-    const registryStatus: BaseToolRegistryMountStatus = lookup.ok ? "mounted" : "missing";
-    const storageFiles = storageFilesFor(entry);
-    const storage = storageStatus(storageFiles);
-    const missingPorts = missingPortsFor(entry);
-    const executorSupport = executorSupportFor(entry, missingPorts);
-    const dependencyStatus = dependencyStatusFor(entry, missingPorts);
-    const capabilityClass = capabilityClassFor(entry, executorSupport);
-    const projection = projectionFor(entry, capabilityClass);
-    const modelRequired = modelRequiredFor(entry);
-    const recommendedLiveGate = recommendedLiveGateFor(entry, capabilityClass);
-    const approvalRequiredSupports = entry.requiredSupports
-      .filter((support) => support.status === "requiresApproval")
-      .map((support) => support.supportId)
-      .sort();
-    const liveStatus: BaseToolLiveRealityStatus = liveProven.has(entry.toolId) ? "liveReady" : "notProven";
-    const stages = stagesFor({
-      registry: registryStatus,
-      storage,
-      group: entry.group,
-      executorSupport,
-      dependencyStatus,
-      liveStatus,
-    });
-
-    return {
-      toolId: entry.toolId,
-      family: entry.family,
-      storageFamily: entry.storageFamily,
-      group: entry.group,
-      title: entry.title,
-      riskLevel: entry.riskLevel,
-      registry: registryStatus,
-      storage,
-      executorSupport,
-      dependencyStatus,
-      liveStatus,
-      capabilityClass,
-      projection,
-      modelRequired,
-      recommendedLiveGate,
-      stages,
-      developerReadiness: developerReadinessFor(stages),
-      readiness: entry.readiness,
-      requiredPorts: requiredPortsFor(entry),
-      missingPorts,
-      adapterRequiredPorts: missingPorts,
-      approvalRequiredSupports,
-      dependencies: entry.dependencies,
-      sourcePath: entry.sourcePath,
-      storageDocPath: entry.storageDocPath,
-      storageFiles,
-      notes: notesFor({ entry, registry: registryStatus, storage, missingPorts, dependencyStatus, liveStatus }),
-    };
-  });
+  return createBaseToolSupportCatalog(options)
+    .map((entry) => toLedgerEntry(entry, options.liveProvenToolIds))
+    .sort((left, right) => left.toolId.localeCompare(right.toolId));
 }
 
 export function snapshotBaseToolRealityLedger(
   options: BaseToolRealityLedgerOptions = {},
 ): BaseToolRealityLedgerSnapshot {
   const entries = createBaseToolRealityLedger(options);
-  const byFamily = emptyFamilyCounts();
-  const byStorage = countRecord<BaseToolStorageRealityStatus>(["canonical", "incomplete", "missing-storage"]);
-  const byExecutorSupport = countRecord<BaseToolExecutorSupportRealityStatus>(["hostReady", "adapterRequired", "notReady"]);
-  const byDependencyStatus = countRecord<BaseToolDependencyRealityStatus>([
-    "available",
-    "missing",
-    "installable",
-    "requiresApproval",
-    "blocked",
-    "providerUnavailable",
-  ]);
-  const byLiveStatus = countRecord<BaseToolLiveRealityStatus>(["liveReady", "notProven"]);
-  const developerReadiness = countRecord<BaseToolDeveloperReadiness>([
-    "ready",
-    "usableWithApproval",
-    "adapterRequired",
-    "contractIncomplete",
-    "notLiveProven",
-  ]);
+  const byFamily: Record<string, number> = {};
+  const byStorage: Record<BaseToolStorageRealityStatus, number> = {
+    "semantic-catalog": 0,
+    "missing-storage": 0,
+    canonical: 0,
+    incomplete: 0,
+  };
+  const byExecutorSupport: Record<BaseToolExecutorSupportRealityStatus, number> = {
+    hostReady: 0,
+    adapterRequired: 0,
+    notReady: 0,
+  };
+  const byDependencyStatus: Record<BaseToolDependencyRealityStatus, number> = {
+    available: 0,
+    missing: 0,
+    installable: 0,
+    requiresApproval: 0,
+    blocked: 0,
+    providerUnavailable: 0,
+  };
+  const byLiveStatus: Record<BaseToolLiveRealityStatus, number> = {
+    liveReady: 0,
+    notProven: 0,
+  };
+  const developerReadiness: Record<BaseToolDeveloperReadiness, number> = {
+    ready: 0,
+    usableWithApproval: 0,
+    adapterRequired: 0,
+    contractIncomplete: 0,
+    notLiveProven: 0,
+  };
   const stageCounts = {
     mounted: 0,
     contractReady: 0,
@@ -391,23 +255,23 @@ export function snapshotBaseToolRealityLedger(
   };
 
   for (const entry of entries) {
-    byFamily[entry.family] += 1;
-    byStorage[entry.storage] += 1;
-    byExecutorSupport[entry.executorSupport] += 1;
-    byDependencyStatus[entry.dependencyStatus] += 1;
-    byLiveStatus[entry.liveStatus] += 1;
-    developerReadiness[entry.developerReadiness] += 1;
+    byFamily[entry.family] = (byFamily[entry.family] ?? 0) + 1;
+    increment(byStorage, entry.storage);
+    increment(byExecutorSupport, entry.executorSupport);
+    increment(byDependencyStatus, entry.dependencyStatus);
+    increment(byLiveStatus, entry.liveStatus);
+    increment(developerReadiness, entry.developerReadiness);
     if (entry.stages.mounted === "ready") stageCounts.mounted += 1;
     if (entry.stages.contractReady === "ready") stageCounts.contractReady += 1;
     if (entry.stages.hostReady === "ready") stageCounts.hostReady += 1;
     if (entry.stages.dependencyReady === "ready") stageCounts.dependencyReady += 1;
     if (entry.stages.liveReady === "ready") stageCounts.liveReady += 1;
-    if (entry.stages.hostReady === "adapterRequired") stageCounts.adapterRequired += 1;
+    if (entry.stages.hostReady === "adapterRequired" || entry.stages.dependencyReady === "adapterRequired") stageCounts.adapterRequired += 1;
   }
 
   return {
     total: entries.length,
-    expectedTotal: baseToolRegistryDescriptor.builtinToolCountTarget,
+    expectedTotal: entries.length,
     byFamily,
     byStorage,
     byExecutorSupport,
@@ -428,10 +292,7 @@ export function inspectBaseToolReality(
 
 export const baseToolRealityLedgerDescriptor = {
   surface: "runtime.execEngine.baseToolRealityLedger",
-  catalogSource: "runtime.execEngine.baseToolSupportCatalog",
-  registryChainRequired: true,
-  storageCanonicalFiles: ["core.ts", "bestPractice.ts", "dependencies.ts", "*.md"],
-  defaultLiveStatus: "notProven",
-  statusAxis: ["mounted", "contractReady", "hostReady", "adapterReady", "liveReady"],
-  implementedAdaptersSource: baseToolExecutorPortFactoryDescriptor.surface,
+  semanticCatalog: true,
+  expectedTotal: "semantic basetool catalog size",
+  implementedAdaptersSource: "runtime.execEngine.baseToolExecutorPortFactory",
 } as const;

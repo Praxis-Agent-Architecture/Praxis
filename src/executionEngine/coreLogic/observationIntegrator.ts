@@ -64,14 +64,6 @@ export type SummaryAgentRef = {
   publicSafe: true;
 };
 
-export type FallbackMemoryRef = {
-  memoryId: string;
-  kind: "sessionLocalMarkdownIndex";
-  storageHint: ".rax_workspace" | "memory";
-  takeoverReadyForMp: boolean;
-  publicSafe: true;
-};
-
 export type ObservationMaterial = RuntimeObservationMaterial;
 
 export type RuntimeObservationInput = {
@@ -135,16 +127,6 @@ export const DEFAULT_SUMMARY_AGENT_REF: SummaryAgentRef = {
   compressionRatio: 0.05,
   publicSafe: true,
 };
-
-export function createFallbackMemoryRef(sessionId: string, storageHint: ".rax_workspace" | "memory" = ".rax_workspace"): FallbackMemoryRef {
-  return {
-    memoryId: `${sessionId.trim() || "session"}:memory:fallback-md-index`,
-    kind: "sessionLocalMarkdownIndex",
-    storageHint,
-    takeoverReadyForMp: true,
-    publicSafe: true,
-  };
-}
 
 function safeStringify(value: unknown): string {
   if (value === undefined) {

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import type { BaseToolExecutorPort } from "../../../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
+import type { BaseToolExecutorPort } from "../../../../src/basetool/types.js";
 import { defineAgentCoreContractTest } from "../../agentCoreContractTestHelper.js";
 import {
   baseToolRuntimeMountDescriptor,
@@ -35,20 +35,20 @@ test("baseToolRuntimeMount invokes a registry handler through BaseToolExecutorPo
   const result = await invokeMountedBaseTool({
     runtimeId: "runtime-base-tool-1",
     sessionId: "session-base-tool-1",
-    toolId: "search.fetch",
+    toolId: "web.fetch",
     toolCallId: "fetch-call-1",
     input: {
-      target: { url: "https://example.com/docs" },
+      url: "https://example.com/docs",
       context: {
         dryRun: false,
         guard: { accepted: true },
-        grantedPermissions: ["network:read", "search:fetch"],
+        grantedPermissions: ["network:read", "web:fetch"],
       },
     },
     executor,
     runtimeReady: true,
-    requestedScopes: ["tool.execute", "tool.search.fetch"],
-    allowedScopes: ["tool.execute", "tool.search.fetch"],
+    requestedScopes: ["tool.execute", "tool.web.fetch"],
+    allowedScopes: ["tool.execute", "tool.web.fetch"],
     metadata: { test: "baseToolRuntimeMount" },
   });
 
@@ -60,16 +60,16 @@ test("baseToolRuntimeMount invokes a registry handler through BaseToolExecutorPo
   assert.equal(receivedUrl, "https://example.com/docs");
   assert.equal(result.invocation.runtimeId, "runtime-base-tool-1");
   assert.equal(result.invocation.sessionId, "session-base-tool-1");
-  assert.equal(result.invocation.toolId, "search.fetch");
-  assert.equal(result.invocation.family, "search");
+  assert.equal(result.invocation.toolId, "web.fetch");
+  assert.equal(result.invocation.family, "core");
   assert.equal(result.invocation.mountedVia, "createBaseToolRegistry.lookupHandler");
   assert.equal(result.invocation.executorPort, "BaseToolExecutorPort");
   assert.equal(result.invocation.toolResultOk, true);
-  assert.equal(result.invocation.runtimeReadiness.decision, "requiresApproval");
+  assert.equal(result.invocation.runtimeReadiness.decision, "allowed");
   assert.equal(result.toolResult.ok, true);
-  assert.ok(result.events.includes("agentCore.basicTool.invocationAdapter.adapted"));
   assert.ok(result.events.includes("runtime.execEngine.invocationBridge.planned"));
-  assert.ok(result.events.includes("runtime.execEngine.baseToolSupportCatalog.preflight.requiresApproval"));
+  assert.ok(result.events.includes("basetool.supportCatalog.preflight.allowed"));
+  assert.ok(result.events.includes("basetool.core.web.fetch.runtimePort"));
   assert.deepEqual(baseToolRuntimeMountDescriptor.chain.slice(0, 2), [
     "agentCore.basicTool.invocationAdapter",
     "runtime.execEngine.invocationBridge",
@@ -80,11 +80,11 @@ test("baseToolRuntimeMount can invoke governed runtime-owned MCP adapters", asyn
   let dispatched = false;
   const executor: BaseToolExecutorPort = {
     mcp: {
-      async connect() {
+      async call() {
         dispatched = true;
         return {
           ok: true,
-          output: { connectionId: "mcp-1", status: "connected" },
+          output: { callId: "mcp-1", status: "called" },
         };
       },
     },
@@ -93,10 +93,12 @@ test("baseToolRuntimeMount can invoke governed runtime-owned MCP adapters", asyn
   const result = await invokeMountedBaseTool({
     runtimeId: "runtime-base-tool-2",
     sessionId: "session-base-tool-2",
-    toolId: "mcp.connect",
+    toolId: "mcp.use",
     toolCallId: "mcp-connect-call-1",
     input: {
-      target: { serverId: "local", transport: "stdio", command: "node" },
+      toolName: "ping",
+      serverId: "local",
+      arguments: {},
       context: {
         dryRun: false,
         guard: { accepted: true },
@@ -109,7 +111,7 @@ test("baseToolRuntimeMount can invoke governed runtime-owned MCP adapters", asyn
   assert.equal(result.ok, true);
   assert.equal(dispatched, true);
   if (!result.ok) throw new Error("expected runtime-owned MCP mount to succeed");
-  assert.equal(result.invocation.runtimeReadiness.decision, "requiresApproval");
+  assert.equal(result.invocation.runtimeReadiness.decision, "allowed");
   assert.equal(result.toolResult.ok, true);
 });
 
@@ -117,7 +119,7 @@ test("baseToolRuntimeMount rejects missing executors and missing handlers before
   const missingExecutor = await invokeMountedBaseTool({
     runtimeId: "runtime-base-tool-1",
     sessionId: "session-base-tool-1",
-    toolId: "search.fetch",
+    toolId: "web.fetch",
   });
   assert.equal(missingExecutor.ok, false);
   if (!missingExecutor.ok) {

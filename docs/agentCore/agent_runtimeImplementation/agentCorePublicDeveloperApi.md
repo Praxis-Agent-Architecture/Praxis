@@ -27,7 +27,7 @@ class MinimalAgent extends praxis.Agent {
   model = praxis.model("gpt-5.4");
   harness = praxis.harness({
     tools: praxis.tools([
-      praxis.tool("code.read", { family: "codeBase", group: "explore" }),
+      praxis.basetool.core.fileRead({ profileName: "codingCore" }),
     ]),
     loop: praxis.loop.standard({ maxModelTurns: 1 }),
   });
@@ -62,7 +62,7 @@ class CodingAgent extends praxis.AgentArchetype {
   statePlane = praxis.statePlane({ expose: ["phase", "toolCalls"], control: ["pause"] });
   harness = praxis.harness({
     tools: praxis.tools([
-      praxis.tool("shell.commandExecution", { family: "shellBase", group: "shellExecution" }),
+      praxis.basetool.core.shellRun({ profileName: "codingCore" }),
     ]),
     loop: praxis.loop.standard({ maxModelTurns: 2, maxToolCalls: 2 }),
   });

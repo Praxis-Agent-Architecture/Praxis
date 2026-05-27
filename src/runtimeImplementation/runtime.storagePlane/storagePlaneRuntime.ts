@@ -26,6 +26,7 @@ export type StoragePlaneRuntimeInput = {
   cwd?: string;
   raxHome?: string;
   workspaceRoot?: string;
+  workspaceFolderName?: string;
   homeDir?: string;
   env?: Readonly<Record<string, string | undefined>>;
   agentId?: string;
@@ -96,6 +97,7 @@ export function createStoragePlaneRuntime(input: StoragePlaneRuntimeInput = {}):
   const workspace = resolveRaxWorkspace({
     cwd: input.cwd,
     explicitWorkspaceRoot: input.workspaceRoot,
+    workspaceFolderName: input.workspaceFolderName,
   });
   if (!workspace.ok) {
     return passThroughFailure(workspace, events);

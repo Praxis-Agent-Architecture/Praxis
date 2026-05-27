@@ -13,7 +13,7 @@ defineAgentCoreContractTest({
 test("bindBasicToolLayer exposes tool primitives as a dry-run binding", () => {
   const result = bindBasicToolLayer({
     runtimeId: "runtime-alpha",
-    toolKinds: [" shell ", "git", "shell"],
+    toolKinds: [" shell ", "web", "shell"],
     requestedScopes: ["tool.shell.audit"],
     allowedScopes: ["tool.shell.audit"],
   });
@@ -25,10 +25,36 @@ test("bindBasicToolLayer exposes tool primitives as a dry-run binding", () => {
 
   assert.equal(result.binding.bindingKind, "basicToolLayer");
   assert.equal(result.binding.bindingId, "runtime.execEngine.basicToolLayer");
-  assert.deepEqual(result.binding.capabilities, ["baseToolEnvelope", "dryRunGuard", "auditTrail", "tool.shell", "tool.git"]);
+  assert.deepEqual(result.binding.capabilities, ["baseToolEnvelope", "dryRunGuard", "auditTrail", "tool.shell", "tool.web"]);
   assert.equal(result.binding.dryRun, true);
   assert.equal(result.binding.unsafeSideEffects, false);
   assert.deepEqual(result.events, ["runtime.execEngine.basicToolLayer.binding.accepted"]);
+});
+
+test("bindBasicToolLayer defaults to semantic basetool families", () => {
+  const result = bindBasicToolLayer({
+    runtimeId: "runtime-semantic-default",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.binding.capabilities, [
+    "baseToolEnvelope",
+    "dryRunGuard",
+    "auditTrail",
+    "tool.file",
+    "tool.patch",
+    "tool.shell",
+    "tool.process",
+    "tool.web",
+    "tool.plan",
+    "tool.user",
+    "tool.skill",
+    "tool.context",
+    "tool.mcp",
+    "tool.agent",
+    "tool.tool",
+  ]);
 });
 
 test("bindBasicToolLayer rejects unsafe runtime and governance states without invoking tools", () => {

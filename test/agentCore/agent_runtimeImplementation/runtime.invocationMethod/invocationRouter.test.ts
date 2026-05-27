@@ -73,7 +73,7 @@ test("invocationRouter rejects unsafe or unroutable envelopes before execution",
 
   const disabled = routeInvocation({
     registry: registryResult.registry,
-    envelope: { invocationId: "invoke:tool:1", method: "tool", target: "shellBase" },
+    envelope: { invocationId: "invoke:tool:1", method: "tool", target: "shell.run" },
   });
 
   assert.equal(disabled.ok, false);
@@ -87,7 +87,7 @@ test("invocationRouter rejects unsafe or unroutable envelopes before execution",
   assert.deepEqual(
     routeInvocation({
       registry: registryResult.registry,
-      envelope: { invocationId: "invoke:tool:2", method: "tool", target: "shellBase" },
+      envelope: { invocationId: "invoke:tool:2", method: "tool", target: "shell.run" },
       governance: { accepted: false, reason: "tool invocation needs TAP approval" },
     }),
     {
