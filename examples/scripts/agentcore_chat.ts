@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import readline from "node:readline/promises";
@@ -6,14 +5,13 @@ import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { OpenAIV1ResponsesProviderCaller } from "../../src/modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import type { AuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authEnvelope.js";
-import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
+import {
+  createRaxModelClient,
+  openAIProvider,
+  type RaxAuthRef,
+  type RaxModelClient,
+} from "../../src/modelAdapter/index.js";
+import { callModelAdapterPrompt } from "./modelAdapterPromptClient.js";
 import {
   createFullShellExecutor,
   invokeShellToolThroughRuntimeChain,
@@ -66,9 +64,6 @@ const autoApprovePublicSafe = args.has("--auto-approve-public-safe");
 const oneShot = args.has("--one-shot");
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
-const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
-  ?? path.join(process.env.CODEX_HOME ?? path.join(process.env.HOME ?? "", ".codex"), "auth.json");
-const chatgptCodexClientVersion = process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0";
 const model = process.env.AGENTCORE_CODEX_MODEL ?? process.env.OPENAI_SMOKE_MODEL ?? "gpt-5.5";
 const maxOutputTokens = Number(process.env.OPENAI_AGENTCORE_MAX_OUTPUT_TOKENS ?? "768");
 const reasoningEffort =
@@ -92,8 +87,8 @@ type CompiledChatAgent = {
 };
 
 type ExampleLiveProvider = {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: RaxAuthRef;
+  modelClient: RaxModelClient;
   authSource: string;
 };
 
@@ -184,44 +179,19 @@ async function compileExampleAgent(target: string): Promise<CompiledChatAgent> {
 }
 
 function createExampleLiveProvider(manifest: AgentManifest): ExampleLiveProvider {
-  const credentialRef = createCredentialRef({
-    id: `agentcore-chat:${manifest.identity.id}:chatgpt-codex`,
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) {
-    throw new Error(`credentialRef failed: ${JSON.stringify(credentialRef.error)}`);
+  const baseRoute = openAIProvider.routes[0];
+  if (baseRoute === undefined) {
+    throw new Error("openAIProvider has no routes");
   }
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) {
-    throw new Error(`auth failed: ${JSON.stringify(auth.error)}`);
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: manifest.model.carrierId,
-    model: manifest.model.model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: manifest.model.clientName ?? "praxis-agentcore-example-chat",
-    clientVersion: manifest.model.clientVersion ?? chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) {
-    throw new Error(`carrier failed: ${JSON.stringify(carrier.error)}`);
-  }
+  const modelClient = createRaxModelClient([
+    { ...baseRoute, id: manifest.model.carrierId, providerId: manifest.model.provider },
+    baseRoute,
+  ]);
 
   return {
-    auth: auth.resolved.envelope,
-    providerCaller: createProviderCaller({
-      transport: fetchProviderTransport,
-      authMaterial: auth.resolved.privateMaterial,
-      timeoutMs: 60_000,
-    }),
-    authSource: codexAuthPath,
+    auth: { type: "api_key", env: process.env.AGENTCORE_MODEL_API_KEY_ENV ?? "OPENAI_API_KEY" },
+    modelClient,
+    authSource: process.env.AGENTCORE_MODEL_API_KEY_ENV ?? "OPENAI_API_KEY",
   };
 }
 
@@ -231,106 +201,6 @@ function assertOk<T extends { ok: boolean }>(label: string, result: T): Extract<
   }
 
   throw new Error(`${label} failed: ${JSON.stringify(result)}`);
-}
-
-function extractSseText(text: string): string {
-  const deltas: string[] = [];
-  const completed: string[] = [];
-
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("data:")) {
-      continue;
-    }
-
-    const payload = line.slice("data:".length).trim();
-    if (payload.length === 0 || payload === "[DONE]") {
-      continue;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(payload) as unknown;
-    } catch {
-      continue;
-    }
-
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      continue;
-    }
-
-    const record = parsed as Record<string, unknown>;
-    if (typeof record.delta === "string") {
-      deltas.push(record.delta);
-    }
-
-    if (record.type === "response.completed" && record.response !== undefined) {
-      const responseText = extractResponseText(record.response);
-      if (responseText.trim().length > 0) {
-        completed.push(responseText);
-      }
-    }
-  }
-
-  return deltas.join("").trim() || completed.join("\n").trim();
-}
-
-function extractResponseText(response: unknown): string {
-  if (typeof response === "string") {
-    return extractSseText(response) || response;
-  }
-
-  if (typeof response !== "object" || response === null) {
-    return String(response);
-  }
-
-  const record = response as Record<string, unknown>;
-  if (typeof record.output_text === "string" && record.output_text.trim().length > 0) {
-    return record.output_text.trim();
-  }
-
-  const outputValue = record.output;
-  if (Array.isArray(outputValue)) {
-    const parts: string[] = [];
-    for (const item of outputValue) {
-      if (typeof item !== "object" || item === null) {
-        continue;
-      }
-
-      const itemRecord = item as Record<string, unknown>;
-      const contentValue = itemRecord.content;
-      if (!Array.isArray(contentValue)) {
-        continue;
-      }
-
-      for (const content of contentValue) {
-        if (typeof content !== "object" || content === null) {
-          continue;
-        }
-
-        const contentRecord = content as Record<string, unknown>;
-        const text = contentRecord.text ?? contentRecord.output_text;
-        if (typeof text === "string" && text.trim().length > 0) {
-          parts.push(text.trim());
-        }
-      }
-    }
-
-    if (parts.length > 0) {
-      return parts.join("\n");
-    }
-  }
-
-  const choicesValue = record.choices;
-  if (Array.isArray(choicesValue)) {
-    const first = choicesValue[0] as Record<string, unknown> | undefined;
-    const message = first?.message as Record<string, unknown> | undefined;
-    const content = message?.content ?? first?.text;
-    if (typeof content === "string" && content.trim().length > 0) {
-      return content.trim();
-    }
-  }
-
-  return JSON.stringify(response, null, 2);
 }
 
 function parseJsonObject(text: string): unknown {
@@ -699,7 +569,7 @@ async function summarizeManagedTerminalFollowup(
     allowProviderCall: true,
     allowToolExecution: false,
     auth: provider.auth,
-    providerCaller: provider.providerCaller,
+    modelClient: provider.modelClient,
     storage: { cwd: architectureRoot, initMode: "on-run" },
     sandbox: { cwd: architectureRoot, failOnUnavailable: false },
     exposeProviderTools: false,
@@ -729,7 +599,7 @@ async function summarizeNativeToolNoTextOutput(
     allowProviderCall: true,
     allowToolExecution: false,
     auth: provider.auth,
-    providerCaller: provider.providerCaller,
+    modelClient: provider.modelClient,
     storage: { cwd: architectureRoot, initMode: "on-run" },
     sandbox: { cwd: architectureRoot, failOnUnavailable: false },
     exposeProviderTools: false,
@@ -771,72 +641,7 @@ function renderPrompt(history: readonly ChatMessage[], userText: string): string
 }
 
 async function callResponsesApi(prompt: string, instructions = "你是 Praxis agentCore 的交互测试对话体。请用简体中文回答，保持简洁、清楚、可执行。"): Promise<string> {
-  const credentialRef = createCredentialRef({
-    id: "agentcore-chat-chatgpt-codex",
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) {
-    throw new Error(JSON.stringify(credentialRef.error));
-  }
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) {
-    throw new Error(JSON.stringify(auth.error));
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: "chatgpt-codex.responses.agentcore-chat",
-    model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: "praxis-agentcore-chat",
-    clientVersion: chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) {
-    throw new Error(JSON.stringify(carrier.error));
-  }
-
-  const caller = createProviderCaller({
-    transport: fetchProviderTransport,
-    authMaterial: auth.resolved.privateMaterial,
-    timeoutMs: 60_000,
-  });
-
-  const result = await invokeChatGPTCodexResponses({
-    operation: "create",
-    baseUrl: carrier.carrier.baseURL,
-    auth: auth.resolved.envelope,
-    runtime: {
-      runtimeId: "agentcore-chat-runtime",
-      invocationId: `agentcore-chat-${Date.now()}`,
-      callerId: "agentcore-chat",
-    },
-    governance: { accepted: true },
-    dryRun: false,
-    caller,
-    headers: { "content-type": "application/json" },
-    clientName: "praxis-agentcore-chat",
-    clientVersion: chatgptCodexClientVersion,
-    expectResponseObject: false,
-    body: {
-      model,
-      instructions,
-      input: prompt,
-      reasoning: { effort: reasoningEffort },
-      max_output_tokens: maxOutputTokens,
-    },
-  });
-
-  if (!result.ok) {
-    throw new Error(JSON.stringify(result.error));
-  }
-
-  return extractResponseText(result.response.raw);
+  return await callModelAdapterPrompt(prompt, instructions, { model, reasoningEffort, maxOutputTokens });
 }
 
 async function invokeRegistryShellTool(context: RuntimeContext, toolCall: LiveToolCall) {
@@ -1088,11 +893,10 @@ async function runChat(): Promise<void> {
           model,
           reasoningEffort,
           modelProfile,
-        auth: "codex-cli-chatgpt",
-        codexAuthPath,
-        tools: shellLiveToolIds,
-        samplePrompts: shellLiveToolCases.slice(0, 5).map((testCase) => testCase.userPrompt),
-        workspaceRoot: architectureRoot,
+          auth: process.env.AGENTCORE_MODEL_API_KEY_ENV ?? "OPENAI_API_KEY",
+          tools: shellLiveToolIds,
+          samplePrompts: shellLiveToolCases.slice(0, 5).map((testCase) => testCase.userPrompt),
+          workspaceRoot: architectureRoot,
           turns: history.length / 2,
         }, null, 2));
         output.write("you> ");
@@ -1238,7 +1042,7 @@ async function runExampleChat(target: string): Promise<void> {
         allowProviderCall: true,
         allowToolExecution: true,
         auth: provider.auth,
-        providerCaller: provider.providerCaller,
+        modelClient: provider.modelClient,
         storage: { cwd: architectureRoot, initMode: "on-run" },
         sandbox: { cwd: architectureRoot, failOnUnavailable: false },
         exposeProviderTools,
@@ -1291,7 +1095,7 @@ async function runExampleChat(target: string): Promise<void> {
             allowProviderCall: true,
             allowToolExecution: false,
             auth: provider.auth,
-            providerCaller: provider.providerCaller,
+            modelClient: provider.modelClient,
             storage: { cwd: architectureRoot, initMode: "on-run" },
             sandbox: { cwd: architectureRoot, failOnUnavailable: false },
             exposeProviderTools: false,

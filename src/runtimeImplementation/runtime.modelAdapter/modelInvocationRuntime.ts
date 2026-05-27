@@ -12,6 +12,16 @@ import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
 } from "./modelAdapterRuntime.js";
+import {
+  createDefaultRaxModelClient,
+  foldRaxModelEvents,
+  type RaxAuthRef,
+  type RaxModelClient,
+  type RaxModelEvent,
+  type RaxModelRequest,
+  type RaxModelResponse,
+  type RaxUsage,
+} from "../../modelAdapter/index.js";
 import type {
   AuthEnvelope,
   ProviderAuthMaterial,
@@ -87,6 +97,8 @@ export type ModelInvocationRuntimeErrorCode =
   | "AUTH_REQUIRED"
   | "AUTH_ROUTE_MISMATCH"
   | "UNSUPPORTED_PROVIDER_ROUTE"
+  | "MISSING_PROVIDER"
+  | "MISSING_MODEL"
   | "PROVIDER_INVOCATION_FAILED";
 
 export type ModelInvocationRuntimeError = {
@@ -112,6 +124,7 @@ export type ModelInvocationCarrierRef = {
   provider?: string;
   endpointShape?: string;
   baseURL?: string;
+  model?: string;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
@@ -131,8 +144,10 @@ export type ModelInvocationRuntimeRequest = {
 };
 
 export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & {
+  raxRequest?: RaxModelRequest;
   providerBody?: unknown;
-  auth?: AuthEnvelope;
+  auth?: AuthEnvelope | RaxAuthRef;
+  modelClient?: RaxModelClient;
   runtimeAuthResolver?: RuntimeAuthResolver;
   authSelection?: RuntimeAuthResolverRequest;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
@@ -150,15 +165,19 @@ export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & 
 };
 
 export type ModelInvocationProviderResult =
-  | OpenAIV1ResponsesResult
-  | OpenAiV1ChatCompletionsInvocationResult
-  | AnthropicV1MessagesInvocationResult
-  | DeepMindV1BetaModelsGenerateContentResult;
+  (
+    | OpenAIV1ResponsesResult
+    | OpenAiV1ChatCompletionsInvocationResult
+    | AnthropicV1MessagesInvocationResult
+    | DeepMindV1BetaModelsGenerateContentResult
+    | RaxModelResponse
+  ) & { text?: string };
 
 export type ModelInvocationRuntimeUsage =
   | OpenAIV1ResponsesUsage
   | OpenAiV1ChatCompletionsUsage
-  | AnthropicV1MessagesUsage;
+  | AnthropicV1MessagesUsage
+  | RaxUsage;
 
 export type ModelInvocationMockableEnvelope = {
   loweringId: string;
@@ -205,6 +224,7 @@ export type RuntimeModelInvocationResult =
       providerResult?: ModelInvocationProviderResult;
       usage?: ModelInvocationRuntimeUsage;
       raw: unknown;
+      raxEvents?: readonly RaxModelEvent[];
       events: readonly string[];
     }
   | {
@@ -370,7 +390,7 @@ export function planModelInvocation(
 }
 
 function liveFailure(
-  code: Extract<ModelInvocationRuntimeErrorCode, "PROVIDER_CALLER_REQUIRED" | "AUTH_REQUIRED" | "AUTH_ROUTE_MISMATCH" | "UNSUPPORTED_PROVIDER_ROUTE" | "PROVIDER_INVOCATION_FAILED">,
+  code: Extract<ModelInvocationRuntimeErrorCode, "PROVIDER_CALLER_REQUIRED" | "AUTH_REQUIRED" | "AUTH_ROUTE_MISMATCH" | "UNSUPPORTED_PROVIDER_ROUTE" | "MISSING_PROVIDER" | "MISSING_MODEL" | "PROVIDER_INVOCATION_FAILED">,
   message: string,
   boundary: ModelInvocationRuntimeBoundary,
   providerResult?: ModelInvocationProviderResult,
@@ -556,6 +576,97 @@ function sanitizeProviderResult<T extends ModelInvocationProviderResult | undefi
   return sanitized as T;
 }
 
+function isRuntimeAuthEnvelope(auth: AuthEnvelope | RaxAuthRef | undefined): auth is AuthEnvelope {
+  return auth !== undefined && "present" in auth && "headerPlan" in auth;
+}
+
+function isRaxAuthRef(auth: AuthEnvelope | RaxAuthRef | undefined): auth is RaxAuthRef {
+  return auth !== undefined && "type" in auth;
+}
+
+function raxAuthRefFromRuntimeAuth(auth: AuthEnvelope | RaxAuthRef | undefined): RaxAuthRef | undefined {
+  if (auth === undefined) return undefined;
+  if (isRaxAuthRef(auth)) return auth;
+  if (!auth.present) return { type: "none" };
+  const headers = Object.fromEntries(auth.headerPlan.map((header) => [header.name.toLowerCase(), String(header.value)]));
+  const authorization = headers.authorization;
+  if (auth.kind === "oauth" || auth.kind === "bearer") {
+    return { type: "bearer", value: authorization?.replace(/^Bearer\s+/iu, "") };
+  }
+  if (auth.kind === "api-key") {
+    const header = authorization === undefined ? Object.keys(headers)[0] : "Authorization";
+    return { type: "api_key", header, value: authorization?.replace(/^Bearer\s+/iu, "") ?? Object.values(headers)[0] };
+  }
+  return { type: "none" };
+}
+
+function providerForRax(provider: string): string {
+  const normalized = provider.trim().toLowerCase();
+  return normalized === "gemini" || normalized === "deepmind" ? "google" : normalized;
+}
+
+function requestFromRuntimeForRax(input: RuntimeModelInvocationLiveRequest, invocationId: string): RaxModelRequest | RuntimeModelInvocationResult {
+  if (input.raxRequest !== undefined) return { ...input.raxRequest, id: invocationId };
+  const provider = input.carrier?.provider?.trim();
+  if (!hasText(provider)) return liveFailure("MISSING_PROVIDER", "model invocation requires a provider", "carrier");
+  const model = input.carrier?.model?.trim() ?? providerBodyModel(input.providerBody);
+  if (!hasText(model)) return liveFailure("MISSING_MODEL", "model invocation requires a model id", "carrier");
+  const body = bodyRecordOrInput(input.providerBody);
+  const route = metadataString(input.carrier?.metadata, "modelAdapterRouteId") ??
+    metadataString(input.carrier?.metadata, "raxRouteId") ??
+    (input.carrier?.carrierId === provider ? input.carrier.carrierId : undefined);
+  return {
+    id: invocationId,
+    model: {
+      provider: providerForRax(provider),
+      model,
+      ...(route !== undefined ? { route } : {}),
+      baseUrl: input.carrier?.baseURL,
+      auth: raxAuthRefFromRuntimeAuth(input.auth),
+    },
+    messages: [{ role: "user", content: typeof input.providerBody === "string" ? input.providerBody : String(body.input ?? "") }],
+    providerOptions: { native: body },
+  };
+}
+
+async function invokeThroughRaxModelClient(
+  request: RuntimeModelInvocationLiveRequest,
+  plan: ModelInvocationPlan,
+): Promise<RuntimeModelInvocationResult> {
+  const raxRequest = requestFromRuntimeForRax(request, plan.invocationId);
+  if ("ok" in raxRequest) return raxRequest;
+  try {
+    const client = request.modelClient ?? createDefaultRaxModelClient();
+    const events: RaxModelEvent[] = [];
+    for await (const event of client.stream(raxRequest)) events.push(event);
+    const response = foldRaxModelEvents(events);
+    return {
+      ok: true,
+      plan: {
+        ...plan,
+        providerCallPermitted: true,
+        transport: "provider",
+        dryRun: false,
+      },
+      providerResult: response,
+      usage: response.usage,
+      raw: response,
+      raxEvents: events,
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", "runtime.modelAdapter.modelInvocationRuntime.planned"],
+    };
+  } catch (error) {
+    return liveFailure(
+      "PROVIDER_INVOCATION_FAILED",
+      error instanceof Error ? error.message : String(error),
+      "runtime-state",
+    );
+  }
+}
+
+function shouldUseRaxModelClient(request: RuntimeModelInvocationLiveRequest): boolean {
+  return request.raxRequest !== undefined || request.modelClient !== undefined;
+}
+
 export async function invokeModelThroughRuntime(
   request: RuntimeModelInvocationLiveRequest = {},
 ): Promise<RuntimeModelInvocationResult> {
@@ -590,8 +701,12 @@ export async function invokeModelThroughRuntime(
     };
   }
 
-  let auth = request.auth;
-  let providerAuth = request.auth;
+  if (shouldUseRaxModelClient(request)) {
+    return invokeThroughRaxModelClient(request, planResult.plan);
+  }
+
+  let auth = isRuntimeAuthEnvelope(request.auth) ? request.auth : undefined;
+  let providerAuth = auth;
   let resolvedAuthProfile: RuntimeAuthProviderProfile | undefined;
   let resolvedAuthModelEntry: RuntimeAuthModelEntry | undefined;
   let authEvents: readonly (string | object)[] = [];

@@ -17,6 +17,7 @@ import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvo
 import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
 import type { DeepMindV1BetaModelsGenerateContentTransport } from "../modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.js";
+import type { RaxAuthRef, RaxModelClient } from "../modelAdapter/index.js";
 import {
   isDeepSeekV4Model,
   mapDeepSeekV4ReasoningEffort,
@@ -207,7 +208,8 @@ export type PraxisRuntimeKernelError = {
 export type PraxisRuntimeKernelOptions = {
   runtimeId?: string;
   sessionId?: string;
-  auth?: AuthEnvelope;
+  auth?: AuthEnvelope | RaxAuthRef;
+  modelClient?: RaxModelClient;
   runtimeAuthResolver?: RuntimeAuthResolver;
   authSelection?: RuntimeAuthResolverRequest;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
@@ -5035,6 +5037,7 @@ export class PraxisRuntimeKernel {
         runtimeAuthResolver: options.runtimeAuthResolver,
         authSelection,
         providerCaller: options.providerCaller,
+        modelClient: options.modelClient,
         openaiResponsesCaller: options.openaiResponsesCaller,
         openaiChatCompletionsCaller: options.openaiChatCompletionsCaller,
         anthropicMessagesCaller: options.anthropicMessagesCaller,
@@ -5054,7 +5057,7 @@ export class PraxisRuntimeKernel {
           totalTokens: modelResult.usage.totalTokens,
           cachedInputTokens: "cachedInputTokens" in modelResult.usage ? modelResult.usage.cachedInputTokens : undefined,
           source: modelResult.usage.source,
-          estimated: modelResult.usage.estimated,
+          estimated: modelResult.usage.estimated ?? false,
         }
         : undefined;
       const providerRouting = modelResult.ok

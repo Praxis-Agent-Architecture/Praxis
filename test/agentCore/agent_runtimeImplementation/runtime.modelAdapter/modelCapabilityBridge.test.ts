@@ -19,13 +19,13 @@ test("modelCapabilityBridge exposes bridged model capabilities without provider 
       {
         capabilityId: " capability:text ",
         kind: "text-generation",
-        bridgeRef: " bridgingLayer:text ",
+        bridgeRef: " modelAdapter:text ",
         scopes: ["model.invoke", " model.stream "],
       },
       {
         capabilityId: "capability:tool",
         kind: "tool-call",
-        bridgeRef: "bridgingLayer:tool",
+        bridgeRef: "modelAdapter:tool",
         invocationSurface: "modelInvocationRuntime",
       },
     ],

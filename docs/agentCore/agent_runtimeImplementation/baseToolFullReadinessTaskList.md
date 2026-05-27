@@ -97,7 +97,7 @@ skillBase.md
 - [x] 展开请求必须进入 MainLoop / PromptPack / event 记录。
 - [x] 展开结果进入 PromptPack 的 capability segment。
 
-验证：`node --import tsx --test test/agentCore/agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.test.ts test/agentCore/agent_executionEngine/coreLogic/modelDecision.test.ts test/agentCore/agent_runtimeImplementation/baseToolContextFolding.test.ts test/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.test.ts`、`npm run typecheck`、`git diff --check`。
+验证：`node --import tsx --test test/agentCore/agent_modelAdapter/route/openaiCompatibleChat.test.ts test/agentCore/agent_executionEngine/coreLogic/modelDecision.test.ts test/agentCore/agent_runtimeImplementation/baseToolContextFolding.test.ts test/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.test.ts`、`npm run typecheck`、`git diff --check`。
 
 ### 1.4 热度权重与回收
 
@@ -165,7 +165,7 @@ Praxis 内部仍只认 `family/group/toolId`。对外调用模型时，由 compa
 - [x] 三家 raise 回统一 `ModelDecision.toolCall`。
 - [x] 三家 tool result lowering 都走统一 `lowerProviderToolResult(...)`。
 
-验证：`node --import tsx --test test/agentCore/agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.test.ts test/agentCore/agent_executionEngine/coreLogic/modelDecision.test.ts test/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.test.ts`、`npm run typecheck`、`git diff --check`。
+验证：`node --import tsx --test test/agentCore/agent_modelAdapter/route/openaiCompatibleChat.test.ts test/agentCore/agent_executionEngine/coreLogic/modelDecision.test.ts test/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.test.ts`、`npm run typecheck`、`git diff --check`。
 
 ### 3.3 Inspection
 
@@ -177,7 +177,7 @@ Praxis 内部仍只认 `family/group/toolId`。对外调用模型时，由 compa
 
 实现落点：`createFrameworkInspectionReport(...).providerToolSchema` 输出三家 provider target 的 tool count、mapping count、runtime decision tool count、declaration hash、sanitized tool count、schema rejected risk 与 cache prefix health。
 
-验证：`node --import tsx --test test/agentCore/agent_runtimeImplementation/runtime.inspection/frameworkInspectionReport.test.ts test/agentCore/agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.test.ts`、`npm run typecheck`、`git diff --check`。
+验证：`node --import tsx --test test/agentCore/agent_runtimeImplementation/runtime.inspection/frameworkInspectionReport.test.ts test/agentCore/agent_modelAdapter/route/openaiCompatibleChat.test.ts`、`npm run typecheck`、`git diff --check`。
 
 ## 4. Tool Result 回填
 
@@ -191,7 +191,7 @@ Praxis 内部仍只认 `family/group/toolId`。对外调用模型时，由 compa
 - [x] 工具成功后，模型必须能基于 tool result 继续回答或重规划。
 - [x] 工具失败后，失败信息也应回给模型作为 observation，而不是默认终止。
 
-验证：`node --import tsx --test test/agentCore/agent_modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.test.ts test/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.test.ts`、`npm run typecheck`、`git diff --check`。
+验证：`node --import tsx --test test/agentCore/agent_modelAdapter/route/openaiCompatibleChat.test.ts test/agentCore/agent_runtimeImplementation/praxisRuntimeKernel.test.ts`、`npm run typecheck`、`git diff --check`。
 
 ## 5. Text Fallback 收口
 
@@ -383,7 +383,7 @@ live 验证：`AGENTCORE_CODEX_AUTH_FILE="$HOME/.codex/auth.json" AGENTCORE_CODE
 - [ ] Claude/Gemini 后续再做 live。
 - [x] Provider adapter 读取 PromptPack cache plan，不在 core 里写 provider 私有缓存逻辑。
 
-阻塞说明：当前环境探测 `ANTHROPIC_API_KEY`、`CLAUDE_API_KEY`、`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENAI_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY` 均缺失，因此 Claude/Gemini live 不能在本轮伪造通过；保持未勾，等真实凭据或 authProfileLayer 产物接入后再跑 live smoke。
+阻塞说明：当前环境探测 `ANTHROPIC_API_KEY`、`CLAUDE_API_KEY`、`GEMINI_API_KEY`、`GOOGLE_API_KEY`、`GOOGLE_GENAI_API_KEY`、`GOOGLE_GENERATIVE_AI_API_KEY` 均缺失，因此 Claude/Gemini live 不能在本轮伪造通过；保持未勾，等真实凭据或 modelAdapter auth route 产物接入后再跑 live smoke。
 
 ## 14. TAP / CMP / MP / Multiagent 预留
 

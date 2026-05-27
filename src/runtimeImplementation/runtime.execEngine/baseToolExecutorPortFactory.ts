@@ -289,13 +289,6 @@ function resolveCommandCwd(context: RuntimeBaseToolExecutorContext, inputCwd: st
     workspaceRoot: root,
     allowedRoots: context.policy?.allowedRoots ?? [root],
   });
-  if (!result.ok && result.reason === "CWD_REJECTED" && result.normalizedPath !== undefined) {
-    return ok(result.normalizedPath, {
-      ...workspacePathMetadata(result, "cwd"),
-      workspaceOutsideAllowedRoots: true,
-      policyProfile: profile,
-    });
-  }
   if (!result.ok) return fail(result.reason, result.message, workspacePathMetadata(result, "cwd"));
   return ok(result.normalizedPath, workspacePathMetadata(result, "cwd"));
 }
@@ -315,13 +308,6 @@ function resolveCommandPathArgument(context: RuntimeBaseToolExecutorContext, inp
     allowedRoots: context.policy?.allowedRoots ?? [root],
     kind: "path",
   });
-  if (!result.ok && result.reason === "OUTSIDE_ALLOWED_ROOTS" && result.normalizedPath !== undefined) {
-    return ok(result.normalizedPath, {
-      ...workspacePathMetadata(result, "path"),
-      workspaceOutsideAllowedRoots: true,
-      policyProfile: profile,
-    });
-  }
   if (!result.ok) return fail(result.reason, result.message, workspacePathMetadata(result, "path"));
   const relative = workspaceRelativePath(result.normalizedPath, root);
   return ok(relative ?? result.normalizedPath, workspacePathMetadata(result, "path"));

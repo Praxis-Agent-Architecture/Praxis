@@ -31,9 +31,14 @@ export type ModelAdapterRuntimeGate = {
 };
 
 export type ModelAdapterRuntimeSurface =
-  | "actualInvocationLayer"
-  | "abstractionLayer"
-  | "bridgingLayer"
+  | "schema"
+  | "route"
+  | "protocol"
+  | "provider"
+  | "registry"
+  | "transport"
+  | "auth"
+  | "toolBridge"
   | "promptLoweringRuntime"
   | "modelInvocationRuntime"
   | "providerCarrierRegistry"
