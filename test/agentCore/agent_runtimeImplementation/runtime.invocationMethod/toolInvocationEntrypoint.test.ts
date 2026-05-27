@@ -12,7 +12,7 @@ defineAgentCoreContractTest({
 test("createToolInvocationEntrypoint plans a guarded dry-run tool invocation", () => {
   const result = createToolInvocationEntrypoint({
     runtimeId: "runtime-1",
-    toolId: "shellBase.run",
+    toolId: "shell.run",
     source: "official-module",
     operation: " execute ",
     input: { command: "npm test" },
@@ -28,7 +28,7 @@ test("createToolInvocationEntrypoint plans a guarded dry-run tool invocation", (
 
   assert.equal(result.plan.invocationType, "tool");
   assert.equal(result.plan.runtimeId, "runtime-1");
-  assert.equal(result.plan.toolId, "shellBase.run");
+  assert.equal(result.plan.toolId, "shell.run");
   assert.equal(result.plan.operation, "execute");
   assert.equal(result.plan.dispatch, "dry-run");
   assert.equal(result.plan.touchesToolLayer, false);
@@ -50,7 +50,7 @@ test("createToolInvocationEntrypoint preserves envelope input and governance fai
 
   const rejected = createToolInvocationEntrypoint({
     runtimeId: "runtime-1",
-    toolId: "codeBase.edit",
+    toolId: "patch.apply",
     source: "application",
     governance: { accepted: false, reason: "tool invocation blocked by runtime governance" },
   });

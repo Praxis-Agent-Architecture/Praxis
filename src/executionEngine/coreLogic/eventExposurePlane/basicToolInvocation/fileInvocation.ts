@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 执行引擎 / 执行核心逻辑 / 事件暴露面 / 基础工具调用事件。
- * 核心目的：承载 code Invocation 这一能力位点。
+ * 核心目的：承载 file Invocation 这一能力位点。
  * 能力要求1：需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
  * 能力要求2：如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
  * 边界：只服务 agentCore 内核，不写上层产品逻辑。
@@ -8,31 +8,31 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export type CodeInvocationBoundary = "input" | "contract" | "governance" | "scope" | "runtime-state";
+export type FileInvocationBoundary = "input" | "contract" | "governance" | "scope" | "runtime-state";
 
-export type CodeInvocationGate = {
+export type FileInvocationGate = {
   accepted: boolean;
   reason?: string;
 };
 
-export type CodeInvocationRequest = {
+export type FileInvocationRequest = {
   runtimeId?: string;
   sessionId?: string;
   invocationId?: string;
   operation?: string;
   eventSource?: string;
-  languageHint?: string;
+  pathHint?: string;
   payload?: Record<string, unknown>;
   requestedScopes?: readonly string[];
   allowedScopes?: readonly string[];
   subscribers?: readonly string[];
   runtimeReady?: boolean;
   dryRun?: boolean;
-  contract?: CodeInvocationGate;
-  governance?: CodeInvocationGate;
+  contract?: FileInvocationGate;
+  governance?: FileInvocationGate;
 };
 
-export type CodeInvocationErrorCode =
+export type FileInvocationErrorCode =
   | "MISSING_RUNTIME_ID"
   | "MISSING_SESSION_ID"
   | "MISSING_OPERATION"
@@ -44,24 +44,24 @@ export type CodeInvocationErrorCode =
   | "SCOPE_DENIED"
   | "REAL_SIDE_EFFECT_NOT_ALLOWED";
 
-export type CodeInvocationError = {
-  code: CodeInvocationErrorCode;
+export type FileInvocationError = {
+  code: FileInvocationErrorCode;
   message: string;
-  boundary: CodeInvocationBoundary;
+  boundary: FileInvocationBoundary;
   safeForRuntimeInspection: true;
   internalDetailExposed: false;
 };
 
-export type CodeInvocationEvent = {
+export type FileInvocationEvent = {
   plane: "eventExposurePlane";
   category: "basic-tool-invocation";
-  toolKind: "code";
+  toolKind: "file";
   runtimeId: string;
   sessionId: string;
   invocationId: string;
   operation: string;
   eventSource: string;
-  languageHint?: string;
+  pathHint?: string;
   payload: Readonly<Record<string, unknown>>;
   acceptedScopes: readonly string[];
   subscribers: readonly string[];
@@ -76,23 +76,23 @@ export type CodeInvocationEvent = {
   };
 };
 
-export type CodeInvocationExposureResult =
+export type FileInvocationExposureResult =
   | {
       ok: true;
-      invocation: CodeInvocationEvent;
+      invocation: FileInvocationEvent;
       events: readonly string[];
     }
   | {
       ok: false;
-      error: CodeInvocationError;
+      error: FileInvocationError;
       events: readonly string[];
     };
 
-export const codeInvocationDescriptor = {
+export const fileInvocationDescriptor = {
   plane: "eventExposurePlane",
   category: "basic-tool-invocation",
-  toolKind: "code",
-  purpose: "expose code tool invocation events without evaluating or running code",
+  toolKind: "file",
+  purpose: "expose file tool invocation events without reading or mutating files",
   unsafeSideEffects: false,
 } as const;
 
@@ -109,10 +109,10 @@ function cleanList(values: readonly string[] | undefined): string[] {
 }
 
 function failure(
-  code: CodeInvocationErrorCode,
+  code: FileInvocationErrorCode,
   message: string,
-  boundary: CodeInvocationBoundary,
-): CodeInvocationExposureResult {
+  boundary: FileInvocationBoundary,
+): FileInvocationExposureResult {
   return {
     ok: false,
     error: {
@@ -122,14 +122,14 @@ function failure(
       safeForRuntimeInspection: true,
       internalDetailExposed: false,
     },
-    events: ["eventExposure.basicTool.code.rejected"],
+    events: ["eventExposure.basicTool.file.rejected"],
   };
 }
 
 function resolveScopes(
   requestedScopes: readonly string[] | undefined,
   allowedScopes: readonly string[] | undefined,
-): string[] | CodeInvocationExposureResult {
+): string[] | FileInvocationExposureResult {
   const requested = cleanList(requestedScopes);
   const allowed = cleanList(allowedScopes);
 
@@ -139,49 +139,49 @@ function resolveScopes(
 
   const denied = requested.filter((scope) => !allowed.includes(scope));
   if (denied.length > 0) {
-    return failure("SCOPE_DENIED", `code invocation scope ${denied[0]} is outside runtime governance`, "scope");
+    return failure("SCOPE_DENIED", `file invocation scope ${denied[0]} is outside runtime governance`, "scope");
   }
 
   return requested;
 }
 
-export function exposeCodeInvocationEvent(request?: CodeInvocationRequest): CodeInvocationExposureResult {
+export function exposeFileInvocationEvent(request?: FileInvocationRequest): FileInvocationExposureResult {
   if (request === undefined || isBlank(request.runtimeId)) {
-    return failure("MISSING_RUNTIME_ID", "code invocation exposure requires runtimeId", "input");
+    return failure("MISSING_RUNTIME_ID", "file invocation exposure requires runtimeId", "input");
   }
 
   if (isBlank(request.sessionId)) {
-    return failure("MISSING_SESSION_ID", "code invocation exposure requires sessionId", "input");
+    return failure("MISSING_SESSION_ID", "file invocation exposure requires sessionId", "input");
   }
 
   if (isBlank(request.operation)) {
-    return failure("MISSING_OPERATION", "code invocation exposure requires an operation", "input");
+    return failure("MISSING_OPERATION", "file invocation exposure requires an operation", "input");
   }
 
   if (isBlank(request.eventSource)) {
-    return failure("MISSING_EVENT_SOURCE", "code invocation exposure requires an event source", "input");
+    return failure("MISSING_EVENT_SOURCE", "file invocation exposure requires an event source", "input");
   }
 
   if (request.payload !== undefined && !isRecord(request.payload)) {
-    return failure("INVALID_INVOCATION_PAYLOAD", "code invocation payload must be a plain record", "input");
+    return failure("INVALID_INVOCATION_PAYLOAD", "file invocation payload must be a plain record", "input");
   }
 
   if (request.dryRun === false) {
     return failure(
       "REAL_SIDE_EFFECT_NOT_ALLOWED",
-      "first-round code invocation exposure only supports dry-run envelopes",
+      "first-round file invocation exposure only supports dry-run envelopes",
       "governance",
     );
   }
 
   if (request.runtimeReady === false) {
-    return failure("RUNTIME_NOT_READY", "code invocation events require a ready runtime", "runtime-state");
+    return failure("RUNTIME_NOT_READY", "file invocation events require a ready runtime", "runtime-state");
   }
 
   if (request.contract?.accepted === false) {
     return failure(
       "CONTRACT_REJECTED",
-      request.contract.reason ?? "code invocation exposure was rejected by contract surface",
+      request.contract.reason ?? "file invocation exposure was rejected by contract surface",
       "contract",
     );
   }
@@ -189,7 +189,7 @@ export function exposeCodeInvocationEvent(request?: CodeInvocationRequest): Code
   if (request.governance?.accepted === false) {
     return failure(
       "GOVERNANCE_REJECTED",
-      request.governance.reason ?? "code invocation exposure was rejected by runtime governance",
+      request.governance.reason ?? "file invocation exposure was rejected by runtime governance",
       "governance",
     );
   }
@@ -208,13 +208,13 @@ export function exposeCodeInvocationEvent(request?: CodeInvocationRequest): Code
     invocation: {
       plane: "eventExposurePlane",
       category: "basic-tool-invocation",
-      toolKind: "code",
+      toolKind: "file",
       runtimeId,
       sessionId,
-      invocationId: request.invocationId?.trim() || `${runtimeId}:${sessionId}:code:${operation}`,
+      invocationId: request.invocationId?.trim() || `${runtimeId}:${sessionId}:file:${operation}`,
       operation,
       eventSource: request.eventSource?.trim() ?? "",
-      languageHint: request.languageHint?.trim() || undefined,
+      pathHint: request.pathHint?.trim() || undefined,
       payload: request.payload ?? {},
       acceptedScopes,
       subscribers: cleanList(request.subscribers),
@@ -228,6 +228,6 @@ export function exposeCodeInvocationEvent(request?: CodeInvocationRequest): Code
         governanceRequired: true,
       },
     },
-    events: ["eventExposure.basicTool.code.exposed"],
+    events: ["eventExposure.basicTool.file.exposed"],
   };
 }

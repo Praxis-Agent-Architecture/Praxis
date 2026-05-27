@@ -20,7 +20,7 @@
 - 原始文件名：`baseToolSupportCatalog.ts`。
 - 命名片段：`base` / `Tool` / `Support` / `Catalog`。
 - 工程含义：这是 runtime 中 `runtime.execEngine` 表面下的 baseTool 支持目录，服务运行时检查、调试、治理和挂载解释。
-- 第一实现重点：证明 24 个 semantic tools 都能被目录收纳，且 `officeBase` 不混入核心 basetool 口径。
+- 第一实现重点：证明 24 个 semantic tools 都能被目录收纳，且 `workBase` 插件能力不混入核心 basetool 口径。
 - 边界提醒：runtime 是承托面，不应吞并 executionEngine、modelAdapter、interfaceAdapter 的内部实现。
 
 ## 3. 目录语义
@@ -52,7 +52,7 @@
 - 可选的 `implementedPortPaths`，用于声明哪些 port 不是单纯占位/委托壳，而是当前 runtime 已真实实现或已注入 backend。
 - 可选的 `toolInput`，用于判断本次调用实际需要哪一组 runtime port。
 - 可选的 disabled / approval / status override，用于 runtime 治理和检查场景。
-- 输入不应包含 TAP office 包、用户 agent 配置或执行结果。
+- 输入不应包含 TAP work 包、用户 agent 配置或执行结果。
 
 输入边界必须窄：目录只解释当前 baseTool 支持合同，不启动工具、不访问文件系统、不读 package 源。
 
@@ -94,7 +94,7 @@
 
 - 不要直接执行工具。
 - 不要生成大量手写 wrapper。
-- 不要把 `officeBase` TAP 能力混入核心 semantic basetool catalog。
+- 不要把 `workBase` TAP 能力混入核心 semantic basetool catalog。
 - 不要让 port namespace 替代 `family/group/toolId` 的 storage 分类。
 
 ## 12. 最小实现建议
@@ -108,7 +108,7 @@
 ## 13. 最小测试建议
 
 - 验证 catalog 总数为 24。
-- 验证没有 `office` family。
+- 验证没有 `work` family。
 - 验证每个 semantic tool 都有 catalog entry。
 - 验证 `shell.run`、`file.read`、`file.search`、`web.fetch` 等典型工具能提取正确 support。
 - 验证 `agent.spawn` 这类 application/runtime adapter port 在没有 backend 时被 preflight 判定为 blocked。

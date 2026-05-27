@@ -24,7 +24,7 @@ test("baseToolRealityLedger covers the semantic basetool catalog", () => {
   assert.equal(ledger.length, 24);
   assert.equal(snapshot.total, 24);
   assert.equal(snapshot.expectedTotal, 24);
-  assert.equal(snapshot.byFamily.office ?? 0, 0);
+  assert.equal(snapshot.byFamily.work ?? 0, 0);
   assert.equal(snapshot.byStorage["semantic-catalog"], 24);
   assert.equal(ledgerIds.has("file.read"), true);
   assert.equal(ledgerIds.has("shell.run"), true);

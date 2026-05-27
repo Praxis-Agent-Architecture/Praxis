@@ -53,6 +53,14 @@ test("rax build init fullstack prepares the mature agent workspace layout", () =
   assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/interfaces/interfaceSurface.md"), true);
   assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/config/modelFleet.ts"), true);
   assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/state/statePlane.ts"), true);
+  const cmpBridge = plan.files.find((file) => file.path === "context/cmpBridge.ts")?.content ?? "";
+  assert.match(cmpBridge, /cmpBridgeContract/);
+  assert.match(cmpBridge, /context\.fullstack-agent\.cmpBridge\.contract/);
+  assert.match(cmpBridge, /不引入独立后台 context pool/);
+  const mpBridge = plan.files.find((file) => file.path === "memory/mpBridge.ts")?.content ?? "";
+  assert.match(mpBridge, /mpBridgeContract/);
+  assert.match(mpBridge, /memory\.fullstack-agent\.mpBridge\.contract/);
+  assert.match(mpBridge, /不引入独立后台 memory agent/);
   const tsconfig = plan.files.find((file) => file.path === "tsconfig.json")?.content ?? "";
   assert.match(tsconfig, /application\/\*\*\/\*\.ts/);
   assert.match(tsconfig, /agents\/\*\*\/\*\.ts/);

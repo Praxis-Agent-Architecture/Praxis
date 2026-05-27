@@ -87,7 +87,7 @@
 - [x] 压缩作为动作原语，不由 MainLoop 随意裁剪上下文。
 - [x] 定义 `ObservationCompressionPolicy`。
 - [x] 定义 `SummaryAgentRef`，摘要默认可以由小摘要 agent 完成。
-- [x] 无 MP 时提供 session-local fallback memory。
+- [x] 无 MP 时仅保留 observation artifact/context material 引用，不提供 session-local fallback memory。
 - [x] 设计 `memoryBase` 方向：类似 Codex memory/skill md 库，可被 MP 顺势接管，不和架构内部强绑定。
 - [x] 判断是否需要新增 memoryBase/BaseTool，并写入后续任务。
 - [x] 增加 compression/memory fallback tests 或设计文档证据。

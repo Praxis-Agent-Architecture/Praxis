@@ -94,7 +94,7 @@
 
 ## 11. 不应该做什么
 
-- 不要实现 shell、git、filesystem、MCP、LSP、computeruse 等具体执行逻辑。
+- 不要实现 shell、git、filesystem、MCP、LSP、computer 等具体执行逻辑。
 - 不要给 semantic basetool 写手工分发分支。
 - 不要绕过 baseTool registry 或 `BaseToolExecutorPort`。
 - 不要把 provider 原始字段、密钥、内部错误直接暴露给上层。

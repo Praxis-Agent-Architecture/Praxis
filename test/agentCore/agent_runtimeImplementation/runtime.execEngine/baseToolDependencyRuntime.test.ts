@@ -19,8 +19,8 @@ import type { BaseToolSupportCatalogEntry } from "../../../../src/runtimeImpleme
 function lspCatalogEntry(toolId = "code.lsp.locateDefinition"): BaseToolSupportCatalogEntry {
   return {
     toolId,
-    family: "code",
-    storageFamily: "codeBase",
+    family: "lsp",
+    storageFamily: "optionalBase",
     group: "lsp",
     title: "LSP Locate Definition",
     riskLevel: "read",
@@ -572,9 +572,9 @@ test("baseToolDependencyRuntime live-probes registered detect-only desktop depen
   await chmod(grim, 0o755);
 
   const screenshotEntry: BaseToolSupportCatalogEntry = {
-    toolId: "computeruse.fullscreenScreenshot",
-    family: "computeruse",
-    storageFamily: "computeruseBase",
+    toolId: "computer.fullscreenScreenshot",
+    family: "computer",
+    storageFamily: "computerBase",
     group: "screenshot",
     title: "Fullscreen Screenshot",
     riskLevel: "risky",
@@ -587,7 +587,7 @@ test("baseToolDependencyRuntime live-probes registered detect-only desktop depen
     }],
     requiredSupports: [],
     readiness: "available",
-    storageDocPath: "computeruse.fullscreenScreenshot.md",
+    storageDocPath: "computer.fullscreenScreenshot.md",
   };
 
   const result = await preflightBaseToolDependencies({
@@ -596,7 +596,7 @@ test("baseToolDependencyRuntime live-probes registered detect-only desktop depen
       runtimeId: "runtime-dependency-detect",
       sessionId: "session-dependency-detect",
       invocationId: "tool-call-detect",
-      toolId: "computeruse.fullscreenScreenshot",
+      toolId: "computer.fullscreenScreenshot",
       governanceAccepted: true,
       managedRoot,
       env: {

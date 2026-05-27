@@ -140,5 +140,5 @@
 
 ## 15. 后续任务
 
-- `memoryBase` 暂不并入 MainLoop。本轮只保留 session-local fallback memory 与 `SummaryAgentRef`，后续应以 skillBase 风格设计一个可索引的 markdown memory 库，并允许 MP 接管。
+- `memoryBase` 暂不并入 MainLoop。本轮只保留观测材料、artifact 引用与 `SummaryAgentRef`；不建立 session-local fallback memory，也不让 MP 在这里接管隐藏记忆索引。
 - 如果新增 `memoryBase` BaseTool，必须继续走 BaseTool registry/handler/executor，不得让 MainLoop 直接读写长期记忆。

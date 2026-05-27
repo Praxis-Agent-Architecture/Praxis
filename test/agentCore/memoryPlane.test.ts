@@ -180,7 +180,7 @@ test("memoryPlane exposes profile-aware prompt guide and risk metadata through p
     assert.equal(guide.enabled, true);
     assert.equal(guide.profile, "appendOnly");
     assert.equal(guide.searchGuide?.toolId, "file.search");
-    assert.match(guide.guide, /passive durable project\/global context/);
+    assert.match(guide.guide, /application-owned durable project\/global context/);
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

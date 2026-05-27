@@ -1440,12 +1440,13 @@ export const toolPolicies = {
       profile: "codingAgentFull",
       defaultDecision: "deny",
       familyRules: [
-        { scope: "family", family: "codeBase", action: "read", decision: input.read ?? "allow", risk: "low", log: "full", approval: "none" },
-        { scope: "family", family: "codeBase", action: "write", decision: input.write ?? "approval", risk: "medium", log: "full", approval: "required" },
-        { scope: "family", family: "shellBase", decision: input.shell ?? "guarded", risk: "high", log: "full", approval: "on-risk" },
         { scope: "family", family: "gitBase", decision: input.git ?? "approval-on-destructive", risk: "destructive", log: "full", approval: "on-destructive" },
       ],
-      groupRules: [],
+      groupRules: [
+        { scope: "group", family: "coreBase", group: "filesystem", action: "read", decision: input.read ?? "allow", risk: "low", log: "full", approval: "none" },
+        { scope: "group", family: "coreBase", group: "edit", action: "write", decision: input.write ?? "approval", risk: "medium", log: "full", approval: "required" },
+        { scope: "group", family: "coreBase", group: "shell", decision: input.shell ?? "guarded", risk: "high", log: "full", approval: "on-risk" },
+      ],
       toolRules: [],
       actionRules: [],
       readinessPolicy: "observe",

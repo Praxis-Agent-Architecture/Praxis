@@ -477,7 +477,7 @@ test("compileAgent rejects unknown or mismatched BaseTool authoring with public-
     identity = "agent.mismatched-tool";
     model = model("gpt-5.4");
     harness = harness({
-      tools: tools([tool("file.read", { family: "gitBase", group: "inspection" })]),
+      tools: tools([tool("file.read", { family: "agentBase", group: "skill" })]),
     });
   }
 

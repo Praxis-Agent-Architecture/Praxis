@@ -696,10 +696,10 @@ export function createRuntimeBaseToolExecutorPort(
     skill: createUnavailableNamespace("skill", ["load", "management", "summarize", "ripgrep"]),
     lsp: createUnavailableNamespace("lsp", ["inspectDiagnostics", "completeCode", "locateDefinition"]),
     debug: createUnavailableNamespace("debug", ["captureState", "collectLogs", "launch"]),
-    computeruse: createUnavailableNamespace("computeruse", ["captureScreenshot", "keyboardAction", "pointerAction"]),
-    omni: createUnavailableNamespace("omni", ["viewImage", "generateImage", "listenAudio", "generateVideo", "transformMedia"]),
+    computer: createUnavailableNamespace("computer", ["captureScreenshot", "keyboardAction", "pointerAction"]),
+    media: createUnavailableNamespace("media", ["viewImage", "generateImage", "listenAudio", "generateVideo", "transformMedia"]),
     device: createUnavailableNamespace("device", ["requestPermission", "releasePermission"]),
-    office: createUnavailableNamespace("office", ["read", "write"]),
+    work: createUnavailableNamespace("work", ["read", "write"]),
     approval: createUnavailableNamespace("approval", ["request", "check"]),
     sandbox: {
       run: withAdapter(context, "sandbox", "run", async (request) => {

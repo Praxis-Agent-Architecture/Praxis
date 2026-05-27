@@ -11,7 +11,6 @@ import {
   DEFAULT_OBSERVATION_COMPRESSION_POLICY,
   DEFAULT_SUMMARY_AGENT_REF,
   DEFAULT_TOOL_RESULT_SIZE_POLICY,
-  createFallbackMemoryRef,
   createObservationMaterial,
 } from "../../../../src/executionEngine/coreLogic/observationIntegrator.js";
 
@@ -26,9 +25,9 @@ test("createObservationMaterial turns tool output into PromptPack material", () 
     observationId: "observation-1",
     source: "baseTool",
     status: "completed",
-    title: "BaseTool code.read",
+    title: "BaseTool file.read",
     summary: "read file",
-    refs: ["call-1", "code.read"],
+    refs: ["call-1", "file.read"],
     payload: { text: "hello" },
     metadata: { toolCallId: "call-1" },
   });
@@ -43,7 +42,7 @@ test("createObservationMaterial turns tool output into PromptPack material", () 
   assert.equal(observation.material.metadata?.summaryDelegationMode, "summaryAgent");
   assert.equal(observation.compression.enabled, true);
   assert.equal(observation.compression.compressionRatio, 0.05);
-  assert.deepEqual(observation.refs, ["call-1", "code.read"]);
+  assert.deepEqual(observation.refs, ["call-1", "file.read"]);
   assert.match(observation.material.text, /hello/u);
 });
 
@@ -69,7 +68,7 @@ test("createObservationMaterial stores large payloads as artifact refs instead o
     observationId: "observation-large",
     source: "baseTool",
     status: "completed",
-    title: "BaseTool code.search_Ripgrep",
+    title: "BaseTool file.search_Ripgrep",
     summary: "large search result",
     payload: "x".repeat(128),
     sizePolicy: { maxInlineBytes: 64 },
@@ -96,7 +95,7 @@ test("createObservationMaterial can persist oversized tool payloads for later lo
       observationId: "session:turn:tool/read",
       source: "baseTool",
       status: "completed",
-      title: "BaseTool code.search",
+      title: "BaseTool file.search",
       summary: "large search result",
       payload: { stdout: marker.repeat(2000) },
       artifactStore: {
@@ -138,7 +137,7 @@ test("createObservationMaterial allows explicit trust levels for external and ca
   assert.equal(cached.trustLevel, "cachedSummary");
 });
 
-test("createObservationMaterial delegates summaries to CMP or summary agent by default", () => {
+test("createObservationMaterial delegates summaries to summary agents by default and keeps CMP opt-in", () => {
   assert.equal(DEFAULT_OBSERVATION_SUMMARY_DELEGATION_POLICY.allowCurrentAgentSelfSummary, false);
   assert.equal(DEFAULT_OBSERVATION_SUMMARY_DELEGATION_POLICY.compressionRatio, 0.05);
   assert.equal(DEFAULT_OBSERVATION_COMPRESSION_POLICY.primitive, "compressObservation");
@@ -170,22 +169,13 @@ test("createObservationMaterial delegates summaries to CMP or summary agent by d
   assert.equal(disabled.compression.owner, "runtimeFallback");
 });
 
-test("createFallbackMemoryRef provides a session-local markdown index that MP can take over", () => {
-  const ref = createFallbackMemoryRef(" session-1 ");
-  assert.equal(ref.memoryId, "session-1:memory:fallback-md-index");
-  assert.equal(ref.kind, "sessionLocalMarkdownIndex");
-  assert.equal(ref.storageHint, ".rax_workspace");
-  assert.equal(ref.takeoverReadyForMp, true);
-  assert.equal(ref.publicSafe, true);
-});
-
 test("createObservationMaterial folds large payloads into artifact references", () => {
   const marker = "RAXODE_LARGE_TOOL_PAYLOAD_";
   const observation = createObservationMaterial({
     observationId: "observation.large",
     source: "baseTool",
     status: "completed",
-    title: "BaseTool shell.commandExecution",
+    title: "BaseTool shell.run",
     summary: "tool invocation completed",
     payload: { stdout: marker.repeat(4000) },
   });

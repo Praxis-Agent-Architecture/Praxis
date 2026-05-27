@@ -10,7 +10,7 @@ export type RuntimeComponentKind =
   | "lsp"
   | "mcp"
   | "browser"
-  | "office"
+  | "work"
   | "tool-support"
   | "custom";
 

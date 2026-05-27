@@ -27,7 +27,7 @@ function familyFor(layer: BaseToolLayer, toolId: string): string {
   if (layer === "agent") return "agentBase";
   if (layer === "runtime") return "runtimeBase";
   const family = toolId.split(".", 1)[0] ?? "optional";
-  if (family === "image" || family === "audio" || family === "media") return "omniBase";
+  if (family === "image" || family === "audio" || family === "media") return "mediaBase";
   if (family === "repo") return "gitBase";
   return `${family}Base`;
 }

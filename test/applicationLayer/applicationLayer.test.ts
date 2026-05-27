@@ -13,7 +13,10 @@ import {
   describeApplicationWebSocketTransport,
   loadApplicationProject,
 } from "../../src/applicationLayer/index.js";
-import { invokeOpenAIResponsesApplicationAdapter } from "../../src/applicationLayer/applicationRuntime.js";
+import {
+  applicationRuntimeTestHooks,
+  invokeOpenAIResponsesApplicationAdapter,
+} from "../../src/applicationLayer/applicationRuntime.js";
 import { createApiKeyAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authEnvelope.js";
 import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
 import {
@@ -377,6 +380,89 @@ test("applicationLayer publishes stream events during live provider calls", asyn
   assert.equal(result.view.usage?.outputTokens, 6);
   assert.equal(result.view.usage?.thinkingTokens, 2);
   assert.equal(result.view.usage?.estimated, false);
+});
+
+test("applicationLayer tool progress summaries use semantic basetool ids", () => {
+  const webStarted = applicationRuntimeTestHooks.createToolProgressEvent({
+    turnId: "turn.semantic",
+    status: "running",
+    progress: {
+      phase: "started",
+      callId: "call.web.search",
+      toolId: "web.search",
+      arguments: { query: "praxis basetool" },
+    },
+  });
+  assert.equal(webStarted.metadata?.familyKey, "websearch");
+  assert.equal(webStarted.metadata?.inputSummary, "Searching praxis basetool");
+
+  const webCompleted = applicationRuntimeTestHooks.createToolProgressEvent({
+    turnId: "turn.semantic",
+    status: "completed",
+    progress: {
+      phase: "completed",
+      record: {
+        callId: "call.web.fetch",
+        toolId: "web.fetch",
+        arguments: { url: "https://example.test/docs" },
+        ok: true,
+        output: {
+          finalUrl: "https://example.test/docs",
+          pageTitle: "Docs",
+          status: 200,
+        },
+      },
+    },
+  });
+  assert.equal(webCompleted.metadata?.familyKey, "websearch");
+  assert.deepEqual(webCompleted.metadata?.humanResultSummary, [
+    "页面：https://example.test/docs",
+    "标题：Docs",
+    "HTTP：200",
+  ]);
+
+  const mcpStarted = applicationRuntimeTestHooks.createToolProgressEvent({
+    turnId: "turn.semantic",
+    status: "running",
+    progress: {
+      phase: "started",
+      callId: "call.mcp.use",
+      toolId: "mcp.use",
+      arguments: { serverId: "local", toolName: "read_file" },
+    },
+  });
+  assert.equal(mcpStarted.metadata?.inputSummary, "Calling MCP tool read_file on local");
+
+  const mcpResourceStarted = applicationRuntimeTestHooks.createToolProgressEvent({
+    turnId: "turn.semantic",
+    status: "running",
+    progress: {
+      phase: "started",
+      callId: "call.mcp.resources",
+      toolId: "mcp.resources",
+      arguments: { serverId: "local", uri: "file://README.md" },
+    },
+  });
+  assert.equal(mcpResourceStarted.metadata?.inputSummary, "Reading MCP resource file://README.md from local");
+
+  const patchCompleted = applicationRuntimeTestHooks.createToolProgressEvent({
+    turnId: "turn.semantic",
+    status: "completed",
+    progress: {
+      phase: "completed",
+      record: {
+        callId: "call.patch.apply",
+        toolId: "patch.apply",
+        arguments: { patch: "*** Begin Patch\n*** Update File: README.md\n@@\n-old\n+new\n*** End Patch\n" },
+        ok: true,
+        output: { additions: 1, deletions: 1, changedFiles: ["README.md"] },
+      },
+    },
+  });
+  assert.equal(patchCompleted.metadata?.familyKey, "file");
+  const patchMetadata = patchCompleted.metadata?.resultMetadata as Record<string, unknown> | undefined;
+  assert.equal(patchMetadata?.codeAdditions, 1);
+  assert.equal(patchMetadata?.codeDeletions, 1);
 });
 
 test("applicationLayer can hand runtime auth resolver into live kernel calls", async () => {

@@ -43,10 +43,10 @@ function packet(): PreCompactGovernancePacket {
       text: "Recent correction.",
     }],
     memoryContext: [{
-      id: "memory.index",
+      id: "memory.ref",
       segmentKind: "memoryContext",
-      summary: "Memory index only.",
-      refs: ["memory.index"],
+      summary: "Application-injected memory reference only.",
+      refs: ["memory.ref"],
     }],
     retrievedContext: [],
     observations: [],

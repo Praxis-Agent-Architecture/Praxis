@@ -54,7 +54,7 @@
 - runtime policy：workspaceRoot、allowedRoots、是否允许 shell/git/process/filesystem write/delete/ripgrep。
 - resource limits：timeout、输出字节数、读取字节数、目录列举数量。
 - mcpServers：可选 runtime-owned MCP server profiles，用于把 stdio/http/sse MCP server 接入 `mcpRuntimeAdapter`。
-- adapters：可选 backend port 注入，用来承托 MCP、LSP、computeruse、omni、skill 等需要专门 runtime surface 的能力。
+- adapters：可选 backend port 注入，用来承托 MCP、LSP、computer、media、skill 等需要专门 runtime surface 的能力。
 - event sink：只接收 public-safe runtime executor event。
 
 输入边界必须窄：factory 不接收 AgentObject、Manifest 全量对象或 TAP 策略对象。
@@ -104,7 +104,7 @@
 - 第一批 adapter 只接 OS/filesystem/process/git/ripgrep 的最小安全路径。
 - background/detached 进程必须经过 policy gate、allowedRoots、sandbox 适配和启动期失败检测；成功 envelope 要保留 handle/pid/lifecycle，并把用户可达性标记为未验证，等待上层做 HTTP、浏览器或日志读回。
 - 所有真实副作用都经过 context policy 和 allowedRoots。
-- MCP 可通过 `mcpServers` 接入 runtime-owned stdio/http/sse adapter；agent/context/skill/LSP/omni/office 等仍按专用 runtime surface 或 application adapter 逐步补齐。
+- MCP 可通过 `mcpServers` 接入 runtime-owned stdio/http/sse adapter；agent/context/skill/LSP/media/work 等仍按专用 runtime surface 或 application adapter 逐步补齐。
 
 ## 13. 最小测试建议
 

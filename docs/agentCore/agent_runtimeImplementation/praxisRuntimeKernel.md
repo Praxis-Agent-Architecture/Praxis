@@ -82,7 +82,7 @@
 - 不重做 `basic_toolLayer`。
 - 不把 promptPack 终局策略写死。
 - 不加厚 mainLoop/coreLogic 动作原语。
-- 不把 MCP/computeruse/omni 高级策略放进 kernel。
+- 不把 MCP/computer/media 高级策略放进 kernel。
 - 不把 preCompactGovernance 扩展成常驻 CMP、RAG 或 memory agent。
 
 ## 12. 最小实现建议

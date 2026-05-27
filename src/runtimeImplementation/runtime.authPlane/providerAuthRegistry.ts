@@ -19,7 +19,7 @@ export type RuntimeAuthEndpointShape =
 export type RuntimeAuthRole =
   | "primary"
   | "fallback"
-  | "omni"
+  | "media"
   | "embedding"
   | "realtime"
   | "batch"

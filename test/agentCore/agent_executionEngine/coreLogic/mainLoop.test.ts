@@ -198,7 +198,7 @@ test("runMainLoopRunner owns model decision and tool loop control through runtim
           ? [{
               decisionId: "decision.tool",
               kind: "toolCall",
-              toolCall: { callId: "call-1", toolId: "code.read", arguments: {} },
+              toolCall: { callId: "call-1", toolId: "file.read", arguments: {} },
               observationRefs: [],
               metadata: {},
             }]
@@ -235,7 +235,7 @@ test("runMainLoopRunner owns model decision and tool loop control through runtim
     "prepare:0",
     "model:0",
     "decision:0",
-    "tool:code.read",
+    "tool:file.read",
     "prepare:1",
     "model:1",
     "decision:1",
@@ -264,7 +264,7 @@ test("runMainLoopRunner applies tool budget per model turn instead of globally",
         ? [{
             decisionId: `decision.tool.${turnIndex}`,
             kind: "toolCall",
-            toolCall: { callId: `call-${turnIndex}`, toolId: "code.read", arguments: {} },
+            toolCall: { callId: `call-${turnIndex}`, toolId: "file.read", arguments: {} },
             observationRefs: [],
             metadata: {},
           }]
@@ -317,14 +317,14 @@ test("runMainLoopRunner reports tool call limit when one model turn exhausts its
         {
           decisionId: `decision.tool.${turnIndex}.first`,
           kind: "toolCall",
-          toolCall: { callId: "call-first", toolId: "code.read", arguments: {} },
+          toolCall: { callId: "call-first", toolId: "file.read", arguments: {} },
           observationRefs: [],
           metadata: {},
         },
         {
           decisionId: `decision.tool.${turnIndex}.second`,
           kind: "toolCall",
-          toolCall: { callId: "call-second", toolId: "code.scan", arguments: {} },
+          toolCall: { callId: "call-second", toolId: "file.search", arguments: {} },
           observationRefs: [],
           metadata: {},
         },
@@ -592,7 +592,7 @@ test("analyzeMainLoopCacheHealth explains stable prefix and capability rebuilds"
       {
         id: "tool-code-read",
         kind: "tool",
-        text: "code.read",
+        text: "file.read",
         source: "tool",
         promptSegmentKind: "toolDeclarations",
       },
@@ -629,7 +629,7 @@ test("analyzeMainLoopCacheHealth explains stable prefix and capability rebuilds"
       {
         id: "tool-shell",
         kind: "tool",
-        text: "shell.commandExecution",
+        text: "shell.run",
         source: "tool",
         promptSegmentKind: "toolDeclarations",
       },
@@ -651,17 +651,17 @@ test("resolveMainLoopToolChoice supports auto, forced tool, group, and procedure
 
   const forceTool = resolveMainLoopToolChoice({
     mode: "forceTool",
-    toolId: " code.read ",
+    toolId: " file.read ",
     evidenceRuleRefs: ["prompt.rules.repoEvidence"],
   });
-  assert.equal(forceTool.toolId, "code.read");
+  assert.equal(forceTool.toolId, "file.read");
   assert.deepEqual(forceTool.evidenceRuleRefs, ["prompt.rules.repoEvidence"]);
   assert.equal(forceTool.promptPackRuleOnly, true);
 
   assert.equal(resolveMainLoopToolChoice({
     mode: "forceGroup",
-    groupId: "gitBase.inspection",
-  }).groupId, "gitBase.inspection");
+    groupId: "coreBase.filesystem",
+  }).groupId, "coreBase.filesystem");
 
   assert.equal(resolveMainLoopToolChoice({
     mode: "forceProcedure",
@@ -775,7 +775,7 @@ test("adjudicateRuntimeDecision lets runtime overrule model proposals", () => {
     decision: {
       decisionId: "decision-tool",
       kind: "toolCall",
-      toolCall: { callId: "call-1", toolId: "shell.commandExecution", arguments: {} },
+      toolCall: { callId: "call-1", toolId: "shell.run", arguments: {} },
       observationRefs: [],
       metadata: {},
     },
@@ -788,7 +788,7 @@ test("adjudicateRuntimeDecision lets runtime overrule model proposals", () => {
     decision: {
       decisionId: "decision-shell",
       kind: "toolCall",
-      toolCall: { callId: "call-2", toolId: "shell.commandExecution", arguments: {} },
+      toolCall: { callId: "call-2", toolId: "shell.run", arguments: {} },
       observationRefs: [],
       metadata: {},
     },
@@ -801,7 +801,7 @@ test("adjudicateRuntimeDecision lets runtime overrule model proposals", () => {
     decision: {
       decisionId: "decision-tool-budget",
       kind: "toolCall",
-      toolCall: { callId: "call-3", toolId: "code.read", arguments: {} },
+      toolCall: { callId: "call-3", toolId: "file.read", arguments: {} },
       observationRefs: [],
       metadata: {},
     },
@@ -1133,7 +1133,7 @@ test("approval envelopes resolve through external surfaces and resume safely", (
   const envelope = createMainLoopApprovalEnvelope({
     sessionId: "session-1",
     reason: "shell write requires approval",
-    requestedScopes: [" tool:shell.commandExecution ", "tool:shell.commandExecution"],
+    requestedScopes: [" tool:shell.run ", "tool:shell.run"],
     riskLevel: "dangerous",
     decisionRef: "decision-1",
     proposedActionRef: "tool-call-1",
@@ -1143,7 +1143,7 @@ test("approval envelopes resolve through external surfaces and resume safely", (
   });
   assert.equal(envelope.status, "pending");
   assert.equal(envelope.approvalId, "session-1:approval:decision-1:2026-05-08T00:00:00.000Z");
-  assert.deepEqual(envelope.requestedScopes, ["tool:shell.commandExecution"]);
+  assert.deepEqual(envelope.requestedScopes, ["tool:shell.run"]);
   assert.equal(envelope.surfaceRef, "cli");
 
   const approved = resolveMainLoopApproval({

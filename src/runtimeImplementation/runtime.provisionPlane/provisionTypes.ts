@@ -12,7 +12,7 @@ export type CapabilityKind =
   | "codeIntelligence"
   | "mcp"
   | "browser"
-  | "office"
+  | "work"
   | "custom";
 
 export type CapabilityReadiness =

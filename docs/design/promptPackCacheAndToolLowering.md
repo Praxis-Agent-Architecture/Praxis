@@ -28,7 +28,7 @@ Provider adapters must not reorder these sections. Lowering may map the sections
 - `projectContext`: project structure, repository summaries, file indexes, dependency maps, and development environment context.
 - `sessionSummary`: current-session compression, phase decisions, and unfinished work. It replaces older raw history after compact; stable system/runtime/project facts are rebuilt from canonical sources instead of summarized here.
 - `recentConversation`: the small raw attention window that survives after summary. It carries the latest user/assistant/runtime messages needed for local continuity, not the full transcript.
-- `memoryContext`: memory indexes and layered summaries only. MP-retrieved memory truth belongs in `retrievedContext`.
+- `memoryContext`: application/runtime injected memory references or current-session summaries only; it is not a background memory index. MP-retrieved memory truth belongs in `retrievedContext`.
 - `retrievedContext`: RAG, MP, search, and file-read results fetched for this turn.
 - `observations`: tool results, runtime events, errors, stdout/stderr, previous assistant visible output, and action traces. Each record must keep source and authority metadata.
 - `userTurn`: the current user request. It is high priority but cannot override safety or runtime declarations.

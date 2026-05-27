@@ -47,7 +47,7 @@ test("createRuntimeInspectReport aggregates public-safe Phase 10 report sections
         family: "coreBase",
         group: "filesystem",
         ready: true,
-        dependencies: [{ dependencyId: "storagePool.codeBase", kind: "storage", ready: true }],
+        dependencies: [{ dependencyId: "basetool.core.filesystem", kind: "storage", ready: true }],
       },
       {
         toolId: "web.search",

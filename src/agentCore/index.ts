@@ -181,7 +181,6 @@ import {
   promptPackMaterialsForManifest,
 } from "../runtimeImplementation/runtime.execEngine/promptContextAssembly.js";
 import {
-  createFallbackMemoryRef,
   createObservationMaterial,
 } from "../executionEngine/coreLogic/observationIntegrator.js";
 import {
@@ -444,9 +443,7 @@ export {
   DEFAULT_OBSERVATION_SUMMARY_DELEGATION_POLICY,
   DEFAULT_SUMMARY_AGENT_REF,
   DEFAULT_TOOL_RESULT_SIZE_POLICY,
-  createFallbackMemoryRef,
   createObservationMaterial,
-  type FallbackMemoryRef,
   type LargeObservationSelectionFlow,
   type ObservationArtifactRef,
   type ObservationCompressionPolicy,
@@ -1060,7 +1057,6 @@ export const executionCore = Object.freeze({
   runMainLoop,
   selectMainLoopModel,
   createRuntimeFallbackCompactExecutor,
-  createFallbackMemoryRef,
   createObservationMaterial,
 });
 

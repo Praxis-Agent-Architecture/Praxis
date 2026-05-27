@@ -88,14 +88,13 @@ const DEFAULT_HEAT_WEIGHTS: BaseToolContextHeatWeights = {
 };
 
 const FAMILY_ORDER = [
-  "codeBase",
-  "computeruseBase",
+  "coreBase",
+  "agentBase",
+  "runtimeBase",
+  "browserBase",
+  "computerBase",
   "gitBase",
-  "mcpBase",
-  "omniBase",
-  "searchBase",
-  "shellBase",
-  "skillBase",
+  "mediaBase",
 ] as const;
 
 function normalizeList(values: readonly string[] | undefined): readonly string[] {

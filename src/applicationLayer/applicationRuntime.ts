@@ -502,36 +502,25 @@ function rangeDeletedLineCount(value: unknown): number | undefined {
   return Math.floor(endLine - startLine + 1);
 }
 
-function codeChangeLineStats(toolCall: AgentToolCallRecord): {
+function fileChangeLineStats(toolCall: AgentToolCallRecord): {
   codeAdditions?: number;
   codeDeletions?: number;
 } | undefined {
-  if (!toolCall.toolId.startsWith("code.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const output = objectValue(toolCall.output);
   switch (toolCall.toolId) {
-    case "code.modify": {
-      const replacements = numberValue(output?.replacements);
-      const multiplier = replacements !== undefined && replacements > 0 ? Math.floor(replacements) : 1;
-      const replacementLines = textLineCount(rawStringValue(args.replacementText));
-      const searchLines = textLineCount(rawStringValue(args.searchText));
+    case "patch.apply": {
+      const additions = numberValue(output?.additions)
+        ?? numberValue(output?.addedLines)
+        ?? numberValue(output?.linesAdded);
+      const deletions = numberValue(output?.deletions)
+        ?? numberValue(output?.deletedLines)
+        ?? numberValue(output?.linesDeleted);
       return cleanRecord({
-        codeAdditions: replacementLines === undefined ? undefined : replacementLines * multiplier,
-        codeDeletions: searchLines === undefined ? undefined : searchLines * multiplier,
+        codeAdditions: additions,
+        codeDeletions: deletions,
       }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
     }
-    case "code.overwrite":
-      return cleanRecord({
-        codeAdditions: textLineCount(rawStringValue(args.content)),
-      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
-    case "code.replaceFile":
-      return cleanRecord({
-        codeAdditions: textLineCount(rawStringValue(args.newContent)),
-      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
-    case "code.delete":
-      return cleanRecord({
-        codeDeletions: numberValue(output?.deletedLines) ?? rangeDeletedLineCount(args.range),
-      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
     default:
       return undefined;
   }
@@ -783,7 +772,7 @@ function formatApplicationInputAttachments(attachments: readonly ApplicationInpu
   if (!attachments || attachments.length === 0) return undefined;
   const lines = [
     "Application input attachments for this user request.",
-    "If an image attachment has localPath, inspect it through omni.viewImage before answering image-specific questions.",
+    "If an image attachment has localPath, inspect it through media.viewImage before answering image-specific questions.",
     "If a file attachment has localPath, use the appropriate file/search baseTool before claiming its contents.",
     "",
     ...attachments.map(formatAttachmentForPrompt),
@@ -1096,33 +1085,33 @@ function summarizeGitToolOutputForHumans(toolCall: AgentToolCallRecord, output: 
   return lines.slice(0, 3);
 }
 
-function summarizeSearchToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("search.")) return undefined;
+function summarizeWebToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("web.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const target = objectValue(args.target);
   const query = firstStringValue(target?.query, args.query, args.q);
   const url = firstStringValue(target?.url, args.url);
-  if (toolCall.toolId === "search.fetch") return `Fetching ${url ?? query ?? "page"}`;
+  if (toolCall.toolId === "web.fetch") return `Fetching ${url ?? query ?? "page"}`;
   return `Searching ${query ? truncateMiddle(query, 160) : "the web"}`;
 }
 
-function summarizeComputerUseToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("computeruse.")) return undefined;
+function summarizeComputerToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("computer.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const target = objectValue(args.target);
   const targetHint = firstStringValue(target?.targetHint, args.targetHint, target?.windowTitle, args.windowTitle);
   const suffix = targetHint ? ` on ${targetHint}` : "";
   if (toolCall.toolId.includes("Screenshot")) return `Capturing screenshot${suffix}`;
   if (toolCall.toolId.includes("mouse")) return `Running mouse action${suffix}`;
-  if (toolCall.toolId === "computeruse.keyboardInputEmulation") {
+  if (toolCall.toolId === "computer.keyboardInputEmulation") {
     const text = firstStringValue(target?.text, args.text);
     return text ? `Typing ${JSON.stringify(truncateMiddle(text, 80))}${suffix}` : `Typing text${suffix}`;
   }
-  if (toolCall.toolId === "computeruse.keyboardSubmitInput") {
+  if (toolCall.toolId === "computer.keyboardSubmitInput") {
     const submitKey = firstStringValue(target?.submitKey, args.submitKey) ?? "Enter";
     return `Pressing ${submitKey}${suffix}`;
   }
-  if (toolCall.toolId === "computeruse.keyboardEmulation") {
+  if (toolCall.toolId === "computer.keyboardEmulation") {
     const actions = unknownArrayValue(target?.actions ?? args.actions);
     const firstAction = objectValue(actions[0]);
     const actionKind = firstStringValue(firstAction?.kind);
@@ -1133,8 +1122,8 @@ function summarizeComputerUseToolInput(toolCall: AgentToolCallRecord): string | 
   return targetHint ? `${toolCall.toolId} on ${targetHint}` : toolCall.toolId;
 }
 
-function summarizeComputerUseToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
-  if (!toolCall.toolId.startsWith("computeruse.")) return undefined;
+function summarizeComputerToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("computer.")) return undefined;
   const target = objectValue(output?.target) ?? objectValue(toolCall.arguments.target);
   const artifactId = firstStringValue(output?.artifactId, output?.screenshotArtifactId, objectValue(output?.imageArtifact)?.artifactId, objectValue(output?.artifact)?.artifactId);
   const targetHint = firstStringValue(target?.targetHint, output?.targetHint);
@@ -1164,23 +1153,26 @@ function summarizeMcpToolInput(toolCall: AgentToolCallRecord): string | undefine
   const serverId = firstStringValue(target?.serverId, target?.connectionId, args.serverId, args.connectionId);
   const toolName = firstStringValue(target?.toolName, target?.name, args.toolName, args.name);
   const resourceUri = firstStringValue(target?.resourceUri, target?.uri, args.resourceUri, args.uri);
-  if (toolCall.toolId === "mcp.listTools") return `Listing MCP tools${serverId ? ` from ${serverId}` : ""}`;
-  if (toolCall.toolId === "mcp.call") return `Calling MCP tool ${toolName ?? "tool"}${serverId ? ` on ${serverId}` : ""}`;
-  if (toolCall.toolId === "mcp.listResources") return `Listing MCP resources${serverId ? ` from ${serverId}` : ""}`;
-  if (toolCall.toolId === "mcp.readResource") return `Reading MCP resource ${resourceUri ?? "resource"}${serverId ? ` from ${serverId}` : ""}`;
+  if (toolCall.toolId === "mcp.use") return `Calling MCP tool ${toolName ?? "tool"}${serverId ? ` on ${serverId}` : ""}`;
+  if (toolCall.toolId === "mcp.resources") {
+    return resourceUri
+      ? `Reading MCP resource ${resourceUri}${serverId ? ` from ${serverId}` : ""}`
+      : `Listing MCP resources${serverId ? ` from ${serverId}` : ""}`;
+  }
   return `${toolCall.toolId}${serverId ? ` on ${serverId}` : ""}`;
 }
 
 function summarizeMcpToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
   if (!toolCall.toolId.startsWith("mcp.")) return undefined;
   const envelope = objectValue(output?.resultEnvelope) ?? output;
+  const args = flattenedToolArguments(toolCall.arguments);
   const tools = unknownArrayValue(envelope?.tools ?? output?.tools);
   const resources = unknownArrayValue(envelope?.resources ?? output?.resources);
   const content = unknownArrayValue(envelope?.content ?? output?.content ?? objectValue(output?.resourceEnvelope)?.contents);
-  const target = objectValue(output?.target) ?? objectValue(toolCall.arguments.target);
-  const serverId = firstStringValue(target?.serverId, target?.connectionId, output?.serverId, output?.connectionId);
-  const toolName = firstStringValue(target?.toolName, target?.name, output?.toolName);
-  const resourceUri = firstStringValue(target?.resourceUri, target?.uri, objectValue(output?.resourceEnvelope)?.uri);
+  const target = objectValue(output?.target) ?? objectValue(args.target);
+  const serverId = firstStringValue(target?.serverId, target?.connectionId, output?.serverId, output?.connectionId, args.serverId, args.connectionId);
+  const toolName = firstStringValue(target?.toolName, target?.name, output?.toolName, args.toolName, args.name);
+  const resourceUri = firstStringValue(target?.resourceUri, target?.uri, objectValue(output?.resourceEnvelope)?.uri, args.uri);
   const lines = [`${toolCall.toolId} completed${serverId ? ` on ${serverId}` : ""}`];
   if (tools.length > 0) lines.push(`${tools.length} tool${tools.length === 1 ? "" : "s"}`);
   if (resources.length > 0) lines.push(`${resources.length} resource${resources.length === 1 ? "" : "s"}`);
@@ -1228,22 +1220,22 @@ function summarizeSkillToolOutputForHumans(toolCall: AgentToolCallRecord, output
   return lines.slice(0, 3);
 }
 
-function summarizeOmniToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("omni.")) return undefined;
+function summarizeMediaToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("media.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const target = objectValue(args.target);
   const imagePath = firstStringValue(target?.imagePath, args.imagePath, target?.imageRef, args.imageRef);
   const prompt = firstStringValue(target?.prompt, args.prompt, args.text);
-  if (toolCall.toolId === "omni.viewImage") return `Viewing image ${imagePath ?? "input"}`;
-  if (toolCall.toolId === "omni.generateImage") return `Generating image${prompt ? ` from ${JSON.stringify(truncateMiddle(prompt, 120))}` : ""}`;
+  if (toolCall.toolId === "media.viewImage") return `Viewing image ${imagePath ?? "input"}`;
+  if (toolCall.toolId === "media.generateImage") return `Generating image${prompt ? ` from ${JSON.stringify(truncateMiddle(prompt, 120))}` : ""}`;
   if (toolCall.toolId.includes("Audio")) return `${toolCall.toolId} audio`;
   if (toolCall.toolId.includes("Video")) return `${toolCall.toolId} video`;
   return imagePath ? `${toolCall.toolId} for ${imagePath}` : toolCall.toolId;
 }
 
-function summarizeOmniToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
-  if (!toolCall.toolId.startsWith("omni.")) return undefined;
-  if (toolCall.toolId === "omni.viewImage") {
+function summarizeMediaToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("media.")) return undefined;
+  if (toolCall.toolId === "media.viewImage") {
     const providerMetadata = objectValue(output?.providerMetadata);
     const analysis = stringValue(providerMetadata?.analysis);
     const backend = stringValue(providerMetadata?.backend);
@@ -1268,16 +1260,16 @@ function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
   if (shellSummary !== undefined) return shellSummary;
   const gitSummary = summarizeGitToolInput(toolCall);
   if (gitSummary !== undefined) return gitSummary;
-  const searchSummary = summarizeSearchToolInput(toolCall);
-  if (searchSummary !== undefined) return searchSummary;
-  const computerUseSummary = summarizeComputerUseToolInput(toolCall);
-  if (computerUseSummary !== undefined) return computerUseSummary;
+  const webSummary = summarizeWebToolInput(toolCall);
+  if (webSummary !== undefined) return webSummary;
+  const computerSummary = summarizeComputerToolInput(toolCall);
+  if (computerSummary !== undefined) return computerSummary;
   const mcpSummary = summarizeMcpToolInput(toolCall);
   if (mcpSummary !== undefined) return mcpSummary;
   const skillSummary = summarizeSkillToolInput(toolCall);
   if (skillSummary !== undefined) return skillSummary;
-  const omniSummary = summarizeOmniToolInput(toolCall);
-  if (omniSummary !== undefined) return omniSummary;
+  const mediaSummary = summarizeMediaToolInput(toolCall);
+  if (mediaSummary !== undefined) return mediaSummary;
   const target = toolCall.arguments.target;
   if (target && typeof target === "object" && !Array.isArray(target)) {
     const targetRecord = target as Record<string, unknown>;
@@ -1295,22 +1287,23 @@ function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
 function familyForToolId(toolId: string): { familyKey: string; familyTitle: string } {
   const [prefix] = toolId.split(".");
   switch (prefix) {
-    case "search":
+    case "web":
       return { familyKey: "websearch", familyTitle: "WebSearch" };
+    case "file":
+    case "patch":
+      return { familyKey: "file", familyTitle: "File" };
     case "shell":
       return { familyKey: "shell", familyTitle: "Shell" };
     case "git":
       return { familyKey: "git", familyTitle: "Git" };
-    case "code":
-      return { familyKey: "code", familyTitle: "Code" };
-    case "computeruse":
-      return { familyKey: "browser", familyTitle: "Computer Use" };
+    case "computer":
+      return { familyKey: "computer", familyTitle: "Computer" };
     case "mcp":
       return { familyKey: "mcp", familyTitle: "MCP" };
     case "skill":
       return { familyKey: "skill", familyTitle: "Skill" };
-    case "omni":
-      return { familyKey: "docs", familyTitle: "Omni" };
+    case "media":
+      return { familyKey: "media", familyTitle: "Media" };
     default:
       return { familyKey: prefix || "capability", familyTitle: prefix ? `${prefix.slice(0, 1).toUpperCase()}${prefix.slice(1)}` : "Capability" };
   }
@@ -1334,14 +1327,14 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
   if (shellSummary !== undefined) return shellSummary;
   const gitSummary = summarizeGitToolOutputForHumans(toolCall, output);
   if (gitSummary !== undefined) return gitSummary;
-  const computerUseSummary = summarizeComputerUseToolOutputForHumans(toolCall, output);
-  if (computerUseSummary !== undefined) return computerUseSummary;
+  const computerSummary = summarizeComputerToolOutputForHumans(toolCall, output);
+  if (computerSummary !== undefined) return computerSummary;
   const mcpSummary = summarizeMcpToolOutputForHumans(toolCall, output);
   if (mcpSummary !== undefined) return mcpSummary;
   const skillSummary = summarizeSkillToolOutputForHumans(toolCall, output);
   if (skillSummary !== undefined) return skillSummary;
-  const omniSummary = summarizeOmniToolOutputForHumans(toolCall, output);
-  if (omniSummary !== undefined) return omniSummary;
+  const mediaSummary = summarizeMediaToolOutputForHumans(toolCall, output);
+  if (mediaSummary !== undefined) return mediaSummary;
   const envelope = objectValue(output?.resultEnvelope);
   const query = stringValue(envelope?.query);
   const answer = stringValue(envelope?.answer);
@@ -1352,19 +1345,11 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
   const finalUrl = stringValue(output?.finalUrl);
   const status = numberValue(output?.status);
 
-  if (toolCall.toolId === "search.searchEngine") {
+  if (toolCall.toolId === "web.search") {
     const firstTitles = results
       .map((item) => objectValue(item))
       .flatMap((item) => stringValue(item?.title) ?? [])
       .slice(0, 2);
-    return [
-      query ? `搜索：${query}` : undefined,
-      `结果：找到 ${results.length} 条网页结果`,
-      ...firstTitles.map((title) => `来源：${title}`),
-    ].filter((line): line is string => line !== undefined).slice(0, 4);
-  }
-
-  if (toolCall.toolId === "search.nativeSearch") {
     const sourceTitles = [...sources, ...citations]
       .map((item) => objectValue(item))
       .flatMap((item) => stringValue(item?.title) ?? [])
@@ -1372,13 +1357,15 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
     const hasRealSources = sources.length + citations.length > 0;
     return [
       query ? `搜索：${query}` : undefined,
+      results.length > 0 ? `结果：找到 ${results.length} 条网页结果` : undefined,
       answer && hasRealSources ? `摘要：${answer}` : undefined,
-      hasRealSources ? `来源：${sources.length + citations.length} 条` : "未返回可引用来源",
+      hasRealSources ? `来源：${sources.length + citations.length} 条` : results.length === 0 ? "未返回可引用来源" : undefined,
+      ...firstTitles.map((title) => `结果：${title}`),
       ...sourceTitles.map((title) => `来源：${title}`),
     ].filter((line): line is string => line !== undefined).slice(0, 4);
   }
 
-  if (toolCall.toolId === "search.fetch") {
+  if (toolCall.toolId === "web.fetch") {
     return [
       finalUrl ? `页面：${finalUrl}` : undefined,
       pageTitle ? `标题：${pageTitle}` : undefined,
@@ -1421,7 +1408,7 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
     ?? (actionCount > 0 ? actionCount : undefined);
   const resultCount = countFromArrays(output?.hits, output?.matches, output?.results);
   const changedFileCount = countFromArrays(envelope?.entries, envelope?.changedFiles, output?.changedFiles, output?.committedFiles);
-  const changeLineStats = codeChangeLineStats(toolCall);
+  const changeLineStats = fileChangeLineStats(toolCall);
   return cleanRecord({
     targetPaths,
     pathCount: targetPaths.length > 0 ? targetPaths.length : undefined,
@@ -1529,6 +1516,10 @@ function createToolProgressEvent(input: {
     },
   };
 }
+
+export const applicationRuntimeTestHooks = {
+  createToolProgressEvent,
+} as const;
 
 function toolProgressKey(progress: AgentToolCallProgressEvent): string {
   const callId = progress.phase === "started" ? progress.callId : progress.record.callId;
@@ -2224,10 +2215,10 @@ function createOpenAIResponsesImageVisionAdapter(input: {
   runtimeId: string;
   model: string;
   attachments?: readonly ApplicationInputAttachment[];
-}): NonNullable<NonNullable<BaseToolExecutorPort["omni"]>["transformMedia"]> {
+}): NonNullable<NonNullable<BaseToolExecutorPort["media"]>["transformMedia"]> {
   return async (request): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType?: string }>> => {
     const parameters = request.parameters ?? {};
-    if (request.operation === "omni.generateImage.generateimage") {
+    if (request.operation === "media.generateImage.generateimage") {
       const prompt = stringValue(parameters.prompt);
       const outputPath = stringValue(parameters.outputPath);
       if (prompt === undefined || outputPath === undefined) {
@@ -2235,7 +2226,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
           ok: false,
           error: {
             code: "PROVIDER_REJECTED",
-            message: "omni.generateImage requires target.prompt and target.outputPath for Responses image_generation",
+            message: "media.generateImage requires target.prompt and target.outputPath for Responses image_generation",
             publicSafe: true,
           },
         };
@@ -2255,7 +2246,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       if (quality !== undefined) imageTool.quality = quality;
       if (outputFormat !== undefined) imageTool.output_format = outputFormat;
 
-      const resolvedAuth = await requireAdapterAuth(input.auth, "omni.generateImage OpenAI Responses adapter");
+      const resolvedAuth = await requireAdapterAuth(input.auth, "media.generateImage OpenAI Responses adapter");
       if (!resolvedAuth.ok) return resolvedAuth.result;
       const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
 
@@ -2263,9 +2254,9 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         route,
         auth: resolvedAuth.auth,
         runtimeId: input.runtimeId,
-        invocationId: `omni-generate-image:${Date.now()}`,
-        callerId: "raxode.application.omniGenerateImage",
-        requiredScopes: adapterRequiredScopes(route, ["omni.image.generate"]),
+        invocationId: `media-generate-image:${Date.now()}`,
+        callerId: "raxode.application.mediaGenerateImage",
+        requiredScopes: adapterRequiredScopes(route, ["media.image.generate"]),
         body: {
           model: input.model,
           input: prompt,
@@ -2294,7 +2285,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
           ok: false,
           error: {
             code: "RESPONSE_FORMAT_DRIFT",
-            message: "omni.generateImage Responses image_generation did not return an image_generation_call result",
+            message: "media.generateImage Responses image_generation did not return an image_generation_call result",
             publicSafe: true,
           },
           events: result.events,
@@ -2321,7 +2312,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
           ...(generated.revisedPrompt ? { revisedPrompt: generated.revisedPrompt } : {}),
           ...(generated.imageCallId ? { imageCallId: generated.imageCallId } : {}),
         },
-        events: ["raxode.application.omniGenerateImage.openai.called"],
+        events: ["raxode.application.mediaGenerateImage.openai.called"],
       };
     }
 
@@ -2337,8 +2328,8 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         error: {
           code: "PROVIDER_UNAVAILABLE",
           message: imageRef
-            ? `omni.viewImage OpenAI vision adapter could not resolve imageRef to a local imagePath: ${imageRef}`
-            : "omni.viewImage OpenAI vision adapter requires a local imagePath or an application image attachment reference",
+            ? `media.viewImage OpenAI vision adapter could not resolve imageRef to a local imagePath: ${imageRef}`
+            : "media.viewImage OpenAI vision adapter requires a local imagePath or an application image attachment reference",
           publicSafe: true,
         },
       };
@@ -2353,7 +2344,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         ok: false,
         error: {
           code: "PROVIDER_UNAVAILABLE",
-          message: `omni.viewImage OpenAI vision adapter could not read imagePath: ${imagePath}`,
+          message: `media.viewImage OpenAI vision adapter could not read imagePath: ${imagePath}`,
           publicSafe: true,
         },
       };
@@ -2364,7 +2355,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         ok: false,
         error: {
           code: "PROVIDER_REJECTED",
-          message: `omni.viewImage image exceeds maxBytes (${bytes.byteLength} > ${maxBytes})`,
+          message: `media.viewImage image exceeds maxBytes (${bytes.byteLength} > ${maxBytes})`,
           publicSafe: true,
         },
       };
@@ -2372,7 +2363,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
 
     const mimeType = imageMimeTypeFromPath(imagePath, stringValue(parameters.mediaType) ?? attachment?.mimeType);
     const detail = responsesImageDetail(stringValue(parameters.detail));
-    const resolvedAuth = await requireAdapterAuth(input.auth, "omni.viewImage OpenAI Responses adapter");
+    const resolvedAuth = await requireAdapterAuth(input.auth, "media.viewImage OpenAI Responses adapter");
     if (!resolvedAuth.ok) return resolvedAuth.result;
     const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
 
@@ -2380,8 +2371,8 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       route,
       auth: resolvedAuth.auth,
       runtimeId: input.runtimeId,
-      invocationId: `omni-view-image:${Date.now()}`,
-      callerId: "raxode.application.omniViewImage",
+      invocationId: `media-view-image:${Date.now()}`,
+      callerId: "raxode.application.mediaViewImage",
       requiredScopes: adapterRequiredScopes(route),
       body: {
         model: input.model,
@@ -2435,7 +2426,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         detail,
         ...(analysis ? { analysis } : {}),
       },
-      events: ["raxode.application.omniViewImage.openai.called"],
+      events: ["raxode.application.mediaViewImage.openai.called"],
     };
   };
 }
@@ -2490,8 +2481,8 @@ function approvalFeatureKey(envelope: RuntimeApprovalEnvelope): string {
 }
 
 function approvalFeatureLabel(featureKey: string): string {
-  if (featureKey.startsWith("computeruse.")) return "computer_use";
-  if (featureKey.startsWith("omni.")) return "omni";
+  if (featureKey.startsWith("computer.")) return "computer";
+  if (featureKey.startsWith("media.")) return "media";
   if (featureKey.startsWith("shell.")) return "shell";
   if (featureKey.startsWith("git.")) return "git";
   if (featureKey.startsWith("code.")) return "code";
@@ -3295,8 +3286,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
               runtimeId: state.runtimeId,
             }),
           },
-          omni: {
-            ...(options.baseToolAdapters?.omni ?? {}),
+          media: {
+            ...(options.baseToolAdapters?.media ?? {}),
             transformMedia: createOpenAIResponsesImageVisionAdapter({
               auth: nativeAdapterAuth,
               route: openAIResponsesRoute!,

@@ -42,7 +42,7 @@
 
 - 输入是 runtime 已组装好的治理 packet，不是 provider payload。
 - `projectContext`、`sessionSummary`、`recentConversation` 可以携带原文材料。
-- `memoryContext`、`retrievedContext`、`observations` 只应携带索引、摘要、ref、status。
+- `memoryContext`、`retrievedContext`、`observations` 只应携带显式引用、摘要、ref、status，不生成后台记忆索引。
 - 当前用户输入通过 `currentUserTurnText` 保留，不允许治理结果覆盖。
 - 工具声明和 hidden scratchpad 不进入治理 packet。
 

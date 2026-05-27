@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 执行引擎 / 执行核心逻辑 / 事件暴露面 / 基础工具调用事件。
- * 核心目的：承载 search Invocation 这一能力位点。
+ * 核心目的：承载 media Invocation 这一能力位点。
  * 能力要求1：需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
  * 能力要求2：如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
  * 边界：只服务 agentCore 内核，不写上层产品逻辑。
@@ -8,70 +8,71 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export type SearchInvocationBoundary = "input" | "contract" | "governance" | "scope" | "runtime-state";
+export type MediaInvocationBoundary = "input" | "contract" | "governance" | "scope" | "runtime-state";
 
-export type SearchInvocationSource = "mainLoop" | "stateEngine" | "basicToolLayer" | "officialModuleBridge" | "runtime";
+export type MediaInvocationSource = "mainLoop" | "stateEngine" | "basicToolLayer" | "officialModuleBridge" | "runtime";
 
-export type SearchInvocationGate = {
+export type MediaInvocationModality = "text" | "image" | "audio" | "video" | "mixed";
+
+export type MediaInvocationGate = {
   accepted: boolean;
   reason?: string;
 };
 
-export type SearchInvocationTrace = {
+export type MediaInvocationTrace = {
   correlationId?: string;
   callerId?: string;
 };
 
-export type SearchInvocationRequest = {
+export type MediaInvocationRequest = {
   runtimeId?: string;
   sessionId?: string;
   invocationId?: string;
-  source?: SearchInvocationSource;
-  query?: string;
-  providerHint?: string;
+  source?: MediaInvocationSource;
+  modality?: MediaInvocationModality;
+  targetId?: string;
   requestedScopes?: readonly string[];
   allowedScopes?: readonly string[];
   runtimeReady?: boolean;
-  contract?: SearchInvocationGate;
-  governance?: SearchInvocationGate;
-  trace?: SearchInvocationTrace;
+  contract?: MediaInvocationGate;
+  governance?: MediaInvocationGate;
+  trace?: MediaInvocationTrace;
   emittedAt?: string;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
-export type SearchInvocationErrorCode =
+export type MediaInvocationErrorCode =
   | "MISSING_RUNTIME_ID"
   | "MISSING_SESSION_ID"
   | "MISSING_INVOCATION_ID"
   | "MISSING_EVENT_SOURCE"
-  | "MISSING_SEARCH_QUERY"
+  | "MISSING_MEDIA_TARGET"
   | "RUNTIME_NOT_READY"
   | "CONTRACT_REJECTED"
   | "GOVERNANCE_REJECTED"
   | "SCOPE_DENIED";
 
-export type SearchInvocationError = {
-  code: SearchInvocationErrorCode;
+export type MediaInvocationError = {
+  code: MediaInvocationErrorCode;
   message: string;
-  boundary: SearchInvocationBoundary;
+  boundary: MediaInvocationBoundary;
   safeForRuntimeInspection: true;
 };
 
-export type SearchInvocationEvent = {
+export type MediaInvocationEvent = {
   eventId: string;
-  kind: "basicToolInvocation.search";
+  kind: "basicToolInvocation.media";
   runtimeId: string;
   sessionId: string;
   invocationId: string;
-  source: SearchInvocationSource;
-  search: {
-    query: string;
-    providerHint?: string;
-    resultEnvelope: "not-executed";
+  source: MediaInvocationSource;
+  media: {
+    modality: MediaInvocationModality;
+    targetId: string;
   };
   requestedScopes: readonly string[];
   grantedScopes: readonly string[];
-  trace: SearchInvocationTrace;
+  trace: MediaInvocationTrace;
   emittedAt: string;
   route: "runtime.execEngine.eventExposurePlane";
   dispatch: "dry-run";
@@ -79,22 +80,22 @@ export type SearchInvocationEvent = {
   metadata: Readonly<Record<string, unknown>>;
 };
 
-export type SearchInvocationResult =
+export type MediaInvocationResult =
   | {
       ok: true;
-      event: SearchInvocationEvent;
+      event: MediaInvocationEvent;
       events: readonly string[];
     }
   | {
       ok: false;
-      error: SearchInvocationError;
+      error: MediaInvocationError;
       events: readonly string[];
     };
 
-export const searchInvocationDescriptor = {
-  kind: "basicToolInvocation.search",
+export const mediaInvocationDescriptor = {
+  kind: "basicToolInvocation.media",
   route: "runtime.execEngine.eventExposurePlane",
-  purpose: "expose search basic tool invocation events without making network calls",
+  purpose: "expose media basic tool invocation events without processing media",
   dispatch: "dry-run",
   unsafeSideEffects: false,
 } as const;
@@ -104,21 +105,21 @@ function cleanList(values: readonly string[] | undefined): readonly string[] {
 }
 
 function failure(
-  code: SearchInvocationErrorCode,
+  code: MediaInvocationErrorCode,
   message: string,
-  boundary: SearchInvocationBoundary,
-): SearchInvocationResult {
+  boundary: MediaInvocationBoundary,
+): MediaInvocationResult {
   return {
     ok: false,
     error: { code, message, boundary, safeForRuntimeInspection: true },
-    events: ["basicToolInvocation.search.rejected"],
+    events: ["basicToolInvocation.media.rejected"],
   };
 }
 
 function resolveGrantedScopes(
   requestedScopes: readonly string[] | undefined,
   allowedScopes: readonly string[] | undefined,
-): readonly string[] | SearchInvocationResult {
+): readonly string[] | MediaInvocationResult {
   const requested = cleanList(requestedScopes);
   const allowed = cleanList(allowedScopes);
 
@@ -128,52 +129,51 @@ function resolveGrantedScopes(
 
   const denied = requested.filter((scope) => !allowed.includes(scope));
   if (denied.length > 0) {
-    return failure("SCOPE_DENIED", `Search invocation scope ${denied[0]} is outside runtime governance`, "scope");
+    return failure("SCOPE_DENIED", `Media invocation scope ${denied[0]} is outside runtime governance`, "scope");
   }
 
   return requested;
 }
 
-export function exposeSearchInvocationEvent(request?: SearchInvocationRequest): SearchInvocationResult {
+export function exposeMediaInvocationEvent(request?: MediaInvocationRequest): MediaInvocationResult {
   if (request === undefined) {
-    return failure("MISSING_RUNTIME_ID", "Search invocation event requires runtimeId", "input");
+    return failure("MISSING_RUNTIME_ID", "Media invocation event requires runtimeId", "input");
   }
 
   const runtimeId = request.runtimeId?.trim();
   const sessionId = request.sessionId?.trim();
   const invocationId = request.invocationId?.trim();
   const source = request.source;
-  const query = request.query?.trim();
-  const providerHint = request.providerHint?.trim() || undefined;
+  const targetId = request.targetId?.trim();
 
   if (!runtimeId) {
-    return failure("MISSING_RUNTIME_ID", "Search invocation event requires runtimeId", "input");
+    return failure("MISSING_RUNTIME_ID", "Media invocation event requires runtimeId", "input");
   }
 
   if (!sessionId) {
-    return failure("MISSING_SESSION_ID", "Search invocation event requires sessionId", "input");
+    return failure("MISSING_SESSION_ID", "Media invocation event requires sessionId", "input");
   }
 
   if (!invocationId) {
-    return failure("MISSING_INVOCATION_ID", "Search invocation event requires invocationId", "input");
+    return failure("MISSING_INVOCATION_ID", "Media invocation event requires invocationId", "input");
   }
 
   if (source === undefined) {
-    return failure("MISSING_EVENT_SOURCE", "Search invocation event requires an execution event source", "input");
+    return failure("MISSING_EVENT_SOURCE", "Media invocation event requires an execution event source", "input");
   }
 
-  if (!query) {
-    return failure("MISSING_SEARCH_QUERY", "Search invocation event requires query", "input");
+  if (request.modality === undefined || !targetId) {
+    return failure("MISSING_MEDIA_TARGET", "Media invocation event requires modality and targetId", "input");
   }
 
   if (request.runtimeReady === false) {
-    return failure("RUNTIME_NOT_READY", "Search invocation events require a ready runtime", "runtime-state");
+    return failure("RUNTIME_NOT_READY", "Media invocation events require a ready runtime", "runtime-state");
   }
 
   if (request.contract?.accepted === false) {
     return failure(
       "CONTRACT_REJECTED",
-      request.contract.reason ?? "runtime contract surface rejected the Search invocation event",
+      request.contract.reason ?? "runtime contract surface rejected the Media invocation event",
       "contract",
     );
   }
@@ -181,7 +181,7 @@ export function exposeSearchInvocationEvent(request?: SearchInvocationRequest): 
   if (request.governance?.accepted === false) {
     return failure(
       "GOVERNANCE_REJECTED",
-      request.governance.reason ?? "runtime governance rejected the Search invocation event",
+      request.governance.reason ?? "runtime governance rejected the Media invocation event",
       "governance",
     );
   }
@@ -191,7 +191,7 @@ export function exposeSearchInvocationEvent(request?: SearchInvocationRequest): 
     return grantedScopes;
   }
 
-  const trace: SearchInvocationTrace = {
+  const trace: MediaInvocationTrace = {
     correlationId: request.trace?.correlationId?.trim() || undefined,
     callerId: request.trace?.callerId?.trim() || undefined,
   };
@@ -199,17 +199,13 @@ export function exposeSearchInvocationEvent(request?: SearchInvocationRequest): 
   return {
     ok: true,
     event: {
-      eventId: `${runtimeId}:${sessionId}:${invocationId}:search:${query}`,
-      kind: "basicToolInvocation.search",
+      eventId: `${runtimeId}:${sessionId}:${invocationId}:media:${request.modality}:${targetId}`,
+      kind: "basicToolInvocation.media",
       runtimeId,
       sessionId,
       invocationId,
       source,
-      search: {
-        query,
-        providerHint,
-        resultEnvelope: "not-executed",
-      },
+      media: { modality: request.modality, targetId },
       requestedScopes: cleanList(request.requestedScopes),
       grantedScopes,
       trace,
@@ -219,6 +215,6 @@ export function exposeSearchInvocationEvent(request?: SearchInvocationRequest): 
       unsafeSideEffects: false,
       metadata: request.metadata ?? {},
     },
-    events: ["basicToolInvocation.search.exposed"],
+    events: ["basicToolInvocation.media.exposed"],
   };
 }

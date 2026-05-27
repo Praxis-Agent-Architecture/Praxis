@@ -281,8 +281,28 @@ export function createRaxBuildInitPlan(input: RaxBuildInitOptions): RaxBuildInit
       { path: "agents/mainAgent/storage/storagePolicy.ts", content: "import { praxis } from \"@praxis-ai/praxis\";\n\nexport const storagePolicy = praxis.storage.raxWorkspace();\nexport const sessionPolicy = praxis.session({ persistence: \"sqlite\", resume: \"auto\", thread: \"durable\", logs: \"full\" });\n" },
       { path: "agents/mainAgent/state/statePlane.ts", content: "import { praxis } from \"@praxis-ai/praxis\";\n\nexport const statePlanePolicy = praxis.statePlane({\n  expose: [\"phase\", \"lastAction\", \"toolCalls\", \"errors\", \"approvals\"],\n  control: [\"pause\", \"resume\", \"interrupt\", \"approve\", \"deny\", \"rollback\", \"inspect\", \"repair\", \"configure\"],\n  audit: \"full\",\n});\n" },
       { path: "authentication/providerProfiles.ts", content: "export const providerProfiles = { rawSecretsStoredHere: false, profiles: [] } as const;\n" },
-      { path: "context/cmpBridge.ts", content: "export const cmpBridge = { status: \"contract-only\" } as const;\n" },
-      { path: "memory/mpBridge.ts", content: "export const mpBridge = { status: \"contract-only\" } as const;\n" },
+      {
+        path: "context/cmpBridge.ts",
+        content: `export const cmpBridgeContract = {
+  bridgeId: "context.${options.projectName}.cmpBridge.contract",
+  status: "contract-only",
+  purpose: "声明 application 如何按需请求上下文材料；不引入独立后台 context pool。",
+  inputs: ["task", "session", "state", "toolObservations"],
+  outputs: ["promptMaterialRefs", "contextSummaryRefs"],
+} as const;
+`,
+      },
+      {
+        path: "memory/mpBridge.ts",
+        content: `export const mpBridgeContract = {
+  bridgeId: "memory.${options.projectName}.mpBridge.contract",
+  status: "contract-only",
+  purpose: "声明 application 如何按需请求记忆材料；不引入独立后台 memory agent。",
+  inputs: ["task", "session", "state", "toolObservations"],
+  outputs: ["memoryRefs", "retrievalRefs"],
+} as const;
+`,
+      },
       { path: "topology/multiagentTopology.ts", content: "export const topology = { status: \"single-agent\" } as const;\n" },
       { path: "reports/.gitkeep", content: "" },
       { path: "tests/mainAgent.test.ts", content: "import test from \"node:test\";\nimport assert from \"node:assert/strict\";\nimport { praxis } from \"@praxis-ai/praxis\";\nimport Agent from \"../agents/mainAgent/praxis.agent.js\";\n\ntest(\"agent compiles\", () => {\n  const result = praxis.compileAgent(Agent);\n  assert.equal(result.ok, true);\n});\n" },

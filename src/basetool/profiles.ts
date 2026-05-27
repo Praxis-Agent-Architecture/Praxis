@@ -216,7 +216,7 @@ export const baseToolProfiles: Readonly<Record<BaseToolProfileName, BaseToolProf
     visibleToolIds: workCoreTools,
     deferredToolIds: ["mcp.resources"],
     runtimeToolIds,
-    extensionSlots: ["office", "pdf", "spreadsheet", "presentation", "artifact"],
+    extensionSlots: ["work", "pdf", "spreadsheet", "presentation", "artifact"],
     describeOverlays: workDescribeOverlays,
   },
   runtimeCore: {
@@ -250,7 +250,7 @@ export const baseToolProfiles: Readonly<Record<BaseToolProfileName, BaseToolProf
     visibleToolIds: uniqueToolIds([...nonRuntimeToolIds, ...multiagentMeshTools]),
     deferredToolIds: [],
     runtimeToolIds,
-    extensionSlots: ["mcp", "skill", "context", "office", "omni", "browser", "computer", "memory", "artifact", "repo"],
+    extensionSlots: ["mcp", "skill", "context", "work", "media", "browser", "computer", "memory", "artifact", "repo"],
     describeOverlays: {
       ...agentDescribeOverlays,
       ...workDescribeOverlays,

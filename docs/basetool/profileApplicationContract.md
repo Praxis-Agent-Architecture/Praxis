@@ -10,7 +10,7 @@ Praxis now exposes a compact semantic tool surface for agents. Product-scale too
 | --- | --- | --- | --- |
 | `codingCore` | Code reading, searching, patching, shell diagnostics, web grounding, skills, and context. | `permissive` | Default for examples and ordinary coding agents. |
 | `researchCore` | Web and local evidence gathering with minimal write capability. | `permissive` | Keeps write/shell actions deferred. |
-| `workCore` | Documents, reports, spreadsheets, PDFs, data work, and helper scripts. | `permissive` | Uses coding-shaped primitives until application plugins register richer office/artifact tools. |
+| `workCore` | Documents, reports, spreadsheets, PDFs, data work, and helper scripts. | `permissive` | Uses coding-shaped primitives until application plugins register richer work/artifact tools. |
 | `runtimeCore` | Runtime inspection, process handles, tool discovery, and diagnostics. | `permissive` | Intended for framework/runtime operators. |
 | `agentCore` | Complete Praxis-designed agent core with project-local mesh tools. | `permissive` | For developers who want the standard Praxis core without product full mode. |
 | `fullCore` | Application-owned full-open mode. | `permissive` | Raxode can use this after registering product plugins and application-specific ports. |

@@ -72,9 +72,9 @@ export const officialRuntimeComponents = [
     dependencies: [dependency("dependency.npm.playwright", { kind: "npm", required: true })],
   },
   {
-    componentId: "component.office.pdf",
-    kind: "office",
-    title: "PDF office runtime",
+    componentId: "component.work.pdf",
+    kind: "work",
+    title: "PDF work runtime",
     dependencies: [
       dependency("dependency.binary.ffmpeg", { kind: "binary", required: false }),
       dependency("dependency.binary.imagemagick", { kind: "binary", required: false }),

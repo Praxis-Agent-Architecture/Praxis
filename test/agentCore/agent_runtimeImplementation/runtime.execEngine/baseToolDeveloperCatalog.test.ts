@@ -17,7 +17,7 @@ test("baseToolDeveloperCatalog exposes all registered tools without requiring ha
   assert.equal(catalog.length, 24);
   for (const entry of catalog) {
     assert.equal(registry.lookup(entry.toolId).ok, true, entry.toolId);
-    assert.notEqual(entry.storageFamily, "officeBase");
+    assert.notEqual(entry.storageFamily, "workBase");
   }
 
   const codeRead = basetool.core.fileRead({ profileName: "codingCore" });

@@ -27,7 +27,7 @@
 - `toolDeclarations` 与 `assistantScratchpadPlan` 不进入治理包。
 - `projectContext` 和 `sessionSummary` 完整进入，作为主要治理对象。
 - `recentConversation` 正常进入，保留眼前注意力。
-- `memoryContext`、`retrievedContext`、`observations` 只以索引、摘要、ref、status 进入。
+- `memoryContext`、`retrievedContext`、`observations` 只以显式引用、摘要、ref、status 进入；不在 compact 边界生成后台记忆索引。
 - 当前 `userTurn` 通过 `currentUserTurnText` 保留，不交给治理结果覆盖。
 
 治理输出必须是 `praxis.preCompactGovernance.result` v1 JSON。runtime 会校验并应用 `sessionSummaryCandidate` 与 `projectContextUpdates`，同时记录 `staleClaims`、`preservedFacts`、`removedNoise`、`uncertainty` 和 `evidenceRefs`。治理失败、返回非法 JSON 或未配置 executor 时，不阻断原 compact；runtime 继续走正常 `CompactExecutor`。

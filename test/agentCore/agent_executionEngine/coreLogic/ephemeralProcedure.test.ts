@@ -22,14 +22,14 @@ test("normalizeEphemeralProcedurePlan accepts a BaseTool orchestration plan", ()
     steps: [
       {
         stepId: "find",
-        baseToolId: "shell.commandExecution",
+        baseToolId: "shell.run",
         input: { command: "find . -maxdepth 1 -type f" },
         riskLevel: "low",
       },
       {
         stepId: "summarize",
-        baseToolId: "code.exec",
-        input: { language: "python", code: "print('summary')" },
+        baseToolId: "file.search",
+        input: { directoryPath: ".", query: "*.ts", maxEntries: 20 },
         dependsOn: ["find"],
       },
     ],
@@ -40,7 +40,7 @@ test("normalizeEphemeralProcedurePlan accepts a BaseTool orchestration plan", ()
   if (!result.ok) return;
   assert.equal(result.plan.kind, "praxis.ephemeralProcedurePlan");
   assert.equal(result.plan.executionMode, "mixed");
-  assert.deepEqual(result.plan.requiredBaseTools, ["shell.commandExecution", "code.exec"]);
+  assert.deepEqual(result.plan.requiredBaseTools, ["shell.run", "file.search"]);
   assert.equal(result.plan.steps[1]?.dependsOn[0], "find");
 });
 
@@ -62,7 +62,7 @@ test("normalizeEphemeralProcedurePlan rejects unknown dependencies", () => {
     purpose: "bad dependency",
     steps: [{
       stepId: "read",
-      baseToolId: "code.read",
+      baseToolId: "file.read",
       input: {},
       dependsOn: ["missing"],
     }],
@@ -79,7 +79,7 @@ test("normalizeEphemeralProcedurePlan caps one procedure package at 128 BaseTool
     purpose: "too many calls",
     steps: Array.from({ length: 129 }, (_, index) => ({
       stepId: `step-${index}`,
-      baseToolId: "code.read",
+      baseToolId: "file.read",
       input: {},
     })),
   });
@@ -98,31 +98,31 @@ test("createEphemeralProcedureExecutionState supports partial waiting, completed
     steps: [
       {
         stepId: "safe-read",
-        baseToolId: "code.read",
+        baseToolId: "file.read",
         input: { path: "package.json" },
         riskLevel: "low",
       },
       {
         stepId: "risky-shell",
-        baseToolId: "shell.commandExecution",
+        baseToolId: "shell.run",
         input: { command: "du -ah ." },
         riskLevel: "high",
       },
       {
         stepId: "summarize",
-        baseToolId: "code.exec",
-        input: { language: "python", code: "print('summary')" },
+        baseToolId: "file.search",
+        input: { directoryPath: ".", query: "summary", maxEntries: 20 },
         dependsOn: ["safe-read"],
       },
       {
         stepId: "fallback",
-        baseToolId: "search.ripgrep",
+        baseToolId: "file.search",
         input: { pattern: "TODO" },
       },
       {
         stepId: "failed",
-        baseToolId: "git.getRepositoryStatus",
-        input: {},
+        baseToolId: "web.search",
+        input: { query: "Praxis basetool migration" },
       },
     ],
   });

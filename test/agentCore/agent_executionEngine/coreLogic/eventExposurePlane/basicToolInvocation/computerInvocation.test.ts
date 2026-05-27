@@ -3,26 +3,26 @@ import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../../../../agentCoreContractTestHelper.js";
 import {
-  computeruseInvocationDescriptor,
-  exposeComputeruseInvocationEvent,
-} from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computeruseInvocation.js";
+  computerInvocationDescriptor,
+  exposeComputerInvocationEvent,
+} from "../../../../../../src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computerInvocation.js";
 
 defineAgentCoreContractTest({
-  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computeruseInvocation.ts",
-  docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computeruseInvocation.md",
+  sourcePath: "src/executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computerInvocation.ts",
+  docPath: "docs/agentCore/agent_executionEngine/coreLogic/eventExposurePlane/basicToolInvocation/computerInvocation.md",
   testFileUrl: import.meta.url,
 });
 
-test("exposeComputeruseInvocationEvent exposes a guarded computer use event", () => {
-  const result = exposeComputeruseInvocationEvent({
+test("exposeComputerInvocationEvent exposes a guarded computer event", () => {
+  const result = exposeComputerInvocationEvent({
     runtimeId: "runtime-1",
     sessionId: "session-1",
     action: "click",
     eventSource: "basicToolLayer",
     surfaceHint: "desktop",
     payload: { target: "settings-button" },
-    requestedScopes: ["tool:computeruse"],
-    allowedScopes: ["tool:computeruse"],
+    requestedScopes: ["tool:computer"],
+    allowedScopes: ["tool:computer"],
     subscribers: ["inspection"],
   });
 
@@ -30,19 +30,19 @@ test("exposeComputeruseInvocationEvent exposes a guarded computer use event", ()
     assert.fail(result.error.message);
   }
 
-  assert.equal(computeruseInvocationDescriptor.unsafeSideEffects, false);
-  assert.equal(result.invocation.toolKind, "computeruse");
+  assert.equal(computerInvocationDescriptor.unsafeSideEffects, false);
+  assert.equal(result.invocation.toolKind, "computer");
   assert.equal(result.invocation.action, "click");
   assert.equal(result.invocation.surfaceHint, "desktop");
   assert.deepEqual(result.invocation.payload, { target: "settings-button" });
-  assert.deepEqual(result.invocation.acceptedScopes, ["tool:computeruse"]);
+  assert.deepEqual(result.invocation.acceptedScopes, ["tool:computer"]);
   assert.equal(result.invocation.execution.dryRun, true);
   assert.equal(result.invocation.execution.invoked, false);
   assert.equal(result.invocation.execution.unsafeSideEffects, false);
 });
 
-test("exposeComputeruseInvocationEvent rejects missing action", () => {
-  const result = exposeComputeruseInvocationEvent({
+test("exposeComputerInvocationEvent rejects missing action", () => {
+  const result = exposeComputerInvocationEvent({
     runtimeId: "runtime-1",
     sessionId: "session-1",
     eventSource: "basicToolLayer",
@@ -58,8 +58,8 @@ test("exposeComputeruseInvocationEvent rejects missing action", () => {
   assert.equal(result.error.safeForRuntimeInspection, true);
 });
 
-test("exposeComputeruseInvocationEvent rejects real desktop side effects", () => {
-  const result = exposeComputeruseInvocationEvent({
+test("exposeComputerInvocationEvent rejects real desktop side effects", () => {
+  const result = exposeComputerInvocationEvent({
     runtimeId: "runtime-1",
     sessionId: "session-1",
     action: "click",
@@ -74,5 +74,5 @@ test("exposeComputeruseInvocationEvent rejects real desktop side effects", () =>
 
   assert.equal(result.error.code, "REAL_SIDE_EFFECT_NOT_ALLOWED");
   assert.equal(result.error.boundary, "governance");
-  assert.deepEqual(result.events, ["eventExposure.basicTool.computeruse.rejected"]);
+  assert.deepEqual(result.events, ["eventExposure.basicTool.computer.rejected"]);
 });

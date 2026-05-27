@@ -142,14 +142,14 @@ export const capability = {
       metadata: input.metadata,
     });
   },
-  office(input: Omit<SandboxCapabilityInput, "isolation" | "providers"> = {}): CapabilitySpec {
+  work(input: Omit<SandboxCapabilityInput, "isolation" | "providers"> = {}): CapabilitySpec {
     return cap({
-      capabilityId: input.capabilityId ?? "capability.office",
-      kind: "office",
+      capabilityId: input.capabilityId ?? "capability.work",
+      kind: "work",
       reason: input.reason,
       required: input.required,
       fallback: input.fallback ?? true,
-      componentRefs: ["component.office.pdf"],
+      componentRefs: ["component.work.pdf"],
       dependencies: [],
       policy: input.policy,
       metadata: input.metadata,

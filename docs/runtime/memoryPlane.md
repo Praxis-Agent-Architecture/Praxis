@@ -1,6 +1,6 @@
 # Praxis Memory Plane
 
-`memoryPlane` is the passive durable-memory surface for Praxis applications.
+`memoryPlane` is the application-owned durable-memory contract for Praxis applications.
 It is not MP, not RAG, and not an automatic summarizer.
 
 ## Shape

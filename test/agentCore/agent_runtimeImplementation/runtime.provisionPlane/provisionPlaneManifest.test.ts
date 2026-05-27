@@ -254,8 +254,8 @@ test("createProvisionPlan lets required-by-default direct dependencies strengthe
   const registry = praxis.componentPlane.createRuntimeComponentRegistry({
     official: [{
       componentId: "component.test.optionalMedia",
-      kind: "office",
-      title: "Optional media component",
+      kind: "work",
+      title: "Optional work component",
       dependencies: [{ dependencyId: "dependency.binary.ffmpeg", kind: "binary", required: false }],
     }],
   });
@@ -263,7 +263,7 @@ test("createProvisionPlan lets required-by-default direct dependencies strengthe
     registry,
     capabilities: [{
       capabilityId: "capability.test.optionalMedia",
-      kind: "office",
+      kind: "work",
       required: true,
       fallback: false,
       componentRefs: ["component.test.optionalMedia"],

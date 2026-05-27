@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 执行引擎 / 执行核心逻辑 / 事件暴露面 / 基础工具调用事件。
- * 核心目的：承载 omni Invocation 这一能力位点。
+ * 核心目的：承载 web Invocation 这一能力位点。
  * 能力要求1：需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
  * 能力要求2：如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
  * 边界：只服务 agentCore 内核，不写上层产品逻辑。
@@ -8,71 +8,70 @@
  * 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
  */
 
-export type OmniInvocationBoundary = "input" | "contract" | "governance" | "scope" | "runtime-state";
+export type WebInvocationBoundary = "input" | "contract" | "governance" | "scope" | "runtime-state";
 
-export type OmniInvocationSource = "mainLoop" | "stateEngine" | "basicToolLayer" | "officialModuleBridge" | "runtime";
+export type WebInvocationSource = "mainLoop" | "stateEngine" | "basicToolLayer" | "officialModuleBridge" | "runtime";
 
-export type OmniInvocationModality = "text" | "image" | "audio" | "video" | "mixed";
-
-export type OmniInvocationGate = {
+export type WebInvocationGate = {
   accepted: boolean;
   reason?: string;
 };
 
-export type OmniInvocationTrace = {
+export type WebInvocationTrace = {
   correlationId?: string;
   callerId?: string;
 };
 
-export type OmniInvocationRequest = {
+export type WebInvocationRequest = {
   runtimeId?: string;
   sessionId?: string;
   invocationId?: string;
-  source?: OmniInvocationSource;
-  modality?: OmniInvocationModality;
-  targetId?: string;
+  source?: WebInvocationSource;
+  query?: string;
+  providerHint?: string;
   requestedScopes?: readonly string[];
   allowedScopes?: readonly string[];
   runtimeReady?: boolean;
-  contract?: OmniInvocationGate;
-  governance?: OmniInvocationGate;
-  trace?: OmniInvocationTrace;
+  contract?: WebInvocationGate;
+  governance?: WebInvocationGate;
+  trace?: WebInvocationTrace;
   emittedAt?: string;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
-export type OmniInvocationErrorCode =
+export type WebInvocationErrorCode =
   | "MISSING_RUNTIME_ID"
   | "MISSING_SESSION_ID"
   | "MISSING_INVOCATION_ID"
   | "MISSING_EVENT_SOURCE"
-  | "MISSING_OMNI_TARGET"
+  | "MISSING_WEB_QUERY"
   | "RUNTIME_NOT_READY"
   | "CONTRACT_REJECTED"
   | "GOVERNANCE_REJECTED"
   | "SCOPE_DENIED";
 
-export type OmniInvocationError = {
-  code: OmniInvocationErrorCode;
+export type WebInvocationError = {
+  code: WebInvocationErrorCode;
   message: string;
-  boundary: OmniInvocationBoundary;
+  boundary: WebInvocationBoundary;
   safeForRuntimeInspection: true;
 };
 
-export type OmniInvocationEvent = {
+export type WebInvocationEvent = {
   eventId: string;
-  kind: "basicToolInvocation.omni";
+  kind: "basicToolInvocation.web";
   runtimeId: string;
   sessionId: string;
   invocationId: string;
-  source: OmniInvocationSource;
-  omni: {
-    modality: OmniInvocationModality;
-    targetId: string;
+  source: WebInvocationSource;
+  web: {
+    query: string;
+    providerHint?: string;
+    resultEnvelope: "not-executed";
   };
   requestedScopes: readonly string[];
   grantedScopes: readonly string[];
-  trace: OmniInvocationTrace;
+  trace: WebInvocationTrace;
   emittedAt: string;
   route: "runtime.execEngine.eventExposurePlane";
   dispatch: "dry-run";
@@ -80,22 +79,22 @@ export type OmniInvocationEvent = {
   metadata: Readonly<Record<string, unknown>>;
 };
 
-export type OmniInvocationResult =
+export type WebInvocationResult =
   | {
       ok: true;
-      event: OmniInvocationEvent;
+      event: WebInvocationEvent;
       events: readonly string[];
     }
   | {
       ok: false;
-      error: OmniInvocationError;
+      error: WebInvocationError;
       events: readonly string[];
     };
 
-export const omniInvocationDescriptor = {
-  kind: "basicToolInvocation.omni",
+export const webInvocationDescriptor = {
+  kind: "basicToolInvocation.web",
   route: "runtime.execEngine.eventExposurePlane",
-  purpose: "expose multimodal basic tool invocation events without processing media",
+  purpose: "expose web basic tool invocation events without making network calls",
   dispatch: "dry-run",
   unsafeSideEffects: false,
 } as const;
@@ -105,21 +104,21 @@ function cleanList(values: readonly string[] | undefined): readonly string[] {
 }
 
 function failure(
-  code: OmniInvocationErrorCode,
+  code: WebInvocationErrorCode,
   message: string,
-  boundary: OmniInvocationBoundary,
-): OmniInvocationResult {
+  boundary: WebInvocationBoundary,
+): WebInvocationResult {
   return {
     ok: false,
     error: { code, message, boundary, safeForRuntimeInspection: true },
-    events: ["basicToolInvocation.omni.rejected"],
+    events: ["basicToolInvocation.web.rejected"],
   };
 }
 
 function resolveGrantedScopes(
   requestedScopes: readonly string[] | undefined,
   allowedScopes: readonly string[] | undefined,
-): readonly string[] | OmniInvocationResult {
+): readonly string[] | WebInvocationResult {
   const requested = cleanList(requestedScopes);
   const allowed = cleanList(allowedScopes);
 
@@ -129,51 +128,52 @@ function resolveGrantedScopes(
 
   const denied = requested.filter((scope) => !allowed.includes(scope));
   if (denied.length > 0) {
-    return failure("SCOPE_DENIED", `Omni invocation scope ${denied[0]} is outside runtime governance`, "scope");
+    return failure("SCOPE_DENIED", `Web invocation scope ${denied[0]} is outside runtime governance`, "scope");
   }
 
   return requested;
 }
 
-export function exposeOmniInvocationEvent(request?: OmniInvocationRequest): OmniInvocationResult {
+export function exposeWebInvocationEvent(request?: WebInvocationRequest): WebInvocationResult {
   if (request === undefined) {
-    return failure("MISSING_RUNTIME_ID", "Omni invocation event requires runtimeId", "input");
+    return failure("MISSING_RUNTIME_ID", "Web invocation event requires runtimeId", "input");
   }
 
   const runtimeId = request.runtimeId?.trim();
   const sessionId = request.sessionId?.trim();
   const invocationId = request.invocationId?.trim();
   const source = request.source;
-  const targetId = request.targetId?.trim();
+  const query = request.query?.trim();
+  const providerHint = request.providerHint?.trim() || undefined;
 
   if (!runtimeId) {
-    return failure("MISSING_RUNTIME_ID", "Omni invocation event requires runtimeId", "input");
+    return failure("MISSING_RUNTIME_ID", "Web invocation event requires runtimeId", "input");
   }
 
   if (!sessionId) {
-    return failure("MISSING_SESSION_ID", "Omni invocation event requires sessionId", "input");
+    return failure("MISSING_SESSION_ID", "Web invocation event requires sessionId", "input");
   }
 
   if (!invocationId) {
-    return failure("MISSING_INVOCATION_ID", "Omni invocation event requires invocationId", "input");
+    return failure("MISSING_INVOCATION_ID", "Web invocation event requires invocationId", "input");
   }
 
   if (source === undefined) {
-    return failure("MISSING_EVENT_SOURCE", "Omni invocation event requires an execution event source", "input");
+    return failure("MISSING_EVENT_SOURCE", "Web invocation event requires an execution event source", "input");
   }
 
-  if (request.modality === undefined || !targetId) {
-    return failure("MISSING_OMNI_TARGET", "Omni invocation event requires modality and targetId", "input");
+  if (!query) {
+    return failure("MISSING_WEB_QUERY", "Web invocation event requires query", "input");
   }
 
   if (request.runtimeReady === false) {
-    return failure("RUNTIME_NOT_READY", "Omni invocation events require a ready runtime", "runtime-state");
+    return failure("RUNTIME_NOT_READY", "Web invocation events require a ready runtime", "runtime-state");
   }
 
   if (request.contract?.accepted === false) {
     return failure(
       "CONTRACT_REJECTED",
-      request.contract.reason ?? "runtime contract surface rejected the Omni invocation event",
+      request.contract.reason ?? "runtime contract surface rejected the Web invocation event",
       "contract",
     );
   }
@@ -181,7 +181,7 @@ export function exposeOmniInvocationEvent(request?: OmniInvocationRequest): Omni
   if (request.governance?.accepted === false) {
     return failure(
       "GOVERNANCE_REJECTED",
-      request.governance.reason ?? "runtime governance rejected the Omni invocation event",
+      request.governance.reason ?? "runtime governance rejected the Web invocation event",
       "governance",
     );
   }
@@ -191,7 +191,7 @@ export function exposeOmniInvocationEvent(request?: OmniInvocationRequest): Omni
     return grantedScopes;
   }
 
-  const trace: OmniInvocationTrace = {
+  const trace: WebInvocationTrace = {
     correlationId: request.trace?.correlationId?.trim() || undefined,
     callerId: request.trace?.callerId?.trim() || undefined,
   };
@@ -199,13 +199,17 @@ export function exposeOmniInvocationEvent(request?: OmniInvocationRequest): Omni
   return {
     ok: true,
     event: {
-      eventId: `${runtimeId}:${sessionId}:${invocationId}:omni:${request.modality}:${targetId}`,
-      kind: "basicToolInvocation.omni",
+      eventId: `${runtimeId}:${sessionId}:${invocationId}:web:${query}`,
+      kind: "basicToolInvocation.web",
       runtimeId,
       sessionId,
       invocationId,
       source,
-      omni: { modality: request.modality, targetId },
+      web: {
+        query,
+        providerHint,
+        resultEnvelope: "not-executed",
+      },
       requestedScopes: cleanList(request.requestedScopes),
       grantedScopes,
       trace,
@@ -215,6 +219,6 @@ export function exposeOmniInvocationEvent(request?: OmniInvocationRequest): Omni
       unsafeSideEffects: false,
       metadata: request.metadata ?? {},
     },
-    events: ["basicToolInvocation.omni.exposed"],
+    events: ["basicToolInvocation.web.exposed"],
   };
 }

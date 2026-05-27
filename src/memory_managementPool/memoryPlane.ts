@@ -109,7 +109,7 @@ export function createMemoryPlane(options: MemoryPlaneOptions = {}): MemoryPlane
       const query = input.query?.trim();
       const searchGuide = query !== undefined && query.length > 0 ? buildSearchGuide(layouts, { query }) : undefined;
       const fullGuide = [
-        "Memory is passive durable project/global context, not an active MP/RAG system.",
+        "Memory is application-owned durable project/global context, not an active MP/RAG system.",
         "Use basetool file.search over the listed memory roots when prior project/global facts may matter.",
         "Read MEMORY.md for stable facts and daily/YYYY-MM-DD.md for append-only working notes.",
         "Do not treat session transcripts as memory unless the application explicitly exposes them.",

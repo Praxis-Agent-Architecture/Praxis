@@ -56,15 +56,15 @@ function lookupPortMethod(executor: unknown, portPath: string): unknown {
   return asRecord(namespaceValue)[method];
 }
 
-test("baseToolSupportCatalog covers the semantic basetool catalog without office TAP", () => {
+test("baseToolSupportCatalog covers the semantic basetool catalog without work TAP plugins", () => {
   const catalog = createBaseToolSupportCatalog();
   const snapshot = snapshotBaseToolSupportCatalog();
 
   assert.equal(baseToolSupportCatalogDescriptor.semanticCatalog, true);
   assert.equal(catalog.length, 24);
   assert.equal(snapshot.total, 24);
-  assert.equal(snapshot.byFamily.office ?? 0, 0);
-  assert.equal(catalog.some((entry) => entry.storageFamily === "officeBase"), false);
+  assert.equal(snapshot.byFamily.work ?? 0, 0);
+  assert.equal(catalog.some((entry) => entry.storageFamily === "workBase"), false);
 
   const shell = catalog.find((entry) => entry.toolId === "shell.run");
   assert.ok(shell);

@@ -20,7 +20,7 @@ function manifest(): AgentManifest {
       tools: [
         {
           toolId: "file.read",
-          family: "codeBase",
+          family: "coreBase",
           group: "file",
           description: "Read a workspace file.",
           metadata: { toolProviderKind: "baseTool", riskLevel: "safe" },

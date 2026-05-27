@@ -302,7 +302,7 @@ praxis.toolSets.shell.safe()
 You can still use low-level `tool(...)` when needed:
 
 ```ts
-praxis.tool("code.read", { family: "codeBase", group: "explore" })
+praxis.tool("file.read", { family: "coreBase", group: "file" })
 ```
 
 But the compiler validates `toolId`, `family`, and `group` against the runtime catalog. Tool identity is always:
@@ -311,7 +311,7 @@ But the compiler validates `toolId`, `family`, and `group` against the runtime c
 family / group / toolId
 ```
 
-Runtime does not become a second tool brain. BaseTool semantics live in `src/storagePool/baseToolStorage`; runtime owns executor ports, governance, dependencies, session linkage, and observation.
+Runtime does not become a second tool brain. BaseTool semantics live in the semantic `src/basetool` catalog and profile descriptions; runtime owns executor ports, governance, dependencies, session linkage, and observation.
 
 BaseTool invocation must keep this chain:
 
@@ -328,10 +328,10 @@ runtime request
 
 Tool exposure is not all-or-nothing. The framework supports several authoring modes:
 
-- `allOpen`: expose all 176 BaseTool definitions. Useful for fullstack stress tests, noisy for normal agents.
+- `allOpen`: expose the full semantic BaseTool profile. Useful for fullstack stress tests, noisy for normal agents.
 - `autoFolded`: expose family-level tool descriptions first; the model can request `praxis_expand_tool_context` to unfold a family/group/tool description.
-- `manualCoarse`: developer selects by family or group, for example all `codeBase` and `gitBase`.
-- `manualFine`: developer selects exact tool ids, for example `code.read` and `git.getRepositoryStatus`.
+- `manualCoarse`: developer selects by family or group, for example `coreBase/filesystem`.
+- `manualFine`: developer selects exact tool ids, for example `file.read` and `patch.apply`.
 - `semiAuto`: developer pins hot families/tools and lets the rest stay folded.
 - `none`: no BaseTool exposure, pure chat/planning.
 
@@ -379,8 +379,8 @@ shell = 32/32
 git = 35/35
 code = 29/29
 skill = 6/6
-omni = 14/14
-computeruse = 32/32
+media = application/plugin slot
+computer = application/plugin slot
 search = 4/4
 mcp = 23/23
 ```
@@ -432,7 +432,7 @@ When `praxis.sandbox.linuxBubblewrap()` is prepared successfully, the default ru
 - `shell.run`
 - `process.run`
 - `git.runGit`
-- external `search.ripgrep` dispatch
+- external `file.search` dispatch
 
 Filesystem ports such as `filesystem.readText` and `filesystem.writeText` are still executed by the Node runtime process, so they are governed by workspace/allowed-root policy rather than OS-level bubblewrap containment. This split is intentional for v1: process side effects get real Linux sandbox execution first, while direct filesystem adapters remain strict scoped host adapters.
 

@@ -7,7 +7,7 @@ Praxis 的 authPlane 是 framework/runtime 的被动鉴权面：它不替应用�
 - `RuntimeAuthSecretRecord`：AES-256-GCM 加密后的用户级 secret。密文可持久化，明文只在 resolver 解密时短暂存在。
 - `RuntimeAuthProviderProfile`：provider、endpoint shape、baseURL、credentialRef 的公开配置。
 - `RuntimeAuthModelEntry`：某个 profile 下可用的模型和能力元数据。
-- `RuntimeAuthRoleBinding`：把 `primary`、`fallback`、`omni`、`embedding`、`realtime`、`batch` 等运行角色绑定到 profile/model。
+- `RuntimeAuthRoleBinding`：把 `primary`、`fallback`、`media`、`embedding`、`realtime`、`batch` 等运行角色绑定到 profile/model。
 - `RuntimeAuthResolver`：按 role、profile ref 或 credential ref 从 vault 解密，生成 model invocation 需要的 `AuthEnvelope`。
 
 白话：上层应用保存“用户有什么账号和 key”，Praxis 保存“这些东西如何安全地变成一次模型调用的 auth envelope”。
