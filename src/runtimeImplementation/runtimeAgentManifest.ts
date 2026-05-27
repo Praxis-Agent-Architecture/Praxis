@@ -10,8 +10,7 @@
 
 import { createHash } from "node:crypto";
 
-import type { CredentialRef } from "../modelAdapter/authProfileLayer/credentialRef.js";
-import type { ProviderReasoningConfig } from "../modelAdapter/providerAccessLayer/providerCarrier.js";
+import type { RaxAuthRef, RaxReasoningEffort } from "../modelAdapter/index.js";
 import { createBaseToolSupportCatalog } from "./runtime.execEngine/baseToolSupportCatalog.js";
 import {
   canonicalDependencyId,
@@ -22,6 +21,17 @@ import {
   capability as capabilityAuthoring,
   type CapabilitySpec,
 } from "./runtime.provisionPlane/index.js";
+
+export type CredentialRef = RaxAuthRef & {
+  credentialId?: string;
+  credentialType?: string;
+  provider?: string;
+};
+
+export type ProviderReasoningConfig = {
+  effort?: RaxReasoningEffort;
+  summary?: string;
+};
 
 export type AgentIdentity = string | {
   id: string;

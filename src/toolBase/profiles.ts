@@ -1,0 +1,100 @@
+import type { ToolBaseId, ToolBaseProfile } from "./types.js";
+
+export const MINIMAL_CODING_TOOL_IDS = [
+  "shell.run",
+  "file.read",
+  "file.search",
+  "patch.apply",
+  "plan.update",
+  "user.ask",
+] as const satisfies readonly ToolBaseId[];
+
+export const STANDARD_AGENT_TOOL_IDS = [
+  ...MINIMAL_CODING_TOOL_IDS,
+  "web.search",
+  "web.fetch",
+  "skill.load",
+  "mcp.use",
+  "agent.spawn",
+] as const satisfies readonly ToolBaseId[];
+
+export const EXTENDED_AGENT_TOOL_IDS = [
+  ...STANDARD_AGENT_TOOL_IDS,
+  "file.write",
+  "file.edit",
+  "agent.message",
+  "agent.wait",
+  "context.load",
+  "mcp.resources",
+  "lsp.query",
+  "browser.use",
+  "computer.use",
+  "image.view",
+  "image.generate",
+  "audio.transcribe",
+  "media.generate",
+  "memory.use",
+  "repo.inspect",
+] as const satisfies readonly ToolBaseId[];
+
+export const TOOL_BASE_PROFILES = [
+  {
+    name: "minimalCoding",
+    description: "Pi/Codex-like small coding set for models that perform best with a short familiar tool list.",
+    defaultVisibility: "model",
+    toolIds: MINIMAL_CODING_TOOL_IDS,
+    hiddenToolIds: [],
+    deferredToolIds: [],
+  },
+  {
+    name: "standardAgent",
+    description: "Default Praxis model-facing set: coding, grounding, skill, MCP, and subagent delegation.",
+    defaultVisibility: "model",
+    toolIds: STANDARD_AGENT_TOOL_IDS,
+    hiddenToolIds: [],
+    deferredToolIds: [],
+  },
+  {
+    name: "extendedAgent",
+    description: "Large set for high-capability runtimes; uncommon tools remain deferred until the agent asks for them.",
+    defaultVisibility: "deferred",
+    toolIds: EXTENDED_AGENT_TOOL_IDS,
+    hiddenToolIds: [],
+    deferredToolIds: [
+      "file.write",
+      "file.edit",
+      "agent.message",
+      "agent.wait",
+      "context.load",
+      "mcp.resources",
+      "lsp.query",
+      "browser.use",
+      "computer.use",
+      "image.view",
+      "image.generate",
+      "audio.transcribe",
+      "media.generate",
+      "memory.use",
+      "repo.inspect",
+    ],
+  },
+  {
+    name: "runtimeOnly",
+    description: "Runtime governance ports and internal operations; never sent directly to the model.",
+    defaultVisibility: "runtime",
+    toolIds: [],
+    hiddenToolIds: [
+      "approval.request",
+      "permission.check",
+      "sandbox.run",
+      "artifact.store",
+      "output.truncate",
+      "process.wait",
+      "process.kill",
+      "secret.resolve",
+      "tool.discover",
+      "tool.describe",
+    ],
+    deferredToolIds: [],
+  },
+] as const satisfies readonly ToolBaseProfile[];

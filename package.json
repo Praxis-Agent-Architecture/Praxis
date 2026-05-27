@@ -19,6 +19,8 @@
     "./application-layer": "./src/applicationLayer/index.ts",
     "./basetool": "./src/basetool/index.ts",
     "./memory": "./src/memory_managementPool/index.ts",
+    "./modelAdapter": "./src/modelAdapter/index.ts",
+    "./model-adapter": "./src/modelAdapter/index.ts",
     "./rax": "./src/rax_packageManager/index.ts"
   },
   "files": [
@@ -54,7 +56,7 @@
     "!**/*.test.ts"
   ],
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=22.22.3"
   },
   "scripts": {
     "build": "npm run typecheck",
@@ -64,6 +66,7 @@
     "example:minimal": "node --import tsx examples/minimal/runRepoInspector.ts",
     "example:fullstack": "node --import tsx examples/fullstack/runRepoInspector.ts",
     "smoke:agentCore": "node --import tsx examples/scripts/agentcore_smoke.ts",
+    "smoke:modelAdapter": "node --import tsx examples/scripts/modelAdapter_smoke.ts",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
     "test:agentCore": "find test/agentCore \\( -path test/agentCore/agent_executionEngine/basic_toolLayer \\) -prune -o -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
     "test:unit": "npm run test:agentCore"
@@ -87,12 +90,13 @@
     "@openai/agents": "^0.7.2",
     "@types/react": "^18.3.28",
     "apache-arrow": "^18.1.0",
+    "effect": "^3.21.2",
     "ink": "^5.2.1",
     "openai": "^6.37.0",
     "react": "^18.3.1",
     "string-width": "^7.2.0",
-    "typescript": "^5.9.3",
     "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
     "zod": "^4.4.3"
   }
 }

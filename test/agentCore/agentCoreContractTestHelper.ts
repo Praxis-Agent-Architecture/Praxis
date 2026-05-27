@@ -81,13 +81,9 @@ function assertPathSpecificContract(sourcePath: string, docText: string): void {
     assertRequiredPhrases(docText, ["TAP", "复用转交", "基础工具"], "TAP reuse transfer contract");
   }
 
-  if (sourcePath.includes("/actualInvocationLayer/")) {
-    assertRequiredPhrases(docText, ["actualInvocationLayer", "provider"], "actual invocation contract");
-    assert.match(docText, /provider 原始字段|provider 字段形状|provider 的字段形状/, "provider details must stay below agentCore public contract");
-  }
-
-  if (sourcePath.includes("/actualInvocationLayer/customFormat/")) {
-    assertRequiredPhrases(docText, ["自定义格式", "Praxis 标准"], "custom format contract");
+  if (sourcePath.includes("/modelAdapter/")) {
+    assertRequiredPhrases(docText, ["RaxModelRequest", "provider", "protocol"], "model adapter contract");
+    assert.match(docText, /provider 原始字段|provider 字段形状|provider 的字段形状|providerOptions/, "provider details must stay below agentCore public contract");
   }
 
   if (sourcePath.includes("/interfaceAdapter/")) {

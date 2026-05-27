@@ -10,7 +10,7 @@ import {
   lowerPraxisToolsForProvider,
   normalizeProviderInputSchema,
   type ProviderToolSchemaFamily,
-} from "../../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../../modelAdapter/toolBridge/providerToolLowering.js";
 import type { RuntimeFaultSignal } from "../runtime.selfRepair/faultClassifier.js";
 import {
   createBaseToolRealityLedger,

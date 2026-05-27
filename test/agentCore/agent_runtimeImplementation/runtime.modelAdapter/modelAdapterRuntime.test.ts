@@ -10,7 +10,7 @@ defineAgentCoreContractTest({
   testFileUrl: import.meta.url,
 });
 
-test("modelAdapterRuntime binds the three model adapter layer surfaces into one runtime handle", () => {
+test("modelAdapterRuntime binds the new model adapter request surfaces into one runtime handle", () => {
   const result = createModelAdapterRuntime({
     runtimeId: " runtime-1 ",
     caller: { kind: "application", id: " app-1 ", sessionId: " session-1 " },
@@ -18,12 +18,12 @@ test("modelAdapterRuntime binds the three model adapter layer surfaces into one 
     allowedScopes: ["model.invoke", "provider.read", "model.inspect"],
     bindings: [
       {
-        surface: "actualInvocationLayer",
-        bindingId: " invocation-binding-1 ",
-        capabilities: ["provider.carrier", " provider.carrier "],
+        surface: "provider",
+        bindingId: " provider-binding-1 ",
+        capabilities: ["provider.route", " provider.route "],
       },
-      { surface: "abstractionLayer", bindingId: "abstraction-binding-1", capabilities: ["provider.abstract"] },
-      { surface: "bridgingLayer", bindingId: "bridge-binding-1", metadata: { internal: true } },
+      { surface: "protocol", bindingId: "protocol-binding-1", capabilities: ["openai.chat"] },
+      { surface: "toolBridge", bindingId: "tool-bridge-binding-1", metadata: { internal: true } },
     ],
   });
 
@@ -35,12 +35,12 @@ test("modelAdapterRuntime binds the three model adapter layer surfaces into one 
   assert.equal(result.runtime.runtimeId, "runtime-1");
   assert.equal(result.runtime.route, "runtime.modelAdapter");
   assert.deepEqual(result.runtime.bindingIds, [
-    "invocation-binding-1",
-    "abstraction-binding-1",
-    "bridge-binding-1",
+    "provider-binding-1",
+    "protocol-binding-1",
+    "tool-bridge-binding-1",
   ]);
-  assert.deepEqual(result.runtime.surfaces, ["actualInvocationLayer", "abstractionLayer", "bridgingLayer"]);
-  assert.deepEqual(result.runtime.bindings[0]?.capabilities, ["provider.carrier"]);
+  assert.deepEqual(result.runtime.surfaces, ["provider", "protocol", "toolBridge"]);
+  assert.deepEqual(result.runtime.bindings[0]?.capabilities, ["provider.route"]);
   assert.deepEqual(result.runtime.grantedScopes, ["model.invoke", "provider.read"]);
   assert.equal(result.runtime.dryRun, true);
   assert.equal(result.runtime.unsafeSideEffects, false);
@@ -67,7 +67,7 @@ test("modelAdapterRuntime rejects missing, unready, and out-of-scope bindings be
   const unready = createModelAdapterRuntime({
     runtimeId: "runtime-1",
     caller: { kind: "application", id: "app-1" },
-    bindings: [{ surface: "bridgingLayer", bindingId: "bridge-binding-1", ready: false }],
+    bindings: [{ surface: "toolBridge", bindingId: "tool-bridge-binding-1", ready: false }],
   });
 
   assert.equal(unready.ok, false);
@@ -83,7 +83,7 @@ test("modelAdapterRuntime rejects missing, unready, and out-of-scope bindings be
     caller: { kind: "official-module", id: "cmp" },
     requestedScopes: ["model.invoke", "provider.admin"],
     allowedScopes: ["model.invoke"],
-    bindings: [{ surface: "actualInvocationLayer", bindingId: "invocation-binding-1" }],
+    bindings: [{ surface: "provider", bindingId: "provider-binding-1" }],
   });
 
   assert.equal(denied.ok, false);
