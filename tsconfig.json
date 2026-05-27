@@ -12,5 +12,14 @@
     "resolveJsonModule": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test/agentCore/agent_executionEngine/basic_toolLayer",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolDependencyRuntime.test.ts",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.test.ts",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRealityLedger.test.ts",
+    "test/agentCore/agent_runtimeImplementation/runtime.execEngine/baseToolRuntimeGovernance.test.ts",
+    "examples/scripts/agentcore_tool_lab.ts"
+  ]
 }

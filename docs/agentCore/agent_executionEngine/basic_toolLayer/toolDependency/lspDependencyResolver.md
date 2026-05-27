@@ -26,13 +26,13 @@
 
 ## 4. 源码头部能力注释
 
-- 文件定位：Agent 执行引擎 / 基础工具原语层 / 工具依赖管理层 / LSP 依赖解析器。
-- 核心目的：根据目标文件和 workspace 语言事实判断需要哪个 LSP server。
-- 能力要求1：需要把 target、languageId、扩展名和 workspace markers 解析成稳定依赖画像。
-- 能力要求2：语言支持必须由注册表驱动，避免只写死少数语言。
-- 边界：只解析依赖画像，不探测本机环境，也不执行安装。
-- 对接：输出 ToolDependencyDeclaration 给 dependencyManager、dependencyChecker 和 dependencyIterationManager 使用。
-- 实现提示：显式 languageId 优先，其次文件扩展名，再次 workspace marker，最后内容特征。
+- 文件定位：Agent 执行引擎 / basic_toolLayer / toolDependency / lspDependencyResolver。
+- 核心目的：兼容旧 LSP 依赖解析入口，并转发 runtime.dependencyPlane LSP resolver。
+- 能力要求1：按 target file/languageId 解析语言服务器依赖。
+- 能力要求2：把 LSP profile 转成 dependencyManager declaration。
+- 边界：不启动 LSP、不安装 server。
+- 对接：runtime.dependencyPlane.lspDependencyResolver。
+- 实现提示：保持 public-safe 错误形状。
 
 ## 5. 需要提供的能力
 

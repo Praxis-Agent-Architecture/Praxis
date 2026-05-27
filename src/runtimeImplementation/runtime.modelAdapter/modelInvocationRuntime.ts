@@ -12,7 +12,10 @@ import type {
   ModelAdapterRuntimeCaller,
   ModelAdapterRuntimeGate,
 } from "./modelAdapterRuntime.js";
-import type { AuthEnvelope } from "../../modelAdapter/authProfileLayer/authEnvelope.js";
+import type {
+  AuthEnvelope,
+  ProviderAuthMaterial,
+} from "../../modelAdapter/authProfileLayer/authEnvelope.js";
 import {
   invokeChatGPTCodexResponses,
 } from "../../modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
@@ -36,6 +39,23 @@ import {
   type AnthropicV1MessagesProviderCaller,
   type AnthropicV1MessagesUsage,
 } from "../../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import {
+  invokeDeepMindV1BetaModelsGenerateContent,
+  type DeepMindV1BetaModelsGenerateContentResult,
+  type DeepMindV1BetaModelsGenerateContentTransport,
+} from "../../modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.js";
+import {
+  redactHeaders,
+  redactSecretRecord,
+} from "../../modelAdapter/authProfileLayer/secretRedaction.js";
+import type {
+  RuntimeAuthResolver,
+  RuntimeAuthResolverRequest,
+} from "../runtime.authPlane/runtimeAuthResolver.js";
+import type {
+  RuntimeAuthModelEntry,
+  RuntimeAuthProviderProfile,
+} from "../runtime.authPlane/providerAuthRegistry.js";
 
 export type ModelInvocationRuntimeMode = "single" | "stream" | "batch" | (string & {});
 
@@ -47,6 +67,7 @@ export type ModelInvocationRuntimeBoundary =
   | "prompt"
   | "capability"
   | "carrier"
+  | "auth"
   | "side-effect";
 
 export type ModelInvocationRuntimeErrorCode =
@@ -63,6 +84,8 @@ export type ModelInvocationRuntimeErrorCode =
   | "GOVERNANCE_REJECTED"
   | "UNSAFE_INVOCATION_DISABLED"
   | "PROVIDER_CALLER_REQUIRED"
+  | "AUTH_REQUIRED"
+  | "AUTH_ROUTE_MISMATCH"
   | "UNSUPPORTED_PROVIDER_ROUTE"
   | "PROVIDER_INVOCATION_FAILED";
 
@@ -110,22 +133,27 @@ export type ModelInvocationRuntimeRequest = {
 export type RuntimeModelInvocationLiveRequest = ModelInvocationRuntimeRequest & {
   providerBody?: unknown;
   auth?: AuthEnvelope;
+  runtimeAuthResolver?: RuntimeAuthResolver;
+  authSelection?: RuntimeAuthResolverRequest;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
   openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
   openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
   anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
+  geminiGenerateContentTransport?: DeepMindV1BetaModelsGenerateContentTransport;
   dryRun?: boolean;
   requiredScopes?: readonly string[];
   allowedScopes?: readonly string[];
   chatgptAccountId?: string;
   clientName?: string;
   clientVersion?: string;
+  signal?: AbortSignal;
 };
 
 export type ModelInvocationProviderResult =
   | OpenAIV1ResponsesResult
   | OpenAiV1ChatCompletionsInvocationResult
-  | AnthropicV1MessagesInvocationResult;
+  | AnthropicV1MessagesInvocationResult
+  | DeepMindV1BetaModelsGenerateContentResult;
 
 export type ModelInvocationRuntimeUsage =
   | OpenAIV1ResponsesUsage
@@ -342,10 +370,7 @@ export function planModelInvocation(
 }
 
 function liveFailure(
-  code: Extract<
-    ModelInvocationRuntimeErrorCode,
-    "PROVIDER_CALLER_REQUIRED" | "UNSUPPORTED_PROVIDER_ROUTE" | "PROVIDER_INVOCATION_FAILED"
-  >,
+  code: Extract<ModelInvocationRuntimeErrorCode, "PROVIDER_CALLER_REQUIRED" | "AUTH_REQUIRED" | "AUTH_ROUTE_MISMATCH" | "UNSUPPORTED_PROVIDER_ROUTE" | "PROVIDER_INVOCATION_FAILED">,
   message: string,
   boundary: ModelInvocationRuntimeBoundary,
   providerResult?: ModelInvocationProviderResult,
@@ -353,7 +378,7 @@ function liveFailure(
   return {
     ok: false,
     error: { code, message, boundary, publicSafe: true },
-    providerResult,
+    providerResult: sanitizeProviderResult(providerResult),
     events: ["runtime.modelAdapter.modelInvocationRuntime.rejected"],
   };
 }
@@ -367,7 +392,10 @@ function metadataString(metadata: Readonly<Record<string, unknown>> | undefined,
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function normalizeEndpointShape(value: string | undefined): "responses" | "chat_completions" | "messages" | "custom" {
+type ModelInvocationEndpointShape = "responses" | "chat_completions" | "messages" | "gemini_generate_content" | "custom";
+type RuntimeProviderProtocol = "openai" | "anthropic" | "gemini" | "custom";
+
+function knownEndpointShape(value: string | undefined): ModelInvocationEndpointShape | undefined {
   const normalized = value?.trim().toLowerCase().replace(/[-/]/gu, "_");
   if (
     normalized === "chat_completions" ||
@@ -377,30 +405,155 @@ function normalizeEndpointShape(value: string | undefined): "responses" | "chat_
     return "chat_completions";
   }
   if (normalized === "messages" || normalized === "anthropic_messages" || normalized === "v1_messages") return "messages";
+  if (normalized === "gemini_generate_content" || normalized === "generate_content") return "gemini_generate_content";
   if (normalized === "custom") return "custom";
-  return "responses";
+  if (normalized === "responses" || normalized === "openai_responses" || normalized === "v1_responses") return "responses";
+  return undefined;
 }
 
-function requestEndpointShape(request: RuntimeModelInvocationLiveRequest): "responses" | "chat_completions" | "messages" | "custom" {
-  return normalizeEndpointShape(
-    request.carrier?.endpointShape ??
-    metadataString(request.carrier?.metadata, "endpointShape") ??
-    request.capability?.kind,
-  );
+function normalizeEndpointShape(value: string | undefined): ModelInvocationEndpointShape {
+  return knownEndpointShape(value) ?? "responses";
 }
 
-function isChatGPTCodexResponsesRoute(request: RuntimeModelInvocationLiveRequest, carrierId: string): boolean {
+function explicitRequestEndpointShape(request: RuntimeModelInvocationLiveRequest): ModelInvocationEndpointShape | undefined {
+  const carrierValue = request.carrier?.endpointShape ??
+    metadataString(request.carrier?.metadata, "endpointShape");
+  if (hasText(carrierValue)) return normalizeEndpointShape(carrierValue);
+  return knownEndpointShape(request.capability?.kind);
+}
+
+function normalizeProviderIdentity(provider: string | undefined): string | undefined {
+  const value = provider?.trim().toLowerCase();
+  return value === undefined || value.length === 0 ? undefined : value;
+}
+
+function providerIdentitiesMatch(
+  requestProvider: string | undefined,
+  profileProvider: string | undefined,
+  endpointShape: ModelInvocationEndpointShape | undefined,
+): boolean {
+  if (requestProvider === undefined || profileProvider === undefined) return true;
+  if (requestProvider === profileProvider) return true;
+  const requestProtocol = runtimeProviderProtocol(requestProvider) ?? runtimeProviderProtocolForEndpointShape(endpointShape);
+  const profileProtocol = runtimeProviderProtocol(profileProvider) ?? runtimeProviderProtocolForEndpointShape(endpointShape);
+  return requestProtocol !== undefined && requestProtocol === profileProtocol;
+}
+
+function normalizeBaseURL(value: string | undefined): string | undefined {
+  const trimmed = value?.trim().replace(/\/+$/u, "");
+  return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
+}
+
+function authRouteMismatchMessage(
+  request: RuntimeModelInvocationLiveRequest,
+  profile: RuntimeAuthProviderProfile,
+): string | undefined {
+  const requestProvider = normalizeProviderIdentity(request.carrier?.provider);
+  const profileProvider = normalizeProviderIdentity(profile.provider);
+  const requestShape = explicitRequestEndpointShape(request);
+  const profileShape = normalizeEndpointShape(profile.endpointShape);
+  const matchShape = requestShape ?? profileShape;
+  if (!providerIdentitiesMatch(requestProvider, profileProvider, matchShape)) {
+    return "resolved auth profile provider does not match requested carrier provider";
+  }
+
+  if (requestShape !== undefined && requestShape !== profileShape) {
+    return "resolved auth profile endpointShape does not match requested carrier endpointShape";
+  }
+
+  const requestBaseURL = normalizeBaseURL(request.carrier?.baseURL);
+  const profileBaseURL = normalizeBaseURL(profile.baseURL);
+  if (requestBaseURL !== undefined && profileBaseURL !== undefined && requestBaseURL !== profileBaseURL) {
+    return "resolved auth profile baseURL does not match requested carrier baseURL";
+  }
+
+  return undefined;
+}
+
+function effectiveEndpointShape(
+  request: RuntimeModelInvocationLiveRequest,
+  profile: RuntimeAuthProviderProfile | undefined,
+): ModelInvocationEndpointShape {
+  return explicitRequestEndpointShape(request) ?? (profile === undefined ? "responses" : normalizeEndpointShape(profile.endpointShape));
+}
+
+function effectiveProviderName(
+  request: RuntimeModelInvocationLiveRequest,
+  plan: ModelInvocationPlan,
+  profile: RuntimeAuthProviderProfile | undefined,
+): string | undefined {
+  return request.carrier?.provider?.trim() ?? plan.envelope.provider ?? profile?.provider;
+}
+
+function isChatGPTCodexResponsesRoute(request: RuntimeModelInvocationLiveRequest, carrierId: string, auth?: AuthEnvelope): boolean {
   const productChannel = metadataString(request.carrier?.metadata, "productChannel");
   const providerRoute = metadataString(request.carrier?.metadata, "providerRoute");
   return productChannel === "chatgpt-codex" ||
     providerRoute === "chatgpt_codex_responses" ||
-    request.auth?.credentialRef?.credentialType === "chatgpt_codex_oauth" ||
+    auth?.credentialRef?.credentialType === "chatgpt_codex_oauth" ||
     carrierId.includes("chatgpt-codex") ||
     (request.requiredScopes ?? []).some((scope) => scope.trim() === "chatgpt.codex.responses");
 }
 
 function bodyRecordOrInput(body: unknown): Record<string, unknown> {
   return isRecord(body) ? body : { input: body ?? "" };
+}
+
+function providerBodyModel(body: unknown): string | undefined {
+  if (!isRecord(body)) return undefined;
+  const value = body.model;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function geminiGenerateContentBody(body: unknown): Record<string, unknown> {
+  const record = bodyRecordOrInput(body);
+  const { model: _model, ...providerBody } = record;
+  return providerBody;
+}
+
+function geminiApiKey(auth: AuthEnvelope): string | undefined {
+  const header = auth.headerPlan.find((item) => item.name.trim().toLowerCase() === "x-goog-api-key");
+  const value = header === undefined ? undefined : String(header.value).trim();
+  if (value === undefined || value.length === 0) return undefined;
+  return /^\[redacted(?::\d+|-empty)?\]$/u.test(value) || value === "[redacted]" ? undefined : value;
+}
+
+function publicEventName(event: string | object): string {
+  if (typeof event === "string") return event;
+  if ("kind" in event && typeof event.kind === "string") return event.kind;
+  return "runtime.modelAdapter.modelInvocationRuntime.publicEvent";
+}
+
+function authEnvelopeForProvider(auth: AuthEnvelope, privateMaterial: ProviderAuthMaterial | undefined): AuthEnvelope {
+  if (privateMaterial?.headers === undefined) return auth;
+  return {
+    ...auth,
+    headerPlan: Object.entries(privateMaterial.headers).map(([name, value]) => ({
+      name: name.trim().toLowerCase(),
+      value,
+      redacted: true,
+    })),
+  };
+}
+
+function sanitizeProviderResult<T extends ModelInvocationProviderResult | undefined>(providerResult: T): T {
+  if (providerResult === undefined) return providerResult;
+  if (!isRecord(providerResult)) return providerResult;
+
+  const providerResultRecord = providerResult as Record<string, unknown>;
+  const sanitized = redactSecretRecord(providerResultRecord) as Record<string, unknown>;
+  const rawRequest = providerResultRecord["request"];
+  const sanitizedRequest = sanitized["request"];
+  if (isRecord(rawRequest)) {
+    sanitized.request = {
+      ...(isRecord(sanitizedRequest) ? sanitizedRequest : {}),
+      ...(isRecord(rawRequest.headers)
+        ? { headers: redactHeaders(rawRequest.headers as Readonly<Record<string, string>>) }
+        : {}),
+    };
+  }
+
+  return sanitized as T;
 }
 
 export async function invokeModelThroughRuntime(
@@ -437,10 +590,39 @@ export async function invokeModelThroughRuntime(
     };
   }
 
-  const provider = request.carrier?.provider?.trim() ?? planResult.plan.envelope.provider;
-  const endpointShape = requestEndpointShape(request);
+  let auth = request.auth;
+  let providerAuth = request.auth;
+  let resolvedAuthProfile: RuntimeAuthProviderProfile | undefined;
+  let resolvedAuthModelEntry: RuntimeAuthModelEntry | undefined;
+  let authEvents: readonly (string | object)[] = [];
+  if (auth === undefined && request.runtimeAuthResolver !== undefined && request.authSelection !== undefined) {
+    const resolvedAuth = await request.runtimeAuthResolver.resolve(request.authSelection);
+    if (!resolvedAuth.ok) {
+      return liveFailure("AUTH_REQUIRED", resolvedAuth.error.message, "auth");
+    }
+    auth = resolvedAuth.value.auth;
+    providerAuth = authEnvelopeForProvider(resolvedAuth.value.auth, resolvedAuth.value.resolved.privateMaterial);
+    resolvedAuthProfile = resolvedAuth.value.providerProfile;
+    resolvedAuthModelEntry = resolvedAuth.value.modelEntry;
+    authEvents = resolvedAuth.events;
+  }
+  if (auth === undefined || auth.present !== true) {
+    return liveFailure("AUTH_REQUIRED", "model invocation live call requires resolved auth material", "auth");
+  }
+  providerAuth ??= auth;
+
+  if (resolvedAuthProfile !== undefined) {
+    const mismatch = authRouteMismatchMessage(request, resolvedAuthProfile);
+    if (mismatch !== undefined) {
+      return liveFailure("AUTH_ROUTE_MISMATCH", mismatch, "auth");
+    }
+  }
+
+  const endpointShape = effectiveEndpointShape(request, resolvedAuthProfile);
+  const provider = effectiveProviderProtocol(effectiveProviderName(request, planResult.plan, resolvedAuthProfile), endpointShape);
+  const baseURL = request.carrier?.baseURL ?? resolvedAuthProfile?.baseURL;
   const carrierId = request.carrier?.carrierId?.trim() ?? planResult.plan.envelope.carrierId;
-  if (provider === "openai" && endpointShape === "responses" && isChatGPTCodexResponsesRoute(request, carrierId)) {
+  if (provider === "openai" && endpointShape === "responses" && isChatGPTCodexResponsesRoute(request, carrierId, auth)) {
     const caller = request.providerCaller ?? request.openaiResponsesCaller;
     if (caller === undefined) {
       return liveFailure(
@@ -460,7 +642,7 @@ export async function invokeModelThroughRuntime(
       dryRun: false,
       governance: request.governance,
       contract: request.contract,
-      auth: request.auth,
+      auth: providerAuth,
       headers: { "content-type": "application/json" },
       body: request.providerBody,
       caller,
@@ -470,6 +652,7 @@ export async function invokeModelThroughRuntime(
       clientName: request.clientName,
       clientVersion: request.clientVersion,
       expectResponseObject: false,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -489,10 +672,10 @@ export async function invokeModelThroughRuntime(
         transport: "provider",
         dryRun: false,
       },
-      providerResult,
+      providerResult: sanitizeProviderResult(providerResult),
       usage: providerResult.response.usage,
       raw: providerResult.response.raw,
-      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...authEvents.map(publicEventName), ...providerResult.events],
     };
   }
 
@@ -513,18 +696,19 @@ export async function invokeModelThroughRuntime(
         invocationId: planResult.plan.invocationId,
         callerId: planResult.plan.caller.id,
       },
-      baseUrl: request.carrier?.baseURL,
+      baseUrl: baseURL,
       endpointPath: "/v1/responses",
       dryRun: false,
       governance: request.governance,
       contract: request.contract,
-      auth: request.auth,
+      auth: providerAuth,
       headers: { "content-type": "application/json" },
       body: request.providerBody,
       caller,
       requiredScopes: request.requiredScopes ?? ["model.invoke", "openai.responses"],
       allowedScopes: request.allowedScopes,
       expectResponseObject: false,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -544,10 +728,10 @@ export async function invokeModelThroughRuntime(
         transport: "provider",
         dryRun: false,
       },
-      providerResult,
+      providerResult: sanitizeProviderResult(providerResult),
       usage: providerResult.response.usage,
       raw: providerResult.response.raw,
-      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...authEvents.map(publicEventName), ...providerResult.events],
     };
   }
 
@@ -563,13 +747,14 @@ export async function invokeModelThroughRuntime(
 
     const providerResult = await invokeOpenAiV1ChatCompletions({
       requestBody: bodyRecordOrInput(request.providerBody),
-      baseUrl: request.carrier?.baseURL,
+      baseUrl: baseURL,
       dryRun: false,
       governance: request.governance,
       contract: request.contract,
-      auth: request.auth,
+      auth: providerAuth,
       trace: { correlationId: planResult.plan.invocationId, callerId: planResult.plan.caller.id },
       caller,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -589,10 +774,10 @@ export async function invokeModelThroughRuntime(
         transport: "provider",
         dryRun: false,
       },
-      providerResult,
+      providerResult: sanitizeProviderResult(providerResult),
       usage: providerResult.envelope.usage,
       raw: providerResult.envelope.rawResponse,
-      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...authEvents.map(publicEventName), ...providerResult.events],
     };
   }
 
@@ -616,13 +801,14 @@ export async function invokeModelThroughRuntime(
       dryRun: false,
       governance: request.governance,
       contract: request.contract,
-      auth: request.auth,
+      auth: providerAuth,
       headers: { "content-type": "application/json" },
       body: request.providerBody,
       caller,
       requiredScopes: request.requiredScopes ?? ["model.invoke", "anthropic.messages"],
       allowedScopes: request.allowedScopes,
       expectResponseObject: false,
+      signal: request.signal,
     });
 
     if (!providerResult.ok) {
@@ -642,10 +828,68 @@ export async function invokeModelThroughRuntime(
         transport: "provider",
         dryRun: false,
       },
-      providerResult,
+      providerResult: sanitizeProviderResult(providerResult),
       usage: providerResult.response.usage,
       raw: providerResult.response.raw,
-      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...providerResult.events],
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...authEvents.map(publicEventName), ...providerResult.events],
+    };
+  }
+
+  if (provider === "gemini" && endpointShape === "gemini_generate_content") {
+    const transport = request.geminiGenerateContentTransport;
+    if (transport === undefined) {
+      return liveFailure(
+        "PROVIDER_CALLER_REQUIRED",
+        "Gemini generateContent invocation requires an injected transport",
+        "carrier",
+      );
+    }
+    const apiKey = geminiApiKey(providerAuth);
+    if (apiKey === undefined) {
+      return liveFailure(
+        "AUTH_REQUIRED",
+        "Gemini generateContent live invocation requires private x-goog-api-key auth material from runtimeAuthResolver",
+        "auth",
+      );
+    }
+
+    const providerResult = await invokeDeepMindV1BetaModelsGenerateContent({
+      baseUrl: baseURL,
+      apiKey,
+      model: providerBodyModel(request.providerBody) ?? resolvedAuthModelEntry?.model,
+      body: geminiGenerateContentBody(request.providerBody),
+      dryRun: false,
+      governance: request.governance,
+      contract: request.contract,
+      runtime: {
+        runtimeId: planResult.plan.runtimeId,
+        invocationId: planResult.plan.invocationId,
+        traceId: planResult.plan.caller.id,
+      },
+      transport,
+      signal: request.signal,
+    });
+
+    if (!providerResult.ok) {
+      return liveFailure(
+        "PROVIDER_INVOCATION_FAILED",
+        providerResult.error.message,
+        providerResult.error.boundary === "input" ? "carrier" : "runtime-state",
+        providerResult,
+      );
+    }
+
+    return {
+      ok: true,
+      plan: {
+        ...planResult.plan,
+        providerCallPermitted: true,
+        transport: "provider",
+        dryRun: false,
+      },
+      providerResult: sanitizeProviderResult(providerResult),
+      raw: providerResult.response.body,
+      events: ["runtime.modelAdapter.modelInvocationRuntime.called", ...planResult.events, ...authEvents.map(publicEventName), ...providerResult.events],
     };
   }
 
@@ -654,4 +898,28 @@ export async function invokeModelThroughRuntime(
     "model invocation route is not supported by the current runtime provider adapter",
     "carrier",
   );
+}
+
+function runtimeProviderProtocol(provider: string | undefined): RuntimeProviderProtocol | undefined {
+  const value = provider?.trim().toLowerCase();
+  if (value === "openai" || value === "openai-compatible") return "openai";
+  if (value === "anthropic" || value === "anthropic-compatible") return "anthropic";
+  if (value === "gemini" || value === "deepmind" || value === "google") return "gemini";
+  if (value === "custom") return "custom";
+  return undefined;
+}
+
+function runtimeProviderProtocolForEndpointShape(shape: ModelInvocationEndpointShape | undefined): RuntimeProviderProtocol | undefined {
+  if (shape === "responses" || shape === "chat_completions") return "openai";
+  if (shape === "messages") return "anthropic";
+  if (shape === "gemini_generate_content") return "gemini";
+  if (shape === "custom") return "custom";
+  return undefined;
+}
+
+function effectiveProviderProtocol(
+  provider: string | undefined,
+  endpointShape: ModelInvocationEndpointShape,
+): RuntimeProviderProtocol | undefined {
+  return runtimeProviderProtocol(provider) ?? runtimeProviderProtocolForEndpointShape(endpointShape);
 }

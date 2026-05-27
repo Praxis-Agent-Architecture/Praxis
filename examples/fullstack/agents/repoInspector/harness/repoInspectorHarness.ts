@@ -25,10 +25,10 @@ export function createRepoInspectorHarness(options: NormalizedRepoInspectorOptio
       "interface.repoInspector.debug",
     ],
     contextRefs: [
-      "context.fullstack.cmpBridge.contract",
+      "context.example.fullstack.cmpBridge.contract",
     ],
     memoryRefs: [
-      "memory.fullstack.mpBridge.contract",
+      "memory.example.fullstack.mpBridge.contract",
     ],
     tools: praxis.tools(createRepoInspectorToolSet(options)),
     policy: praxis.policy({

@@ -12,13 +12,13 @@ import {
   tool,
 } from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
 import {
-  codeOverwriteBaseToolDefinition,
-} from "../../../../src/storagePool/baseToolStorage/codeBase/edit/code.overwrite/bestPractice.js";
+  basetool,
+} from "../../../../src/basetool/index.js";
 
 const fixtureTools = [
-  tool("code.read", {
-    family: "codeBase",
-    group: "explore",
+  tool("file.read", {
+    family: "coreBase",
+    group: "file",
     description: "Read a UTF-8 workspace file and return its contents.",
     inputSchema: {
       type: "object",
@@ -28,16 +28,16 @@ const fixtureTools = [
       required: ["path", "missingKey"],
     },
   }),
-  tool("shell.commandExecution", {
-    family: "shellBase",
-    group: "shellExecution",
+  tool("shell.run", {
+    family: "coreBase",
+    group: "shell",
     description: "Execute a governed shell command through the runtime shell port.",
     inputSchema: {},
   }),
-  tool("git.getRepositoryStatus", {
-    family: "gitBase",
-    group: "repository",
-    description: "Read git repository status without changing files.",
+  tool("web.search", {
+    family: "coreBase",
+    group: "web",
+    description: "Search the web through the governed runtime web-search port.",
     inputSchema: {},
   }),
 ];
@@ -49,17 +49,17 @@ test("toolSchemaCompatibilityLayer lowers Praxis tools to OpenAI, Claude, and Ge
 
   assert.deepEqual((openai.providerPayload as { tools?: unknown }).tools, openai.tools);
   assert.equal(openai.tools[0]?.type, "function");
-  assert.equal(openai.tools[0]?.name, "praxis_tool_code_read");
+  assert.equal(openai.tools[0]?.name, "praxis_tool_file_read");
   assert.equal(openai.tools[0]?.strict, false);
   assert.deepEqual((openai.tools[0]?.parameters as { required?: string[] }).required, ["path"]);
 
-  assert.equal(anthropic.tools[0]?.name, "praxis_tool_code_read");
+  assert.equal(anthropic.tools[0]?.name, "praxis_tool_file_read");
   assert.ok((anthropic.tools[0] as { input_schema?: unknown }).input_schema);
   assert.deepEqual((anthropic.tools[anthropic.tools.length - 1] as { cache_control?: unknown }).cache_control, { type: "ephemeral" });
 
   const geminiPayload = gemini.providerPayload as { config?: { tools?: { functionDeclarations?: unknown[] }[] } };
   assert.equal(geminiPayload.config?.tools?.[0]?.functionDeclarations?.length, 6);
-  assert.equal((geminiPayload.config?.tools?.[0]?.functionDeclarations?.[0] as { name?: string }).name, "praxis_tool_code_read");
+  assert.equal((geminiPayload.config?.tools?.[0]?.functionDeclarations?.[0] as { name?: string }).name, "praxis_tool_file_read");
   assert.equal(openai.tools.some((item) => item.name === "praxis_expand_tool_context"), true);
   const expandTool = openai.tools.find((item) => item.name === "praxis_expand_tool_context") as { parameters?: { required?: string[]; properties?: { targetKind?: { enum?: string[] } } } } | undefined;
   assert.deepEqual(expandTool?.parameters?.required, ["targetKind", "toolId"]);
@@ -83,13 +83,13 @@ test("toolSchemaCompatibilityLayer lowers Praxis tools to OpenAI, Claude, and Ge
 
 test("toolSchemaCompatibilityLayer keeps colliding provider names reversible", () => {
   const selectedTools = [
-    tool("code.read", { family: "codeBase", group: "explore" }),
-    tool("code_read", { family: "codeBase", group: "explore" }),
+    tool("file.read", { family: "coreBase", group: "file" }),
+    tool("file_read", { family: "coreBase", group: "file" }),
   ];
   const mappings = createProviderToolMappings(selectedTools);
   assert.deepEqual(mappings, [
-    { providerName: "praxis_tool_code_read", toolId: "code.read" },
-    { providerName: "praxis_tool_code_read_2", toolId: "code_read" },
+    { providerName: "praxis_tool_file_read", toolId: "file.read" },
+    { providerName: "praxis_tool_file_read_2", toolId: "file_read" },
   ]);
 
   const calls = raiseProviderToolCalls({
@@ -97,11 +97,11 @@ test("toolSchemaCompatibilityLayer keeps colliding provider names reversible", (
     mappings,
     raw: {
       output: [
-        { type: "function_call", call_id: "call-1", name: "praxis_tool_code_read_2", arguments: "{}" },
+        { type: "function_call", call_id: "call-1", name: "praxis_tool_file_read_2", arguments: "{}" },
       ],
     },
   });
-  assert.equal(calls[0]?.toolId, "code_read");
+  assert.equal(calls[0]?.toolId, "file_read");
 });
 
 test("toolSchemaCompatibilityLayer supports OpenAI chat completions tool shape and calls", () => {
@@ -109,13 +109,13 @@ test("toolSchemaCompatibilityLayer supports OpenAI chat completions tool shape a
 
   assert.deepEqual((lowered.providerPayload as { tools?: unknown }).tools, lowered.tools);
   assert.equal(lowered.tools[0]?.type, "function");
-  assert.equal((lowered.tools[0] as { function?: { name?: string } }).function?.name, "praxis_tool_code_read");
+  assert.equal((lowered.tools[0] as { function?: { name?: string } }).function?.name, "praxis_tool_file_read");
   assert.deepEqual(
     ((lowered.tools[0] as { function?: { parameters?: { required?: string[] } } }).function?.parameters?.required),
     ["path"],
   );
 
-  const mappings = [{ providerName: "praxis_tool_code_read", toolId: "code.read" }];
+  const mappings = [{ providerName: "praxis_tool_file_read", toolId: "file.read" }];
   const calls = raiseProviderToolCalls({
     providerFamily: "openaiChatCompletions",
     mappings,
@@ -126,7 +126,7 @@ test("toolSchemaCompatibilityLayer supports OpenAI chat completions tool shape a
             id: "call-1",
             type: "function",
             function: {
-              name: "praxis_tool_code_read",
+              name: "praxis_tool_file_read",
               arguments: "{\"path\":\"README.md\"}",
             },
           }],
@@ -136,31 +136,26 @@ test("toolSchemaCompatibilityLayer supports OpenAI chat completions tool shape a
   });
 
   assert.equal(calls[0]?.callId, "call-1");
-  assert.equal(calls[0]?.toolId, "code.read");
+  assert.equal(calls[0]?.toolId, "file.read");
   assert.deepEqual(calls[0]?.arguments, { path: "README.md" });
 });
 
-test("toolSchemaCompatibilityLayer exposes code.overwrite workspaceRoot contract clearly", () => {
-  const overwriteTool = tool("code.overwrite", {
-    family: "codeBase",
-    group: "edit",
-    description: codeOverwriteBaseToolDefinition.description,
-    inputSchema: codeOverwriteBaseToolDefinition.inputSchema.schema as Readonly<Record<string, unknown>>,
-  });
+test("toolSchemaCompatibilityLayer exposes patch.apply as the preferred write contract", () => {
+  const overwriteTool = basetool.core.patchApply();
   const lowered = lowerPraxisToolsForProvider({ providerFamily: "openaiChatCompletions", tools: [overwriteTool] });
   const providerTool = lowered.tools.find((item) =>
-    (item as { function?: { name?: string } }).function?.name === "praxis_tool_code_overwrite"
+    (item as { function?: { name?: string } }).function?.name === "praxis_tool_patch_apply"
   ) as { function?: { description?: string; parameters?: { required?: string[]; properties?: Record<string, { description?: string }> } } } | undefined;
 
-  assert.match(providerTool?.function?.description ?? "", /workspaceRoot/u);
-  assert.deepEqual(providerTool?.function?.parameters?.required, ["workspaceRoot", "targetPath", "content"]);
-  assert.match(providerTool?.function?.parameters?.properties?.workspaceRoot?.description ?? "", /scope auditing/u);
+  assert.match(providerTool?.function?.description ?? "", /Codex-style patch/u);
+  assert.deepEqual(providerTool?.function?.parameters?.required, ["patch"]);
+  assert.match(providerTool?.function?.parameters?.properties?.patch?.description ?? "", /Begin Patch/u);
 });
 
 test("toolSchemaCompatibilityLayer raises fragmented OpenAI chat completions streaming tool calls", () => {
   const calls = raiseProviderToolCalls({
     providerFamily: "openaiChatCompletions",
-    mappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    mappings: [{ providerName: "praxis_tool_file_read", toolId: "file.read" }],
     raw: [
       `data: ${JSON.stringify({
         choices: [{
@@ -169,7 +164,7 @@ test("toolSchemaCompatibilityLayer raises fragmented OpenAI chat completions str
               index: 0,
               id: "chat-stream-call-1",
               type: "function",
-              function: { name: "praxis_tool_code_read", arguments: "{\"path\":" },
+              function: { name: "praxis_tool_file_read", arguments: "{\"path\":" },
             }],
           },
         }],
@@ -193,14 +188,14 @@ test("toolSchemaCompatibilityLayer raises fragmented OpenAI chat completions str
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.callId, "chat-stream-call-1");
-  assert.equal(calls[0]?.toolId, "code.read");
+  assert.equal(calls[0]?.toolId, "file.read");
   assert.deepEqual(calls[0]?.arguments, { path: "README.md" });
 });
 
 test("toolSchemaCompatibilityLayer raises fragmented Anthropic messages streaming tool calls", () => {
   const calls = raiseProviderToolCalls({
     providerFamily: "anthropicMessages",
-    mappings: [{ providerName: "praxis_tool_code_scan", toolId: "code.scan" }],
+    mappings: [{ providerName: "praxis_tool_file_search", toolId: "file.search" }],
     raw: [
       "event: content_block_start",
       "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"I will scan first.\"}}",
@@ -209,7 +204,7 @@ test("toolSchemaCompatibilityLayer raises fragmented Anthropic messages streamin
       "data: {\"type\":\"content_block_stop\",\"index\":0}",
       "",
       "event: content_block_start",
-      "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_code_scan\",\"input\":{}}}",
+      "data: {\"type\":\"content_block_start\",\"index\":2,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_file_search\",\"input\":{}}}",
       "",
       "event: content_block_delta",
       "data: {\"type\":\"content_block_delta\",\"index\":2,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"directoryPath\\\":\"}}",
@@ -227,7 +222,7 @@ test("toolSchemaCompatibilityLayer raises fragmented Anthropic messages streamin
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.callId, "call_1");
-  assert.equal(calls[0]?.toolId, "code.scan");
+  assert.equal(calls[0]?.toolId, "file.search");
   assert.deepEqual(calls[0]?.arguments, { directoryPath: ".", maxEntries: 50 });
 });
 
@@ -237,12 +232,12 @@ test("toolSchemaCompatibilityLayer can expose only expanded tools while keeping 
     providerFamily: "openaiResponses",
     tools: fixtureTools,
     mappings,
-    visibleToolIds: ["shell.commandExecution"],
+    visibleToolIds: ["shell.run"],
   });
 
   assert.deepEqual(filtered.mappings, mappings);
-  assert.equal(filtered.tools.some((item) => item.name === "praxis_tool_shell_commandExecution"), true);
-  assert.equal(filtered.tools.some((item) => item.name === "praxis_tool_code_read"), false);
+  assert.equal(filtered.tools.some((item) => item.name === "praxis_tool_shell_run"), true);
+  assert.equal(filtered.tools.some((item) => item.name === "praxis_tool_file_read"), false);
   assert.equal(filtered.tools.some((item) => item.name === "praxis_expand_tool_context"), true);
   assert.equal(filtered.cacheHintPlan.providerHints.exposedConcreteToolCount, 1);
   assert.equal(filtered.cacheHintPlan.providerHints.foldedConcreteToolCount, 2);
@@ -250,19 +245,19 @@ test("toolSchemaCompatibilityLayer can expose only expanded tools while keeping 
 
 test("toolSchemaCompatibilityLayer keeps provider schemas compact and deterministically ordered", () => {
   const noisyTools = [
-    tool("mcp.listTools", {
-      family: "mcpBase",
-      group: "catalog",
-      description: "List MCP tools. ".repeat(80),
+    tool("mcp.resources", {
+      family: "coreBase",
+      group: "mcp",
+      description: "List or read MCP resources. ".repeat(80),
     }),
-    tool("shell.commandExecution", {
-      family: "shellBase",
-      group: "shellExecution",
+    tool("shell.run", {
+      family: "coreBase",
+      group: "shell",
       description: "Execute shell commands.",
     }),
-    tool("code.read", {
-      family: "codeBase",
-      group: "explore",
+    tool("file.read", {
+      family: "coreBase",
+      group: "file",
       description: "Read files.",
     }),
   ];
@@ -271,17 +266,17 @@ test("toolSchemaCompatibilityLayer keeps provider schemas compact and determinis
   const second = lowerPraxisToolsForProvider({ providerFamily: "openaiResponses", tools: [...noisyTools].reverse() });
 
   assert.deepEqual(first.tools.map((item) => item.name), [
-    "praxis_tool_code_read",
-    "praxis_tool_shell_commandExecution",
-    "praxis_tool_mcp_listTools",
+    "praxis_tool_file_read",
+    "praxis_tool_shell_run",
+    "praxis_tool_mcp_resources",
     "praxis_ephemeral_procedure",
     "praxis_request_approval",
     "praxis_expand_tool_context",
   ]);
   assert.equal(first.declarationHash, second.declarationHash);
-  const mcpDeclaration = first.tools.find((item) => item.name === "praxis_tool_mcp_listTools") as { description?: string } | undefined;
+  const mcpDeclaration = first.tools.find((item) => item.name === "praxis_tool_mcp_resources") as { description?: string } | undefined;
   assert.ok((mcpDeclaration?.description?.length ?? 0) <= 320);
-  assert.match(mcpDeclaration?.description ?? "", /^toolId=mcp\.listTools; family=mcpBase; group=catalog;/u);
+  assert.match(mcpDeclaration?.description ?? "", /^toolId=mcp\.resources; family=coreBase; group=mcp;/u);
 });
 
 test("toolSchemaCompatibilityLayer normalizes loose schemas and raises provider fixtures", () => {
@@ -314,24 +309,24 @@ test("toolSchemaCompatibilityLayer normalizes loose schemas and raises provider 
     },
   });
 
-  const mappings = [{ providerName: "praxis_tool_code_read", toolId: "code.read" }];
+  const mappings = [{ providerName: "praxis_tool_file_read", toolId: "file.read" }];
   const claudeCalls = raiseProviderToolCalls({
     providerFamily: "anthropicMessages",
     mappings,
     raw: {
       content: [
-        { type: "tool_use", id: "toolu-1", name: "praxis_tool_code_read", input: { path: "README.md" } },
+        { type: "tool_use", id: "toolu-1", name: "praxis_tool_file_read", input: { path: "README.md" } },
       ],
     },
   });
-  assert.equal(claudeCalls[0]?.toolId, "code.read");
+  assert.equal(claudeCalls[0]?.toolId, "file.read");
   assert.deepEqual(claudeCalls[0]?.arguments, { path: "README.md" });
 
   const geminiCalls = raiseProviderToolCalls({
     providerFamily: "geminiGenerateContent",
     mappings,
     raw: {
-      functionCalls: [{ id: "gemini-call-1", name: "praxis_tool_code_read", args: { path: "README.md" } }],
+      functionCalls: [{ id: "gemini-call-1", name: "praxis_tool_file_read", args: { path: "README.md" } }],
     },
   });
   assert.equal(geminiCalls[0]?.callId, "gemini-call-1");
@@ -341,7 +336,7 @@ test("toolSchemaCompatibilityLayer normalizes loose schemas and raises provider 
     mappings,
     raw: {
       output: [
-        { type: "function_call", call_id: "bad", name: "praxis_tool_code_read", arguments: "[]" },
+        { type: "function_call", call_id: "bad", name: "praxis_tool_file_read", arguments: "[]" },
       ],
     },
   });
@@ -361,7 +356,7 @@ test("toolSchemaCompatibilityLayer repairs common DeepSeek ephemeral procedure s
               name: "praxis_ephemeral_procedure",
               arguments: [
                 "{\"procedureId\":\"build\",\"purpose\":\"build app\",\"steps\":[",
-                "{\"stepId\":\"write\",\"baseToolId\":\"code.overwrite\",",
+                "{\"stepId\":\"write\",\"baseToolId\":\"patch.apply\",",
                 "\"input\":{\"targetPath\":\"index.html\",\"content\":\"<button data-x=\\\"1\\\">ok</button>\"},",
                 "\"riskLevel\":\"low\"}, \"dependsOn\": []}]}",
               ].join(""),
@@ -376,7 +371,7 @@ test("toolSchemaCompatibilityLayer repairs common DeepSeek ephemeral procedure s
   assert.equal(repaired[0]?.providerName, "praxis_ephemeral_procedure");
   assert.deepEqual(repaired[0]?.arguments.steps, [{
     stepId: "write",
-    baseToolId: "code.overwrite",
+    baseToolId: "patch.apply",
     input: { targetPath: "index.html", content: "<button data-x=\"1\">ok</button>" },
     riskLevel: "low",
     dependsOn: [],
@@ -386,7 +381,7 @@ test("toolSchemaCompatibilityLayer repairs common DeepSeek ephemeral procedure s
 test("toolSchemaCompatibilityLayer repairs DeepSeek Anthropic procedure riskLevel drift", () => {
   const malformedArguments = [
     "{\"procedureId\":\"build\",\"purpose\":\"build app\",\"steps\":[",
-    "{\"stepId\":\"write\",\"baseToolId\":\"code.overwrite\",",
+    "{\"stepId\":\"write\",\"baseToolId\":\"patch.apply\",",
     "\"input\":{\"workspaceRoot\":\".\",\"targetPath\":\"server.js\",\"content\":\"console.log(1)\"}},",
     "\"riskLevel\":\"low\"}]}",
   ].join("");
@@ -409,7 +404,7 @@ test("toolSchemaCompatibilityLayer repairs DeepSeek Anthropic procedure riskLeve
   assert.equal(repaired[0]?.malformedArguments, undefined);
   assert.deepEqual(repaired[0]?.arguments.steps, [{
     stepId: "write",
-    baseToolId: "code.overwrite",
+    baseToolId: "patch.apply",
     input: { workspaceRoot: ".", targetPath: "server.js", content: "console.log(1)" },
     riskLevel: "low",
   }]);
@@ -418,8 +413,8 @@ test("toolSchemaCompatibilityLayer repairs DeepSeek Anthropic procedure riskLeve
 test("toolSchemaCompatibilityLayer lowers provider tool results", () => {
   const result = {
     callId: "call-1",
-    providerName: "praxis_tool_code_read",
-    toolId: "code.read",
+    providerName: "praxis_tool_file_read",
+    toolId: "file.read",
     content: [{ type: "text" as const, text: "hello" }],
     isError: true,
   };
@@ -448,7 +443,7 @@ test("toolSchemaCompatibilityLayer lowers provider tool results", () => {
     parts: [{
       functionResponse: {
         id: "call-1",
-        name: "praxis_tool_code_read",
+        name: "praxis_tool_file_read",
         response: { result: "hello", isError: true },
       },
     }],

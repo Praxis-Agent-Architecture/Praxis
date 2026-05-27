@@ -12,6 +12,7 @@ export type RaxPathResolutionErrorCode =
   | "EMPTY_PATH"
   | "RELATIVE_HOME"
   | "INVALID_CWD"
+  | "INVALID_WORKSPACE_FOLDER_NAME"
   | "INVALID_AGENT_ID"
   | "PATH_ESCAPE";
 
@@ -80,11 +81,17 @@ function directoryExists(input: string): boolean {
 }
 
 export function resolveRaxHome(input: RaxHomeResolutionInput = {}): RaxPathResolutionResult<RaxHomeResolution> {
-  const envHome = input.env?.HOME;
-  const rawHome = input.explicitHome ?? input.homeDir ?? envHome ?? os.homedir();
+  const envHome = hasText(input.env?.PRAXIS_HOME)
+    ? input.env.PRAXIS_HOME
+    : hasText(input.env?.RAX_HOME)
+      ? input.env.RAX_HOME
+      : undefined;
+  const homeDir = hasText(input.homeDir) ? input.homeDir : undefined;
+  const envUserHome = hasText(input.env?.HOME) ? input.env.HOME : undefined;
+  const rawHome = input.explicitHome ?? envHome ?? homeDir ?? envUserHome ?? os.homedir();
   const source: RaxHomeResolution["source"] = input.explicitHome !== undefined
     ? "explicit"
-    : input.homeDir !== undefined || envHome !== undefined
+    : envHome !== undefined || homeDir !== undefined || envUserHome !== undefined
       ? "env"
       : "os";
 
@@ -99,7 +106,9 @@ export function resolveRaxHome(input: RaxHomeResolutionInput = {}): RaxPathResol
   return {
     ok: true,
     value: {
-      root: path.join(normalizeAbsolute(rawHome), ".rax"),
+      root: envHome !== undefined && input.explicitHome === undefined
+        ? normalizeAbsolute(rawHome)
+        : path.join(normalizeAbsolute(rawHome), ".rax"),
       source,
     },
     events: ["runtime.storagePlane.home.resolved"],
@@ -122,11 +131,39 @@ function findWorkspaceRoot(cwd: string, workspaceFolderName: string): string | u
   }
 }
 
+function safeWorkspaceFolderName(workspaceFolderName: string): RaxPathResolutionResult<string> {
+  const trimmed = workspaceFolderName.trim();
+  if (!hasText(trimmed)) {
+    return failure("INVALID_WORKSPACE_FOLDER_NAME", "Workspace folder name must be non-empty", "input");
+  }
+
+  if (
+    trimmed === "." ||
+    trimmed === ".." ||
+    trimmed.includes("/") ||
+    trimmed.includes("\\") ||
+    path.isAbsolute(trimmed) ||
+    /[\u0000-\u001F\u007F]/u.test(trimmed)
+  ) {
+    return failure("INVALID_WORKSPACE_FOLDER_NAME", "Workspace folder name cannot contain path traversal or separators", "security");
+  }
+
+  return {
+    ok: true,
+    value: trimmed,
+    events: ["runtime.storagePlane.workspaceFolderName.accepted"],
+  };
+}
+
 export function resolveRaxWorkspace(
   input: RaxWorkspaceResolutionInput = {},
 ): RaxPathResolutionResult<RaxWorkspaceResolution> {
   const rawCwd = input.cwd ?? process.cwd();
   const workspaceFolderName = input.workspaceFolderName?.trim() || ".rax_workspace";
+  const safeWorkspaceName = safeWorkspaceFolderName(workspaceFolderName);
+  if (!safeWorkspaceName.ok) {
+    return safeWorkspaceName;
+  }
 
   if (!hasText(rawCwd)) {
     return failure("INVALID_CWD", "Praxis workspace resolution requires a non-empty cwd", "input");
@@ -149,14 +186,14 @@ export function resolveRaxWorkspace(
         cwd,
         source: "explicit",
         existing: directoryExists(root),
-        workspaceFolderName,
+        workspaceFolderName: safeWorkspaceName.value,
       },
       events: ["runtime.storagePlane.workspace.resolved"],
     };
   }
 
-  const discovered = findWorkspaceRoot(cwd, workspaceFolderName);
-  const root = discovered ?? path.join(cwd, workspaceFolderName);
+  const discovered = findWorkspaceRoot(cwd, safeWorkspaceName.value);
+  const root = discovered ?? path.join(cwd, safeWorkspaceName.value);
   return {
     ok: true,
     value: {
@@ -164,7 +201,7 @@ export function resolveRaxWorkspace(
       cwd,
       source: discovered === undefined ? "planned" : "discovered",
       existing: discovered !== undefined,
-      workspaceFolderName,
+      workspaceFolderName: safeWorkspaceName.value,
     },
     events: ["runtime.storagePlane.workspace.resolved"],
   };

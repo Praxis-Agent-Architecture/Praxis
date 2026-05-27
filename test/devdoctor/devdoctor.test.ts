@@ -34,15 +34,34 @@ test("devdoctor runs a local application project and records inspectable artifac
 
   const cacheXray = await runDevDoctor(["cache-xray", "--run", diagnosis.runDir, "--json"]);
   assert.equal(cacheXray.exitCode, 0);
-  const cacheReport = JSON.parse(cacheXray.output) as { status: string; runDir: string };
+  const cacheReport = JSON.parse(cacheXray.output) as { status: string; runDir: string; cache?: { cacheTelemetryCoverage: number } };
   assert.equal(cacheReport.runDir, diagnosis.runDir);
+  assert.ok(cacheReport.status.length > 0);
+
+  const monitor = await runDevDoctor(["monitor", "--run", diagnosis.runDir, "--json"]);
+  assert.equal(monitor.exitCode, 0);
+  const monitorReport = JSON.parse(monitor.output) as {
+    kind: string;
+    source: { runDir: string };
+    sessions: unknown[];
+    project: { usage: { modelCalls: number }; health: { sessionsAnalyzed: number } };
+  };
+  assert.equal(monitorReport.kind, "praxis.executionMonitor.report");
+  assert.equal(monitorReport.source.runDir, diagnosis.runDir);
+  assert.ok(monitorReport.sessions.length > 0);
+  assert.ok(monitorReport.project.usage.modelCalls > 0);
+
+  const latestMonitor = await runDevDoctor(["monitor", "--devdoctor-dir", devdoctorDir, "--json"]);
+  assert.equal(latestMonitor.exitCode, 0);
+  const latestMonitorReport = JSON.parse(latestMonitor.output) as { source: { runDir: string } };
+  assert.equal(latestMonitorReport.source.runDir, diagnosis.runDir);
 
   const tools = await runDevDoctor(["tools", "--run", diagnosis.runDir, "--json"]);
   assert.equal(tools.exitCode, 0);
   const toolReport = JSON.parse(tools.output) as { mounted: number; total: number; mountedToolIds: string[] };
   assert.equal(toolReport.mounted, 2);
   assert.ok(toolReport.total > 0);
-  assert.ok(toolReport.mountedToolIds.includes("code.read"));
+  assert.ok(toolReport.mountedToolIds.includes("file.read"));
 
   const logs = await runDevDoctor(["logs", "--run", diagnosis.runDir, "--json"]);
   assert.equal(logs.exitCode, 0);
@@ -61,6 +80,8 @@ test("devdoctor runs a local application project and records inspectable artifac
   await readFile(path.join(diagnosis.runDir, "tool-inspector.json"), "utf8");
   await readFile(path.join(diagnosis.runDir, "log-inspector.json"), "utf8");
   await readFile(path.join(diagnosis.runDir, "compatibility.json"), "utf8");
+  await readFile(path.join(diagnosis.runDir, "execution-monitor.json"), "utf8");
+  await readFile(path.join(diagnosis.runDir, "execution-monitor.md"), "utf8");
 });
 
 test("devdoctor can diagnose a standard applicationLayer REST backend", async () => {

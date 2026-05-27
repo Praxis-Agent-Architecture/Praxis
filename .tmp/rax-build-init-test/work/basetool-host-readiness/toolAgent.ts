@@ -5,10 +5,10 @@ export class ToolAgent extends praxis.Agent {
   storage = praxis.storage.memory();
   harness = praxis.harness({
     tools: praxis.tools([
-      praxis.baseTools.code.read(),
-      praxis.baseTools.code.searchRipgrep(),
-      praxis.baseTools.git.getRepositoryStatus(),
-      praxis.baseTools.skill.ripgrep(),
+      praxis.basetool.core.fileRead({ profileName: "codingCore" }),
+      praxis.basetool.core.fileSearch({ profileName: "codingCore" }),
+      praxis.basetool.core.webFetch({ profileName: "codingCore" }),
+      praxis.basetool.extension.skillLoad({ profileName: "codingCore" }),
     ]),
     loop: praxis.loop.single(),
   });

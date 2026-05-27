@@ -23,7 +23,7 @@ class InspectableAgent extends PraxisAgent {
   model = model("gpt-5.4");
   harness = harness({
     tools: tools([
-      tool("code.read", { family: "codeBase", group: "explore" }),
+      tool("file.read", { family: "coreBase", group: "filesystem" }),
     ]),
   });
 }
@@ -43,16 +43,16 @@ test("createRuntimeInspectReport aggregates public-safe Phase 10 report sections
     manifest: compiled.manifest,
     tools: [
       {
-        toolId: "code.read",
-        family: "codeBase",
-        group: "explore",
+        toolId: "file.read",
+        family: "coreBase",
+        group: "filesystem",
         ready: true,
-        dependencies: [{ dependencyId: "storagePool.codeBase", kind: "storage", ready: true }],
+        dependencies: [{ dependencyId: "basetool.core.filesystem", kind: "storage", ready: true }],
       },
       {
-        toolId: "shell.commandExecution",
-        family: "shellBase",
-        group: "shellExecution",
+        toolId: "web.search",
+        family: "coreBase",
+        group: "web",
         ready: false,
         reason: "executor port not mounted",
       },
@@ -101,7 +101,7 @@ test("createRuntimeInspectReport aggregates public-safe Phase 10 report sections
   assert.equal(result.report.sections.selfRepair.status, "ready");
   assert.equal(result.report.unsafeSideEffects, false);
   assert.equal(result.report.secretLeakageDetected, false);
-  assert.equal(result.report.findings.some((finding) => finding.findingId === "shell.commandExecution.not-ready"), true);
+  assert.equal(result.report.findings.some((finding) => finding.findingId === "web.search.not-ready"), true);
   assert.equal(result.report.findings.some((finding) => finding.findingId === "debug.baseTool.not-ready"), true);
   assert.equal(result.report.findings.some((finding) => finding.findingId === "runtimeRequirement.provider.codex-responses.missing"), true);
   assert.deepEqual(result.events, ["runtime.inspection.inspectReport.blocked"]);

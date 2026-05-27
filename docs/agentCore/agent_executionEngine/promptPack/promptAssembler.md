@@ -44,7 +44,7 @@
 - Provider adapter 不允许重排这些语义段落；provider lowering 只能把它们映射成目标 API 支持的 message、instruction、tool schema 或 cache block 形态。
 - `assistantScratchpadPlan` 是 Praxis 内部树状决议计划层，默认不进入 provider payload；只有显式 JSON tool plan fallback 才能暴露。
 - `observations` 可以记录工具结果、runtime events、错误、stdout/stderr、上一轮 assistant 可见输出和 action traces，但必须保留来源和权威标记。
-- `memoryContext` 只放记忆索引或分层摘要；MP 未来检索出的真实记忆材料进入 `retrievedContext`。
+- `memoryContext` 只放 application/runtime 显式注入的记忆材料引用或当前会话摘要，不建立后台记忆索引；MP 未来按需检索出的真实材料进入 `retrievedContext`。
 - `PromptPackCachePlan` 以十个 PromptPack section 为缓存单元，不再细分到单个工具包、文件或 material。
 - 需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
 - 如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
@@ -54,7 +54,7 @@
 
 ## 6. 输入边界
 
-- 用户输入、system prompt、工具摘要、命令注入、CMP 材料、记忆/文件/检索/事件材料。
+- 用户输入、system prompt、工具摘要、命令注入、CMP 材料、显式记忆引用、文件/检索/事件材料。
 - token/长度预算、排序策略、裁剪策略、治理限制和目标模型能力。
 
 输入边界必须窄：只接收完成本文件职责所需的材料，不把相邻模块的大对象整包吞进来。

@@ -13,6 +13,7 @@ import type {
   SandboxProviderFamily,
   SandboxSpec,
 } from "../runtimeAgentManifest.js";
+import { canonicalDependencyId } from "../runtime.dependencyPlane/index.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -130,18 +131,31 @@ function providerFamilyFor(spec: SandboxSpec): SandboxProviderFamily {
 function dependencyRefsFor(spec: SandboxSpec): readonly string[] {
   const refs = spec.dependencyRefs ?? [];
   if (providerFamilyFor(spec) === "linux-bubblewrap" && refs.length === 0) {
-    return ["binary:bwrap"];
+    return ["dependency.binary.bwrap"];
   }
-  return refs;
+  return refs.map(canonicalDependencyId);
 }
 
 function dependencyBinary(ref: string): string | undefined {
+  const canonical = canonicalDependencyId(ref);
+  if (canonical === "dependency.binary.bwrap") return "bwrap";
+  if (canonical === "dependency.binary.rg") return "rg";
+  if (canonical === "dependency.binary.ffmpeg") return "ffmpeg";
+  if (canonical === "dependency.binary.imagemagick") return "magick";
+  if (canonical === "dependency.binary.xdotool") return "xdotool";
+  if (canonical === "dependency.binary.ydotool") return "ydotool";
+  if (canonical === "dependency.macos.containerization") return "/usr/bin/sandbox-exec";
+  if (canonical === "dependency.windows.sandbox") return "powershell.exe";
   if (!ref.startsWith("binary:")) return undefined;
   return ref.slice("binary:".length).split("|")[0]?.trim() || undefined;
 }
 
 async function binaryAvailable(binary: string): Promise<boolean> {
   try {
+    if (binary.endsWith("sandbox-exec")) {
+      await execFileAsync("test", ["-x", binary], { timeout: 2_000 });
+      return true;
+    }
     await execFileAsync(binary, ["--version"], { timeout: 2_000 });
     return true;
   } catch {
@@ -247,7 +261,7 @@ function repairHints(input: {
       requiresApproval: false,
     }];
   }
-  if (input.missingDependencies.includes("binary:bwrap")) {
+  if (input.missingDependencies.includes("dependency.binary.bwrap")) {
     return [{
       hintId: "linux-bubblewrap:install-bwrap",
       severity: "warning",
@@ -275,8 +289,8 @@ function dependencyInstallEnvelopes(input: {
     dependencyId,
     providerFamily: input.providerFamily,
     action: "installDependency",
-    installTarget: dependencyId === "binary:bwrap" ? "system-global" : "manual",
-    commandPreview: dependencyId === "binary:bwrap"
+    installTarget: dependencyId === "dependency.binary.bwrap" ? "system-global" : "manual",
+    commandPreview: dependencyId === "dependency.binary.bwrap"
       ? ["apt install bubblewrap", "dnf install bubblewrap", "pacman -S bubblewrap"]
       : [],
     requiresApproval: true,
@@ -284,6 +298,24 @@ function dependencyInstallEnvelopes(input: {
     publicSafe: true,
     message: `${dependencyId} requires external approval before installation`,
   }));
+}
+
+function windowsNativeHelperInstallEnvelope(providerFamily: SandboxProviderFamily): SandboxRuntimeDependencyInstallEnvelope {
+  return {
+    envelopeId: `${providerFamily}:dependency.praxis.windowsSandboxHelper:install`,
+    dependencyId: "dependency.praxis.windowsSandboxHelper",
+    providerFamily,
+    action: "installDependency",
+    installTarget: "provider-managed",
+    commandPreview: [
+      "rax deps install dependency.praxis.windowsSandboxHelper",
+      "powershell.exe -NoProfile -ExecutionPolicy Bypass -File <praxis-windows-sandbox-helper-installer.ps1>",
+    ],
+    requiresApproval: true,
+    approvalSurface: "interface/application",
+    publicSafe: true,
+    message: "Windows restricted sandbox needs the Praxis native helper before token/job-object enforcement can run.",
+  };
 }
 
 async function dependencyAvailability(refs: readonly string[]): Promise<{
@@ -443,6 +475,96 @@ async function probeLinuxBubblewrap(spec: SandboxSpec): Promise<SandboxRuntimePr
     metadata: {
       sandboxId: spec.sandboxId,
       isolationLevel: spec.isolationLevel ?? "process-namespace",
+    },
+  };
+}
+
+async function probeMacosSeatbelt(spec: SandboxSpec): Promise<SandboxRuntimeProviderProbe> {
+  const providerFamily = providerFamilyFor(spec);
+  if (process.platform !== "darwin") {
+    return unsupported(providerFamily, spec, "macOS Seatbelt sandbox only runs on macOS");
+  }
+  const dependencyRefs = dependencyRefsFor(spec);
+  const dependencyChecks = await Promise.all(dependencyRefs.map((ref) => binaryCheck(ref, true)));
+  const missing = dependencyChecks.filter((check) => check.status !== "available").map((check) => check.dependencyId);
+  return {
+    providerFamily,
+    profile: spec.profile,
+    status: missing.length === 0 ? "available" : "missingDependency",
+    platform: process.platform,
+    dependencyRefs,
+    availableDependencies: dependencyChecks.filter((check) => check.status === "available").map((check) => check.dependencyId),
+    missingDependencies: missing,
+    dependencyChecks,
+    dependencyInstallEnvelopes: dependencyInstallEnvelopes({ providerFamily, missingDependencies: missing }),
+    selfRepairHints: missing.length === 0
+      ? repairHints({ providerFamily, missingDependencies: [], status: "available" })
+      : [{
+          hintId: "macos-seatbelt:enable",
+          severity: "warning",
+          action: "manualProviderSetup",
+          message: "macOS sandbox-exec is required for Seatbelt sandbox execution.",
+          requiresApproval: false,
+        }],
+    nextAction: missing.length === 0 ? "none" : "manualProviderSetup",
+    publicSafeMessage: missing.length === 0
+      ? "macOS Seatbelt sandbox runtime is available"
+      : "macOS Seatbelt sandbox runtime is not available",
+    metadata: {
+      sandboxId: spec.sandboxId,
+      executable: "/usr/bin/sandbox-exec",
+      providerContract: "praxis.macosSeatbelt.v1",
+    },
+  };
+}
+
+async function probeWindowsRestricted(spec: SandboxSpec): Promise<SandboxRuntimeProviderProbe> {
+  const providerFamily = providerFamilyFor(spec);
+  if (process.platform !== "win32") {
+    return unsupported(providerFamily, spec, "Windows restricted sandbox only runs on Windows");
+  }
+  const dependencyRefs = dependencyRefsFor(spec);
+  const dependencyChecks = await Promise.all(dependencyRefs.map((ref) => binaryCheck(ref, true)));
+  const powershellAvailable = dependencyChecks.some((check) => check.status === "available") || await binaryAvailable("powershell.exe");
+  const missing = powershellAvailable ? [] : ["dependency.windows.sandbox"];
+  return {
+    providerFamily,
+    profile: spec.profile,
+    status: powershellAvailable ? "contractOnly" : "missingDependency",
+    platform: process.platform,
+    dependencyRefs,
+    availableDependencies: powershellAvailable ? ["dependency.windows.sandbox"] : [],
+    missingDependencies: missing,
+    dependencyChecks,
+    dependencyInstallEnvelopes: [
+      ...dependencyInstallEnvelopes({ providerFamily, missingDependencies: missing }),
+      windowsNativeHelperInstallEnvelope(providerFamily),
+    ],
+    selfRepairHints: powershellAvailable
+      ? [{
+          hintId: "windows-restricted:helper-contract",
+          severity: "info",
+          action: "installDependency",
+          message: "Windows provider contract is available; native helper installation must be supplied by dependency/application policy.",
+          commandPreview: ["rax deps install dependency.praxis.windowsSandboxHelper"],
+          requiresApproval: true,
+        }]
+      : [{
+          hintId: "windows-restricted:helper",
+          severity: "warning",
+          action: "installDependency",
+          message: "Praxis Windows restricted sandbox requires the native helper component to enforce token/job-object policy.",
+          commandPreview: ["rax deps install dependency.praxis.windowsSandboxHelper"],
+          requiresApproval: true,
+        }],
+    nextAction: "installDependency",
+    publicSafeMessage: powershellAvailable
+      ? "Windows restricted sandbox native-helper contract is available but the helper is not installed by this runtime build"
+      : "Windows restricted sandbox helper is not available",
+    metadata: {
+      sandboxId: spec.sandboxId,
+      providerContract: "praxis.windowsSandbox.restrictedProcess.v1",
+      helperRequired: true,
     },
   };
 }
@@ -657,6 +779,8 @@ export function createSandboxRuntimeProvider(providerFamily: SandboxProviderFami
       const family = providerFamilyFor(spec);
       if (family === "host-observed" || family === "workspace-policy") return probeHostObserved(spec);
       if (family === "linux-bubblewrap") return probeLinuxBubblewrap(spec);
+      if (family === "macos-containerization") return probeMacosSeatbelt(spec);
+      if (family === "windows-sandbox") return probeWindowsRestricted(spec);
       return probeContractOnly(spec);
     },
     async prepare(spec: SandboxSpec, input: { cwd?: string; runSmoke?: boolean } = {}): Promise<SandboxRuntimePrepareResult> {

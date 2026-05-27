@@ -10,11 +10,11 @@ import {
 import { tool } from "../../../src/runtimeImplementation/runtimeAgentManifest.js";
 
 const sampleTools = [
-  tool("code.read", { family: "codeBase", group: "explore", description: "Read files." }),
-  tool("code.modify", { family: "codeBase", group: "edit", description: "Modify files." }),
-  tool("shell.commandExecution", { family: "shellBase", group: "shellExecution", description: "Run shell commands." }),
-  tool("git.getRepositoryStatus", { family: "gitBase", group: "inspection", description: "Read git status." }),
-  tool("mcp.callTool", { family: "mcpBase", group: "toolInvocation", description: "Call an MCP tool." }),
+  tool("file.read", { family: "coreBase", group: "filesystem", description: "Read files." }),
+  tool("patch.apply", { family: "coreBase", group: "edit", description: "Apply patches." }),
+  tool("shell.run", { family: "coreBase", group: "shell", description: "Run shell commands." }),
+  tool("web.fetch", { family: "coreBase", group: "web", description: "Fetch web pages." }),
+  tool("mcp.use", { family: "agentBase", group: "mcp", description: "Call an MCP tool." }),
 ];
 
 test("createBaseToolContextTree defaults to intelligent stable summaries", () => {
@@ -24,12 +24,12 @@ test("createBaseToolContextTree defaults to intelligent stable summaries", () =>
   assert.equal(baseToolContextFoldingDescriptor.defaultMode, "intelligent");
   assert.equal(tree.mode, "intelligent");
   assert.equal(tree.mountedToolCount, 5);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:family:codeBase"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:codeBase:explore"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:code.read"), true);
-  assert.equal(tree.materials.some((material) => material.id === "tool:code.read"), false);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:mcp.callTool"), false);
-  assert.equal(tree.foldedNodeIds.includes("tool:code.read"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:family:coreBase"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:coreBase:filesystem"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:file.read"), true);
+  assert.equal(tree.materials.some((material) => material.id === "tool:file.read"), false);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:mcp.use"), false);
+  assert.equal(tree.foldedNodeIds.includes("tool:file.read"), true);
 });
 
 test("createBaseToolContextTree expands all tools when requested", () => {
@@ -38,36 +38,36 @@ test("createBaseToolContextTree expands all tools when requested", () => {
     includeToolMarkdown: false,
   });
 
-  assert.equal(tree.materials.some((material) => material.id === "tool:code.read"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:codeBase:explore"), true);
-  assert.equal(tree.expandedNodeIds.includes("tool:shell.commandExecution"), true);
+  assert.equal(tree.materials.some((material) => material.id === "tool:file.read"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:coreBase:filesystem"), true);
+  assert.equal(tree.expandedNodeIds.includes("tool:shell.run"), true);
 });
 
 test("createBaseToolContextTree supports fine, coarse, semi-auto, and none modes", () => {
   const fine = createBaseToolContextTree(sampleTools, {
     mode: "manualFine",
-    manual: { toolIds: ["code.read"] },
+    manual: { toolIds: ["file.read"] },
     includeToolMarkdown: false,
   });
-  assert.equal(fine.materials.some((material) => material.id === "tool:code.read"), true);
-  assert.equal(fine.materials.some((material) => material.id === "tool:code.modify"), false);
+  assert.equal(fine.materials.some((material) => material.id === "tool:file.read"), true);
+  assert.equal(fine.materials.some((material) => material.id === "tool:patch.apply"), false);
 
   const coarse = createBaseToolContextTree(sampleTools, {
     mode: "manualCoarse",
-    manual: { families: ["shellBase"] },
+    manual: { groups: ["coreBase/shell"] },
     includeToolMarkdown: false,
   });
-  assert.equal(coarse.materials.some((material) => material.id === "baseTool:context:group:shellBase:shellExecution"), true);
-  assert.equal(coarse.materials.some((material) => material.id === "tool:shell.commandExecution"), true);
+  assert.equal(coarse.materials.some((material) => material.id === "baseTool:context:group:coreBase:shell"), true);
+  assert.equal(coarse.materials.some((material) => material.id === "tool:shell.run"), true);
 
   const semi = createBaseToolContextTree(sampleTools, {
     mode: "semiAuto",
-    manual: { families: ["codeBase"] },
-    auto: { toolIds: ["git.getRepositoryStatus"] },
+    manual: { groups: ["coreBase/edit"] },
+    auto: { toolIds: ["web.fetch"] },
     includeToolMarkdown: false,
   });
-  assert.equal(semi.materials.some((material) => material.id === "tool:code.modify"), true);
-  assert.equal(semi.materials.some((material) => material.id === "tool:git.getRepositoryStatus"), true);
+  assert.equal(semi.materials.some((material) => material.id === "tool:patch.apply"), true);
+  assert.equal(semi.materials.some((material) => material.id === "tool:web.fetch"), true);
 
   const none = createBaseToolContextTree(sampleTools, { mode: "none" });
   assert.deepEqual(none.materials, []);
@@ -81,14 +81,14 @@ test("createBaseToolContextTree intelligent mode keeps all tool summaries stable
 
   assert.equal(tree.mode, "intelligent");
   assert.equal(tree.materials.some((material) => material.id === "baseTool:context:index"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:codeBase:explore"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:code.read"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:shell.commandExecution"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:code.read"), false);
-  assert.equal(tree.materials.some((material) => material.id === "tool:code.read"), false);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:coreBase:filesystem"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:file.read"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:shell.run"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:file.read"), false);
+  assert.equal(tree.materials.some((material) => material.id === "tool:file.read"), false);
   assert.match(
-    tree.materials.find((material) => material.id === "baseTool:summary:tool:code.read")?.text ?? "",
-    /toolId=code\.read; purpose=Read files\.; input=/u,
+    tree.materials.find((material) => material.id === "baseTool:summary:tool:file.read")?.text ?? "",
+    /toolId=file\.read; purpose=Read files\.; input=/u,
   );
 });
 
@@ -96,18 +96,18 @@ test("createBaseToolContextTree intelligent mode injects only one requested conc
   const tree = createBaseToolContextTree(sampleTools, {
     mode: "intelligent",
     manual: {
-      groups: ["codeBase/explore"],
-      toolIds: ["code.read"],
+      groups: ["coreBase/filesystem"],
+      toolIds: ["file.read"],
     },
     includeToolMarkdown: false,
   });
 
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:codeBase:explore"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:code.read"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:code.modify"), false);
-  assert.equal(tree.materials.some((material) => material.id === "tool:code.modify"), false);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:coreBase:filesystem"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:file.read"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:patch.apply"), false);
+  assert.equal(tree.materials.some((material) => material.id === "tool:patch.apply"), false);
   assert.match(
-    tree.materials.find((material) => material.id === "baseTool:manual:tool:code.read")?.text ?? "",
+    tree.materials.find((material) => material.id === "baseTool:manual:tool:file.read")?.text ?? "",
     /Use this tool only when its family, group, and input contract match/u,
   );
 });
@@ -115,13 +115,13 @@ test("createBaseToolContextTree intelligent mode injects only one requested conc
 test("createBaseToolContextTree intelligent mode does not turn heat into persistent manuals", () => {
   const tree = createBaseToolContextTree(sampleTools, {
     mode: "intelligent",
-    usage: [{ toolId: "shell.commandExecution", count: 100 }],
+    usage: [{ toolId: "shell.run", count: 100 }],
     keepExpandedScore: 15,
     includeToolMarkdown: false,
   });
 
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:shell.commandExecution"), true);
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:shell.commandExecution"), false);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:summary:tool:shell.run"), true);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:manual:tool:shell.run"), false);
 });
 
 test("createBaseToolContextTree keeps hot tools expanded in auto mode", () => {
@@ -129,26 +129,26 @@ test("createBaseToolContextTree keeps hot tools expanded in auto mode", () => {
     mode: "autoFolded",
     includeToolMarkdown: false,
     usage: [
-      { toolId: "shell.commandExecution", count: 5 },
+      { toolId: "shell.run", count: 5 },
     ],
     keepExpandedScore: 15,
   });
 
-  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:shellBase:shellExecution"), true);
-  assert.equal(tree.materials.some((material) => material.id === "tool:shell.commandExecution"), true);
-  assert.equal(tree.materials.some((material) => material.id === "tool:code.read"), false);
+  assert.equal(tree.materials.some((material) => material.id === "baseTool:context:group:coreBase:shell"), true);
+  assert.equal(tree.materials.some((material) => material.id === "tool:shell.run"), true);
+  assert.equal(tree.materials.some((material) => material.id === "tool:file.read"), false);
 });
 
 test("createBaseToolContextTree expands requested auto groups", () => {
   const tree = createBaseToolContextTree(sampleTools, {
     mode: "autoFolded",
-    auto: { groups: ["shellBase/shellExecution"] },
+    auto: { groups: ["coreBase/shell"] },
     includeToolMarkdown: false,
   });
 
-  assert.equal(tree.expandedNodeIds.includes("group:shellBase/shellExecution"), true);
-  assert.equal(tree.expandedNodeIds.includes("tool:shell.commandExecution"), true);
-  assert.equal(tree.materials.some((material) => material.id === "tool:shell.commandExecution"), true);
+  assert.equal(tree.expandedNodeIds.includes("group:coreBase/shell"), true);
+  assert.equal(tree.expandedNodeIds.includes("tool:shell.run"), true);
+  assert.equal(tree.materials.some((material) => material.id === "tool:shell.run"), true);
 });
 
 test("BaseTool folded context keeps MCP as family summary until explicitly expanded", () => {
@@ -156,19 +156,19 @@ test("BaseTool folded context keeps MCP as family summary until explicitly expan
     mode: "autoFolded",
     includeToolMarkdown: false,
   });
-  assert.equal(folded.materials.some((material) => material.id === "baseTool:context:family:mcpBase"), true);
-  assert.equal(folded.materials.some((material) => material.id === "baseTool:context:group:mcpBase:toolInvocation"), false);
-  assert.equal(folded.materials.some((material) => material.id === "tool:mcp.callTool"), false);
+  assert.equal(folded.materials.some((material) => material.id === "baseTool:context:family:agentBase"), true);
+  assert.equal(folded.materials.some((material) => material.id === "baseTool:context:group:agentBase:mcp"), false);
+  assert.equal(folded.materials.some((material) => material.id === "tool:mcp.use"), false);
 
   const expanded = createBaseToolContextTree(sampleTools, {
     mode: "autoFolded",
-    auto: { groups: ["mcpBase/toolInvocation"] },
+    auto: { groups: ["agentBase/mcp"] },
     includeToolMarkdown: false,
   });
-  assert.equal(expanded.materials.some((material) => material.id === "baseTool:context:group:mcpBase:toolInvocation"), true);
-  assert.equal(expanded.materials.some((material) => material.id === "tool:mcp.callTool"), true);
+  assert.equal(expanded.materials.some((material) => material.id === "baseTool:context:group:agentBase:mcp"), true);
+  assert.equal(expanded.materials.some((material) => material.id === "tool:mcp.use"), true);
   assert.equal(
-    expanded.materials.find((material) => material.id === "tool:mcp.callTool")?.promptSegmentKind,
+    expanded.materials.find((material) => material.id === "tool:mcp.use")?.promptSegmentKind,
     "toolDeclarations",
   );
 });
@@ -177,20 +177,20 @@ test("BaseTool context heat state is maintained per agent", () => {
   const initial = createBaseToolContextHeatState({
     agentId: "agent.repo",
     sessionId: "session-1",
-    usage: [{ toolId: "shell.commandExecution", count: 2 }],
+    usage: [{ toolId: "shell.run", count: 2 }],
     updatedAt: "2026-01-01T00:00:00.000Z",
   });
   const updated = applyBaseToolContextUsage(
     initial,
-    [{ toolId: "shell.commandExecution" }, { toolId: "code.read", count: 3 }],
+    [{ toolId: "shell.run" }, { toolId: "file.read", count: 3 }],
     "2026-01-01T00:01:00.000Z",
   );
 
   assert.equal(updated.agentId, "agent.repo");
   assert.equal(updated.sessionId, "session-1");
   assert.deepEqual(updated.usage, [
-    { toolId: "code.read", count: 3 },
-    { toolId: "shell.commandExecution", count: 3 },
+    { toolId: "file.read", count: 3 },
+    { toolId: "shell.run", count: 3 },
   ]);
 
   const tree = createBaseToolContextTree(sampleTools, {
@@ -199,5 +199,5 @@ test("BaseTool context heat state is maintained per agent", () => {
     usage: updated.usage,
     keepExpandedScore: 15,
   });
-  assert.equal(tree.materials.some((material) => material.id === "tool:shell.commandExecution"), true);
+  assert.equal(tree.materials.some((material) => material.id === "tool:shell.run"), true);
 });

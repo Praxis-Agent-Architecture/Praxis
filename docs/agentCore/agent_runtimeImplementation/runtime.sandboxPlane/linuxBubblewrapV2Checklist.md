@@ -162,7 +162,7 @@ runtime request
 - [x] Ensure shell/process ports run through bwrap when `linuxBubblewrap` is prepared.
 - [x] Ensure git ports run through bwrap when they spawn git.
 - [x] Ensure code/read/search/edit ports stay under runtime allowed roots and sandbox workspace mapping.
-- [x] Keep MCP/computeruse/omni contract-only or adapter-specific; do not force them into bwrap without a real host strategy.
+- [x] Keep MCP/computer/media contract-only or adapter-specific; do not force them into bwrap without a real host strategy.
 - [x] Make npm/pnpm install approval-gated by policy, not sandbox-hardcoded.
 
 ## Inspection And Errors

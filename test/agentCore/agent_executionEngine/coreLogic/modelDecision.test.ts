@@ -35,7 +35,7 @@ test("interpretModelDecision does not expose raw Responses protocol as finalOutp
     turnIndex: 0,
     raw: [
       "event: response.created",
-      "data: {\"type\":\"response.created\",\"response\":{\"instructions\":\"Praxis BaseTool calling protocol:\",\"tools\":[{\"name\":\"praxis_tool_shell_commandExecution\"}]}}",
+      "data: {\"type\":\"response.created\",\"response\":{\"instructions\":\"Praxis BaseTool calling protocol:\",\"tools\":[{\"name\":\"praxis_tool_shell_run\"}]}}",
       "",
       "event: response.output_item.done",
       "data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"reasoning\",\"summary\":[]}}",
@@ -54,11 +54,11 @@ test("interpretModelDecision maps function calls through provider tool mappings"
   const result = interpretModelDecision({
     sessionId: "session-decision-tool",
     turnIndex: 1,
-    providerToolMappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    providerToolMappings: [{ providerName: "praxis_tool_file_read", toolId: "file.read" }],
     raw: {
       output: [{
         type: "function_call",
-        name: "praxis_tool_code_read",
+        name: "praxis_tool_file_read",
         call_id: "call-1",
         arguments: "{\"targetPath\":\"notes.txt\"}",
       }],
@@ -68,7 +68,7 @@ test("interpretModelDecision maps function calls through provider tool mappings"
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.decisions[0]?.kind, "toolCall");
-  assert.equal(result.decisions[0]?.toolCall?.toolId, "code.read");
+  assert.equal(result.decisions[0]?.toolCall?.toolId, "file.read");
   assert.deepEqual(result.decisions[0]?.toolCall?.arguments, { targetPath: "notes.txt" });
 });
 
@@ -91,14 +91,14 @@ test("interpretModelDecision reads OpenAI chat completions text and tool calls",
     sessionId: "session-decision-chat-tool",
     turnIndex: 2,
     providerFamily: "openaiChatCompletions",
-    providerToolMappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    providerToolMappings: [{ providerName: "praxis_tool_file_read", toolId: "file.read" }],
     raw: {
       choices: [{
         message: {
           tool_calls: [{
             id: "chat-call-1",
             type: "function",
-            function: { name: "praxis_tool_code_read", arguments: "{\"path\":\"README.md\"}" },
+            function: { name: "praxis_tool_file_read", arguments: "{\"path\":\"README.md\"}" },
           }],
         },
       }],
@@ -108,7 +108,7 @@ test("interpretModelDecision reads OpenAI chat completions text and tool calls",
   assert.equal(toolResult.ok, true);
   if (!toolResult.ok) return;
   assert.equal(toolResult.decisions[0]?.kind, "toolCall");
-  assert.equal(toolResult.decisions[0]?.toolCall?.toolId, "code.read");
+  assert.equal(toolResult.decisions[0]?.toolCall?.toolId, "file.read");
   assert.deepEqual(toolResult.decisions[0]?.toolCall?.arguments, { path: "README.md" });
 });
 
@@ -117,7 +117,7 @@ test("interpretModelDecision reads streamed OpenAI chat completions text and fra
     sessionId: "session-decision-chat-stream",
     turnIndex: 3,
     providerFamily: "openaiChatCompletions",
-    providerToolMappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    providerToolMappings: [{ providerName: "praxis_tool_file_read", toolId: "file.read" }],
     raw: [
       `data: ${JSON.stringify({ choices: [{ delta: { content: "I will inspect. " } }] })}`,
       "",
@@ -128,7 +128,7 @@ test("interpretModelDecision reads streamed OpenAI chat completions text and fra
               index: 0,
               id: "chat-stream-call-1",
               type: "function",
-              function: { name: "praxis_tool_code_read", arguments: "{\"path\":" },
+              function: { name: "praxis_tool_file_read", arguments: "{\"path\":" },
             }],
           },
         }],
@@ -154,7 +154,7 @@ test("interpretModelDecision reads streamed OpenAI chat completions text and fra
   if (!result.ok) return;
   assert.equal(result.decisions[0]?.kind, "toolCall");
   assert.equal(result.decisions[0]?.preambleText, "I will inspect.");
-  assert.equal(result.decisions[0]?.toolCall?.toolId, "code.read");
+  assert.equal(result.decisions[0]?.toolCall?.toolId, "file.read");
   assert.deepEqual(result.decisions[0]?.toolCall?.arguments, { path: "README.md" });
 });
 
@@ -232,7 +232,7 @@ test("interpretModelDecision reads streamed Anthropic tool calls with visible pr
     sessionId: "session-decision-anthropic-stream-tool",
     turnIndex: 3,
     providerFamily: "anthropicMessages",
-    providerToolMappings: [{ providerName: "praxis_tool_code_scan", toolId: "code.scan" }],
+    providerToolMappings: [{ providerName: "praxis_tool_file_search", toolId: "file.search" }],
     raw: [
       "event: content_block_start",
       "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}",
@@ -244,7 +244,7 @@ test("interpretModelDecision reads streamed Anthropic tool calls with visible pr
       "data: {\"type\":\"content_block_stop\",\"index\":0}",
       "",
       "event: content_block_start",
-      "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_code_scan\",\"input\":{}}}",
+      "data: {\"type\":\"content_block_start\",\"index\":1,\"content_block\":{\"type\":\"tool_use\",\"id\":\"call_1\",\"name\":\"praxis_tool_file_search\",\"input\":{}}}",
       "",
       "event: content_block_delta",
       "data: {\"type\":\"content_block_delta\",\"index\":1,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"directoryPath\\\":\"}}",
@@ -264,7 +264,7 @@ test("interpretModelDecision reads streamed Anthropic tool calls with visible pr
   if (!result.ok) return;
   assert.equal(result.decisions[0]?.kind, "toolCall");
   assert.equal(result.decisions[0]?.preambleText, "I will inspect.");
-  assert.equal(result.decisions[0]?.toolCall?.toolId, "code.scan");
+  assert.equal(result.decisions[0]?.toolCall?.toolId, "file.search");
   assert.deepEqual(result.decisions[0]?.toolCall?.arguments, { directoryPath: ".", maxEntries: 50 });
 });
 
@@ -272,11 +272,11 @@ test("interpretModelDecision converts malformed provider tool arguments into fai
   const result = interpretModelDecision({
     sessionId: "session-decision-malformed-tool",
     turnIndex: 1,
-    providerToolMappings: [{ providerName: "praxis_tool_code_read", toolId: "code.read" }],
+    providerToolMappings: [{ providerName: "praxis_tool_file_read", toolId: "file.read" }],
     raw: {
       output: [{
         type: "function_call",
-        name: "praxis_tool_code_read",
+        name: "praxis_tool_file_read",
         call_id: "call-bad-json",
         arguments: "{\"targetPath\":",
       }],
@@ -304,7 +304,7 @@ test("interpretModelDecision accepts repaired OpenAI chat completions ephemeral 
               name: "praxis_ephemeral_procedure",
               arguments: [
                 "{\"procedureId\":\"build\",\"purpose\":\"build app\",\"steps\":[",
-                "{\"stepId\":\"write\",\"baseToolId\":\"code.overwrite\",",
+                "{\"stepId\":\"write\",\"baseToolId\":\"patch.apply\",",
                 "\"input\":{\"targetPath\":\"index.html\",\"content\":\"<button data-x=\\\"1\\\">ok</button>\"},",
                 "\"riskLevel\":\"low\"}, \"dependsOn\": []}]}",
               ].join(""),
@@ -355,7 +355,7 @@ test("interpretModelDecision recognizes EphemeralProcedure as a runtime decision
           executionMode: "serial",
           steps: [{
             stepId: "read",
-            baseToolId: "code.read",
+            baseToolId: "file.read",
             input: { targetPath: "notes.txt" },
           }],
         }),
@@ -367,7 +367,7 @@ test("interpretModelDecision recognizes EphemeralProcedure as a runtime decision
   if (!result.ok) return;
   assert.equal(result.decisions[0]?.kind, "ephemeralProcedurePlan");
   assert.equal(result.decisions[0]?.ephemeralProcedurePlan?.procedureId, "procedure-1");
-  assert.deepEqual(result.decisions[0]?.ephemeralProcedurePlan?.requiredBaseTools, ["code.read"]);
+  assert.deepEqual(result.decisions[0]?.ephemeralProcedurePlan?.requiredBaseTools, ["file.read"]);
 });
 
 test("interpretModelDecision recognizes BaseTool context expansion as a runtime decision", () => {
@@ -381,8 +381,8 @@ test("interpretModelDecision recognizes BaseTool context expansion as a runtime 
         call_id: "expand-shell",
         arguments: JSON.stringify({
           targetKind: "group",
-          family: "shellBase",
-          group: "shellExecution",
+          family: "coreBase",
+          group: "shell",
           reason: "need shell execution manuals before choosing a concrete tool",
         }),
       }],
@@ -394,8 +394,8 @@ test("interpretModelDecision recognizes BaseTool context expansion as a runtime 
   assert.equal(result.decisions[0]?.kind, "continue");
   assert.deepEqual(result.decisions[0]?.toolContextExpansion, {
     targetKind: "group",
-    family: "shellBase",
-    group: "shellExecution",
+    family: "coreBase",
+    group: "shell",
     reason: "need shell execution manuals before choosing a concrete tool",
   });
   assert.equal(result.decisions[0]?.metadata.runtimeDecision, "expandToolContext");
@@ -435,7 +435,7 @@ test("tool-call decisions retain visible preamble text from the provider respons
         },
         {
           type: "function_call",
-          name: "praxis_tool_shell_commandExecution",
+          name: "praxis_tool_shell_run",
           call_id: "call_shell_1",
           arguments: JSON.stringify({ command: "git status --short" }),
         },
@@ -445,8 +445,8 @@ test("tool-call decisions retain visible preamble text from the provider respons
     turnIndex: 0,
     providerFamily: "openaiResponses",
     providerToolMappings: [{
-      providerName: "praxis_tool_shell_commandExecution",
-      toolId: "shell.commandExecution",
+      providerName: "praxis_tool_shell_run",
+      toolId: "shell.run",
     }],
   });
 

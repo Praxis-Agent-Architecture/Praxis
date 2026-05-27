@@ -15,7 +15,7 @@ test("runtimeInvocationContract builds a dry-run invocation envelope", () => {
     runtimeId: " runtime-1 ",
     caller: { kind: "application", id: " app-1 " },
     target: "tool",
-    requestedCapabilities: [" shellBase ", "codeBase", "shellBase"],
+    requestedCapabilities: [" shell.run ", "file.read", "shell.run"],
   });
 
   assert.equal(result.ok, true);
@@ -23,7 +23,7 @@ test("runtimeInvocationContract builds a dry-run invocation envelope", () => {
   assert.equal(result.invocation.caller.id, "app-1");
   assert.equal(result.invocation.target, "tool");
   assert.equal(result.invocation.route, "runtime.invocationMethod");
-  assert.deepEqual(result.invocation.requestedCapabilities, ["shellBase", "codeBase"]);
+  assert.deepEqual(result.invocation.requestedCapabilities, ["shell.run", "file.read"]);
   assert.equal(result.invocation.dryRun, true);
   assert.equal(result.invocation.unsafeSideEffects, false);
 });

@@ -80,6 +80,60 @@ function anthropicVersion(request: AuthResolverRequest): string {
   return explicit?.trim() || request.readEnv?.("ANTHROPIC_VERSION")?.trim() || "2023-06-01";
 }
 
+function headerValue(
+  headers: Readonly<Record<string, string>> | undefined,
+  headerName: string,
+): string | undefined {
+  const target = headerName.trim().toLowerCase();
+  if (target.length === 0) return undefined;
+  return Object.entries(headers ?? {}).find(([name]) => name.trim().toLowerCase() === target)?.[1];
+}
+
+function bearerToken(
+  headers: Readonly<Record<string, string>> | undefined,
+): string | undefined {
+  return headerValue(headers, "authorization")?.replace(/^Bearer\s+/iu, "");
+}
+
+function firstHeaderName(headers: Readonly<Record<string, string>> | undefined): string | undefined {
+  return Object.keys(headers ?? {}).map((name) => name.trim()).find(Boolean);
+}
+
+function firstHeaderValue(headers: Readonly<Record<string, string>> | undefined): string | undefined {
+  return Object.values(headers ?? {}).find((value) => value.trim().length > 0);
+}
+
+function secretFromHeader(
+  headers: Readonly<Record<string, string>> | undefined,
+  headerName: string,
+): string | undefined {
+  if (headerName.trim().toLowerCase() === "authorization") {
+    return bearerToken(headers) ?? headerValue(headers, "authorization");
+  }
+  return headerValue(headers, headerName);
+}
+
+function providerExtraHeaders(
+  extraHeaders: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(extraHeaders ?? {}).filter(([name]) => name.trim().toLowerCase() !== "x-praxis-auth-header"),
+  );
+}
+
+function mergePrivateMaterial(
+  material: ProviderAuthMaterial,
+  headers: Readonly<Record<string, string>> | undefined,
+): ProviderAuthMaterial {
+  return {
+    ...material,
+    headers: {
+      ...(headers ?? {}),
+      ...(material.headers ?? {}),
+    },
+  };
+}
+
 export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthResolverResult {
   const credentialRef = request.credentialRef;
   if (credentialRef === undefined) {
@@ -88,8 +142,14 @@ export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthReso
 
   const stored = request.store?.get(credentialRef);
   if (stored?.privateMaterial !== undefined) {
+    const privateMaterial = stored.privateMaterial;
+    const providerHeaders = providerExtraHeaders(request.extraHeaders);
     if (credentialRef.credentialType === "anthropic_api_key") {
-      const secret = stored.privateMaterial.headers?.["x-api-key"] ?? "stored-material";
+      const extraHeaders = {
+        "anthropic-version": anthropicVersion(request),
+        ...providerHeaders,
+      };
+      const secret = headerValue(privateMaterial.headers, "x-api-key") ?? "stored-material";
       return {
         ok: true,
         resolved: {
@@ -98,12 +158,49 @@ export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthReso
             apiKey: secret,
             redactedIdentity: stored.redactedIdentity,
             headerName: "x-api-key",
-            extraHeaders: {
-              "anthropic-version": anthropicVersion(request),
-              ...(request.extraHeaders ?? {}),
-            },
+            extraHeaders,
           }).envelope,
-          privateMaterial: stored.privateMaterial,
+          privateMaterial: mergePrivateMaterial(privateMaterial, extraHeaders),
+        },
+        events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedFromStore"],
+      };
+    }
+
+    if (credentialRef.credentialType === "gemini_api_key") {
+      const secret = headerValue(privateMaterial.headers, "x-goog-api-key") ?? bearerToken(privateMaterial.headers) ?? "stored-material";
+      return {
+        ok: true,
+        resolved: {
+          envelope: createApiKeyAuthEnvelope({
+            credentialRef,
+            apiKey: secret,
+            redactedIdentity: stored.redactedIdentity,
+            headerName: "x-goog-api-key",
+            extraHeaders: providerHeaders,
+          }).envelope,
+          privateMaterial: mergePrivateMaterial(privateMaterial, providerHeaders),
+        },
+        events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedFromStore"],
+      };
+    }
+
+    if (credentialRef.credentialType === "custom") {
+      const hintedHeaderName = headerValue(request.extraHeaders, "x-praxis-auth-header");
+      const headerName = hintedHeaderName?.trim() || firstHeaderName(privateMaterial.headers) || "authorization";
+      const secret = secretFromHeader(privateMaterial.headers, headerName)
+        ?? firstHeaderValue(privateMaterial.headers)
+        ?? "stored-material";
+      return {
+        ok: true,
+        resolved: {
+          envelope: createApiKeyAuthEnvelope({
+            credentialRef,
+            apiKey: secret,
+            redactedIdentity: stored.redactedIdentity,
+            headerName,
+            extraHeaders: providerHeaders,
+          }).envelope,
+          privateMaterial: mergePrivateMaterial(privateMaterial, providerHeaders),
         },
         events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedFromStore"],
       };
@@ -116,18 +213,18 @@ export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthReso
           credentialRef.credentialType === "openai_api_key"
             ? createApiKeyAuthEnvelope({
                 credentialRef,
-                apiKey: stored.privateMaterial.headers?.authorization?.replace(/^Bearer\s+/iu, "") ?? "stored-material",
+                apiKey: bearerToken(privateMaterial.headers) ?? "stored-material",
                 redactedIdentity: stored.redactedIdentity,
-                extraHeaders: request.extraHeaders,
+                extraHeaders: providerHeaders,
               }).envelope
             : createBearerAuthEnvelope({
                 credentialRef,
-                token: stored.privateMaterial.headers?.authorization?.replace(/^Bearer\s+/iu, "") ?? "stored-material",
+                token: bearerToken(privateMaterial.headers) ?? "stored-material",
                 redactedIdentity: stored.redactedIdentity,
-                extraHeaders: request.extraHeaders,
-                expiresAt: stored.privateMaterial.expiresAt,
+                extraHeaders: providerHeaders,
+                expiresAt: privateMaterial.expiresAt,
               }).envelope,
-        privateMaterial: stored.privateMaterial,
+        privateMaterial: mergePrivateMaterial(privateMaterial, providerHeaders),
       },
       events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedFromStore"],
     };
@@ -178,6 +275,78 @@ export function resolveAuthEnvelope(request: AuthResolverRequest = {}): AuthReso
         extraHeaders: request.extraHeaders,
       }),
       events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedOpenAiApiKey"],
+    };
+  }
+
+  if (credentialRef.credentialType === "gemini_api_key") {
+    const secret =
+      request.injectedSecret ??
+      (credentialRef.source.kind === "environment" && hasText(credentialRef.source.envName)
+        ? request.readEnv?.(credentialRef.source.envName)
+        : undefined);
+
+    if (!hasText(secret)) {
+      return failure("MISSING_SECRET_MATERIAL", "Gemini API key credentialRef has no available secret material", "source", credentialRef);
+    }
+
+    return {
+      ok: true,
+      resolved: createApiKeyAuthEnvelope({
+        credentialRef,
+        apiKey: secret,
+        headerName: "x-goog-api-key",
+        extraHeaders: request.extraHeaders,
+      }),
+      events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedGeminiApiKey"],
+    };
+  }
+
+  if (credentialRef.credentialType === "custom") {
+    const hintedHeaderName = headerValue(request.extraHeaders, "x-praxis-auth-header");
+    const providerHeaders = providerExtraHeaders(request.extraHeaders);
+    if (request.injectedMaterial?.headers !== undefined) {
+      const headerName = hintedHeaderName?.trim() || firstHeaderName(request.injectedMaterial.headers) || "authorization";
+      const secret = secretFromHeader(request.injectedMaterial.headers, headerName)
+        ?? firstHeaderValue(request.injectedMaterial.headers);
+
+      if (!hasText(secret)) {
+        return failure("MISSING_SECRET_MATERIAL", "Custom credentialRef has no available secret material", "source", credentialRef);
+      }
+
+      return {
+        ok: true,
+        resolved: {
+          envelope: createApiKeyAuthEnvelope({
+            credentialRef,
+            apiKey: secret,
+            headerName,
+            extraHeaders: providerHeaders,
+          }).envelope,
+          privateMaterial: mergePrivateMaterial(request.injectedMaterial, providerHeaders),
+        },
+        events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedCustomApiKey"],
+      };
+    }
+
+    const secret =
+      request.injectedSecret ??
+      (credentialRef.source.kind === "environment" && hasText(credentialRef.source.envName)
+        ? request.readEnv?.(credentialRef.source.envName)
+        : undefined);
+
+    if (!hasText(secret)) {
+      return failure("MISSING_SECRET_MATERIAL", "Custom credentialRef has no available secret material", "source", credentialRef);
+    }
+
+    return {
+      ok: true,
+      resolved: createApiKeyAuthEnvelope({
+        credentialRef,
+        apiKey: secret,
+        headerName: hintedHeaderName ?? "authorization",
+        extraHeaders: providerHeaders,
+      }),
+      events: ["agentCore.modelAdapter.authProfile.authResolver.resolvedCustomApiKey"],
     };
   }
 

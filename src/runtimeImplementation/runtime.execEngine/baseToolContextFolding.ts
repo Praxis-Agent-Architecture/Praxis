@@ -1,6 +1,6 @@
 /*
  * 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / BaseTool 上下文折叠。
- * 核心目的：把 176 个 BaseTool 的模型可读说明组织成可折叠、可展开、可加权的 PromptPack capability 材料。
+ * 核心目的：把 semantic BaseTool catalog 的模型可读说明组织成可折叠、可展开、可加权的 PromptPack capability 材料。
  * 边界：这里只构造上下文说明，不执行工具、不替代 provider tool schema、不绕过 registry/handler/executor。
  */
 
@@ -88,14 +88,13 @@ const DEFAULT_HEAT_WEIGHTS: BaseToolContextHeatWeights = {
 };
 
 const FAMILY_ORDER = [
-  "codeBase",
-  "computeruseBase",
+  "coreBase",
+  "agentBase",
+  "runtimeBase",
+  "browserBase",
+  "computerBase",
   "gitBase",
-  "mcpBase",
-  "omniBase",
-  "searchBase",
-  "shellBase",
-  "skillBase",
+  "mediaBase",
 ] as const;
 
 function normalizeList(values: readonly string[] | undefined): readonly string[] {

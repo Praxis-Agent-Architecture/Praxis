@@ -14,7 +14,7 @@ test("guardRuntimeScope allows only the requested runtime operation boundary", (
     runtimeId: "runtime-alpha",
     caller: { kind: "application", id: "app" },
     operation: "invoke-tool",
-    action: "shellBase.run",
+    action: "shell.run",
     requestedScopes: ["runtime.read"],
     grantedScopes: ["tool.invoke", "runtime.read"],
     allowedOperations: ["read-state", "invoke-tool"],

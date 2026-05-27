@@ -4,7 +4,11 @@
  * 边界：只描述应用层语义，不包含 Raxode 产品逻辑，也不暴露 agentCore 内部对象。
  */
 
+import type { BaseToolProfileName } from "../basetool/types.js";
+
 export type PraxisApplicationRuntimeMode = "dry-run" | "live";
+
+export type PraxisApplicationToolProfile = BaseToolProfileName;
 
 export type PraxisApplicationPermissionProfile =
   | "restricted"
@@ -68,7 +72,34 @@ export type PraxisApplicationModelState = {
   metadataSource?: string;
 };
 
+export type PraxisApplicationAuthProfileView = {
+  profileId: string;
+  provider: string;
+  providerLabel: string;
+  endpointShape?: string;
+  baseURL?: string;
+  credentialRefId?: string;
+  secretId?: string;
+  secretPresent: boolean;
+  expiresAt?: string;
+  status: "unknown" | "active" | "expired" | "missing" | "error";
+  publicSafe: true;
+};
+
+export type PraxisApplicationAuthState = {
+  defaultRole?: string;
+  activeProfileId?: string;
+  profiles: readonly PraxisApplicationAuthProfileView[];
+  lastAuditEventKind?: string;
+  lastAuditAt?: string;
+  publicSafe: true;
+};
+
 export type PraxisApplicationToolCatalogState = {
+  profile: PraxisApplicationToolProfile;
+  availableProfiles: readonly PraxisApplicationToolProfile[];
+  defaultPolicyProfile: PraxisApplicationPermissionProfile;
+  extensionSlots: readonly string[];
   total: number;
   mounted: number;
   byFamily: Readonly<Record<string, number>>;
@@ -155,7 +186,16 @@ export type PraxisApplicationViewModel = {
   workspaceRoot: string;
   mode: PraxisApplicationRuntimeMode;
   model: PraxisApplicationModelState;
+  auth?: PraxisApplicationAuthState;
   permissionProfile: PraxisApplicationPermissionProfile;
+  toolProfile: PraxisApplicationToolProfile;
+  foundationProject?: {
+    projectId: string;
+    kind: "chat" | "workspace-project";
+    workspaceRoot: string;
+    sessionSqlitePath: string;
+    locked: boolean;
+  };
   sessions: readonly PraxisApplicationSessionSummary[];
   approvals: readonly PraxisApplicationApprovalSummary[];
   manifest?: PraxisApplicationManifestView;
@@ -292,6 +332,11 @@ export type PraxisApplicationCommand =
       type: "application.changePermissionProfile";
       sessionId?: string;
       profile: PraxisApplicationPermissionProfile;
+    }
+  | {
+      type: "application.changeToolProfile";
+      sessionId?: string;
+      profile: PraxisApplicationToolProfile;
     }
   | {
       type: "application.close";

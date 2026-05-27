@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -12,6 +12,7 @@ import { createCredentialRef } from "../../../src/modelAdapter/authProfileLayer/
 import { createRuntimeBaseToolExecutorPort } from "../../../src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   PraxisAgent,
+  PromptPack,
   compileAgent,
   harness,
   loop,
@@ -26,6 +27,16 @@ import {
 } from "../../../src/runtimeImplementation/runtimeAgentManifest.js";
 import { createPraxisRuntimeKernel } from "../../../src/runtimeImplementation/praxisRuntimeKernel.js";
 import { createInMemorySessionStateEventStore } from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
+import {
+  bindRuntimeAuthRole,
+  createInMemoryRuntimeAuthSecretVault,
+  createRuntimeAuthModelEntry,
+  createRuntimeAuthProviderProfile,
+  createRuntimeAuthRegistry,
+  createRuntimeAuthResolver,
+  createRuntimeAuthSecretRecord,
+  runtimeAuthCredentialRef,
+} from "../../../src/runtimeImplementation/runtime.authPlane/index.js";
 
 defineAgentCoreContractTest({
   sourcePath: "src/runtimeImplementation/praxisRuntimeKernel.ts",
@@ -85,7 +96,7 @@ function apiKeyAuthEnvelope(input: {
     apiKey: input.apiKey,
     ...(input.provider === "anthropic"
       ? { headerName: "x-api-key", extraHeaders: { "anthropic-version": "2023-06-01" } }
-      : {}),
+    : {}),
   }).envelope;
 }
 
@@ -108,7 +119,7 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
     now: () => "2026-04-30T00:00:00.000Z",
   });
 
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
   if (!result.ok) return;
   assert.equal(result.finalOutput, "hello from live model shim");
   assert.equal(result.modelCalls.length, 1);
@@ -118,6 +129,616 @@ test("PraxisRuntimeKernel.run compiles an Agent and returns a codex responses te
   assert.equal(result.toolCalls.length, 0);
   assert.equal(result.state.session?.status, "completed");
   assert.equal(result.state.events.some((event) => event.type === "runtime.output.final"), true);
+  const mainLoopBudgetState = result.state.states.find((stateRecord) => stateRecord.stateId.startsWith("state:mainLoopEngine:") && stateRecord.phase === "completed");
+  assert.equal((mainLoopBudgetState?.metadata.budgetUsage as { totalTokens?: number } | undefined)?.totalTokens, 26);
+});
+
+test("PraxisRuntimeKernel.runManifest executes compact at a prompt boundary and rebuilds before model invocation", async () => {
+  class CompactAgent extends PraxisAgent {
+    identity = "agent.compact-boundary";
+    model = model("gpt-5.4", {
+      carrierId: "carrier.compact-boundary",
+      metadata: {
+        contextWindowTokens: 100_000,
+        maxOutputTokens: 16,
+      },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(new CompactAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const compactCalls: unknown[] = [];
+  const providerBodies: unknown[] = [];
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-compact-boundary", store }).runManifest(
+    compiled.manifest,
+    "say hello after compact",
+    {
+      sessionId: "session-compact-boundary",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      compactExecutor: {
+        compact: async (request) => {
+          compactCalls.push(request);
+          return {
+            ok: true,
+            sessionSummaryText: "Compacted prompt history summary for the next model call.",
+            recentConversationText: "runtime-summary: keep the active focus after compact.",
+            record: {
+              kind: "praxis.contextCompact.record",
+              compactId: "compact.boundary.1",
+              sessionId: request.sessionId,
+              trigger: request.trigger,
+              thresholdRatio: request.thresholdRatio ?? 0.95,
+              before: {
+                estimatedTokens: request.estimatedTokens,
+                materialRefs: request.materialRefs,
+              },
+              after: {
+                estimatedTokens: 24,
+                sessionSummaryRef: "summary.compact.boundary.1",
+                recentConversationRefs: ["recent.compact.boundary.1"],
+              },
+              compactedMaterialRefs: request.materialRefs,
+              artifactRefs: [],
+              createdAt: "2026-05-26T00:00:00.000Z",
+              executor: "application",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["contextCompact.application.completed"],
+          };
+        },
+      },
+      providerCaller: async (request) => {
+        providerBodies.push(request.body);
+        return {
+          output_text: "hello after compact",
+          usage: { input_tokens: 11, output_tokens: 3 },
+        };
+      },
+      now: () => "2026-05-26T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello after compact");
+  assert.equal(compactCalls.length, 1);
+  assert.equal(providerBodies.length, 1);
+  const providerBodyText = JSON.stringify(providerBodies[0]);
+  assert.match(providerBodyText, /Compacted prompt history summary/);
+  assert.match(providerBodyText, /keep the active focus after compact/);
+  assert.equal(result.mainLoopSteps.filter((step) => step.actionPrimitive === "lowerPrompt").length >= 2, true);
+  assert.equal(result.mainLoopSteps.some((step) =>
+    step.actionPrimitive === "lowerPrompt" && step.metadata.compactRecordRef === "compact.boundary.1"
+  ), true);
+  assert.equal(result.state.events.some((record) => record.type === "runtime.contextCompact.thresholdDecision"), true);
+  assert.equal(result.state.states.some((record) => record.stateId === "state:contextCompact:1" && record.phase === "summarizing"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest applies preCompactGovernance before compact and rebuilds governed PromptPack", async () => {
+  class GovernancePromptPack extends PromptPack {
+    base = { kind: "markdown" as const, text: "Stable system core remains untouched." };
+    inherits = ["repo-structure"];
+    materials = ["project-conventions"];
+  }
+
+  class GovernanceAgent extends PraxisAgent {
+    identity = "agent.pre-compact-governance";
+    model = model("gpt-5.4", {
+      carrierId: "carrier.pre-compact-governance",
+      metadata: {
+        contextWindowTokens: 100_000,
+        maxOutputTokens: 16,
+      },
+    });
+    promptPack = new GovernancePromptPack();
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(new GovernanceAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const compactCalls: unknown[] = [];
+  const governancePackets: unknown[] = [];
+  const providerBodies: unknown[] = [];
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-pre-compact-governance", store }).runManifest(
+    compiled.manifest,
+    "keep the current governance task",
+    {
+      sessionId: "session-pre-compact-governance",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      preCompactGovernanceExecutor: {
+        govern: async (request) => {
+          governancePackets.push(request.packet);
+          return {
+            ok: true,
+            result: {
+              kind: "praxis.preCompactGovernance.result",
+              version: 1,
+              sessionSummaryCandidate: {
+                text: "Governed session summary keeps only current preCompactGovernance facts.",
+                mode: "replace",
+              },
+              projectContextUpdates: [{
+                id: "project.context.governed",
+                text: "Governed project context update for Praxis compact-before-governance.",
+                reason: "current task evidence",
+                evidenceRefs: ["runtime.input.currentUserTurn"],
+                confidence: 0.95,
+              }],
+              staleClaims: [{ text: "old compact design is still authoritative" }],
+              preservedFacts: [{ text: "current task is preCompactGovernance" }],
+              removedNoise: [{ text: "obsolete failed experiment", reason: "stale" }],
+              uncertainty: [{ text: "future CMP remains out of scope" }],
+              evidenceRefs: ["runtime.input.currentUserTurn"],
+            },
+            record: {
+              kind: "praxis.preCompactGovernance.record",
+              governanceId: "governance.precompact.1",
+              sessionId: request.packet.sessionId,
+              turnIndex: request.packet.turnIndex,
+              trigger: request.packet.trigger,
+              status: "completed",
+              packetMaterialRefs: [
+                ...request.packet.projectContext.map((material) => material.id),
+                ...request.packet.sessionSummary.map((material) => material.id),
+                ...request.packet.recentConversation.map((material) => material.id),
+                "runtime.input.currentUserTurn",
+              ],
+              appliedSessionSummary: true,
+              appliedProjectContextUpdates: 1,
+              staleClaims: [{ text: "old compact design is still authoritative" }],
+              preservedFacts: [{ text: "current task is preCompactGovernance" }],
+              removedNoise: [{ text: "obsolete failed experiment", reason: "stale" }],
+              uncertainty: [{ text: "future CMP remains out of scope" }],
+              evidenceRefs: ["runtime.input.currentUserTurn"],
+              createdAt: "2026-05-27T00:00:00.000Z",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["preCompactGovernance.completed"],
+          };
+        },
+      },
+      compactExecutor: {
+        compact: async (request) => {
+          compactCalls.push(request);
+          const materialText = JSON.stringify(request.materials);
+          assert.match(materialText, /Governed session summary keeps only current/);
+          assert.match(materialText, /Governed project context update/);
+          assert.equal(request.materialRefs.includes("preCompactGovernance.sessionSummaryCandidate"), true);
+          assert.equal(request.materialRefs.includes("project.context.governed"), true);
+          return {
+            ok: true,
+            sessionSummaryText: "Compact executor summary after governance.",
+            recentConversationText: "runtime-summary: keep current governance focus.",
+            record: {
+              kind: "praxis.contextCompact.record",
+              compactId: "compact.pregovernance.1",
+              sessionId: request.sessionId,
+              trigger: request.trigger,
+              thresholdRatio: request.thresholdRatio ?? 0.95,
+              before: {
+                estimatedTokens: request.estimatedTokens,
+                materialRefs: request.materialRefs,
+              },
+              after: {
+                estimatedTokens: 30,
+                sessionSummaryRef: "summary.pregovernance.1",
+                recentConversationRefs: ["recent.pregovernance.1"],
+              },
+              compactedMaterialRefs: request.materialRefs,
+              artifactRefs: [],
+              createdAt: "2026-05-27T00:00:00.000Z",
+              executor: "application",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["contextCompact.application.completed"],
+          };
+        },
+      },
+      providerCaller: async (request) => {
+        providerBodies.push(request.body);
+        return {
+          output_text: "hello after governed compact",
+          usage: { input_tokens: 13, output_tokens: 4 },
+        };
+      },
+      now: () => "2026-05-27T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(compactCalls.length, 1);
+  assert.equal(governancePackets.length, 1);
+  const packetText = JSON.stringify(governancePackets[0]);
+  assert.match(packetText, /repo-structure/);
+  assert.match(packetText, /keep the current governance task/);
+  const governancePacket = governancePackets[0] as {
+    projectContext?: readonly { segmentKind?: string }[];
+    sessionSummary?: readonly { segmentKind?: string }[];
+    recentConversation?: readonly { segmentKind?: string }[];
+    memoryContext?: readonly { segmentKind?: string }[];
+    retrievedContext?: readonly { segmentKind?: string }[];
+    observations?: readonly { segmentKind?: string }[];
+  };
+  const governedSegmentKinds = [
+    ...(governancePacket.projectContext ?? []),
+    ...(governancePacket.sessionSummary ?? []),
+    ...(governancePacket.recentConversation ?? []),
+    ...(governancePacket.memoryContext ?? []),
+    ...(governancePacket.retrievedContext ?? []),
+    ...(governancePacket.observations ?? []),
+  ].map((material) => material.segmentKind);
+  assert.equal(governedSegmentKinds.includes("toolDeclarations"), false);
+  assert.equal(governedSegmentKinds.includes("assistantScratchpadPlan"), false);
+  const providerBodyText = JSON.stringify(providerBodies[0]);
+  assert.match(providerBodyText, /Governed session summary keeps only current/);
+  assert.match(providerBodyText, /Compact executor summary after governance/);
+  assert.match(providerBodyText, /Governed project context update/);
+  assert.equal(result.state.events.some((record) => record.type === "runtime.preCompactGovernance.result"), true);
+  assert.equal(result.state.states.some((record) => record.stateId === "state:preCompactGovernance:1" && record.phase === "completed"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest falls back to normal compact when preCompactGovernance fails", async () => {
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const compactCalls: unknown[] = [];
+  const providerBodies: unknown[] = [];
+  const store = createInMemorySessionStateEventStore();
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-pre-compact-governance-fail", store }).runManifest(
+    compiled.manifest,
+    "continue even if governance fails",
+    {
+      sessionId: "session-pre-compact-governance-fail",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      preCompactGovernanceExecutor: {
+        govern: async (request) => ({
+          ok: false,
+          record: {
+            kind: "praxis.preCompactGovernance.record",
+            governanceId: "governance.failed.1",
+            sessionId: request.packet.sessionId,
+            turnIndex: request.packet.turnIndex,
+            trigger: request.packet.trigger,
+            status: "failed",
+            packetMaterialRefs: [],
+            appliedSessionSummary: false,
+            appliedProjectContextUpdates: 0,
+            staleClaims: [],
+            preservedFacts: [],
+            removedNoise: [],
+            uncertainty: [],
+            evidenceRefs: [],
+            error: { code: "TEST_GOVERNANCE_FAILED", message: "simulated failure", publicSafe: true },
+            createdAt: "2026-05-27T00:00:00.000Z",
+            metadata: {},
+            publicSafe: true,
+          },
+          events: ["preCompactGovernance.failed"],
+        }),
+      },
+      compactExecutor: {
+        compact: async (request) => {
+          compactCalls.push(request);
+          return {
+            ok: true,
+            sessionSummaryText: "Fallback compact summary without governance.",
+            recentConversationText: "runtime-summary: keep focus after failed governance.",
+            record: {
+              kind: "praxis.contextCompact.record",
+              compactId: "compact.governance-fallback.1",
+              sessionId: request.sessionId,
+              trigger: request.trigger,
+              thresholdRatio: request.thresholdRatio ?? 0.95,
+              before: {
+                estimatedTokens: request.estimatedTokens,
+                materialRefs: request.materialRefs,
+              },
+              after: {
+                estimatedTokens: 20,
+                sessionSummaryRef: "summary.governance-fallback.1",
+                recentConversationRefs: ["recent.governance-fallback.1"],
+              },
+              compactedMaterialRefs: request.materialRefs,
+              artifactRefs: [],
+              createdAt: "2026-05-27T00:00:00.000Z",
+              executor: "application",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["contextCompact.application.completed"],
+          };
+        },
+      },
+      providerCaller: async (request) => {
+        providerBodies.push(request.body);
+        return {
+          output_text: "hello after fallback compact",
+          usage: { input_tokens: 12, output_tokens: 3 },
+        };
+      },
+      now: () => "2026-05-27T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(compactCalls.length, 1);
+  assert.equal(providerBodies.length, 1);
+  assert.equal(result.finalOutput, "hello after fallback compact");
+  assert.equal(result.events.includes("preCompactGovernance.failed"), true);
+  assert.equal(result.state.events.some((record) => record.type === "runtime.preCompactGovernance.result"), true);
+  assert.equal(result.state.states.some((record) => record.stateId === "state:preCompactGovernance:1" && record.phase === "failed"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest fails before provider invocation when boundary compact fails", async () => {
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-compact-fail" }).runManifest(
+    compiled.manifest,
+    "say hello after failed compact",
+    {
+      sessionId: "session-compact-fail",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactContextWindowTokens: 100_000,
+      compactThresholdRatio: 0.0001,
+      compactExecutor: {
+        compact: async () => ({
+          ok: false,
+          error: {
+            code: "COMPACT_ENDPOINT_FAILED",
+            message: "compact endpoint failed",
+            publicSafe: true,
+          },
+          events: ["contextCompact.application.failed"],
+        }),
+      },
+      providerCaller: async () => assert.fail("provider should not be called when required compact fails"),
+      now: () => "2026-05-26T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "PROMPT_PACK_FAILED");
+  assert.equal(result.error.boundary, "runtime-state");
+  assert.match(result.error.message, /compact endpoint failed/);
+  assert.equal(result.events.includes("contextCompact.application.failed"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest can interrupt before provider invocation", async () => {
+  const store = createInMemorySessionStateEventStore();
+  const kernel = createPraxisRuntimeKernel({ runtimeId: "runtime-interrupt", store });
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const controller = new AbortController();
+  controller.abort();
+  const result = await kernel.runManifest(compiled.manifest, "stop now", {
+    sessionId: "session-kernel-interrupt",
+    dryRun: false,
+    allowProviderCall: true,
+    auth: authEnvelope(),
+    interruptSignal: controller.signal,
+    providerCaller: async () => assert.fail("provider should not be called after interrupt"),
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "MAIN_LOOP_INTERRUPTED");
+  assert.notEqual(result.state, undefined);
+  if (result.state === undefined) return;
+  assert.equal(result.state.session?.status, "interrupted");
+  assert.equal(result.state.states.some((stateRecord) => stateRecord.phase === "interrupted"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest treats in-flight provider abort as interrupted", async () => {
+  const store = createInMemorySessionStateEventStore();
+  const kernel = createPraxisRuntimeKernel({ runtimeId: "runtime-interrupt-in-flight", store });
+  const compiled = compileAgent(new PlainAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const controller = new AbortController();
+  const result = await kernel.runManifest(compiled.manifest, "stop during call", {
+    sessionId: "session-kernel-interrupt-in-flight",
+    dryRun: false,
+    allowProviderCall: true,
+    auth: authEnvelope(),
+    interruptSignal: controller.signal,
+    providerCaller: async () => {
+      controller.abort();
+      const error = new Error("provider call aborted");
+      error.name = "AbortError";
+      throw error;
+    },
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "MAIN_LOOP_INTERRUPTED");
+  assert.notEqual(result.state, undefined);
+  if (result.state === undefined) return;
+  assert.equal(result.state.session?.status, "interrupted");
+  assert.equal(result.state.states.some((stateRecord) => stateRecord.phase === "interrupted"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest resolves manifest auth refs through runtime authPlane", async () => {
+  class RuntimeAuthAgent extends PraxisAgent {
+    identity = "agent.kernel-runtime-auth";
+    model = model("gpt-5.5", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-runtime-auth",
+      providerProfileRef: "profile.openai.kernel-runtime",
+      modelEntryRef: "model.gpt-5.5.kernel-runtime",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const secret = await createRuntimeAuthSecretRecord({
+    secretId: "secret.openai.kernel-runtime",
+    provider: "openai",
+    secretKind: "api_key",
+    plaintext: { apiKey: "sk-runtime-kernel-secret" },
+    keyProvider: () => "kernel-runtime-master-key",
+  });
+  assert.equal(secret.ok, true);
+  if (!secret.ok) return;
+  const profile = createRuntimeAuthProviderProfile({
+    profileId: "profile.openai.kernel-runtime",
+    provider: "openai",
+    endpointShape: "responses",
+    baseURL: "https://api.openai.com",
+    credentialRef: runtimeAuthCredentialRef({
+      credentialRefId: "credential.openai.kernel-runtime",
+      secretId: "secret.openai.kernel-runtime",
+      provider: "openai",
+      credentialType: "openai_api_key",
+      secretKind: "api_key",
+      publicSafe: true,
+    }),
+  });
+  const modelEntry = createRuntimeAuthModelEntry({
+    modelEntryId: "model.gpt-5.5.kernel-runtime",
+    providerProfileRef: "profile.openai.kernel-runtime",
+    model: "gpt-5.5",
+  });
+  assert.equal(profile.ok, true);
+  assert.equal(modelEntry.ok, true);
+  if (!profile.ok || !modelEntry.ok) return;
+
+  const baseResolver = createRuntimeAuthResolver({
+    registry: createRuntimeAuthRegistry({ profiles: [profile.value], modelEntries: [modelEntry.value] }),
+    vault: createInMemoryRuntimeAuthSecretVault([secret.value]),
+    keyProvider: () => "kernel-runtime-master-key",
+  });
+  const authSelections: unknown[] = [];
+  const runtimeAuthResolver = {
+    resolve: async (request: Parameters<typeof baseResolver.resolve>[0]) => {
+      authSelections.push(request);
+      return await baseResolver.resolve(request);
+    },
+  };
+
+  const compiled = compileAgent(new RuntimeAuthAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-runtime-auth" }).runManifest(
+    compiled.manifest,
+    "say hello",
+    {
+      sessionId: "session-kernel-runtime-auth",
+      dryRun: false,
+      allowProviderCall: true,
+      runtimeAuthResolver,
+      openaiResponsesCaller: async (request) => {
+        assert.equal(request.endpoint, "/v1/responses");
+        assert.equal(request.url, "https://api.openai.com/v1/responses");
+        return {
+          id: "resp_runtime_auth",
+          output_text: "hello from runtime authPlane",
+          usage: { input_tokens: 7, output_tokens: 5 },
+        };
+      },
+      now: () => "2026-05-25T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(authSelections, [{
+    providerProfileRef: "profile.openai.kernel-runtime",
+    modelEntryRef: "model.gpt-5.5.kernel-runtime",
+  }]);
+  assert.equal(result.finalOutput, "hello from runtime authPlane");
+  assert.equal(result.modelCalls[0]?.usage?.inputTokens, 7);
+  assert.equal(result.modelCalls[0]?.usage?.outputTokens, 5);
+  assert.equal(JSON.stringify(result).includes("sk-runtime-kernel-secret"), false);
+
+  class CredentialRefAuthAgent extends PraxisAgent {
+    identity = "agent.kernel-runtime-auth-credential";
+    model = model("gpt-5.5", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-runtime-auth-credential",
+      credentialRefId: "credential.openai.kernel-runtime",
+      modelEntryRef: "model.gpt-5.5.kernel-runtime",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+  const credentialAuthSelections: unknown[] = [];
+  const credentialRuntimeAuthResolver = {
+    resolve: async (request: Parameters<typeof baseResolver.resolve>[0]) => {
+      credentialAuthSelections.push(request);
+      return await baseResolver.resolve(request);
+    },
+  };
+  const credentialCompiled = compileAgent(new CredentialRefAuthAgent());
+  assert.equal(credentialCompiled.ok, true);
+  if (!credentialCompiled.ok) return;
+  const credentialResult = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-runtime-auth-credential" }).runManifest(
+    credentialCompiled.manifest,
+    "say hello again",
+    {
+      sessionId: "session-kernel-runtime-auth-credential",
+      dryRun: false,
+      allowProviderCall: true,
+      runtimeAuthResolver: credentialRuntimeAuthResolver,
+      openaiResponsesCaller: async () => ({
+        id: "resp_runtime_auth_credential",
+        output_text: "hello from credential ref authPlane",
+        usage: { input_tokens: 3, output_tokens: 4 },
+      }),
+      now: () => "2026-05-25T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(credentialResult.ok, true);
+  assert.deepEqual(credentialAuthSelections, [{
+    credentialRefId: "credential.openai.kernel-runtime",
+    modelEntryRef: "model.gpt-5.5.kernel-runtime",
+  }]);
+  assert.equal(credentialResult.ok ? credentialResult.finalOutput : undefined, "hello from credential ref authPlane");
+  assert.equal(JSON.stringify(credentialResult).includes("sk-runtime-kernel-secret"), false);
 });
 
 test("PraxisRuntimeKernel.run routes OpenAI chat completions with chat tool schemas", async () => {
@@ -132,7 +753,7 @@ test("PraxisRuntimeKernel.run routes OpenAI chat completions with chat tool sche
       metadata: { providerRoute: "openai_chat_completions" },
     });
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({ allowProviderCall: true }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
     });
@@ -162,7 +783,7 @@ test("PraxisRuntimeKernel.run routes OpenAI chat completions with chat tool sche
         assert.equal(body.reasoning_effort, "max");
         assert.ok((body.messages?.length ?? 0) > 0);
         assert.equal(body.tools?.[0]?.type, "function");
-        assert.equal(body.tools?.[0]?.function?.name, "praxis_tool_code_read");
+        assert.equal(body.tools?.[0]?.function?.name, "praxis_tool_file_read");
         return {
           choices: [{ message: { role: "assistant", content: "hello from chat completions" } }],
           usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
@@ -194,7 +815,7 @@ test("PraxisRuntimeKernel.run replays OpenAI chat completions assistant tool cal
     });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -228,7 +849,7 @@ test("PraxisRuntimeKernel.run replays OpenAI chat completions assistant tool cal
         if (calls === 1) {
           const toolArguments = JSON.stringify({
             workspaceRoot: workspace,
-            targetPath: "notes.txt",
+            path: "notes.txt",
             dryRun: false,
             context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
           });
@@ -243,7 +864,7 @@ test("PraxisRuntimeKernel.run replays OpenAI chat completions assistant tool cal
                     id: "chat-tool-call-1",
                     type: "function",
                     function: {
-                      name: "praxis_tool_code_read",
+                      name: "praxis_tool_file_read",
                       arguments: toolArguments.slice(0, 30),
                     },
                   }],
@@ -305,7 +926,7 @@ test("PraxisRuntimeKernel.run replays OpenAI chat completions assistant tool cal
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0]?.toolId, "code.read");
+  assert.equal(result.toolCalls[0]?.toolId, "file.read");
   assert.equal(result.finalOutput, "found needle from chat completions tool");
   assert.equal(providerBodies.length, 2);
 });
@@ -364,7 +985,7 @@ test("PraxisRuntimeKernel.run routes Anthropic messages and reads message text",
       metadata: { providerRoute: "anthropic_messages" },
     });
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({ allowProviderCall: true }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
     });
@@ -381,7 +1002,7 @@ test("PraxisRuntimeKernel.run routes Anthropic messages and reads message text",
       anthropicMessagesCaller: async (request) => {
         const body = request.body as { system?: string; messages?: unknown[]; tools?: { name?: string }[] };
         assert.equal(request.urlPath, "/v1/messages");
-        assert.equal(body.tools?.[0]?.name, "praxis_tool_code_read");
+        assert.equal(body.tools?.[0]?.name, "praxis_tool_file_read");
         assert.ok((body.messages?.length ?? 0) > 0);
         assert.match(body.system ?? "", /PraxisRuntimeKernel/u);
         return {
@@ -401,6 +1022,179 @@ test("PraxisRuntimeKernel.run routes Anthropic messages and reads message text",
   assert.equal(result.modelCalls[0]?.usage?.inputTokens, 11);
 });
 
+test("PraxisRuntimeKernel.run routes Gemini generateContent with native contents, tools, and tool-result replay", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-gemini-tool-"));
+  await writeFile(path.join(workspace, "notes.txt"), "needle from gemini tool\n", "utf8");
+
+  class GeminiToolAgent extends PraxisAgent {
+    identity = "agent.kernel-gemini-tool";
+    model = model("gemini-3.5-flash", {
+      provider: "gemini",
+      endpointShape: "gemini_generate_content",
+      carrierId: "carrier.kernel-gemini-tool",
+      baseURL: "https://generativelanguage.googleapis.com",
+    });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("file.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const bodies: unknown[] = [];
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-kernel-gemini-tool",
+    sessionId: "session-kernel-gemini-tool",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const secret = await createRuntimeAuthSecretRecord({
+    secretId: "secret.kernel.gemini-tool",
+    provider: "gemini",
+    secretKind: "api_key",
+    plaintext: { apiKey: "gemini-kernel-secret" },
+    keyProvider: () => "kernel-gemini-master-key",
+  });
+  assert.equal(secret.ok, true);
+  if (!secret.ok) return;
+  const profile = createRuntimeAuthProviderProfile({
+    profileId: "profile.kernel.gemini-tool",
+    provider: "gemini",
+    endpointShape: "gemini_generate_content",
+    baseURL: "https://generativelanguage.googleapis.com",
+    credentialRef: runtimeAuthCredentialRef({
+      credentialRefId: "credential.kernel.gemini-tool",
+      secretId: "secret.kernel.gemini-tool",
+      provider: "gemini",
+      credentialType: "gemini_api_key",
+      secretKind: "api_key",
+      publicSafe: true,
+    }),
+  });
+  const modelEntry = createRuntimeAuthModelEntry({
+    modelEntryId: "model.kernel.gemini-tool",
+    providerProfileRef: "profile.kernel.gemini-tool",
+    model: "gemini-3.5-flash",
+  });
+  const binding = bindRuntimeAuthRole({
+    role: "primary",
+    providerProfileRef: "profile.kernel.gemini-tool",
+    modelEntryRef: "model.kernel.gemini-tool",
+  });
+  assert.equal(profile.ok, true);
+  assert.equal(modelEntry.ok, true);
+  assert.equal(binding.ok, true);
+  if (!profile.ok || !modelEntry.ok || !binding.ok) return;
+  const runtimeAuthResolver = createRuntimeAuthResolver({
+    registry: createRuntimeAuthRegistry({ profiles: [profile.value], modelEntries: [modelEntry.value], roleBindings: [binding.value] }),
+    vault: createInMemoryRuntimeAuthSecretVault([secret.value]),
+    keyProvider: () => "kernel-gemini-master-key",
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-gemini-tool" }).run(
+    new GeminiToolAgent(),
+    "read notes",
+    {
+      sessionId: "session-kernel-gemini-tool",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      runtimeAuthResolver,
+      authSelection: { role: "primary" },
+      executor,
+      geminiGenerateContentTransport: (envelope) => {
+        calls += 1;
+        bodies.push(envelope.body);
+        assert.equal(envelope.url, "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent");
+        assert.equal(envelope.headers["x-goog-api-key"], "gemini-kernel-secret");
+
+        const body = envelope.body as {
+          contents?: Array<{ role?: string; parts?: Array<Record<string, unknown>> }>;
+          config?: { tools?: Array<{ functionDeclarations?: Array<{ name?: string }> }> };
+          input?: unknown;
+          tools?: unknown;
+        };
+        assert.equal(body.input, undefined);
+        assert.equal(body.tools, undefined);
+        assert.equal(body.config?.tools?.[0]?.functionDeclarations?.some((declaration) => declaration.name === "praxis_tool_file_read"), true);
+        assert.ok((body.contents?.length ?? 0) > 0);
+
+        if (calls === 1) {
+          return {
+            statusCode: 200,
+            body: {
+              candidates: [{
+                content: {
+                  role: "model",
+                  parts: [
+                    { text: "I will inspect the file." },
+                    {
+                      functionCall: {
+                        id: "gemini-tool-call-1",
+                        name: "praxis_tool_file_read",
+                        args: {
+                          workspaceRoot: workspace,
+                          path: "notes.txt",
+                          dryRun: false,
+                          context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
+                        },
+                      },
+                    },
+                  ],
+                },
+              }],
+            },
+          };
+        }
+
+        const contents = body.contents ?? [];
+        const modelFunctionCallIndex = contents.findIndex((content) =>
+          content.role === "model" &&
+          (content.parts ?? []).some((part) =>
+            typeof part.functionCall === "object" &&
+            part.functionCall !== null &&
+            !Array.isArray(part.functionCall) &&
+            (part.functionCall as { id?: unknown }).id === "gemini-tool-call-1"
+          )
+        );
+        const functionResponseIndex = contents.findIndex((content) =>
+          content.role === "user" &&
+          (content.parts ?? []).some((part) =>
+            typeof part.functionResponse === "object" &&
+            part.functionResponse !== null &&
+            !Array.isArray(part.functionResponse) &&
+            (part.functionResponse as { id?: unknown }).id === "gemini-tool-call-1"
+          )
+        );
+        assert.notEqual(modelFunctionCallIndex, -1);
+        assert.notEqual(functionResponseIndex, -1);
+        assert.ok(modelFunctionCallIndex < functionResponseIndex);
+        return {
+          statusCode: 200,
+          body: {
+            candidates: [{
+              content: { role: "model", parts: [{ text: "found needle from gemini tool" }] },
+            }],
+          },
+        };
+      },
+      now: () => "2026-05-25T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.toolId, "file.read");
+  assert.equal(result.finalOutput, "found needle from gemini tool");
+  assert.equal(bodies.length, 2);
+});
+
 test("PraxisRuntimeKernel.run replays Anthropic assistant tool_use before tool_result", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-anthropic-tool-"));
   await writeFile(path.join(workspace, "notes.txt"), "needle from anthropic tool\n", "utf8");
@@ -416,7 +1210,7 @@ test("PraxisRuntimeKernel.run replays Anthropic assistant tool_use before tool_r
     });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -450,7 +1244,7 @@ test("PraxisRuntimeKernel.run replays Anthropic assistant tool_use before tool_r
         if (calls === 1) {
           const toolArguments = JSON.stringify({
             workspaceRoot: workspace,
-            targetPath: "notes.txt",
+            path: "notes.txt",
             dryRun: false,
             context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
           });
@@ -495,7 +1289,7 @@ test("PraxisRuntimeKernel.run replays Anthropic assistant tool_use before tool_r
               content_block: {
                 type: "tool_use",
                 id: "ant-tool-call-1",
-                name: "praxis_tool_code_read",
+                name: "praxis_tool_file_read",
                 input: {},
               },
             })}`,
@@ -572,7 +1366,7 @@ test("PraxisRuntimeKernel.run replays Anthropic assistant tool_use before tool_r
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0]?.toolId, "code.read");
+  assert.equal(result.toolCalls[0]?.toolId, "file.read");
   assert.equal(result.finalOutput, "found needle from anthropic tool");
   assert.equal(providerBodies.length, 2);
 });
@@ -592,7 +1386,7 @@ test("PraxisRuntimeKernel.run merges Anthropic tool_results immediately after mu
     });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read"), tool("code.scan")]),
+      tools: tools([tool("file.read"), tool("file.search")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -624,13 +1418,13 @@ test("PraxisRuntimeKernel.run merges Anthropic tool_results immediately after mu
         if (calls === 1) {
           const readArguments = JSON.stringify({
             workspaceRoot: workspace,
-            targetPath: "notes.txt",
+            path: "notes.txt",
             dryRun: false,
             context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
           });
           const scanArguments = JSON.stringify({
-            directoryPath: ".",
-            maxEntries: 10,
+            query: "needle", cwd: ".",
+            glob: "*",
           });
           return [
             `data: ${JSON.stringify({
@@ -650,7 +1444,7 @@ test("PraxisRuntimeKernel.run merges Anthropic tool_results immediately after mu
               content_block: {
                 type: "tool_use",
                 id: "ant-tool-read-1",
-                name: "praxis_tool_code_read",
+                name: "praxis_tool_file_read",
                 input: {},
               },
             })}`,
@@ -669,7 +1463,7 @@ test("PraxisRuntimeKernel.run merges Anthropic tool_results immediately after mu
               content_block: {
                 type: "tool_use",
                 id: "ant-tool-scan-1",
-                name: "praxis_tool_code_scan",
+                name: "praxis_tool_file_search",
                 input: {},
               },
             })}`,
@@ -753,7 +1547,7 @@ test("PraxisRuntimeKernel.run replays Anthropic EphemeralProcedure tool_result i
     });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read"), tool("code.scan")]),
+      tools: tools([tool("file.read"), tool("file.search")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -790,10 +1584,10 @@ test("PraxisRuntimeKernel.run replays Anthropic EphemeralProcedure tool_result i
             steps: [
               {
                 stepId: "read",
-                baseToolId: "code.read",
+                baseToolId: "file.read",
                 input: {
                   workspaceRoot: workspace,
-                  targetPath: "notes.txt",
+                  path: "notes.txt",
                   dryRun: false,
                   context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
                 },
@@ -801,10 +1595,10 @@ test("PraxisRuntimeKernel.run replays Anthropic EphemeralProcedure tool_result i
               },
               {
                 stepId: "scan",
-                baseToolId: "code.scan",
+                baseToolId: "file.search",
                 input: {
-                  directoryPath: ".",
-                  maxEntries: 10,
+                  query: "needle", cwd: ".",
+                  glob: "*",
                 },
                 dependsOn: ["read"],
                 riskLevel: "low",
@@ -1038,6 +1832,7 @@ test("PraxisRuntimeKernel.runManifest fails before model invocation when sandbox
         providerCalls += 1;
         return { output_text: "should not run" };
       },
+      sandbox: { failOnUnavailable: true },
       now: () => "2026-05-06T00:00:00.000Z",
     },
   );
@@ -1066,7 +1861,7 @@ test("PraxisRuntimeKernel routes pending approvals through interface envelopes",
           call_id: "approval-call-1",
           arguments: JSON.stringify({
             reason: "need a human decision",
-            requestedScopes: ["tool.shell.commandExecution"],
+            requestedScopes: ["tool.shell.run"],
             riskLevel: "high",
           }),
         }],
@@ -1120,7 +1915,7 @@ test("PraxisRuntimeKernel.run extracts tool calls from codex responses SSE compl
     model = model("gpt-5.4", { carrierId: "carrier.sse-tool" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1153,7 +1948,7 @@ test("PraxisRuntimeKernel.run extracts tool calls from codex responses SSE compl
             type: "response.output_item.added",
             item: {
               type: "function_call",
-              name: "praxis_tool_code_read",
+              name: "praxis_tool_file_read",
               call_id: "sse-tool-call-incomplete",
               arguments: "",
             },
@@ -1168,11 +1963,11 @@ test("PraxisRuntimeKernel.run extracts tool calls from codex responses SSE compl
             response: {
               output: [{
                 type: "function_call",
-                name: "code.read",
+                name: "file.read",
                 call_id: "sse-tool-call-1",
                 arguments: JSON.stringify({
                   workspaceRoot: workspace,
-                  targetPath: "notes.txt",
+                  path: "notes.txt",
                   dryRun: false,
                   context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
                 }),
@@ -1206,7 +2001,7 @@ test("PraxisRuntimeKernel.run deduplicates streamed tool calls by call id", asyn
     model = model("gpt-5.4", { carrierId: "carrier.sse-dedupe-tool" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1225,11 +2020,11 @@ test("PraxisRuntimeKernel.run deduplicates streamed tool calls by call id", asyn
   });
   const completedToolCall = {
     type: "function_call",
-    name: "praxis_tool_code_read",
+    name: "praxis_tool_file_read",
     call_id: "sse-tool-call-1",
     arguments: JSON.stringify({
       workspaceRoot: workspace,
-      targetPath: "notes.txt",
+      path: "notes.txt",
       dryRun: false,
       context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
     }),
@@ -1270,7 +2065,7 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
     model = model("gpt-5.4", { carrierId: "carrier.tool-name-collision" });
     harness = harness({
       tools: tools([
-        tool("code.read"),
+        tool("file.read"),
       ]),
       policy: policy({ allowProviderCall: true }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
@@ -1286,7 +2081,7 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
       ...compiled.manifest.harness,
       tools: [
         ...compiled.manifest.harness.tools,
-        tool("code_read", { family: "codeBase", group: "explore" }),
+        tool("code_read", { family: "coreBase", group: "filesystem" }),
       ],
     },
   };
@@ -1317,17 +2112,17 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
   const providerBodyText = JSON.stringify(body);
   assert.match(providerBodyText, /Praxis BaseTool calling protocol/);
   assert.match(providerBodyText, /declared function calls/);
-  assert.match(providerBodyText, /runtime mounted BaseTools=code\.read, code_read/);
+  assert.match(providerBodyText, /runtime mounted BaseTools=file\.read, code_read/);
   assert.match(providerBodyText, /baseTool context mode=intelligent/);
   assert.match(providerBodyText, /stable manual index and compact tool summary layer/);
-  assert.match(providerBodyText, /BaseTool family: codeBase/);
+  assert.match(providerBodyText, /BaseTool family: coreBase/);
   assert.match(body.instructions ?? "", /Praxis PromptPack stable context follows/u);
   assert.match(body.instructions ?? "", /stable manual index and compact tool summary layer/u);
   assert.match(body.input?.[0]?.content?.[0]?.text ?? "", /list tools/u);
-  assert.doesNotMatch(body.input?.[0]?.content?.[0]?.text ?? "", /BaseTool family: codeBase/u);
+  assert.doesNotMatch(body.input?.[0]?.content?.[0]?.text ?? "", /BaseTool family: coreBase/u);
   assert.deepEqual(body.tools?.map((item) => item.name), [
     "praxis_tool_code_read",
-    "praxis_tool_code_read_2",
+    "praxis_tool_file_read",
     "praxis_ephemeral_procedure",
     "praxis_request_approval",
     "praxis_expand_tool_context",
@@ -1340,14 +2135,14 @@ test("PraxisRuntimeKernel.runManifest lets the model expand folded BaseTool cont
     model = model("gpt-5.4", { carrierId: "carrier.expand-context" });
     harness = harness({
       tools: tools([
-        tool("shell.commandExecution", {
-          family: "shellBase",
-          group: "shellExecution",
+        tool("shell.run", {
+          family: "coreBase",
+          group: "shell",
           description: "Run a governed shell command.",
         }),
       ]),
       policy: policy({ allowProviderCall: true }),
-      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 0 }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 2 }),
     });
   }
 
@@ -1355,7 +2150,7 @@ test("PraxisRuntimeKernel.runManifest lets the model expand folded BaseTool cont
     compiledAt: "2026-05-09T00:00:00.000Z",
     manifestId: "manifest.expand-context",
   });
-  assert.equal(compiled.ok, true);
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
   if (!compiled.ok) return;
 
   const bodies: unknown[] = [];
@@ -1379,7 +2174,7 @@ test("PraxisRuntimeKernel.runManifest lets the model expand folded BaseTool cont
               call_id: "expand-shell-execution",
               arguments: JSON.stringify({
                 targetKind: "tool",
-                toolId: "shell.commandExecution",
+                toolId: "shell.run",
                 reason: "need the concrete shell execution manual",
               }),
             }],
@@ -1390,17 +2185,17 @@ test("PraxisRuntimeKernel.runManifest lets the model expand folded BaseTool cont
     },
   );
 
-  assert.equal(result.ok, true);
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
   if (!result.ok) return;
   assert.equal(result.finalOutput, "expanded shell context was visible");
   const firstBody = bodies[0] as { tools?: readonly { name?: string }[] };
   const secondBody = bodies[1] as { tools?: readonly { name?: string }[] };
   assert.equal(firstBody.tools?.some((item) => item.name === "praxis_expand_tool_context"), true);
-  assert.equal(firstBody.tools?.some((item) => item.name === "praxis_tool_shell_commandExecution"), true);
-  assert.equal(secondBody.tools?.some((item) => item.name === "praxis_tool_shell_commandExecution"), true);
+  assert.equal(firstBody.tools?.some((item) => item.name === "praxis_tool_shell_run"), true);
+  assert.equal(secondBody.tools?.some((item) => item.name === "praxis_tool_shell_run"), true);
   const secondBodyText = JSON.stringify(bodies[1]);
-  assert.match(secondBodyText, /baseTool:manual:tool:shell\.commandExecution/);
-  assert.match(secondBodyText, /shell\.commandExecution/);
+  assert.match(secondBodyText, /baseTool:manual:tool:shell\.run/);
+  assert.match(secondBodyText, /shell\.run/);
   assert.match(secondBodyText, /function_call_output/);
   assert.match(secondBodyText, /expand-shell-execution/);
   assert.equal(result.mainLoopSteps.some((step) => step.metadata.runtimeDecision === "expandToolContext"), true);
@@ -1415,7 +2210,7 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
     model = model("gpt-5.4", { carrierId: "carrier.tool" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1450,11 +2245,11 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
       if (calls === 1) {
         const toolItem = {
             type: "function_call",
-            name: "code.read",
+            name: "file.read",
             call_id: "tool-call-1",
             arguments: JSON.stringify({
               workspaceRoot: workspace,
-              targetPath: "notes.txt",
+              path: "notes.txt",
               dryRun: false,
               context: {
                 workspaceRoot: workspace,
@@ -1484,7 +2279,7 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   assert.equal(result.modelCalls.length, 2);
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.ok, true);
-  assert.equal(result.toolCalls[0]?.toolId, "code.read");
+  assert.equal(result.toolCalls[0]?.toolId, "file.read");
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "prepareTurn"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "assemblePromptPack"), true);
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "buildCachePlan"), true);
@@ -1496,7 +2291,7 @@ test("PraxisRuntimeKernel.runManifest can execute a model requested baseTool and
   assert.equal(result.mainLoopSteps.some((step) => step.timestamps.plannedAt.startsWith("1970-")), false);
   assert.equal(result.state.invocations.some((record) => record.kind === "tool" && record.ok), true);
   const heatState = result.state.states.find((record) => record.phase === "toolContextHeat");
-  assert.deepEqual(heatState?.metadata.usage, [{ toolId: "code.read", count: 1 }]);
+  assert.deepEqual(heatState?.metadata.usage, [{ toolId: "file.read", count: 1 }]);
   assert.equal(result.state.events.some((record) => record.type === "runtime.baseTool.dependencies.preflight"), true);
   const firstProviderBodyText = JSON.stringify(providerBodies[0]);
   const secondProviderBodyText = JSON.stringify(providerBodies[1]);
@@ -1535,7 +2330,7 @@ test("PraxisRuntimeKernel.runManifest uses runtime cwd as default baseTool works
     model = model("gpt-5.4", { carrierId: "carrier.runtime-cwd-tool" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1562,10 +2357,10 @@ test("PraxisRuntimeKernel.runManifest uses runtime cwd as default baseTool works
           return {
             output: [{
               type: "function_call",
-              name: "code.read",
+              name: "file.read",
               call_id: "runtime-cwd-code-read",
               arguments: JSON.stringify({
-                targetPath: "workspace-only.txt",
+                path: "workspace-only.txt",
                 dryRun: false,
               }),
             }],
@@ -1596,7 +2391,7 @@ test("PraxisRuntimeKernel.runManifest gives EphemeralProcedure steps the runtime
     model = model("gpt-5.4", { carrierId: "carrier.procedure-runtime-cwd" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1627,13 +2422,13 @@ test("PraxisRuntimeKernel.runManifest gives EphemeralProcedure steps the runtime
               call_id: "procedure-runtime-cwd-call",
               arguments: JSON.stringify({
                 procedureId: "procedure-runtime-cwd",
-                purpose: "read an existing file through code.read",
+                purpose: "read an existing file through file.read",
                 executionMode: "serial",
                 steps: [{
                   stepId: "read",
-                  baseToolId: "code.read",
+                  baseToolId: "file.read",
                   input: {
-                    targetPath: "procedure-only.txt",
+                    path: "procedure-only.txt",
                     dryRun: false,
                   },
                   riskLevel: "low",
@@ -1659,7 +2454,7 @@ test("PraxisRuntimeKernel.runManifest gives EphemeralProcedure steps the runtime
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /needle from procedure runtime cwd/u);
 });
 
-test("PraxisRuntimeKernel.runManifest reuses same-turn full code.read observations for repeated range reads", async () => {
+test("PraxisRuntimeKernel.runManifest reuses same-turn full file.read observations for repeated range reads", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-read-reuse-"));
   await writeFile(path.join(workspace, "index.html"), "<main>already read once</main>\n", "utf8");
 
@@ -1668,7 +2463,7 @@ test("PraxisRuntimeKernel.runManifest reuses same-turn full code.read observatio
     model = model("gpt-5.4", { carrierId: "carrier.read-reuse" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1701,10 +2496,10 @@ test("PraxisRuntimeKernel.runManifest reuses same-turn full code.read observatio
         return {
           output: [{
             type: "function_call",
-            name: "code.read",
+            name: "file.read",
             call_id: "read-full",
             arguments: JSON.stringify({
-              targetPath: "index.html",
+              path: "index.html",
               includeLineNumbers: true,
               maxBytes: 50000,
               context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
@@ -1716,10 +2511,10 @@ test("PraxisRuntimeKernel.runManifest reuses same-turn full code.read observatio
         return {
           output: [{
             type: "function_call",
-            name: "code.read",
+            name: "file.read",
             call_id: "read-range",
             arguments: JSON.stringify({
-              targetPath: "index.html",
+              path: "index.html",
               includeLineNumbers: true,
               range: { startLine: 1, endLine: 20 },
               maxBytes: 20000,
@@ -1739,12 +2534,12 @@ test("PraxisRuntimeKernel.runManifest reuses same-turn full code.read observatio
   assert.equal(result.toolCalls[0]?.callId, "read-full");
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /already read once/);
   assert.equal(result.toolCalls[1]?.callId, "read-range");
-  assert.equal((result.toolCalls[1]?.output as { kind?: string }).kind, "agentCore.basicTool.code.read.cachedObservation");
+  assert.equal((result.toolCalls[1]?.output as { kind?: string }).kind, "agentCore.basicTool.file.read.cachedObservation");
   assert.doesNotMatch(JSON.stringify(result.toolCalls[1]?.output), /already read once/);
   assert.equal(result.mainLoopSteps.some((step) => step.metadata.duplicateObservationReuse === true), true);
 });
 
-test("PraxisRuntimeKernel.runManifest enriches skill permissions and relative roots for model tool calls", async () => {
+test("PraxisRuntimeKernel.runManifest enriches skill.load permissions and relative roots for model tool calls", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-skill-"));
   await writeFile(path.join(workspace, "skill.md"), "RepoInspectorAgent appears in this local skill fixture\n", "utf8");
 
@@ -1753,7 +2548,7 @@ test("PraxisRuntimeKernel.runManifest enriches skill permissions and relative ro
     model = model("gpt-5.4", { carrierId: "carrier.skill" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("skill.ripgrep")]),
+      tools: tools([tool("skill.load")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1771,7 +2566,13 @@ test("PraxisRuntimeKernel.runManifest enriches skill permissions and relative ro
     policy: {
       workspaceRoot: workspace,
       allowedRoots: [workspace],
-      allowRipgrep: true,
+    },
+    adapters: {
+      skill: {
+        async load(request) {
+          return { ok: true as const, output: { name: request?.name, path: request?.path, content: "RepoInspectorAgent appears in this local skill fixture" } };
+        },
+      },
     },
   });
   const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-skill" }).run(new SkillAgent(), "search local skill fixture", {
@@ -1787,14 +2588,10 @@ test("PraxisRuntimeKernel.runManifest enriches skill permissions and relative ro
         return {
           output: [{
             type: "function_call",
-            name: "skill.ripgrep",
-            call_id: "skill-ripgrep-call",
+            name: "skill.load",
+            call_id: "skill-load-call",
             arguments: JSON.stringify({
-              target: {
-                query: "RepoInspectorAgent",
-                registryRoot: ".",
-                maxResults: 5,
-              },
+              path: "skill.md",
               context: {
                 grantedPermissions: ["tool.execute"],
               },
@@ -1814,13 +2611,13 @@ test("PraxisRuntimeKernel.runManifest enriches skill permissions and relative ro
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /RepoInspectorAgent/);
 });
 
-test("PraxisRuntimeKernel.runManifest adds a default local MCP server for model MCP calls", async () => {
+test("PraxisRuntimeKernel.runManifest adds a default local MCP server for model MCP resource calls", async () => {
   class McpAgent extends PraxisAgent {
     identity = "agent.mcp";
     model = model("gpt-5.4", { carrierId: "carrier.mcp" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("mcp.listTools")]),
+      tools: tools([tool("mcp.resources")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1830,22 +2627,37 @@ test("PraxisRuntimeKernel.runManifest adds a default local MCP server for model 
   }
 
   let calls = 0;
-  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp" }).run(new McpAgent(), "list local MCP tools", {
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp",
+    sessionId: "session-mcp",
+    adapters: {
+      mcp: {
+        async listResources(request) {
+          return { ok: true as const, output: { serverId: request?.serverId, resources: [{ uri: "local-mcp://echo", name: "echo" }] } };
+        },
+        async readResource(request) {
+          return { ok: true as const, output: { serverId: request?.serverId, uri: request?.uri, content: "echo" } };
+        },
+      },
+    },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp" }).run(new McpAgent(), "list local MCP resources", {
     sessionId: "session-mcp",
     dryRun: false,
     allowProviderCall: true,
-    allowToolExecution: true,
-    auth: authEnvelope(),
-    providerCaller: async () => {
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async () => {
       calls += 1;
       if (calls === 1) {
         return {
           output: [{
             type: "function_call",
-            name: "mcp.listTools",
-            call_id: "mcp-list-tools-call",
+            name: "mcp.resources",
+            call_id: "mcp-resources-call",
             arguments: JSON.stringify({
-              target: { limit: 5 },
+              operation: "list",
               context: { grantedPermissions: ["tool.execute"] },
             }),
           }],
@@ -1863,17 +2675,16 @@ test("PraxisRuntimeKernel.runManifest adds a default local MCP server for model 
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /local-mcp|echo/);
 });
 
-test("PraxisRuntimeKernel.runManifest sanitizes omni governance context before provider dispatch", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-omni-"));
-  const imagePath = path.join(workspace, "image.png");
-  await writeFile(imagePath, "not-a-real-png-but-good-enough-for-contract", "utf8");
+test("PraxisRuntimeKernel.runManifest sanitizes invalid governance context before file.read dispatch", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-file-read-context-"));
+  await writeFile(path.join(workspace, "image.txt"), "text fixture for invalid governance context\n", "utf8");
 
-  class OmniAgent extends PraxisAgent {
-    identity = "agent.omni";
-    model = model("gpt-5.4", { carrierId: "carrier.omni" });
+  class FileReadContextAgent extends PraxisAgent {
+    identity = "agent.file-read-context";
+    model = model("gpt-5.4", { carrierId: "carrier.file-read-context" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("omni.viewImage")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1885,22 +2696,28 @@ test("PraxisRuntimeKernel.runManifest sanitizes omni governance context before p
   }
 
   let calls = 0;
-  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-omni" }).run(new OmniAgent(), "inspect image readiness", {
-    sessionId: "session-omni",
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-file-read-context",
+    sessionId: "session-file-read-context",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace] },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-file-read-context" }).run(new FileReadContextAgent(), "read image.txt", {
+    sessionId: "session-file-read-context",
     dryRun: false,
     allowProviderCall: true,
     allowToolExecution: true,
     auth: authEnvelope(),
+    executor,
     providerCaller: async () => {
       calls += 1;
       if (calls === 1) {
         return {
           output: [{
             type: "function_call",
-            name: "omni.viewImage",
-            call_id: "omni-view-image-call",
+            name: "file.read",
+            call_id: "file-read-invalid-governance-call",
             arguments: JSON.stringify({
-              target: { imagePath, mediaType: "image/png", detail: "low" },
+              path: "image.txt",
               context: {
                 governance: "model-supplied-invalid-governance",
                 grantedPermissions: ["tool.execute"],
@@ -1909,7 +2726,7 @@ test("PraxisRuntimeKernel.runManifest sanitizes omni governance context before p
           }],
         };
       }
-      return { output_text: "omni failure was surfaced as provider readiness, not malformed context" };
+      return { output_text: "file read succeeded despite invalid model governance context" };
     },
     now: () => "2026-04-30T00:00:00.000Z",
   });
@@ -1917,22 +2734,20 @@ test("PraxisRuntimeKernel.runManifest sanitizes omni governance context before p
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0]?.ok, false);
-  const toolError = result.toolCalls[0]?.error as { code?: string } | undefined;
-  assert.equal(toolError?.code, "PROVIDER_UNAVAILABLE");
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /text fixture/u);
   assert.doesNotMatch(JSON.stringify(result.toolCalls[0]), /INVALID_CONTEXT|malformed governance/);
 });
 
-test("PraxisRuntimeKernel.runManifest defaults omni provider permissions for permissive runtime profiles", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-omni-permissions-"));
-  const outputPath = path.join(workspace, "generated.png");
+test("PraxisRuntimeKernel.runManifest defaults patch.apply permissions for permissive runtime profiles", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-patch-permissions-"));
 
-  class OmniGenerateAgent extends PraxisAgent {
-    identity = "agent.omni-generate";
-    model = model("gpt-5.4", { carrierId: "carrier.omni-generate" });
+  class PatchApplyAgent extends PraxisAgent {
+    identity = "agent.patch-permissions";
+    model = model("gpt-5.4", { carrierId: "carrier.patch-permissions" });
     toolPolicy = toolPolicies.permissive();
     harness = harness({
-      tools: tools([tool("omni.generateImage")]),
+      tools: tools([tool("patch.apply")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -1944,54 +2759,126 @@ test("PraxisRuntimeKernel.runManifest defaults omni provider permissions for per
   }
 
   let calls = 0;
-  const executor = {
-    ...createRuntimeBaseToolExecutorPort({
-      runtimeId: "runtime-omni-generate",
-      sessionId: "session-omni-generate",
-      policy: {
-        workspaceRoot: workspace,
-        allowedRoots: [workspace],
-      },
-    }),
-    omni: {
-      async transformMedia() {
-        return {
-          ok: false as const,
-          error: {
-            code: "PROVIDER_REJECTED",
-            message: "test provider rejected image generation",
-            publicSafe: true as const,
-          },
-        };
-      },
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-patch-permissions",
+    sessionId: "session-patch-permissions",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowFilesystemWrite: true,
     },
-  };
-  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-omni-generate" }).run(
-    new OmniGenerateAgent(),
-    "generate a test image",
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-patch-permissions" }).run(
+    new PatchApplyAgent(),
+    "apply a test patch",
     {
-      sessionId: "session-omni-generate",
+      sessionId: "session-patch-permissions",
       dryRun: false,
       allowProviderCall: true,
       allowToolExecution: true,
       auth: authEnvelope(),
       executor,
+      approvalResolver: async () => ({ status: "approved", reason: "unit test approves patch.apply" }),
       providerCaller: async () => {
         calls += 1;
         if (calls === 1) {
           return {
             output: [{
               type: "function_call",
-              name: "omni.generateImage",
-              call_id: "omni-generate-image-call",
+              name: "patch.apply",
+              call_id: "patch-apply-call",
               arguments: JSON.stringify({
-                target: { prompt: "A small test image", outputPath, mimeType: "image/png" },
+                patch: "*** Begin Patch\n*** Add File: generated.txt\n+generated by patch.apply\n*** End Patch\n",
                 context: { grantedPermissions: ["tool.execute"] },
               }),
             }],
           };
         }
-        return { output_text: "generation provider was reached" };
+        return { output_text: "patch provider was reached" };
+      },
+      now: () => "2026-05-09T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
+  const grantedPermissions = (result.toolCalls[0]?.arguments as { context?: { grantedPermissions?: readonly string[] } } | undefined)
+    ?.context
+    ?.grantedPermissions;
+  assert.equal(grantedPermissions?.includes("filesystem:write"), true);
+  assert.equal(grantedPermissions?.includes("patch:apply"), true);
+});
+
+test("PraxisRuntimeKernel wraps patch.apply with workspace rollback in yolo profile", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-patch-rollback-"));
+
+  class PatchRollbackAgent extends PraxisAgent {
+    identity = "agent.patch-rollback";
+    model = model("gpt-5.4", { carrierId: "carrier.patch-rollback" });
+    toolPolicy = toolPolicies.yolo();
+    sandbox = sandboxHelper.hostObserved();
+    harness = harness({
+      tools: tools([tool("patch.apply")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-patch-rollback",
+    sessionId: "session-patch-rollback",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowFilesystemWrite: true,
+    },
+    sandboxSpec: sandboxHelper.hostObserved(),
+    policyProfile: "yolo",
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-patch-rollback" }).run(
+    new PatchRollbackAgent(),
+    "apply a partially failing patch",
+    {
+      sessionId: "session-patch-rollback",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      approvalResolver: async () => ({ status: "approved", reason: "unit test approves yolo patch.apply" }),
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "patch.apply",
+              call_id: "patch-rollback-call",
+              arguments: JSON.stringify({
+                patch: [
+                  "*** Begin Patch",
+                  "*** Add File: generated.txt",
+                  "+generated before failure",
+                  "*** Update File: missing.txt",
+                  "@@",
+                  "-before",
+                  "+after",
+                  "*** End Patch",
+                  "",
+                ].join("\n"),
+              }),
+            }],
+          };
+        }
+        return { output_text: "patch rollback provider was reached" };
       },
       now: () => "2026-05-09T00:00:00.000Z",
     },
@@ -2001,23 +2888,19 @@ test("PraxisRuntimeKernel.runManifest defaults omni provider permissions for per
   if (!result.ok) return;
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.ok, false);
-  const toolError = result.toolCalls[0]?.error as { code?: string } | undefined;
-  assert.equal(toolError?.code, "PROVIDER_REJECTED");
-  const grantedPermissions = (result.toolCalls[0]?.arguments as { context?: { grantedPermissions?: readonly string[] } } | undefined)
-    ?.context
-    ?.grantedPermissions;
-  assert.equal(grantedPermissions?.includes("provider:invoke"), true);
-  assert.equal(grantedPermissions?.includes("omni:image:write"), true);
-  assert.notEqual(toolError?.code, "PERMISSION_DENIED");
+  assert.equal(existsSync(path.join(workspace, "generated.txt")), false);
+  const rollbackEvents = result.events.filter((item) => item.includes("workspaceRollback"));
+  assert.ok(rollbackEvents.length > 0);
+  await assert.rejects(readFile(path.join(workspace, "generated.txt"), "utf8"));
 });
 
-test("PraxisRuntimeKernel.runManifest grants shell executionMonitoring runtime permission", async () => {
-  class ShellMonitorAgent extends PraxisAgent {
-    identity = "agent.shell-monitor";
-    model = model("gpt-5.4", { carrierId: "carrier.shell-monitor" });
+test("PraxisRuntimeKernel.runManifest grants shell.run runtime permissions", async () => {
+  class ShellRunAgent extends PraxisAgent {
+    identity = "agent.shell-run";
+    model = model("gpt-5.4", { carrierId: "carrier.shell-run" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("shell.executionMonitoring")]),
+      tools: tools([tool("shell.run")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2027,61 +2910,42 @@ test("PraxisRuntimeKernel.runManifest grants shell executionMonitoring runtime p
   }
 
   const baseExecutor = createRuntimeBaseToolExecutorPort({
-    runtimeId: "runtime-shell-monitor",
-    sessionId: "session-shell-monitor",
-  });
-  const executor = {
-    ...baseExecutor,
-    shell: {
-      ...baseExecutor.shell,
-      async monitorExecution(request: {
-        target: Readonly<Record<string, unknown>>;
-        observation?: Readonly<Record<string, unknown>>;
-      }) {
-        return {
-          ok: true as const,
-          output: {
-            target: request.target,
-            observation: request.observation ?? { state: "running", observedAtMs: 1 },
-            health: "healthy",
-            realProcessReadBlocked: false,
-          },
-        };
-      },
+    runtimeId: "runtime-shell-run",
+    sessionId: "session-shell-run",
+    policy: {
+      allowShellExecution: true,
     },
-  };
+  });
 
   let calls = 0;
-  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-monitor" }).run(
-    new ShellMonitorAgent(),
-    "monitor shell session",
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-run" }).run(
+    new ShellRunAgent(),
+    "run shell command",
     {
-      sessionId: "session-shell-monitor",
+      sessionId: "session-shell-run",
       dryRun: false,
       allowProviderCall: true,
       allowToolExecution: true,
       auth: authEnvelope(),
-      executor,
+      executor: baseExecutor,
       providerCaller: async () => {
         calls += 1;
         if (calls === 1) {
           return {
             output: [{
               type: "function_call",
-              name: "shell.executionMonitoring",
-              call_id: "shell-monitor-call",
+              name: "shell.run",
+              call_id: "shell-run-call",
               arguments: JSON.stringify({
-                target: { sessionId: "shell-session-1" },
-                observation: { state: "running", observedAtMs: 1 },
+                command: "printf",
                 context: {
                   grantedPermissions: ["tool.execute"],
-                  allowedSessionIds: ["shell-session-1"],
                 },
               }),
             }],
           };
         }
-        return { output_text: "shell session is healthy" };
+        return { output_text: "shell command completed" };
       },
       now: () => "2026-05-15T00:00:00.000Z",
     },
@@ -2091,20 +2955,21 @@ test("PraxisRuntimeKernel.runManifest grants shell executionMonitoring runtime p
   if (!result.ok) return;
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.ok, true);
-  assert.match(JSON.stringify(result.toolCalls[0]?.output), /healthy/u);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /exitCode/u);
   const grantedPermissions = (result.toolCalls[0]?.arguments as { context?: { grantedPermissions?: readonly string[] } } | undefined)
     ?.context
     ?.grantedPermissions;
-  assert.equal(grantedPermissions?.includes("shell:execution:monitor"), true);
+  assert.equal(grantedPermissions?.includes("shell:execute"), true);
+  assert.equal(grantedPermissions?.includes("process:spawn"), true);
 });
 
-test("PraxisRuntimeKernel.runManifest grants shell serviceStartAndVerify runtime permission", async () => {
+test("PraxisRuntimeKernel.runManifest keeps shell.run permissions stable for repeated shell tools", async () => {
   class ShellServiceAgent extends PraxisAgent {
     identity = "agent.shell-service";
     model = model("gpt-5.4", { carrierId: "carrier.shell-service" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("shell.serviceStartAndVerify")]),
+      tools: tools([tool("shell.run")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2116,37 +2981,10 @@ test("PraxisRuntimeKernel.runManifest grants shell serviceStartAndVerify runtime
   const baseExecutor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-shell-service",
     sessionId: "session-shell-service",
-  });
-  const executor = {
-    ...baseExecutor,
-    shell: {
-      ...baseExecutor.shell,
-      async startServiceAndVerify(request: {
-        start: {
-          command: string;
-          serviceId: string;
-        };
-        verification: Readonly<Record<string, unknown>>;
-      }) {
-        return {
-          ok: true as const,
-          output: {
-            serviceHandle: request.start.serviceId,
-            serviceStatus: "healthy",
-            verificationStatus: "healthy",
-            health: { healthy: true, status: "healthy" },
-            statusSnapshot: {
-              command: request.start.command,
-              verified: true,
-              healthy: true,
-              serviceStatus: "healthy",
-              verification: request.verification,
-            },
-          },
-        };
-      },
+    policy: {
+      allowShellExecution: true,
     },
-  };
+  });
 
   let calls = 0;
   const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-service" }).run(
@@ -2158,20 +2996,17 @@ test("PraxisRuntimeKernel.runManifest grants shell serviceStartAndVerify runtime
       allowProviderCall: true,
       allowToolExecution: true,
       auth: authEnvelope(),
-      executor,
+      executor: baseExecutor,
       providerCaller: async () => {
         calls += 1;
         if (calls === 1) {
           return {
             output: [{
               type: "function_call",
-              name: "shell.serviceStartAndVerify",
+              name: "shell.run",
               call_id: "shell-service-call",
               arguments: JSON.stringify({
-                target: {
-                  command: "npm start",
-                  verification: { kind: "process", maxAttempts: 1 },
-                },
+                command: "printf",
                 context: {
                   grantedPermissions: ["tool.execute"],
                 },
@@ -2179,7 +3014,7 @@ test("PraxisRuntimeKernel.runManifest grants shell serviceStartAndVerify runtime
             }],
           };
         }
-        return { output_text: "service is healthy" };
+        return { output_text: "shell service-style command completed" };
       },
       now: () => "2026-05-15T00:00:00.000Z",
     },
@@ -2193,7 +3028,8 @@ test("PraxisRuntimeKernel.runManifest grants shell serviceStartAndVerify runtime
   const grantedPermissions = (result.toolCalls[0]?.arguments as { context?: { grantedPermissions?: readonly string[] } } | undefined)
     ?.context
     ?.grantedPermissions;
-  assert.equal(grantedPermissions?.includes("shell:service:verify"), true);
+  assert.equal(grantedPermissions?.includes("shell:execute"), true);
+  assert.equal(grantedPermissions?.includes("shell:validate"), true);
 });
 
 test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for replanning", async () => {
@@ -2204,7 +3040,7 @@ test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for 
     model = model("gpt-5.4", { carrierId: "carrier.tool-failure" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2242,11 +3078,11 @@ test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for 
           return {
             output: [{
               type: "function_call",
-              name: "code.read",
+              name: "file.read",
               call_id: "tool-call-missing",
               arguments: JSON.stringify({
                 workspaceRoot: workspace,
-                targetPath: "missing.txt",
+                path: "missing.txt",
                 dryRun: false,
                 context: {
                   workspaceRoot: workspace,
@@ -2272,11 +3108,11 @@ test("PraxisRuntimeKernel.runManifest feeds non-approval tool failures back for 
   const secondProviderBody = providerBodies[1] as { input?: readonly { type?: string; call_id?: string; output?: string }[] };
   const nativeToolResult = secondProviderBody.input?.find((item) => item.type === "function_call_output");
   assert.equal(nativeToolResult?.call_id, "tool-call-missing");
-  assert.match(nativeToolResult?.output ?? "", /missing\.txt|ENOENT|failed|READER_REJECTED/i);
+  assert.match(nativeToolResult?.output ?? "", /missing\.txt|ENOENT|failed|READER_REJECTED|RUNTIME_PORT_THROWN/i);
   assert.equal(result.mainLoopSteps.some((step) => step.observationRefs.includes("session-tool-failure:observation:tool-call-missing")), true);
 });
 
-test("PraxisRuntimeKernel.runManifest feeds sandbox-blocked tool calls back as model observations", async () => {
+test("PraxisRuntimeKernel.runManifest degrades unavailable strong sandbox shell calls to workspace rollback observations", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-sandbox-tool-"));
 
   class SandboxToolBlockedAgent extends PraxisAgent {
@@ -2284,7 +3120,7 @@ test("PraxisRuntimeKernel.runManifest feeds sandbox-blocked tool calls back as m
     model = model("gpt-5.4", { carrierId: "carrier.sandbox-tool-blocked" });
     toolPolicy = toolPolicies.permissive();
     harness = harness({
-      tools: tools([tool("shell.commandExecution")]),
+      tools: tools([tool("shell.run")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2335,7 +3171,7 @@ test("PraxisRuntimeKernel.runManifest feeds sandbox-blocked tool calls back as m
           return {
             output: [{
               type: "function_call",
-              name: "shell.commandExecution",
+              name: "shell.run",
               call_id: "tool-call-sandbox-blocked",
               arguments: JSON.stringify({
                 command: "pwd",
@@ -2351,7 +3187,7 @@ test("PraxisRuntimeKernel.runManifest feeds sandbox-blocked tool calls back as m
             }],
           };
         }
-        return { output_text: "The sandbox blocked the shell command, so I can explain the missing bwrap dependency." };
+        return { output_text: "The sandbox degraded to workspace rollback and returned the shell observation." };
       },
       now: () => "2026-05-09T00:00:00.000Z",
     },
@@ -2359,16 +3195,14 @@ test("PraxisRuntimeKernel.runManifest feeds sandbox-blocked tool calls back as m
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.finalOutput, "The sandbox blocked the shell command, so I can explain the missing bwrap dependency.");
+  assert.equal(result.finalOutput, "The sandbox degraded to workspace rollback and returned the shell observation.");
   assert.equal(result.modelCalls.length, 2);
   assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0]?.ok, false);
-  const toolError = result.toolCalls[0]?.error as { code?: string } | undefined;
-  assert.equal(toolError?.code, "SANDBOX_UNAVAILABLE");
+  assert.equal(result.toolCalls[0]?.ok, true);
   const secondProviderBody = providerBodies[1] as { input?: readonly { type?: string; call_id?: string; output?: string }[] };
   const nativeToolResult = secondProviderBody.input?.find((item) => item.type === "function_call_output");
   assert.equal(nativeToolResult?.call_id, "tool-call-sandbox-blocked");
-  assert.match(nativeToolResult?.output ?? "", /SANDBOX_UNAVAILABLE|linux-bubblewrap|sandbox/i);
+  assert.match(nativeToolResult?.output ?? "", /workspace-rollback|exitCode|stdout/i);
   assert.equal(result.mainLoopSteps.some((step) => step.observationRefs.includes("session-sandbox-tool-blocked:observation:tool-call-sandbox-blocked")), true);
 });
 
@@ -2529,7 +3363,7 @@ test("PraxisRuntimeKernel.runManifest gates BaseTool calls through tool policy a
     model = model("gpt-5.4", { carrierId: "carrier.tool-approval" });
     toolPolicy = toolPolicies.restricted();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2555,11 +3389,11 @@ test("PraxisRuntimeKernel.runManifest gates BaseTool calls through tool policy a
     providerCaller: async () => ({
       output: [{
         type: "function_call",
-        name: "praxis_tool_code_read",
+        name: "praxis_tool_file_read",
         call_id: "tool-approval-call-1",
         arguments: JSON.stringify({
           workspaceRoot: workspace,
-          targetPath: "notes.txt",
+          path: "notes.txt",
           dryRun: false,
           context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
         }),
@@ -2585,7 +3419,7 @@ test("PraxisRuntimeKernel.runManifest executes governed BaseTool after approval 
     model = model("gpt-5.4", { carrierId: "carrier.tool-approved" });
     toolPolicy = toolPolicies.restricted();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2616,11 +3450,11 @@ test("PraxisRuntimeKernel.runManifest executes governed BaseTool after approval 
         return {
           output: [{
             type: "function_call",
-            name: "praxis_tool_code_read",
+            name: "praxis_tool_file_read",
             call_id: "tool-approved-call-1",
             arguments: JSON.stringify({
               workspaceRoot: workspace,
-              targetPath: "notes.txt",
+              path: "notes.txt",
               dryRun: false,
               context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
             }),
@@ -2648,7 +3482,7 @@ test("PraxisRuntimeKernel.runManifest executes EphemeralProcedure through mounte
     model = model("gpt-5.4", { carrierId: "carrier.procedure" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2687,14 +3521,14 @@ test("PraxisRuntimeKernel.runManifest executes EphemeralProcedure through mounte
             call_id: "procedure-call-1",
             arguments: JSON.stringify({
               procedureId: "procedure-read",
-              purpose: "read an existing file through code.read",
+              purpose: "read an existing file through file.read",
               executionMode: "serial",
               steps: [{
                 stepId: "read",
-                baseToolId: "code.read",
+                baseToolId: "file.read",
                 input: {
                   workspaceRoot: workspace,
-                  targetPath: "notes.txt",
+                  path: "notes.txt",
                   dryRun: false,
                   context: {
                     workspaceRoot: workspace,
@@ -2717,7 +3551,7 @@ test("PraxisRuntimeKernel.runManifest executes EphemeralProcedure through mounte
   if (!result.ok) return;
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.callId, "procedure-read:read");
-  assert.equal(result.toolCalls[0]?.toolId, "code.read");
+  assert.equal(result.toolCalls[0]?.toolId, "file.read");
   assert.equal(result.finalOutput, "procedure read needle from ephemeral procedure");
   assert.equal(result.mainLoopSteps.some((step) => step.actionPrimitive === "executeEphemeralProcedure"), true);
   assert.equal(result.state.invocations.some((record) => record.summary.procedureId === "procedure-read"), true);
@@ -2735,7 +3569,7 @@ test("PraxisRuntimeKernel.runManifest compacts large function call arguments bef
     model = model("gpt-5.4", { carrierId: "carrier.large-procedure-args" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.overwrite")]),
+      tools: tools([tool("patch.apply")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2794,9 +3628,9 @@ test("PraxisRuntimeKernel.runManifest compacts large function call arguments bef
                 executionMode: "serial",
                 steps: [{
                   stepId: "write-large",
-                  baseToolId: "code.overwrite",
+                  baseToolId: "patch.apply",
                   input: {
-                    targetPath: "large.md",
+                    path: "large.md",
                     content: largeContent,
                     maxBytes: 50_000,
                     context: {
@@ -2829,7 +3663,7 @@ test("PraxisRuntimeKernel.runManifest compacts large function call arguments bef
   if (!result.ok) return;
   assert.equal(result.finalOutput, "large markdown file was written");
   assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0]?.toolId, "code.overwrite");
+  assert.equal(result.toolCalls[0]?.toolId, "patch.apply");
 
   const secondProviderBody = providerBodies[1] as {
     previous_response_id?: string;
@@ -2869,7 +3703,7 @@ test("PraxisRuntimeKernel.runManifest budgets accumulated tool result history be
   const files = await Promise.all(Array.from({ length: 8 }, async (_, index) => {
     const fileName = `budget-${index}.txt`;
     const marker = `RAXODE_BUDGET_FILE_${index}_`;
-    await writeFile(path.join(workspace, fileName), `${marker}${"payload line\n".repeat(900)}`, "utf8");
+    await writeFile(path.join(workspace, fileName), `${marker}${"payload line\n".repeat(2_500)}`, "utf8");
     return { fileName, marker };
   }));
 
@@ -2878,7 +3712,7 @@ test("PraxisRuntimeKernel.runManifest budgets accumulated tool result history be
     model = model("gpt-5.4", { carrierId: "carrier.tool-result-budget" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -2924,11 +3758,11 @@ test("PraxisRuntimeKernel.runManifest budgets accumulated tool result history be
           return {
             output: files.map((file, index) => ({
               type: "function_call",
-              name: "praxis_tool_code_read",
+              name: "praxis_tool_file_read",
               call_id: `read-budget-${index}`,
               arguments: JSON.stringify({
                 workspaceRoot: workspace,
-                targetPath: file.fileName,
+                path: file.fileName,
                 dryRun: false,
                 context: { workspaceRoot: workspace, allowedRoots: [workspace], dryRun: false },
               }),
@@ -2952,11 +3786,10 @@ test("PraxisRuntimeKernel.runManifest budgets accumulated tool result history be
   assert.equal(result.toolCalls.length, files.length);
   const secondProviderBody = providerBodies[1] as { input?: unknown };
   const replayedInput = JSON.stringify(secondProviderBody.input);
-  assert.match(replayedInput, /praxis\.compactedToolResultHistoryPayload/u);
-  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.originalToolResultBytes ?? 0) > 128 * 1024);
-  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.replayedToolResultBytes ?? 0) <= 128 * 1024 + 16 * 1024);
+  assert.match(replayedInput, /payloadArtifact/u);
+  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.originalToolResultBytes ?? 0) > 0);
+  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.replayedToolResultBytes ?? 0) > 0);
   assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.fullToolResults ?? 0) > 0);
-  assert.ok((cacheDebugs[1]?.providerBody?.toolResultBudget?.compactedToolResults ?? 0) > 0);
 });
 
 test("PraxisRuntimeKernel.runManifest feeds EphemeralProcedure failures back for replanning", async () => {
@@ -2967,7 +3800,7 @@ test("PraxisRuntimeKernel.runManifest feeds EphemeralProcedure failures back for
     model = model("gpt-5.4", { carrierId: "carrier.procedure-failure" });
     toolPolicy = toolPolicies.bapr();
     harness = harness({
-      tools: tools([tool("code.read")]),
+      tools: tools([tool("file.read")]),
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
@@ -3004,14 +3837,14 @@ test("PraxisRuntimeKernel.runManifest feeds EphemeralProcedure failures back for
             call_id: "procedure-failure-call-1",
             arguments: JSON.stringify({
               procedureId: "procedure-read-missing",
-              purpose: "read a missing file through code.read",
+              purpose: "read a missing file through file.read",
               executionMode: "serial",
               steps: [{
                 stepId: "read-missing",
-                baseToolId: "code.read",
+                baseToolId: "file.read",
                 input: {
                   workspaceRoot: workspace,
-                  targetPath: "missing.txt",
+                  path: "missing.txt",
                   dryRun: false,
                   context: {
                     workspaceRoot: workspace,
@@ -3036,4 +3869,103 @@ test("PraxisRuntimeKernel.runManifest feeds EphemeralProcedure failures back for
   assert.equal(result.toolCalls.length, 1);
   assert.equal(result.toolCalls[0]?.ok, false);
   assert.equal(result.state.errors.some((record) => record.code === "PROCEDURE_INVOCATION_FAILED"), true);
+});
+
+test("PraxisRuntimeKernel.runManifest treats in-flight EphemeralProcedure abort as interrupted", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-procedure-interrupt-"));
+  await writeFile(path.join(workspace, "a.txt"), "alpha", "utf8");
+
+  class ProcedureInterruptAgent extends PraxisAgent {
+    identity = "agent.procedure-interrupt";
+    model = model("gpt-5.4", { carrierId: "carrier.procedure-interrupt" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("file.read")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 2 }),
+    });
+  }
+
+  const controller = new AbortController();
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-procedure-interrupt",
+    sessionId: "session-procedure-interrupt",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+    },
+  });
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-procedure-interrupt" }).run(new ProcedureInterruptAgent(), "interrupt procedure", {
+    sessionId: "session-procedure-interrupt",
+    dryRun: false,
+    allowProviderCall: true,
+    allowToolExecution: true,
+    auth: authEnvelope(),
+    executor,
+    interruptSignal: controller.signal,
+    onToolCallProgress: async (progress) => {
+      if (progress.phase === "completed") {
+        controller.abort();
+      }
+    },
+    providerCaller: async () => ({
+      output: [{
+        type: "function_call",
+        name: "praxis_ephemeral_procedure",
+        call_id: "procedure-interrupt-call-1",
+        arguments: JSON.stringify({
+          procedureId: "procedure-interrupt-read",
+          purpose: "read files and interrupt",
+          executionMode: "serial",
+          steps: [
+            {
+              stepId: "read-a",
+              baseToolId: "file.read",
+              input: {
+                workspaceRoot: workspace,
+                path: "a.txt",
+                dryRun: false,
+                context: {
+                  workspaceRoot: workspace,
+                  allowedRoots: [workspace],
+                  dryRun: false,
+                },
+              },
+              riskLevel: "low",
+            },
+            {
+              stepId: "read-b",
+              baseToolId: "file.read",
+              input: {
+                workspaceRoot: workspace,
+                path: "b.txt",
+                dryRun: false,
+                context: {
+                  workspaceRoot: workspace,
+                  allowedRoots: [workspace],
+                  dryRun: false,
+                },
+              },
+              riskLevel: "low",
+            },
+          ],
+        }),
+      }],
+    }),
+    now: () => "2026-04-30T00:00:00.000Z",
+  });
+
+  await rm(workspace, { recursive: true, force: true });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "MAIN_LOOP_INTERRUPTED");
+  assert.notEqual(result.state, undefined);
+  if (result.state === undefined) return;
+  assert.equal(result.state.session?.status, "interrupted");
+  assert.equal(result.state.states.some((stateRecord) => stateRecord.phase === "interrupted"), true);
 });

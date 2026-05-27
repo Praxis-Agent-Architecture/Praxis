@@ -1,7 +1,8 @@
 export const multiagentTopologyContract = {
-  topologyId: "topology.example.fullstack.singleAgentNow",
+  topologyId: "topology.example.fullstack.projectMeshReady",
   status: "contract-only",
   primaryAgentRef: "agents/repoInspector",
-  futureAgents: ["planner", "executor", "reviewer"],
-  routing: "single-agent-until-multiagentCore-is-enabled",
+  meshScope: "project-local-session-mesh",
+  suggestedAgents: ["planner", "executor", "reviewer"],
+  routing: "single-agent-default-with-agentCore-mesh-tools",
 } as const;

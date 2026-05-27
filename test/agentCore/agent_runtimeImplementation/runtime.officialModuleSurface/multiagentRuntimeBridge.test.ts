@@ -9,12 +9,12 @@ defineAgentCoreContractTest({
   testFileUrl: import.meta.url,
 });
 
-test("createMultiagentRuntimeBridge exposes dry-run spawn, resume, interrupt, and coordination access", () => {
+test("createMultiagentRuntimeBridge exposes runtime-mediated mesh access", () => {
   const result = createMultiagentRuntimeBridge({
     runtimeId: "runtime-1",
     moduleId: "multiagent-main",
-    parentAgentId: "agent-parent",
-    childAgentId: "agent-child",
+    requesterSessionId: "session.requester",
+    targetSessionId: "session.target",
     coordinationId: "coordination-1",
   });
 
@@ -25,19 +25,32 @@ test("createMultiagentRuntimeBridge exposes dry-run spawn, resume, interrupt, an
 
   assert.equal(result.plan.runtimeId, "runtime-1");
   assert.equal(result.plan.moduleKind, "multiagent");
-  assert.equal(result.plan.spawnAccess, "dry-run");
-  assert.equal(result.plan.resumeAccess, "dry-run");
-  assert.equal(result.plan.interruptAccess, "dry-run");
+  assert.equal(result.plan.requesterSessionId, "session.requester");
+  assert.equal(result.plan.targetSessionId, "session.target");
+  assert.equal(result.plan.spawnAccess, "runtime-mediated");
+  assert.equal(result.plan.messageAccess, "runtime-mediated");
+  assert.equal(result.plan.inboxAccess, "runtime-mediated");
+  assert.equal(result.plan.waitAccess, "runtime-mediated");
+  assert.equal(result.plan.stopAccess, "runtime-mediated");
+  assert.equal(result.plan.killAccess, "runtime-mediated");
+  assert.equal(result.plan.listAccess, "runtime-mediated");
+  assert.equal(result.plan.inspectAccess, "runtime-mediated");
   assert.equal(result.plan.coordinationAccess, "runtime-mediated");
   assert.equal(result.plan.runtimeReuseAccess, "runtime-mediated");
-  assert.equal(result.plan.multiagentStrategyImplemented, false);
+  assert.equal(result.plan.topology, "project-session-mesh");
+  assert.equal(result.plan.multiagentStrategyImplemented, true);
   assert.equal(result.plan.unsafeSideEffects, false);
   assert.deepEqual(
     result.plan.capabilityContract.grantedCapabilities.map((capability) => capability.capabilityId),
     [
       "runtime.agent.spawn",
-      "runtime.agent.resume",
-      "runtime.agent.interrupt",
+      "runtime.agent.message",
+      "runtime.agent.inbox",
+      "runtime.agent.wait",
+      "runtime.agent.stop",
+      "runtime.agent.kill",
+      "runtime.agent.list",
+      "runtime.agent.inspect",
       "runtime.agent.coordination",
       "runtime.surface.reuse",
     ],
