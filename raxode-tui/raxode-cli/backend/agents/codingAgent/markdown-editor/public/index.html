@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Markdown Editor - 编辑器</title>
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg2: #f8f9fa;
+    --bg3: #e9ecef;
+    --text: #212529;
+    --text2: #495057;
+    --border: #dee2e6;
+    --accent: #0d6efd;
+    --accent-hover: #0b5ed7;
+    --sidebar-bg: #f1f3f5;
+    --editor-bg: #ffffff;
+    --preview-bg: #fcfcfc;
+    --code-bg: #f1f3f5;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08);
+    --radius: 6px;
+    --transition: 0.25s ease;
+  }
+  [data-theme="dark"] {
+    --bg: #1a1a2e;
+    --bg2: #16213e;
+    --bg3: #0f3460;
+    --text: #e0e0e0;
+    --text2: #b0b0b0;
+    --border: #2a2a4a;
+    --accent: #4dabf7;
+    --accent-hover: #339af0;
+    --sidebar-bg: #12122a;
+    --editor-bg: #1e1e3a;
+    --preview-bg: #1a1a30;
+    --code-bg: #2d2d5e;
+    --shadow: 0 1px 3px rgba(0,0,0,0.3);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', sans-serif;
+    background: var(--bg); color: var(--text);
+    height: 100vh; display: flex; overflow:hidden;
+    transition: background var(--transition), color var(--transition);
+  }
+
+  /* Sidebar */
+  #sidebar {
+    width: 240px; min-width: 240px; background: var(--sidebar-bg);
+    border-right: 1px solid var(--border); display:flex; flex-direction:column;
+    transition: background var(--transition), border var(--transition);
+    z-index:10;
+  }
+  #sidebar-header {
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  #sidebar-header h3 { font-size:14px; font-weight:600; color:var(--text); }
+  #file-list { flex:1; overflow-y:auto; padding:8px; }
+  .file-item {
+    padding: 8px 12px; cursor:pointer; border-radius: var(--radius);
+    font-size:13px; color:var(--text2); display:flex; align-items:center; gap:8px;
+    transition: background 0.15s; margin-bottom:2px;
+    word-break:break-all;
+  }
+  .file-item:hover { background: var(--bg3); }
+  .file-item.active { background: var(--accent); color:#fff; font-weight:500; }
+  .file-item .icon { font-size:14px; flex-shrink:0; }
+  .file-actions { display:none; margin-left:auto; gap:4px; }
+  .file-item:hover .file-actions { display:flex; }
+  .file-actions button {
+    background:none; border:none; cursor:pointer; font-size:12px; padding:2px 4px;
+    color:inherit; border-radius:3px; opacity:0.7;
+  }
+  .file-actions button:hover { opacity:1; background:rgba(255,255,255,0.2); }
+  #sidebar-footer { padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:6px; }
+  #sidebar-footer button {
+    flex:1; padding:7px 0; border:1px solid var(--border); border-radius:var(--radius);
+    background:var(--bg); color:var(--text); font-size:12px; cursor:pointer;
+    transition: all 0.15s;
+  }
+  #sidebar-footer button:hover { border-color:var(--accent); color:var(--accent); }
+  #sidebar-footer button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  #sidebar-footer button.primary:hover { background:var(--accent-hover); }
+
+  /* Top bar */
+  #topbar {
+    height:44px; min-height:44px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; padding:0 16px; gap:10px;
+    background:var(--bg2); justify-content:space-between;
+    transition: background var(--transition), border var(--transition);
+  }
+  #topbar-left { display:flex; align-items:center; gap:10px; }
+  #file-title { font-size:14px; font-weight:600; color:var(--text); }
+  #save-status { font-size:11px; color:var(--text2); display:flex; align-items:center; gap:4px; }
+  #save-status.saved { color: #2b8a3e; }
+  #save-status.saving { color: var(--accent); }
+  #topbar-right { display:flex; align-items:center; gap:8px; }
+  .topbar-btn {
+    background:var(--bg); border:1px solid var(--border); border-radius:var(--radius);
+    color:var(--text); padding:5px 10px; font-size:12px; cursor:pointer;
+    display:flex; align-items:center; gap:4px; transition:all 0.15s;
+  }
+  .topbar-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .topbar-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  /* Main area */
+  #main { flex:1; display:flex; flex-direction:column; overflow:hidden; }
+  #panes { flex:1; display:flex; overflow:hidden; }
+  .pane { flex:1; display:flex; flex-direction:column; border-right:1px solid var(--border); overflow:hidden; }
+  .pane:last-child { border-right:none; }
+  .pane-header {
+    padding:6px 14px; font-size:11px; font-weight:600; text-transform:uppercase;
+    letter-spacing:0.5px; color:var(--text2); background:var(--bg2);
+    border-bottom:1px solid var(--border); user-select:none;
+  }
+  #editor-pane .pane-header { border-right:none; }
+  #editor {
+    flex:1; padding:20px; font-family:'JetBrains Mono','Fira Code','Cascadia Code',monospace;
+    font-size:14px; line-height:1.7; border:none; outline:none; resize:none;
+    background:var(--editor-bg); color:var(--text);
+    tab-size:2; overflow-y:auto;
+    transition: background var(--transition), color var(--transition);
+  }
+  #preview {
+    flex:1; padding:20px 24px; overflow-y:auto; background:var(--preview-bg);
+    transition: background var(--transition);
+  }
+  /* Divider */
+  .divider {
+    width:4px; cursor:col-resize; background:var(--border); flex-shrink:0;
+    transition:background 0.15s;
+  }
+  .divider:hover { background:var(--accent); }
+
+  /* Preview styling */
+  #preview h1 { font-size:1.8em; margin:0.5em 0 0.3em; border-bottom:2px solid var(--border); padding-bottom:6px; }
+  #preview h2 { font-size:1.4em; margin:0.6em 0 0.3em; border-bottom:1px solid var(--border); padding-bottom:4px; }
+  #preview h3 { font-size:1.2em; margin:0.5em 0 0.2em; }
+  #preview h4, #preview h5, #preview h6 { margin:0.4em 0 0.15em; }
+  #preview p { margin:0.5em 0; line-height:1.7; }
+  #preview ul, #preview ol { margin:0.4em 0; padding-left:1.8em; }
+  #preview li { margin:0.2em 0; }
+  #preview code {
+    background:var(--code-bg); padding:2px 6px; border-radius:3px;
+    font-family:'JetBrains Mono','Fira Code',monospace; font-size:0.9em;
+  }
+  #preview pre {
+    background:var(--code-bg); padding:14px 16px; border-radius:var(--radius);
+    overflow-x:auto; margin:0.6em 0;
+  }
+  #preview pre code { background:none; padding:0; }
+  #preview blockquote {
+    border-left:3px solid var(--accent); padding-left:14px; margin:0.5em 0;
+    color:var(--text2); font-style:italic;
+  }
+  #preview table { border-collapse:collapse; margin:0.5em 0; width:100%; }
+  #preview th, #preview td { border:1px solid var(--border); padding:6px 10px; text-align:left; }
+  #preview th { background:var(--bg2); font-weight:600; }
+  #preview a { color:var(--accent); text-decoration:none; }
+  #preview a:hover { text-decoration:underline; }
+  #preview img { max-width:100%; border-radius:var(--radius); }
+  #preview hr { border:none; border-top:1px solid var(--border); margin:1em 0; }
+
+  /* Modal */
+  .modal-overlay {
+    display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4);
+    z-index:100; align-items:center; justify-content:center;
+  }
+  .modal-overlay.show { display:flex; }
+  .modal {
+    background:var(--bg); border-radius:var(--radius); padding:24px;
+    min-width:320px; max-width:420px; box-shadow:0 4px 20px rgba(0,0,0,0.15);
+  }
+  .modal h3 { margin-bottom:14px; font-size:16px; color:var(--text); }
+  .modal input {
+    width:100%; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius);
+    font-size:14px; background:var(--bg2); color:var(--text); outline:none;
+    margin-bottom:16px;
+  }
+  .modal input:focus { border-color:var(--accent); }
+  .modal-btns { display:flex; gap:8px; justify-content:flex-end; }
+  .modal-btns button {
+    padding:7px 16px; border-radius:var(--radius); font-size:13px; cursor:pointer;
+    border:1px solid var(--border); background:var(--bg); color:var(--text);
+  }
+  .modal-btns button.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .modal-btns button.danger { background:#e03131; color:#fff; border-color:#e03131; }
+
+  /* Toast */
+  #toast {
+    position:fixed; bottom:24px; right:24px; padding:10px 18px; border-radius:var(--radius);
+    background:var(--accent); color:#fff; font-size:13px; z-index:200;
+    opacity:0; transform:translateY(10px); transition:all 0.3s; pointer-events:none;
+  }
+  #toast.show { opacity:1; transform:translateY(0); }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width:6px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:var(--border); border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:var(--text2); }
+
+  /* Mobile: hide sidebar */
+  @media (max-width:768px) {
+    #sidebar { display:none; }
+  }
+</style>
+</head>
+<body data-theme="light">
+<!-- Sidebar -->
+<div id="sidebar">
+  <div id="sidebar-header">
+    <h3 data-i18n="files">📂 Files</h3>
+  </div>
+  <div id="file-list"></div>
+  <div id="sidebar-footer">
+    <button class="primary" onclick="createFile()" data-i18n="newFile">+ New</button>
+  </div>
+</div>
+
+<!-- Main -->
+<div id="main">
+  <div id="topbar">
+    <div id="topbar-left">
+      <span id="file-title">welcome.md</span>
+      <span id="save-status" class="saved" data-i18n="saved">✓ Saved</span>
+    </div>
+    <div id="topbar-right">
+      <button class="topbar-btn" onclick="toggleTheme()" id="btn-theme" data-i18n="theme">🌓 Theme</button>
+      <button class="topbar-btn" onclick="toggleLang()" id="btn-lang" data-i18n="lang">🌐 中文</button>
+    </div>
+  </div>
+  <div id="panes">
+    <div class="pane" id="editor-pane">
+      <div class="pane-header" data-i18n="editor">Editor</div>
+      <textarea id="editor" placeholder="# Start writing Markdown..."></textarea>
+    </div>
+    <div class="divider" id="divider"></div>
+    <div class="pane" id="preview-pane">
+      <div class="pane-header" data-i18n="preview">Preview</div>
+      <div id="preview"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal for create/rename -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal">
+    <h3 id="modal-title">New File</h3>
+    <input type="text" id="modal-input" placeholder="filename.md">
+    <div class="modal-btns">
+      <button onclick="closeModal()" data-i18n="cancel">Cancel</button>
+      <button class="primary" id="modal-confirm" data-i18n="confirm">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- marked.js from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script>
+// ============ i18n ============
+const i18n = {
+  zh: {
+    files:'📂 文件', newFile:'+ 新建', saved:'✓ 已保存', saving:'⏳ 保存中...', unsaved:'未保存',
+    theme:'🌓 主题', lang:'🌐 English', editor:'编辑器', preview:'预览',
+    cancel:'取消', confirm:'确认', createTitle:'新建文件', renameTitle:'重命名文件',
+    deleteConfirm:'确定删除此文件？', fileExists:'文件已存在', enterName:'请输入文件名',
+    toastCreated:'文件已创建', toastDeleted:'文件已删除', toastRenamed:'文件已重命名',
+    toastSaved:'已保存', welcomeFile:'欢迎文件'
+  },
+  en: {
+    files:'📂 Files', newFile:'+ New', saved:'✓ Saved', saving:'⏳ Saving...', unsaved:'Unsaved',
+    theme:'🌓 Theme', lang:'🌐 中文', editor:'Editor', preview:'Preview',
+    cancel:'Cancel', confirm:'Confirm', createTitle:'New File', renameTitle:'Rename File',
+    deleteConfirm:'Delete this file?', fileExists:'File already exists', enterName:'Enter file name',
+    toastCreated:'File created', toastDeleted:'File deleted', toastRenamed:'File renamed',
+    toastSaved:'Saved', welcomeFile:'Welcome File'
+  }
+};
+let lang = localStorage.getItem('md-editor-lang') || 'zh';
+function t(key) { return (i18n[lang] && i18n[lang][key]) || key; }
+function applyI18n() {
+  document.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+  document.title = lang === 'zh' ? 'Markdown 编辑器' : 'Markdown Editor';
+  document.getElementById('modal-input').placeholder = t('enterName');
+  updateSaveStatus();
+  refreshFileList();
+}
+function toggleLang() {
+  lang = lang === 'zh' ? 'en' : 'zh';
+  localStorage.setItem('md-editor-lang', lang);
+  applyI18n();
+}
+
+// ============ Theme ============
+let theme = localStorage.getItem('md-editor-theme') || 'light';
+function applyTheme() {
+  document.body.dataset.theme = theme;
+}
+function toggleTheme() {
+  theme = theme === 'light' ? 'dark' : 'light';
+  localStorage.setItem('md-editor-theme', theme);
+  applyTheme();
+}
+
+// ============ State ============
+let currentFile = null;
+let files = [];
+let saveTimer = null;
+let isDirty = false;
+let modalAction = null; // 'create' | 'rename'
+let renameTarget = null;
+
+// ============ API helpers ============
+async function api(method, path, body) {
+  const opts = { method, headers:{ 'Content-Type':'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch('/api' + path, opts);
+  return res.json();
+}
+
+// ============ File operations ============
+async function refreshFileList() {
+  const data = await api('GET', '/files');
+  if (data.success) {
+    files = data.files;
+    renderFileList();
+  }
+}
+
+function renderFileList() {
+  const list = document.getElementById('file-list');
+  list.innerHTML = files.map(f => {
+    const active = currentFile && currentFile.name === f.name ? ' active' : '';
+    const displayName = f.name === 'welcome.md' ? t('welcomeFile') : f.name;
+    return `<div class="file-item${active}" onclick="openFile('${escapeHtml(f.name)}')" title="${escapeHtml(f.name)}">
+      <span class="icon">📄</span><span>${escapeHtml(displayName)}</span>
+      <span class="file-actions">
+        <button onclick="event.stopPropagation();startRename('${escapeHtml(f.name)}')" title="${t('renameTitle')}">✏</button>
+        <button onclick="event.stopPropagation();deleteFile('${escapeHtml(f.name)}')" title="🗑">🗑</button>
+      </span>
+    </div>`;
+  }).join('');
+  updateSaveStatus();
+}
+
+async function openFile(name) {
+  // Save current first
+  if (isDirty && currentFile) await saveCurrent();
+  const data = await api('GET', '/files/' + encodeURIComponent(name));
+  if (data.success) {
+    currentFile = data.file;
+    document.getElementById('editor').value = data.file.content;
+    document.getElementById('file-title').textContent = data.file.name;
+    isDirty = false;
+    updatePreview();
+    renderFileList();
+    updateSaveStatus();
+  }
+}
+
+async function saveCurrent() {
+  if (!currentFile) return;
+  const content = document.getElementById('editor').value;
+  document.getElementById('save-status').className = 'saving';
+  document.getElementById('save-status').textContent = t('saving');
+  await api('PUT', '/files/' + encodeURIComponent(currentFile.name), { content });
+  isDirty = false;
+  updateSaveStatus();
+}
+
+function updateSaveStatus() {
+  const el = document.getElementById('save-status');
+  if (!currentFile) { el.textContent = ''; el.className = ''; return; }
+  if (isDirty) { el.textContent = t('unsaved'); el.className = ''; }
+  else { el.textContent = t('saved'); el.className = 'saved'; }
+}
+
+// Auto-save on input
+document.addEventListener('DOMContentLoaded', () => {
+  const editor = document.getElementById('editor');
+  editor.addEventListener('input', () => {
+    isDirty = true;
+    updateSaveStatus();
+    updatePreview();
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => { if (isDirty) saveCurrent(); }, 2000);
+  });
+  // Ctrl+S / Cmd+S
+  editor.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveCurrent();
+    }
+  });
+});
+
+// ============ Preview ============
+function updatePreview() {
+  const md = document.getElementById('editor').value;
+  document.getElementById('preview').innerHTML = marked.parse(md || '');
+}
+
+// ============ File CRUD ============
+function createFile() { modalAction = 'create'; showModal(t('createTitle'), ''); }
+function startRename(name) { modalAction = 'rename'; renameTarget = name; showModal(t('renameTitle'), name); }
+
+function showModal(title, value) {
+  document.getElementById('modal-title').textContent = title;
+  document.getElementById('modal-input').value = value;
+  document.getElementById('modal-overlay').classList.add('show');
+  document.getElementById('modal-input').focus();
+}
+function closeModal() { document.getElementById('modal-overlay').classList.remove('show'); modalAction=null; renameTarget=null; }
+
+document.getElementById('modal-confirm').addEventListener('click', async () => {
+  const input = document.getElementById('modal-input').value.trim();
+  if (!input) { showToast(t('enterName')); return; }
+  const name = input.endsWith('.md') ? input : input + '.md';
+
+  if (modalAction === 'create') {
+    const data = await api('POST', '/files', { name });
+    if (!data.success) { showToast(data.error || t('fileExists')); return; }
+    showToast(t('toastCreated'));
+    closeModal();
+    await refreshFileList();
+    openFile(name);
+  } else if (modalAction === 'rename') {
+    const data = await api('PATCH', '/files/' + encodeURIComponent(renameTarget) + '/rename', { newName: name });
+    if (!data.success) { showToast(data.error || t('fileExists')); return; }
+    showToast(t('toastRenamed'));
+    closeModal();
+    if (currentFile && currentFile.name === renameTarget) currentFile.name = name;
+    await refreshFileList();
+  }
+});
+
+document.getElementById('modal-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('modal-confirm').click();
+  if (e.key === 'Escape') closeModal();
+});
+
+async function deleteFile(name) {
+  if (!confirm(t('deleteConfirm') + ' (' + name + ')')) return;
+  await api('DELETE', '/files/' + encodeURIComponent(name));
+  showToast(t('toastDeleted'));
+  if (currentFile && currentFile.name === name) {
+    currentFile = null;
+    document.getElementById('editor').value = '';
+    document.getElementById('file-title').textContent = '';
+    document.getElementById('preview').innerHTML = '';
+    isDirty = false;
+  }
+  await refreshFileList();
+}
+
+// ============ Toast ============
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(el._timeout);
+  el._timeout = setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+// ============ Divider drag ============
+(function(){
+  const divider = document.getElementById('divider');
+  const editorPane = document.getElementById('editor-pane');
+  const previewPane = document.getElementById('preview-pane');
+  let dragging = false;
+  divider.addEventListener('mousedown', (e) => { dragging = true; e.preventDefault(); });
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const panes = document.getElementById('panes');
+    const rect = panes.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const pct = Math.max(20, Math.min(80, (x / rect.width) * 100));
+    editorPane.style.flex = pct + '%';
+    previewPane.style.flex = (100 - pct) + '%';
+  });
+  document.addEventListener('mouseup', () => { dragging = false; });
+})();
+
+// ============ Escape helpers ============
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ============ Init ============
+async function init() {
+  applyTheme();
+  applyI18n();
+  await refreshFileList();
+  // Open welcome or first file
+  if (files.length > 0) {
+    const welcome = files.find(f => f.name === 'welcome.md');
+    await openFile(welcome ? welcome.name : files[0].name);
+  }
+}
+init();
+</script>
+</body>
+</html>

@@ -127,6 +127,39 @@ test("applicationLayer REST server exposes view and command endpoints", async ()
   }
 });
 
+test("applicationLayer REST server returns a single JSON error envelope for malformed commands", async () => {
+  const created = await createApplicationProjectRuntime(DOCTOR_PROJECT, {
+    now: () => "2026-05-10T00:00:00.000Z",
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) return;
+
+  const rest = await createApplicationRestServer(created.runtime);
+  try {
+    const commandResponse = await fetch(`${rest.url}/application/commands`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{ nope",
+    });
+    assert.equal(commandResponse.status, 400);
+    assert.equal(commandResponse.headers.get("content-type"), "application/json; charset=utf-8");
+    const body = await commandResponse.text();
+    assert.doesNotThrow(() => JSON.parse(body));
+    const result = JSON.parse(body) as {
+      ok?: boolean;
+      error?: { code?: string; message?: string };
+      view?: { applicationId?: string };
+      events?: unknown[];
+    };
+    assert.equal(result.ok, false);
+    assert.equal(result.error?.code, "APPLICATION_REST_COMMAND_FAILED");
+    assert.equal(result.view?.applicationId, "application.praxis.doctor");
+    assert.deepEqual(result.events, []);
+  } finally {
+    await rest.close();
+  }
+});
+
 test("applicationLayer exposes public-safe auth state injected by the upper app", async () => {
   const seenSessions: string[] = [];
   const created = await createApplicationProjectRuntime(DOCTOR_PROJECT, {
@@ -459,7 +492,13 @@ test("applicationLayer tool progress summaries use semantic basetool ids", () =>
       },
     },
   });
-  assert.equal(patchCompleted.metadata?.familyKey, "file");
+  assert.equal(patchCompleted.metadata?.familyKey, "code");
+  assert.deepEqual(patchCompleted.metadata?.humanResultSummary, [
+    "patch.apply completed",
+    "@@ README.md @@",
+    "-   ? | old",
+    "+   ? | new",
+  ]);
   const patchMetadata = patchCompleted.metadata?.resultMetadata as Record<string, unknown> | undefined;
   assert.equal(patchMetadata?.codeAdditions, 1);
   assert.equal(patchMetadata?.codeDeletions, 1);

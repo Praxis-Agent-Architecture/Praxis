@@ -62,7 +62,32 @@ test("assemblePromptContextMaterials creates recentConversation from the remaini
   assert.equal(result.materials.some((material) => material.promptSegmentKind === "sessionSummary"), true);
   assert.equal(result.materials.some((material) => material.promptSegmentKind === "recentConversation"), true);
   assert.equal(result.materials.some((material) => material.promptSegmentKind === "userTurn" && material.id === "task:3"), true);
+  assert.equal(result.materials.some((material) => material.id === "runtime:declared-context" && material.promptSegmentKind === "declaredRuntimeContext"), true);
+  assert.equal(result.materials.some((material) => material.id === "runtime:tool-declarations" && material.promptSegmentKind === "toolDeclarations"), true);
   assert.equal(result.materials.some((material) => material.id === "runtime:base-tool-protocol"), true);
+  assert.equal(result.materials.find((material) => material.id === "runtime:base-tool-protocol")?.promptSegmentKind, "toolDeclarations");
+});
+
+test("assemblePromptContextMaterials injects active workspace and hides prompt package absolute paths", () => {
+  const testManifest = manifest();
+  testManifest.promptPack.materials = ["promptPackage:/home/proview/app/internal/prompts"];
+  const result = assemblePromptContextMaterials({
+    manifest: testManifest,
+    task: "Use the active workspace.",
+    turnIndex: 7,
+    workspaceRoot: "/workspace/current",
+    allowedRoots: ["/workspace/current", "/workspace/current/.raxode"],
+    toolMappings: [],
+    observations: [],
+    events: [],
+  });
+
+  const declaredContext = result.materials.find((material) => material.id === "runtime:declared-context")?.text ?? "";
+  assert.match(declaredContext, /Workspace root: \/workspace\/current/);
+  assert.match(declaredContext, /Allowed roots: \/workspace\/current, \/workspace\/current\/\.raxode/);
+  const renderedText = result.materials.map((material) => material.text).join("\n");
+  assert.match(renderedText, /promptPackage:application-internal/);
+  assert.doesNotMatch(renderedText, /\/home\/proview\/app\/internal\/prompts/);
 });
 
 test("assemblePromptContextMaterials trims recentConversation before touching current userTurn", () => {

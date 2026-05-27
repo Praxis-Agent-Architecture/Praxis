@@ -288,6 +288,11 @@ export async function invokeMountedBaseTool(
       toolId,
       runtimeId,
       sessionId,
+      runtime: {
+        runtimeId,
+        sessionId,
+        toolCallId,
+      },
       input,
       executor: request.executor,
       metadata: request.metadata,

@@ -98,7 +98,7 @@ export const semanticBaseToolCatalog = [
     toolId: "shell.run",
     layer: "core",
     title: "Run Shell Command",
-    description: "Execute a governed shell command through the runtime shell port.",
+    description: "Execute a governed shell command through the runtime shell port. For long-running servers, start them as detached/background services that print a pid and then verify with a separate command; do not keep an interactive process attached to shell.run.",
     risk: "execute",
     runtimePorts: ["shell.run"],
     permissionHints: ["shell", "process", "workspace"],
@@ -107,7 +107,7 @@ export const semanticBaseToolCatalog = [
       properties: {
         command: { type: "string", description: "Command to execute." },
         cwd: { type: "string", description: "Working directory, usually workspace-relative." },
-        timeoutMs: { type: "number", description: "Optional timeout in milliseconds." },
+        timeoutMs: { type: "number", description: "Optional timeout in milliseconds. Use a short timeout for probes and detached service startup commands." },
       },
       required: ["command"],
       additionalProperties: false,
@@ -154,14 +154,17 @@ export const semanticBaseToolCatalog = [
     toolId: "patch.apply",
     layer: "core",
     title: "Apply Patch",
-    description: "Apply a Codex-style patch first, with room for unified diff support later.",
+    description: "Apply a Codex-style patch. For Add File, every new content line must start with '+'.",
     risk: "write",
     runtimePorts: ["filesystem.writeText"],
     permissionHints: ["filesystem:write"],
     inputSchema: schema({
       type: "object",
       properties: {
-        patch: { type: "string", description: "Patch text, preferably *** Begin Patch format." },
+        patch: {
+          type: "string",
+          description: "Patch text. Required create-file form: *** Begin Patch\\n*** Add File: path\\n+line 1\\n+line 2\\n*** End Patch. In Add File blocks every content line, including blank lines, must start with '+'. Update uses *** Update File: path plus @@ hunks where removed lines start '-' and added lines start '+'. Delete uses *** Delete File: path.",
+        },
         cwd: { type: "string" },
       },
       required: ["patch"],
@@ -495,6 +498,30 @@ export const semanticBaseToolCatalog = [
       },
       required: ["operation"],
       additionalProperties: false,
+    }),
+  }),
+  define({
+    toolId: "media.viewImage",
+    layer: "optional",
+    title: "View Image",
+    description: "Inspect a user-provided or workspace image through the runtime media port. Use this when the user attaches an image or asks about visual content.",
+    risk: "read",
+    runtimePorts: ["media.viewImage"],
+    permissionHints: ["media:image:read", "filesystem:read"],
+    inputSchema: schema({
+      type: "object",
+      properties: {
+        imageRef: { type: "string", description: "Attachment or artifact reference supplied by the runtime." },
+        imagePath: { type: "string", description: "Workspace-relative or approved absolute image path." },
+        prompt: { type: "string", description: "Question or inspection goal for the image." },
+        detail: { type: "string", enum: ["low", "high", "auto"], description: "Optional image detail preference." },
+        maxBytes: { type: "number", description: "Optional byte limit for local image reads." },
+      },
+      additionalProperties: false,
+      anyOf: [
+        { required: ["imageRef"] },
+        { required: ["imagePath"] },
+      ],
     }),
   }),
   define({

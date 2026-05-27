@@ -41,6 +41,15 @@ import type {
   AuthEnvelope,
   ProviderAuthMaterial,
 } from "../modelAdapter/authProfileLayer/authEnvelope.js";
+import {
+  createInMemoryMultiagentRuntime,
+  type MultiagentRuntime,
+  type MultiagentSpawnResult,
+} from "../runtimeImplementation/runtime.multiagentPlane/index.js";
+import type {
+  PromptContextConversationMessage,
+  PromptContextSessionSummary,
+} from "../runtimeImplementation/runtime.execEngine/promptContextAssembly.js";
 import { resolveProviderModelMetadata } from "../modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import type {
   PraxisApplicationCommand,
@@ -111,6 +120,7 @@ export type PraxisApplicationRuntimeOptions = {
   maxOutputTokens?: number;
   permissionProfile?: PraxisApplicationPermissionProfile;
   toolProfile?: PraxisApplicationToolProfile;
+  agentOptions?: unknown;
   approvalResolver?: RuntimeApprovalResolver;
   agentReviewResolver?: RuntimeAgentReviewResolver;
   contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
@@ -169,14 +179,21 @@ type RuntimeState = {
   toolContextUsage: Map<string, BaseToolContextUsageRecord[]>;
   alwaysApprovedApprovalKeys: Set<string>;
   foundationProject?: PraxisProjectRuntime;
+  multiagentRuntime: MultiagentRuntime;
+  multiagentActiveSessions: number;
+  multiagentBackgroundRuns: Set<string>;
   auth?: PraxisApplicationAuthState;
 };
 
 type ApplicationConversationMessage = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "model" | "tool" | "runtime-summary" | (string & {});
   text: string;
   turnId: string;
   createdAt: string;
+  messageId?: string;
+  causedBy?: string;
+  artifactRefs?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
   status?: "completed" | "failed";
 };
 
@@ -195,13 +212,11 @@ export type OpenAIResponsesApplicationAdapterRoute = {
   baseURL?: string;
 };
 
-const APPLICATION_SESSION_HISTORY_MAX_MESSAGES = 24;
 const APPLICATION_SESSION_HISTORY_KEEP_RECENT_MESSAGES = 12;
-const APPLICATION_SESSION_HISTORY_MAX_CHARS = 24_000;
-const APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS = 4_000;
+const APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS = 20_000;
 const APPLICATION_SESSION_SUMMARY_MAX_CHARS = 6_000;
 const APPLICATION_SESSION_PRE_TURN_KEEP_RECENT_MESSAGES = 6;
-const APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD = 0.9;
+const APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD = 0.95;
 
 function defaultNow(): string {
   return new Date().toISOString();
@@ -486,6 +501,65 @@ function codeModifyDiffPreviewLines(input: {
   ];
 }
 
+function patchApplyDiffPreviewLines(input: {
+  patch: string;
+}): string[] {
+  const patchBytes = Buffer.byteLength(input.patch);
+  if (patchBytes > CODE_MODIFY_DIFF_PREVIEW_MAX_BYTES) {
+    return [];
+  }
+
+  const lines = input.patch.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n").split("\n");
+  const preview: string[] = [];
+  let currentPath = "patch";
+  const pushHeader = (path: string): void => {
+    currentPath = path.trim() || currentPath;
+    const header = `@@ ${currentPath} @@`;
+    if (preview[preview.length - 1] !== header) preview.push(header);
+  };
+  const pushDiff = (marker: "+" | "-", content: string): void => {
+    preview.push(`${marker}${"?".padStart(4, " ")} | ${content.length > 0 ? content : " "}`);
+  };
+
+  for (const line of lines) {
+    if (line === "*** End Patch") break;
+    const pathMatch = line.match(/^\*\*\* (?:Add|Create|Create New|Update|Delete) File: (.+)$/u)
+      ?? line.match(/^\*\*\* File: (.+)$/u);
+    if (pathMatch !== null) {
+      pushHeader(pathMatch[1] ?? currentPath);
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const path = line.slice("+++ ".length).replace(/^b\//u, "");
+      if (path !== "/dev/null") pushHeader(path);
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      const path = line.slice("--- ".length).replace(/^a\//u, "");
+      if (path !== "/dev/null") pushHeader(path);
+      continue;
+    }
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      pushDiff("+", line.slice(1));
+      continue;
+    }
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      pushDiff("-", line.slice(1));
+    }
+  }
+
+  if (!preview.some((line) => line.startsWith("+") || line.startsWith("-"))) {
+    return [];
+  }
+  if (preview.length <= CODE_MODIFY_DIFF_PREVIEW_MAX_LINES) {
+    return preview;
+  }
+  return [
+    ...preview.slice(0, CODE_MODIFY_DIFF_PREVIEW_MAX_LINES - 1),
+    "... diff preview trimmed",
+  ];
+}
+
 function textLineCount(value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
   if (value.length === 0) return 0;
@@ -534,7 +608,8 @@ function summarizeCompactedMessages(messages: readonly ApplicationConversationMe
   return messages
     .map((message) => {
       const status = message.status ? `, ${message.status}` : "";
-      return `- ${message.role} (${message.turnId}${status}): ${truncateMiddle(message.text, 700)}`;
+      const causedBy = message.causedBy ? `, causedBy=${message.causedBy}` : "";
+      return `- ${message.role} (${message.turnId}${status}${causedBy}): ${truncateMiddle(message.text, 700)}`;
     })
     .join("\n");
 }
@@ -556,10 +631,7 @@ function compactConversationHistory(input: {
     ...message,
     text: truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS),
   }));
-  const totalChars = normalizedMessages.reduce((sum, message) => sum + message.text.length + message.role.length + message.turnId.length + 32, 0);
-  const overMessageBudget = normalizedMessages.length > APPLICATION_SESSION_HISTORY_MAX_MESSAGES;
-  const overCharBudget = totalChars > APPLICATION_SESSION_HISTORY_MAX_CHARS;
-  if (!input.force && !overMessageBudget && !overCharBudget) {
+  if (!input.force) {
     return { messages: normalizedMessages, summary: input.previousSummary, compacted: false };
   }
 
@@ -670,17 +742,10 @@ function prepareHistoryForTurn(input: {
 }
 
 function trimConversationHistory(messages: readonly ApplicationConversationMessage[]): ApplicationConversationMessage[] {
-  const recent = messages.slice(-APPLICATION_SESSION_HISTORY_MAX_MESSAGES);
-  const kept: ApplicationConversationMessage[] = [];
-  let totalChars = 0;
-  for (const message of [...recent].reverse()) {
-    const text = truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS);
-    const nextLength = text.length + message.role.length + message.turnId.length + 32;
-    if (kept.length > 0 && totalChars + nextLength > APPLICATION_SESSION_HISTORY_MAX_CHARS) break;
-    kept.push({ ...message, text });
-    totalChars += nextLength;
-  }
-  return kept.reverse();
+  return messages.map((message) => ({
+    ...message,
+    text: truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS),
+  }));
 }
 
 function formatConversationHistory(
@@ -701,7 +766,7 @@ function formatConversationHistory(
         ].join("\n"),
     trimmed.length === 0 ? undefined : "",
     ...trimmed.map((message, index) => [
-      `[${index + 1}] ${message.role} (${message.turnId}${message.status ? `, ${message.status}` : ""}):`,
+      `[${index + 1}] ${message.role} (${message.turnId}${message.status ? `, ${message.status}` : ""}${message.causedBy ? `, causedBy=${message.causedBy}` : ""}):`,
       message.text,
     ].join("\n")),
   ].filter((section): section is string => section !== undefined).join("\n\n");
@@ -711,6 +776,7 @@ function estimateConversationContext(input: {
   messages: readonly ApplicationConversationMessage[];
   summary?: ApplicationConversationSummary;
   usage?: PraxisApplicationUsageTelemetry;
+  model: PraxisApplicationModelState;
 }): PraxisApplicationContextTelemetry {
   const historyText = formatConversationHistory(input.messages, input.summary) ?? "";
   const summaryTokens = estimateContextTokens(input.summary?.text ?? "");
@@ -726,16 +792,25 @@ function estimateConversationContext(input: {
       ? undefined
       : usageContextTotalTokens(input.usage)
   );
+  const promptPackTokens = input.usage?.lastPromptPackTokens;
   const hasProviderUsage = typeof lastRequestInputTokens === "number" && Number.isFinite(lastRequestInputTokens);
   const activeTokens = hasProviderUsage ? lastRequestInputTokens : historyEstimatedTokens;
+  const sessionContextTokens = Math.max(
+    historyEstimatedTokens,
+    hasProviderUsage ? lastRequestInputTokens : 0,
+    typeof promptPackTokens === "number" && Number.isFinite(promptPackTokens) ? promptPackTokens : 0,
+  );
   return {
     activeTokens,
     promptTokens: activeTokens,
+    sessionContextTokens,
+    compressionLimitTokens: modelAutoCompactTokenLimit(input.model),
     transcriptTokens,
     summaryTokens,
     historyMessages: input.messages.length,
     lastRequestInputTokens: hasProviderUsage ? lastRequestInputTokens : undefined,
     lastRequestTotalTokens,
+    promptPackTokens,
     historyEstimatedTokens,
     contextSource: hasProviderUsage ? "provider.model-call.usage" : "application.history.estimate",
     usageSource: input.usage?.source,
@@ -795,6 +870,190 @@ function buildTaskTextWithSessionHistory(input: {
     input.currentUserText,
   ].filter((section): section is string => section !== undefined && section.trim().length > 0);
   return sections.join("\n\n---\n\n");
+}
+
+function buildCurrentTaskText(input: {
+  currentUserText: string;
+  attachments?: PraxisApplicationInputEnvelope["attachments"];
+}): string {
+  const attachmentText = formatApplicationInputAttachments(input.attachments);
+  return [
+    attachmentText,
+    "Current user request:",
+    input.currentUserText,
+  ].filter((section): section is string => section !== undefined && section.trim().length > 0).join("\n\n---\n\n");
+}
+
+function applicationMessageToPromptContextMessage(
+  message: ApplicationConversationMessage,
+  index: number,
+): PromptContextConversationMessage {
+  return {
+    messageId: message.messageId ?? `${message.turnId}:${message.role}:${index + 1}`,
+    role: message.role,
+    text: message.text,
+    createdAt: message.createdAt,
+    artifactRefs: message.artifactRefs,
+    metadata: {
+      source: "application.conversationHistory",
+      turnId: message.turnId,
+      causedBy: message.causedBy,
+      status: message.status ?? "completed",
+      ...(message.metadata ?? {}),
+    },
+  };
+}
+
+function applicationHistoryToConversationWindow(
+  messages: readonly ApplicationConversationMessage[],
+): readonly PromptContextConversationMessage[] {
+  return trimConversationHistory(messages).map(applicationMessageToPromptContextMessage);
+}
+
+function applicationSummaryToPromptContextSummary(
+  sessionId: string,
+  summary: ApplicationConversationSummary | undefined,
+): PromptContextSessionSummary | undefined {
+  if (summary === undefined) return undefined;
+  return {
+    summaryId: `${sessionId}:applicationHistorySummary`,
+    text: summary.text,
+    updatedAt: summary.updatedAt,
+    metadata: {
+      source: summary.source,
+      compactedMessages: summary.compactedMessages,
+    },
+  };
+}
+
+function stringFromMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function stringArrayFromMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): readonly string[] | undefined {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function artifactRefsFromToolMetadata(metadata: Readonly<Record<string, unknown>> | undefined): readonly string[] | undefined {
+  const refs = new Set<string>(stringArrayFromMetadata(metadata, "artifactRefs") ?? []);
+  const resultMetadata = objectValue(metadata?.resultMetadata);
+  for (const key of [
+    "artifactRef",
+    "artifactId",
+    "stdoutArtifactRef",
+    "stderrArtifactRef",
+    "registryArtifactRef",
+    "diffArtifactRef",
+    "imagePath",
+  ]) {
+    const value = stringValue(resultMetadata?.[key]);
+    if (value !== undefined) refs.add(value);
+  }
+  const artifact = objectValue(resultMetadata?.artifact);
+  const nestedArtifactId = stringValue(artifact?.artifactId) ?? stringValue(artifact?.id) ?? stringValue(artifact?.ref);
+  if (nestedArtifactId !== undefined) refs.add(nestedArtifactId);
+  return refs.size > 0 ? [...refs] : undefined;
+}
+
+function compactEventPreview(value: string | undefined, maxLength = 1_500): string | undefined {
+  if (value === undefined || value.trim().length === 0) return undefined;
+  return truncateMiddle(value.trim(), maxLength);
+}
+
+function applicationLedgerMessagesFromEvents(input: {
+  events: readonly PraxisApplicationEvent[];
+  turnId: string;
+}): ApplicationConversationMessage[] {
+  const messages: ApplicationConversationMessage[] = [];
+  for (const item of input.events) {
+    if (item.turnId !== input.turnId) continue;
+    if (item.kind === "model") {
+      const phase = stringFromMetadata(item.metadata, "modelPhase");
+      if (phase !== "completed" && phase !== "failed") continue;
+      const invocationId = stringFromMetadata(item.metadata, "invocationId") ?? item.eventId;
+      const usagePreview = item.metadata?.usage === undefined ? undefined : compactEventPreview(previewUnknown(item.metadata.usage, 800));
+      messages.push({
+        role: "model",
+        text: [
+          `Model call ${phase}: ${stringFromMetadata(item.metadata, "model") ?? stringFromMetadata(item.metadata, "carrierId") ?? "unknown model"}.`,
+          usagePreview === undefined ? undefined : `usage: ${usagePreview}`,
+          stringFromMetadata(item.metadata, "providerResponseId") === undefined ? undefined : `providerResponseId: ${stringFromMetadata(item.metadata, "providerResponseId")}`,
+          stringFromMetadata(item.metadata, "previousProviderResponseId") === undefined ? undefined : `previousProviderResponseId: ${stringFromMetadata(item.metadata, "previousProviderResponseId")}`,
+        ].filter((line): line is string => line !== undefined).join("\n"),
+        turnId: input.turnId,
+        createdAt: item.createdAt,
+        messageId: item.eventId,
+        causedBy: `${input.turnId}.submitted`,
+        metadata: {
+          source: "application.ledger.model",
+          eventId: item.eventId,
+          invocationId,
+          phase,
+        },
+        status: phase === "failed" ? "failed" : "completed",
+      });
+      continue;
+    }
+    if (item.kind === "tool") {
+      const toolStatus = stringFromMetadata(item.metadata, "toolStatus");
+      if (toolStatus !== "completed" && toolStatus !== "failed") continue;
+      const toolCallId = stringFromMetadata(item.metadata, "toolCallId") ?? item.eventId;
+      const toolId = stringFromMetadata(item.metadata, "toolId") ?? item.message;
+      const inputSummary = compactEventPreview(stringFromMetadata(item.metadata, "inputSummary"), 1_000);
+      const argumentsPreview = compactEventPreview(stringFromMetadata(item.metadata, "argumentsPreview"), 2_000);
+      const outputPreview = compactEventPreview(stringFromMetadata(item.metadata, "outputPreview"), 4_000);
+      const errorPreview = compactEventPreview(stringFromMetadata(item.metadata, "errorPreview"), 2_000);
+      const humanResultSummary = item.metadata?.humanResultSummary === undefined
+        ? undefined
+        : compactEventPreview(previewUnknown(item.metadata.humanResultSummary, 2_000));
+      messages.push({
+        role: "tool",
+        text: [
+          `Tool call ${toolStatus}: ${toolId}.`,
+          inputSummary === undefined ? undefined : `intent: ${inputSummary}`,
+          argumentsPreview === undefined ? undefined : `arguments: ${argumentsPreview}`,
+          outputPreview === undefined ? undefined : `output: ${outputPreview}`,
+          errorPreview === undefined ? undefined : `error: ${errorPreview}`,
+          humanResultSummary === undefined ? undefined : `resultSummary: ${humanResultSummary}`,
+        ].filter((line): line is string => line !== undefined).join("\n"),
+        turnId: input.turnId,
+        createdAt: item.createdAt,
+        messageId: item.eventId,
+        causedBy: `${input.turnId}.model`,
+        artifactRefs: artifactRefsFromToolMetadata(item.metadata),
+        metadata: {
+          source: "application.ledger.tool",
+          eventId: item.eventId,
+          toolCallId,
+          toolId,
+          toolStatus,
+          familyKey: stringFromMetadata(item.metadata, "familyKey"),
+        },
+        status: toolStatus === "failed" ? "failed" : "completed",
+      });
+      continue;
+    }
+    if (item.kind === "error") {
+      messages.push({
+        role: "runtime-summary",
+        text: `Runtime error: ${item.message}`,
+        turnId: input.turnId,
+        createdAt: item.createdAt,
+        messageId: item.eventId,
+        causedBy: `${input.turnId}.runtime`,
+        metadata: {
+          source: "application.ledger.error",
+          eventId: item.eventId,
+        },
+        status: "failed",
+      });
+    }
+  }
+  return messages;
 }
 
 function summarizeFileToolInput(toolCall: AgentToolCallRecord): string | undefined {
@@ -919,6 +1178,11 @@ function summarizeFileToolOutputForHumans(toolCall: AgentToolCallRecord, output:
           searchText,
           replacementText,
         }));
+      }
+    } else {
+      const patch = rawStringValue(args.patch);
+      if (patch !== undefined) {
+        lines.push(...patchApplyDiffPreviewLines({ patch }));
       }
     }
     return lines;
@@ -1285,6 +1549,9 @@ function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
 }
 
 function familyForToolId(toolId: string): { familyKey: string; familyTitle: string } {
+  if (toolId === "patch.apply") {
+    return { familyKey: "code", familyTitle: "Code" };
+  }
   const [prefix] = toolId.split(".");
   switch (prefix) {
     case "web":
@@ -1535,6 +1802,9 @@ function createModelProgressEvent(input: {
   const usage = input.progress.phase === "started" ? undefined : input.progress.usage;
   const contextInputTokens = usage?.inputTokens;
   const contextTotalTokens = usage === undefined ? undefined : usageContextTotalTokens(usage);
+  const promptPackTokens = input.progress.phase === "started"
+    ? undefined
+    : input.progress.cacheDebug?.promptPack.totalEstimatedTokens;
   return {
     eventId: `${input.turnId}.model.${input.progress.invocationId}.${input.progress.phase}`,
     kind: "model",
@@ -1572,8 +1842,11 @@ function createModelProgressEvent(input: {
             usageSource: usage?.source ?? "provider.model-call.usage",
             activeTokens: contextInputTokens,
             promptTokens: contextInputTokens,
+            sessionContextTokens: Math.max(promptPackTokens ?? 0, contextInputTokens),
+            compressionLimitTokens: modelAutoCompactTokenLimit(input.model),
             lastRequestInputTokens: contextInputTokens,
             lastRequestTotalTokens: contextTotalTokens,
+            promptPackTokens,
             transcriptTokens: 0,
             summaryTokens: 0,
             historyMessages: 0,
@@ -2609,6 +2882,12 @@ function summarizeRunUsage(result: Extract<AgentRunResult, { ok: true }>): Praxi
   if (lastTotalTokens !== undefined) {
     summary.lastTotalTokens = lastTotalTokens;
   }
+  const lastPromptPack = [...result.modelCalls].reverse().find((call) =>
+    typeof call.cacheDebug?.promptPack.totalEstimatedTokens === "number" &&
+    Number.isFinite(call.cacheDebug.promptPack.totalEstimatedTokens));
+  if (lastPromptPack?.cacheDebug?.promptPack.totalEstimatedTokens !== undefined) {
+    summary.lastPromptPackTokens = lastPromptPack.cacheDebug.promptPack.totalEstimatedTokens;
+  }
 
   return summary.modelCalls > 0 ? summary : undefined;
 }
@@ -2652,6 +2931,19 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     toolContextUsage: new Map(),
     alwaysApprovedApprovalKeys: new Set(),
     foundationProject: options.foundationProject,
+    multiagentRuntime: createInMemoryMultiagentRuntime({
+      projectId: project.projectId,
+      workspaceRoot: path.resolve(options.cwd ?? project.projectRoot),
+      defaultModel: options.model,
+      initialSessions: [{
+        sessionId: options.sessionId ?? `session.${applicationId}.default`,
+        agentId: project.agentEntries.primary?.agentId ?? `agent.${project.projectId}.primary`,
+        workingDirectory: path.resolve(options.cwd ?? project.projectRoot),
+        status: "idle",
+      }],
+    }),
+    multiagentActiveSessions: 1,
+    multiagentBackgroundRuns: new Set(),
     auth: undefined,
   };
 
@@ -2721,6 +3013,30 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       lastActiveAt: now(),
       turns: state.turns,
     });
+    void state.multiagentRuntime.ensureSession({
+      sessionId: state.sessionId,
+      agentId: state.manifest?.identity.id ?? project.agentEntries.primary?.agentId ?? `agent.${project.projectId}.primary`,
+      name: current?.name ?? state.sessionId.split(".").at(-1),
+      workingDirectory: state.cwd,
+      status: state.status === "running" ? "running" : "idle",
+      metadata: {
+        applicationId,
+        runtimeId: state.runtimeId,
+        source: "application.session",
+      },
+      now: now(),
+    }).catch((error: unknown) => {
+      state.events.push(event({
+        eventId: `${state.sessionId}.multiagent.ensure.failed`,
+        kind: "runtime",
+        status: state.status,
+        message: error instanceof Error ? error.message : "multiagent session ensure failed",
+        sessionId: state.sessionId,
+        runtimeId: state.runtimeId,
+        createdAt: now(),
+        metadata: { code: "MULTIAGENT_SESSION_ENSURE_FAILED" },
+      }));
+    });
   }
 
   function approvalResolverForRun(): RuntimeApprovalResolver | undefined {
@@ -2774,12 +3090,190 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     };
   }
 
+  function multiagentAgentAdapter(): NonNullable<BaseToolExecutorPort["agent"]> {
+    const scheduleSpawnedAgentRun = (spawned: MultiagentSpawnResult): void => {
+      const childSession = spawned.session;
+      const initialMessage = spawned.initialMessage;
+      if (state.multiagentBackgroundRuns.has(childSession.sessionId)) return;
+      state.multiagentBackgroundRuns.add(childSession.sessionId);
+      state.multiagentActiveSessions = Math.max(state.multiagentActiveSessions, state.multiagentBackgroundRuns.size + 1);
+      state.sessions.set(childSession.sessionId, {
+        sessionId: childSession.sessionId,
+        name: childSession.name ?? childSession.sessionId.split(".").at(-1),
+        workspaceRoot: childSession.workingDirectory,
+        status: "running",
+        lastActiveAt: now(),
+        turns: 1,
+      });
+      publish({
+        eventId: `${childSession.sessionId}.multiagent.spawned`,
+        kind: "runtime",
+        status: state.status,
+        message: childSession.name ?? childSession.sessionId,
+        sessionId: state.sessionId,
+        metadata: {
+          childSessionId: childSession.sessionId,
+          childAgentId: childSession.agentId,
+          childName: childSession.name,
+          childDescription: childSession.description,
+          childLifecycle: childSession.lifecycle,
+          initialMessageId: initialMessage.messageId,
+          workingDirectory: childSession.workingDirectory,
+        },
+      });
+      void (async () => {
+        let replyText = "";
+        try {
+          const compiled = await compileManifest("primary", { updateState: false });
+          if (!compiled.ok) {
+            replyText = `Child agent failed to compile: ${compiled.message}`;
+            return;
+          }
+          let liveProvider: PraxisApplicationLiveProvider | undefined;
+          if (state.mode === "live") {
+            liveProvider = await options.liveProviderResolver?.(compiled.manifest, {
+              sessionId: childSession.sessionId,
+              runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+              turnId: initialMessage.messageId,
+            });
+          }
+          const runtime = praxis.runtime.createPraxisRuntimeKernel({
+            runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+          });
+          const result = await runtime.runManifest(compiled.manifest, initialMessage.text, {
+            runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+            sessionId: childSession.sessionId,
+            dryRun: state.mode !== "live",
+            allowProviderCall: state.mode === "live",
+            allowToolExecution: state.mode === "live",
+            auth: liveProvider?.auth,
+            runtimeAuthResolver: liveProvider?.runtimeAuthResolver,
+            authSelection: liveProvider?.authSelection,
+            providerCaller: liveProvider?.providerCaller,
+            openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
+            openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
+            anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+            geminiGenerateContentTransport: liveProvider?.geminiGenerateContentTransport,
+            exposeProviderTools: true,
+            approvalResolver: approvalResolverForRun(),
+            agentReviewResolver: options.agentReviewResolver,
+            storage: {
+              cwd: childSession.workingDirectory,
+              workspaceRoot: path.join(project.projectRoot, ".raxode"),
+              initMode: "on-run",
+            },
+            sandbox: { cwd: childSession.workingDirectory },
+            baseToolAdapters: {
+              agent: multiagentAgentAdapter(),
+              ...(options.contextArtifactAdapters ?? {}),
+              ...(options.baseToolAdapters ?? {}),
+            },
+            now,
+          });
+          if (result.ok) {
+            replyText = result.finalOutput || "Child agent completed without a final message.";
+          } else {
+            replyText = `Child agent failed: ${result.error.message}`;
+          }
+        } catch (error) {
+          replyText = `Child agent failed: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+          state.multiagentBackgroundRuns.delete(childSession.sessionId);
+          state.multiagentActiveSessions = Math.max(1, state.multiagentBackgroundRuns.size + 1);
+          const existingChildSession = state.sessions.get(childSession.sessionId);
+          state.sessions.set(childSession.sessionId, {
+            sessionId: childSession.sessionId,
+            name: existingChildSession?.name ?? childSession.name ?? childSession.sessionId.split(".").at(-1),
+            workspaceRoot: childSession.workingDirectory,
+            status: "idle",
+            lastActiveAt: now(),
+            turns: existingChildSession?.turns ?? 1,
+          });
+          if (replyText.trim().length > 0) {
+            await state.multiagentRuntime.message({
+              fromSessionId: childSession.sessionId,
+              toSessionId: initialMessage.fromSessionId,
+              text: replyText,
+              replyToMessageId: initialMessage.messageId,
+              now: now(),
+              metadata: {
+                source: "application.multiagent.backgroundRun",
+                childSessionId: childSession.sessionId,
+              },
+            });
+          }
+          publish({
+            eventId: `${childSession.sessionId}.multiagent.completed`,
+            kind: "runtime",
+            status: state.status,
+            message: childSession.name ?? childSession.sessionId,
+            sessionId: state.sessionId,
+            metadata: {
+              childSessionId: childSession.sessionId,
+              childAgentId: childSession.agentId,
+              childName: childSession.name,
+              childDescription: childSession.description,
+              childLifecycle: childSession.lifecycle,
+              initialMessageId: initialMessage.messageId,
+            },
+          });
+        }
+      })();
+    };
+    const wrap = async <T>(operation: () => Promise<T>): Promise<BaseToolExecutorResult> => {
+      try {
+        await state.multiagentRuntime.ensureSession({
+          sessionId: state.sessionId,
+          agentId: state.manifest?.identity.id ?? project.agentEntries.primary?.agentId ?? `agent.${project.projectId}.primary`,
+          workingDirectory: state.cwd,
+          status: state.status === "running" ? "running" : "idle",
+          metadata: {
+            applicationId,
+            runtimeId: state.runtimeId,
+            source: "application.basetool",
+          },
+          now: now(),
+        });
+        const output = await operation();
+        const maybeSessionStatus = objectValue((output as { session?: unknown } | undefined)?.session)?.status;
+        if (maybeSessionStatus === "idle" || maybeSessionStatus === "running") {
+          state.multiagentActiveSessions = Math.max(state.multiagentActiveSessions, 2);
+        }
+        return { ok: true, output, value: output };
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            code: "MULTIAGENT_RUNTIME_FAILED",
+            message: error instanceof Error ? error.message : "multiagent runtime failed",
+            publicSafe: true,
+          },
+        };
+      }
+    };
+    return {
+      spawn: (request) => wrap(async () => {
+        const spawned = await state.multiagentRuntime.spawn(request);
+        scheduleSpawnedAgentRun(spawned);
+        return spawned;
+      }),
+      message: (request) => wrap(() => state.multiagentRuntime.message(request)),
+      inbox: (request) => wrap(() => state.multiagentRuntime.inbox(request)),
+      list: (request) => wrap(() => state.multiagentRuntime.list(request)),
+      inspect: (request) => wrap(() => state.multiagentRuntime.inspect(request)),
+      wait: (request) => wrap(() => state.multiagentRuntime.wait(request)),
+      stop: (request) => wrap(() => state.multiagentRuntime.stop(request)),
+      kill: (request) => wrap(() => state.multiagentRuntime.kill(request)),
+    };
+  }
+
   function view(): PraxisApplicationViewModel {
     const agentId = state.manifest?.identity.id ?? project.descriptor.agent?.id ?? "agent.unknown";
     const context = estimateConversationContext({
       messages: state.conversationHistory.get(state.sessionId) ?? [],
       summary: state.conversationSummaries.get(state.sessionId),
       usage: state.usage,
+      model: state.model,
     });
     const lines = [
       `application: ${applicationId}`,
@@ -2802,6 +3296,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       sessionId: state.sessionId,
       agentId,
       agentEntries: summarizeAgentEntries(project),
+      agents: { active: state.multiagentActiveSessions },
       status: state.status,
       workspaceRoot: state.cwd,
       mode: state.mode,
@@ -2838,7 +3333,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
 
   async function compileManifest(
     agentKey = "primary",
-    options: { updateState?: boolean; agentOptions?: unknown } = {},
+    compileOptions: { updateState?: boolean; agentOptions?: unknown } = {},
   ): Promise<{ ok: true; manifest: AgentManifest } | { ok: false; code: string; message: string }> {
     try {
       const entry = project.agentEntries[agentKey];
@@ -2860,9 +3355,15 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         reasoningEffort: state.model.reasoningEffort,
         maxOutputTokens: state.model.maxOutputTokens,
       };
-      const agentOptions = typeof options.agentOptions === "object" && options.agentOptions !== null
-        ? { ...defaultAgentOptions, ...options.agentOptions }
-        : defaultAgentOptions;
+      const runtimeAgentOptions = typeof options.agentOptions === "object" && options.agentOptions !== null
+        ? options.agentOptions as Record<string, unknown>
+        : {};
+      const commandAgentOptions = typeof compileOptions.agentOptions === "object" && compileOptions.agentOptions !== null
+        ? compileOptions.agentOptions as Record<string, unknown>
+        : {};
+      const agentOptions = Object.keys(commandAgentOptions).length > 0
+        ? { ...defaultAgentOptions, ...runtimeAgentOptions, ...commandAgentOptions }
+        : { ...defaultAgentOptions, ...runtimeAgentOptions };
       const source = typeof loadedSource === "function"
         ? new (loadedSource as new (agentOptions: unknown) => unknown)(agentOptions)
         : loadedSource;
@@ -2874,7 +3375,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       if (!validation.ok) {
         return { ok: false, code: "AGENT_MANIFEST_INVALID", message: validation.error.message };
       }
-      if (options.updateState ?? agentKey === "primary") {
+      if (compileOptions.updateState ?? agentKey === "primary") {
         state.manifest = validation.manifest;
       }
       return { ok: true, manifest: validation.manifest };
@@ -3005,6 +3506,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           approvalResolver: approvalResolverForRun(),
           agentReviewResolver: options.agentReviewResolver,
           baseToolAdapters: {
+            agent: multiagentAgentAdapter(),
             ...(options.contextArtifactAdapters ?? {}),
             ...(options.baseToolAdapters ?? {}),
           },
@@ -3118,12 +3620,13 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         },
       });
     }
-    const taskText = buildTaskTextWithSessionHistory({
+    const taskText = buildCurrentTaskText({
       currentUserText: command.input.text,
-      history: preparedHistory.history,
-      summary: preparedHistory.summary,
       attachments: command.input.attachments,
     });
+    const conversationWindow = applicationHistoryToConversationWindow(preparedHistory.history);
+    const sessionSummary = applicationSummaryToPromptContextSummary(state.sessionId, preparedHistory.summary);
+    const turnEventStartIndex = state.events.length;
     publish({
       eventId: `${turnId}.submitted`,
       kind: "conversation",
@@ -3265,6 +3768,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       exposeProviderTools: true,
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
       toolContextUsage: state.toolContextUsage.get(state.sessionId),
+      conversationWindow,
+      sessionSummary,
       approvalResolver: approvalResolverForRun(),
       agentReviewResolver: options.agentReviewResolver,
       storage: {
@@ -3274,6 +3779,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       },
       sandbox: { cwd: state.cwd },
       baseToolAdapters: {
+        agent: multiagentAgentAdapter(),
         ...(options.contextArtifactAdapters ?? {}),
         ...(options.baseToolAdapters ?? {}),
         ...(mountOpenAIResponsesNativeAdapters
@@ -3323,32 +3829,6 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     });
     applyRunResult(state, result);
     rememberToolContextFromRun(state, result);
-    const compactedHistory = compactConversationHistory({
-      messages: [
-      ...preparedHistory.history,
-      {
-        role: "user",
-        text: command.input.text,
-        turnId,
-        createdAt: now(),
-      },
-      {
-        role: "assistant",
-        text: result.ok ? result.finalOutput : result.error.message,
-        turnId,
-        createdAt: now(),
-        status: result.ok ? "completed" : "failed",
-      },
-      ],
-      previousSummary: preparedHistory.summary,
-      now: now(),
-    });
-    state.conversationHistory.set(state.sessionId, compactedHistory.messages);
-    if (compactedHistory.summary !== undefined) {
-      state.conversationSummaries.set(state.sessionId, compactedHistory.summary);
-    } else {
-      state.conversationSummaries.delete(state.sessionId);
-    }
     if (result.ok && result.toolCalls.length > 0) {
       for (const toolCall of result.toolCalls) {
         const phase = toolCall.ok ? "completed" : "failed";
@@ -3360,6 +3840,46 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           status: state.status,
         }));
       }
+    }
+    const turnLedgerMessages = applicationLedgerMessagesFromEvents({
+      events: state.events.slice(turnEventStartIndex),
+      turnId,
+    });
+    const compactedHistory = compactConversationHistory({
+      messages: [
+      ...preparedHistory.history,
+      {
+        role: "user",
+        text: command.input.text,
+        turnId,
+        createdAt: now(),
+        messageId: `${turnId}.user`,
+        metadata: {
+          source: "application.ledger.user",
+        },
+      },
+      ...turnLedgerMessages,
+      {
+        role: "assistant",
+        text: result.ok ? result.finalOutput : result.error.message,
+        turnId,
+        createdAt: now(),
+        messageId: `${turnId}.assistant.final`,
+        causedBy: turnLedgerMessages.length > 0 ? turnLedgerMessages.at(-1)?.messageId : `${turnId}.submitted`,
+        metadata: {
+          source: "application.ledger.assistantFinal",
+        },
+        status: result.ok ? "completed" : "failed",
+      },
+      ],
+      previousSummary: preparedHistory.summary,
+      now: now(),
+    });
+    state.conversationHistory.set(state.sessionId, compactedHistory.messages);
+    if (compactedHistory.summary !== undefined) {
+      state.conversationSummaries.set(state.sessionId, compactedHistory.summary);
+    } else {
+      state.conversationSummaries.delete(state.sessionId);
     }
     const done = publish({
       eventId: `${turnId}.${result.ok ? "completed" : "failed"}`,
@@ -3692,6 +4212,7 @@ export async function createApplicationProjectRuntime(
     runtime: createPraxisApplicationRuntime({
       ...options,
       project: loaded.project,
+      cwd: options.cwd ?? loaded.project.projectRoot,
       foundationProject: foundationProject === undefined
         ? undefined
         : "kind" in foundationProject

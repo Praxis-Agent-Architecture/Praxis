@@ -84,3 +84,6 @@ docs/docs-status-baseline.md
 test.workspacve/
 test.work/
 tmpmd/
+testspace/
+raxode-tui/**/node_modules/
+raxode-tui/**/.raxode/

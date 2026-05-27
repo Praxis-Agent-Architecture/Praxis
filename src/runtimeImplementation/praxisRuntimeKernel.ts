@@ -135,6 +135,7 @@ import type {
   RuntimeAuthResolverRequest,
 } from "./runtime.authPlane/runtimeAuthResolver.js";
 import {
+  isInsideAllowedRoots,
   normalizeAllowedRoots,
   normalizeToolCwd,
   normalizeWorkspacePath,
@@ -181,10 +182,6 @@ import {
   type SandboxRuntimePrepareResult,
 } from "./runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import type { SandboxRemoteWorkerAdapter } from "./runtime.sandboxPlane/sandboxCommandRunner.js";
-import {
-  describeShellWorkspaceWrite,
-  shellWorkspaceWriteGuardMessage,
-} from "./runtime.execEngine/workspaceWriteGuard.js";
 
 export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
@@ -233,6 +230,8 @@ export type PraxisRuntimeKernelOptions = {
   exposeProviderTools?: boolean;
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
+  sessionSummary?: PromptContextSessionSummary;
+  conversationWindow?: readonly PromptContextConversationMessage[];
   compactExecutor?: CompactExecutor;
   preCompactGovernanceExecutor?: PreCompactGovernanceExecutor;
   preCompactGovernanceEnabled?: boolean;
@@ -400,6 +399,7 @@ export type AgentModelCallRecord = {
   ok: boolean;
   usage?: AgentModelUsageRecord;
   providerRouting?: AgentModelProviderRoutingDebug;
+  cacheDebug?: AgentModelCacheDebugRecord;
   providerResponseId?: string;
   previousProviderResponseId?: string;
 };
@@ -665,11 +665,11 @@ function readPositiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
-function manifestContextWindowTokens(manifest: AgentManifest, override?: number): number | undefined {
+function manifestCompactInputBudgetTokens(manifest: AgentManifest, override?: number): number | undefined {
   if (override !== undefined) return readPositiveInteger(override);
-  return readPositiveInteger(manifest.model.metadata?.contextWindowTokens)
+  return readPositiveInteger(manifest.model.metadata?.usableInputTokens)
     ?? readPositiveInteger(manifest.model.metadata?.maxInputTokens)
-    ?? readPositiveInteger(manifest.model.metadata?.usableInputTokens);
+    ?? readPositiveInteger(manifest.model.metadata?.contextWindowTokens);
 }
 
 function readStringArray(value: unknown): readonly string[] {
@@ -680,40 +680,6 @@ function readStringArray(value: unknown): readonly string[] {
     if (text !== undefined && !values.includes(text)) values.push(text);
   }
   return values;
-}
-
-function procedureShellStepCommandSource(step: EphemeralProcedureStep): string | undefined {
-  if (step.baseToolId !== "shell.run") return undefined;
-  const command = readString(step.input.command)
-    ?? readString(step.input.script);
-  const args = readStringArray(step.input.args);
-  if (command !== undefined) {
-    return [command, ...args].join(" ");
-  }
-  try {
-    return JSON.stringify(step.input);
-  } catch {
-    return undefined;
-  }
-}
-
-function procedureShellWorkspaceWriteViolation(plan: EphemeralProcedurePlan): {
-  step: EphemeralProcedureStep;
-  reason: string;
-  message: string;
-} | undefined {
-  for (const step of plan.steps) {
-    const source = procedureShellStepCommandSource(step);
-    if (source === undefined) continue;
-    const reason = describeShellWorkspaceWrite(source);
-    if (reason === undefined) continue;
-    return {
-      step,
-      reason,
-      message: `EphemeralProcedure step ${step.stepId} uses ${step.baseToolId} to write workspace files. ${shellWorkspaceWriteGuardMessage(reason)}`,
-    };
-  }
-  return undefined;
 }
 
 function mergeStringLists(...lists: readonly (readonly string[] | undefined)[]): readonly string[] {
@@ -775,6 +741,8 @@ function runtimeGrantedPermissionsForTool(toolId: string, _profile: BaseToolPoli
       return ["mcp:call", "mcp:auth"];
     case "mcp.resources":
       return ["mcp:resource:list", "mcp:resource:read"];
+    case "media.viewImage":
+      return ["media:image:read", "filesystem:read"];
     case "process.wait":
       return ["process:wait", "process:read"];
     case "process.kill":
@@ -954,8 +922,9 @@ function pathContractError(
 function withWorkspaceNormalizationMetadata(
   args: Readonly<Record<string, unknown>>,
   normalizations: readonly Readonly<Record<string, unknown>>[],
+  extraAuditMetadata: Readonly<Record<string, unknown>> = {},
 ): Readonly<Record<string, unknown>> {
-  if (normalizations.length === 0) return args;
+  if (normalizations.length === 0 && Object.keys(extraAuditMetadata).length === 0) return args;
   const rawContext = isRecord(args.context) ? args.context : {};
   const rawAudit = isRecord(rawContext.auditMetadata) ? rawContext.auditMetadata : {};
   return {
@@ -964,7 +933,8 @@ function withWorkspaceNormalizationMetadata(
       ...rawContext,
       auditMetadata: {
         ...rawAudit,
-        workspacePathNormalization: normalizations[0],
+        ...extraAuditMetadata,
+        ...(normalizations[0] === undefined ? {} : { workspacePathNormalization: normalizations[0] }),
         workspacePathNormalizations: normalizations,
       },
     },
@@ -975,6 +945,7 @@ function normalizeCodePathValue(input: {
   value: string;
   workspaceRoot: string;
   allowedRoots: readonly string[];
+  allowOutsideAllowedRoots?: boolean;
 }): { ok: true; value: string; metadata: Readonly<Record<string, unknown>> } | { ok: false; error: Readonly<Record<string, unknown>> } {
   const normalized = normalizeWorkspacePath(input.value, {
     workspaceRoot: input.workspaceRoot,
@@ -982,6 +953,20 @@ function normalizeCodePathValue(input: {
     kind: "path",
   });
   if (!normalized.ok) {
+    if (
+      input.allowOutsideAllowedRoots === true
+      && normalized.reason === "OUTSIDE_ALLOWED_ROOTS"
+      && normalized.normalizedPath !== undefined
+    ) {
+      return {
+        ok: true,
+        value: normalized.normalizedPath,
+        metadata: {
+          ...workspacePathMetadata(normalized, "path"),
+          workspaceOutsideAllowedRoots: true,
+        },
+      };
+    }
     return { ok: false, error: pathContractError(normalized, "path") };
   }
   const relative = workspaceRelativePath(normalized.normalizedPath, input.workspaceRoot);
@@ -1014,6 +999,7 @@ function normalizeShellCwdValue(input: {
   workspaceRoot: string;
   allowedRoots: readonly string[];
   allowOsTmpdir?: boolean;
+  allowOutsideAllowedRoots?: boolean;
 }): { ok: true; value: string; metadata: Readonly<Record<string, unknown>> } | { ok: false; error: Readonly<Record<string, unknown>> } {
   const normalized = normalizeToolCwd(input.value, {
     workspaceRoot: input.workspaceRoot,
@@ -1037,6 +1023,20 @@ function normalizeShellCwdValue(input: {
         },
       };
     }
+    if (
+      input.allowOutsideAllowedRoots === true
+      && normalized.reason === "CWD_REJECTED"
+      && normalized.normalizedPath !== undefined
+    ) {
+      return {
+        ok: true,
+        value: normalized.normalizedPath,
+        metadata: {
+          ...workspacePathMetadata(normalized, "cwd"),
+          workspaceOutsideAllowedRoots: true,
+        },
+      };
+    }
     return { ok: false, error: pathContractError(normalized, "cwd") };
   }
   return {
@@ -1053,17 +1053,24 @@ function normalizeStringPathField(input: {
   allowedRoots: readonly string[];
   mode: "code-path" | "shell-cwd";
   allowOsTmpdir?: boolean;
+  allowOutsideAllowedRoots?: boolean;
   normalizations: Readonly<Record<string, unknown>>[];
 }): Readonly<Record<string, unknown>> | undefined {
   const raw = input.target[input.field];
   if (typeof raw !== "string" || raw.trim().length === 0) return undefined;
   const normalized = input.mode === "code-path"
-    ? normalizeCodePathValue({ value: raw, workspaceRoot: input.workspaceRoot, allowedRoots: input.allowedRoots })
+    ? normalizeCodePathValue({
+      value: raw,
+      workspaceRoot: input.workspaceRoot,
+      allowedRoots: input.allowedRoots,
+      allowOutsideAllowedRoots: input.allowOutsideAllowedRoots,
+    })
     : normalizeShellCwdValue({
       value: raw,
       workspaceRoot: input.workspaceRoot,
       allowedRoots: input.allowedRoots,
       allowOsTmpdir: input.allowOsTmpdir,
+      allowOutsideAllowedRoots: input.allowOutsideAllowedRoots,
     });
   if (!normalized.ok) return normalized.error;
   input.target[input.field] = normalized.value;
@@ -1071,26 +1078,74 @@ function normalizeStringPathField(input: {
   return undefined;
 }
 
+function stripShellPathToken(token: string): string {
+  return token.replace(/^[("'`]+/u, "").replace(/[)"'`,;]+$/u, "");
+}
+
+function shellCommandPathScanSource(command: string): string {
+  return command.replace(/[a-z][a-z0-9+.-]*:\/\/[^\s"'`]+/giu, "");
+}
+
+function isShellCommandAllowedSystemPath(token: string): boolean {
+  return token === "/dev/null";
+}
+
+function shellCommandAbsolutePathTokens(command: string): readonly string[] {
+  const matches = shellCommandPathScanSource(command).matchAll(/(^|[\s"'`=({[,;|&<>])\/(?!\/)[^\s"'`$;&|<>()[\]{}]*/gu);
+  return [...matches]
+    .map((match) => stripShellPathToken((match[0] ?? "").slice(match[1]?.length ?? 0)))
+    .filter((token) => token.length > 1 && !token.includes("\0") && !isShellCommandAllowedSystemPath(token));
+}
+
+function shellCommandOutsideAllowedRootsMetadata(input: {
+  command: string;
+  workspaceRoot: string;
+  allowedRoots: readonly string[];
+}): Readonly<Record<string, unknown>>[] {
+  const output: Readonly<Record<string, unknown>>[] = [];
+  for (const token of shellCommandAbsolutePathTokens(input.command)) {
+    const normalizedPath = path.resolve(token);
+    if (isInsideAllowedRoots(normalizedPath, input.allowedRoots)) continue;
+    output.push(workspacePathMetadata({
+      ok: false,
+      reason: "OUTSIDE_ALLOWED_ROOTS",
+      message: "shell command references an absolute path outside runtime allowed roots",
+      requestedPath: token,
+      normalizedPath,
+      workspaceRoot: input.workspaceRoot,
+      allowedRoots: input.allowedRoots,
+      pathWasMapped: false,
+      mappingSource: "absolute",
+      suggestedCwd: input.workspaceRoot,
+    }, "path"));
+  }
+  return output;
+}
+
 function normalizeWorkspacePathContract(input: {
   toolId: string;
   args: Readonly<Record<string, unknown>>;
   workspaceRoot?: string;
   allowedRoots?: readonly string[];
+  profile?: BaseToolPolicyProfile;
 }): ToolWorkspacePathContractResult {
   const workspaceRoot = readString(input.workspaceRoot);
   if (workspaceRoot === undefined) return { ok: true, args: input.args };
   const allowedRoots = normalizeAllowedRoots({ workspaceRoot, allowedRoots: input.allowedRoots });
   const nextArgs: Record<string, unknown> = { ...input.args };
   const normalizations: Readonly<Record<string, unknown>>[] = [];
+  const pathAccess = input.toolId === "patch.apply" ? "write" : "read";
+  const allowOutsideAllowedRoots = input.profile !== undefined;
 
-  if (input.toolId === "file.read" || input.toolId === "skill.load") {
-    for (const field of ["path", "filePath"]) {
+  if (input.toolId === "file.read" || input.toolId === "skill.load" || input.toolId === "media.viewImage") {
+    for (const field of ["path", "filePath", "imagePath"]) {
       const error = normalizeStringPathField({
         target: nextArgs,
         field,
         workspaceRoot,
         allowedRoots,
         mode: "code-path",
+        allowOutsideAllowedRoots,
         normalizations,
       });
       if (error !== undefined) return { ok: false, error };
@@ -1105,15 +1160,29 @@ function normalizeWorkspacePathContract(input: {
         workspaceRoot,
         allowedRoots,
         mode: "shell-cwd",
+        allowOutsideAllowedRoots,
         normalizations,
       });
       if (error !== undefined) return { ok: false, error };
     }
   }
 
+  if (input.toolId === "shell.run") {
+    const command = readString(nextArgs.command);
+    if (command !== undefined) {
+      normalizations.push(...shellCommandOutsideAllowedRootsMetadata({ command, workspaceRoot, allowedRoots }));
+    }
+  }
+  const workspaceOutsideAllowedRoots = normalizations.some((item) => item.workspaceOutsideAllowedRoots === true || item.reason === "OUTSIDE_ALLOWED_ROOTS");
+
   return {
     ok: true,
-    args: withWorkspaceNormalizationMetadata(nextArgs, normalizations),
+    args: withWorkspaceNormalizationMetadata(nextArgs, normalizations, workspaceOutsideAllowedRoots
+      ? {
+        workspaceOutsideAllowedRoots: true,
+        workspacePathAccess: pathAccess,
+      }
+      : {}),
     metadata: normalizations[0] === undefined
       ? { workspaceRoot, allowedRoots, suggestedCwd: workspaceRoot }
       : {
@@ -3035,6 +3104,8 @@ async function buildPromptPackAndLower(input: {
   task: string;
   turnIndex: number;
   startStepIndex?: number;
+  workspaceRoot?: string;
+  allowedRoots?: readonly string[];
   now?: string;
   modelCaller: { kind: "application"; id: string; sessionId: string };
   toolMappings: readonly ProviderToolMapping[];
@@ -3067,7 +3138,7 @@ async function buildPromptPackAndLower(input: {
     }
 > {
   const promptPackId = input.manifest.harness.promptPack.promptPackId ?? `${input.sessionId}:promptPack:${input.turnIndex + 1}`;
-  const contextWindowTokens = input.contextWindowTokens ?? manifestContextWindowTokens(input.manifest);
+  const contextWindowTokens = input.contextWindowTokens ?? manifestCompactInputBudgetTokens(input.manifest);
   const mainLoopRun = runMainLoop({
     runtime: {
       runtimeId: input.runtimeId,
@@ -3095,6 +3166,8 @@ async function buildPromptPackAndLower(input: {
       manifest: input.manifest,
       task: input.task,
       turnIndex: input.turnIndex,
+      workspaceRoot: input.workspaceRoot,
+      allowedRoots: input.allowedRoots,
       toolMappings: input.toolMappings,
       observations: input.observations,
       events: input.events,
@@ -3393,12 +3466,15 @@ async function executeBaseToolDecision(input: {
     workspaceRoot: input.workspaceRoot,
     allowedRoots: input.allowedRoots,
   });
-  const pathContract = normalizeWorkspacePathContract({
-    toolId: input.toolId,
-    args: toolArguments,
-    workspaceRoot: input.workspaceRoot,
-    allowedRoots: input.allowedRoots,
-  });
+  const pathContract = input.manifest.toolPolicy.profile === "bapr"
+    ? { ok: true as const, args: toolArguments }
+    : normalizeWorkspacePathContract({
+      toolId: input.toolId,
+      args: toolArguments,
+      workspaceRoot: input.workspaceRoot,
+      allowedRoots: input.allowedRoots,
+      profile: input.manifest.toolPolicy.profile,
+    });
   if (!pathContract.ok) {
     const record: AgentToolCallRecord = {
       callId: input.toolCallId,
@@ -3969,36 +4045,6 @@ async function executeEphemeralProcedure(input: {
   observations: readonly RuntimeObservationMaterial[];
   error?: PraxisRuntimeKernelError;
 }> {
-  const shellWorkspaceWriteViolation = procedureShellWorkspaceWriteViolation(input.plan);
-  if (shellWorkspaceWriteViolation !== undefined) {
-    return {
-      ok: false,
-      records: [],
-      observations: [createObservationMaterial({
-        observationId: `${input.sessionId}:observation:${input.plan.procedureId}:${shellWorkspaceWriteViolation.step.stepId}:workspace-write-blocked`,
-        source: "ephemeralProcedure",
-        status: "failed",
-        title: `EphemeralProcedure ${input.plan.procedureId} blocked`,
-        summary: shellWorkspaceWriteViolation.message,
-        refs: [input.plan.procedureId, shellWorkspaceWriteViolation.step.stepId, shellWorkspaceWriteViolation.step.baseToolId],
-        payload: {
-          procedureId: input.plan.procedureId,
-          stepId: shellWorkspaceWriteViolation.step.stepId,
-          baseToolId: shellWorkspaceWriteViolation.step.baseToolId,
-          reason: shellWorkspaceWriteViolation.reason,
-          recommendedTools: ["patch.apply"],
-        },
-        metadata: metadataRecord({
-          procedureId: input.plan.procedureId,
-          stepId: shellWorkspaceWriteViolation.step.stepId,
-          baseToolId: shellWorkspaceWriteViolation.step.baseToolId,
-          blockedBy: "shellWorkspaceWriteGuard",
-        }),
-      })],
-      error: kernelError("PROCEDURE_INVOCATION_FAILED", shellWorkspaceWriteViolation.message, "tool"),
-    };
-  }
-
   if (input.plan.approval.required) {
     const approval = await requestRuntimeApproval({
       runtimeId: input.runtimeId,
@@ -4454,14 +4500,14 @@ export class PraxisRuntimeKernel {
       usage: options.toolContextUsage,
       updatedAt: createdAt,
     });
-    let compactSessionSummary: PromptContextSessionSummary | undefined;
-    let compactConversationWindow: readonly PromptContextConversationMessage[] | undefined;
+    let compactSessionSummary: PromptContextSessionSummary | undefined = options.sessionSummary;
+    let compactConversationWindow: readonly PromptContextConversationMessage[] | undefined = options.conversationWindow;
     let preCompactGovernanceProjectContextMaterials: readonly {
       id: string;
       text: string;
       metadata?: Readonly<Record<string, string | number | boolean | object>>;
     }[] = [];
-    const compactContextWindowTokens = manifestContextWindowTokens(manifest, options.compactContextWindowTokens);
+    const compactInputBudgetTokens = manifestCompactInputBudgetTokens(manifest, options.compactContextWindowTokens);
     const compactExecutor = options.compactExecutor ?? createRuntimeFallbackCompactExecutor();
     const preCompactGovernanceExecutor = options.preCompactGovernanceExecutor
       ?? createNoopPreCompactGovernanceExecutor();
@@ -4523,12 +4569,14 @@ export class PraxisRuntimeKernel {
         task: input.input.normalizedText,
         turnIndex: turn,
         startStepIndex: stepBase,
+        workspaceRoot: toolWorkspaceRoot,
+        allowedRoots: toolAllowedRoots,
         now: now(),
         modelCaller,
         toolMappings,
         observations,
         events,
-        contextWindowTokens: compactContextWindowTokens,
+        contextWindowTokens: compactInputBudgetTokens,
         sessionSummary: compactSessionSummary,
         conversationWindow: compactConversationWindow,
         projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
@@ -4607,7 +4655,7 @@ export class PraxisRuntimeKernel {
         }),
       });
 
-      const contextWindowTokens = compactContextWindowTokens;
+      const contextWindowTokens = compactInputBudgetTokens;
       const promptBoundaryEvents = [...prompt.events];
       if (contextWindowTokens !== undefined) {
         const compactDecision = decideTurnBoundaryCompact({
@@ -4780,6 +4828,8 @@ export class PraxisRuntimeKernel {
               task: input.input.normalizedText,
               turnIndex: turn,
               startStepIndex: stepBase + 6,
+              workspaceRoot: toolWorkspaceRoot,
+              allowedRoots: toolAllowedRoots,
               now: now(),
               modelCaller,
               toolMappings,
@@ -5040,6 +5090,7 @@ export class PraxisRuntimeKernel {
         ok: modelResult.ok,
         usage: modelUsage,
         providerRouting,
+        cacheDebug: observedCacheDebug,
         providerResponseId,
         previousProviderResponseId,
       });

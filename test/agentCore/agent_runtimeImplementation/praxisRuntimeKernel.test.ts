@@ -497,6 +497,82 @@ test("PraxisRuntimeKernel.runManifest falls back to normal compact when preCompa
   assert.equal(result.state.states.some((record) => record.stateId === "state:preCompactGovernance:1" && record.phase === "failed"), true);
 });
 
+test("PraxisRuntimeKernel compact threshold uses usable input budget before max input", async () => {
+  class CompactBudgetAgent extends PraxisAgent {
+    identity = "agent.compact-budget";
+    model = model("gpt-5.4", {
+      carrierId: "carrier.compact-budget",
+      metadata: {
+        contextWindowTokens: 10_000,
+        maxInputTokens: 1_000,
+        usableInputTokens: 100,
+        maxOutputTokens: 16,
+      },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(new CompactBudgetAgent());
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const compactContextWindows: number[] = [];
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-compact-budget" }).runManifest(
+    compiled.manifest,
+    "say hello after compact budget check",
+    {
+      sessionId: "session-compact-budget",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      compactThresholdRatio: 0.0001,
+      compactExecutor: {
+        compact: async (request) => {
+          compactContextWindows.push(request.contextWindowTokens);
+          return {
+            ok: true,
+            sessionSummaryText: "Compacted with usable input budget.",
+            recentConversationText: "runtime-summary: usable input budget was used.",
+            record: {
+              kind: "praxis.contextCompact.record",
+              compactId: "compact.budget.1",
+              sessionId: request.sessionId,
+              trigger: request.trigger,
+              thresholdRatio: request.thresholdRatio ?? 0.95,
+              before: {
+                estimatedTokens: request.estimatedTokens,
+                materialRefs: request.materialRefs,
+              },
+              after: {
+                estimatedTokens: 12,
+                sessionSummaryRef: "summary.compact.budget.1",
+                recentConversationRefs: ["recent.compact.budget.1"],
+              },
+              compactedMaterialRefs: request.materialRefs,
+              artifactRefs: [],
+              createdAt: "2026-05-26T00:00:00.000Z",
+              executor: "application",
+              metadata: {},
+              publicSafe: true,
+            },
+            events: ["contextCompact.application.completed"],
+          };
+        },
+      },
+      providerCaller: async () => ({
+        output_text: "hello",
+        usage: { input_tokens: 11, output_tokens: 3 },
+      }),
+      now: () => "2026-05-26T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  assert.deepEqual(compactContextWindows, [100]);
+});
+
 test("PraxisRuntimeKernel.runManifest fails before provider invocation when boundary compact fails", async () => {
   const compiled = compileAgent(new PlainAgent());
   assert.equal(compiled.ok, true);
@@ -2110,7 +2186,7 @@ test("PraxisRuntimeKernel.runManifest gives colliding tool ids unique provider n
     tools?: readonly { name?: string }[];
   };
   const providerBodyText = JSON.stringify(body);
-  assert.match(providerBodyText, /Praxis BaseTool calling protocol/);
+  assert.match(providerBodyText, /Praxis tool calling protocol/);
   assert.match(providerBodyText, /declared function calls/);
   assert.match(providerBodyText, /runtime mounted BaseTools=file\.read, code_read/);
   assert.match(providerBodyText, /baseTool context mode=intelligent/);
@@ -2380,6 +2456,127 @@ test("PraxisRuntimeKernel.runManifest uses runtime cwd as default baseTool works
   assert.equal(result.toolCalls[0]?.ok, true);
   assert.match(JSON.stringify(result.toolCalls[0]?.arguments), new RegExp(workspace.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /needle from runtime cwd/u);
+});
+
+test("PraxisRuntimeKernel.runManifest lets bapr shell commands reference absolute paths outside allowed roots", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-shell-root-"));
+  const outside = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-shell-outside-"));
+
+  class ShellRootAgent extends PraxisAgent {
+    identity = "agent.shell-root";
+    model = model("gpt-5.4", { carrierId: "carrier.shell-root" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("shell.run")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-root" }).run(
+    new ShellRootAgent(),
+    "list the outside dir",
+    {
+      sessionId: "session-shell-root",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "shell.run",
+              call_id: "shell-outside-path",
+              arguments: JSON.stringify({
+                command: `ls -la ${outside}`,
+                cwd: workspace,
+                dryRun: false,
+              }),
+            }],
+          };
+        }
+        return { output_text: "listed outside path" };
+      },
+      now: () => "2026-05-18T00:00:00.000Z",
+    },
+  );
+
+  await rm(workspace, { recursive: true, force: true });
+  await rm(outside, { recursive: true, force: true });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.equal(result.finalOutput, "listed outside path");
+});
+
+test("PraxisRuntimeKernel.runManifest allows shell commands with URLs and /dev/null redirects", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-shell-url-"));
+
+  class ShellUrlAgent extends PraxisAgent {
+    identity = "agent.shell-url";
+    model = model("gpt-5.4", { carrierId: "carrier.shell-url" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("shell.run")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-url" }).run(
+    new ShellUrlAgent(),
+    "write a file with a localhost url",
+    {
+      sessionId: "session-shell-url",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "shell.run",
+              call_id: "shell-url-path",
+              arguments: JSON.stringify({
+                command: "printf '%s\\n' 'http://localhost:3000' > app.txt 2>/dev/null",
+                cwd: workspace,
+                dryRun: false,
+              }),
+            }],
+          };
+        }
+        return { output_text: "url command complete" };
+      },
+      now: () => "2026-05-18T00:00:00.000Z",
+    },
+  );
+
+  await rm(workspace, { recursive: true, force: true });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
 });
 
 test("PraxisRuntimeKernel.runManifest gives EphemeralProcedure steps the runtime workspace root", async () => {

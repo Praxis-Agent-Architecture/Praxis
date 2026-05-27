@@ -27,6 +27,7 @@ const coreToolIds = [
   "agent.kill",
   "mcp.use",
   "mcp.resources",
+  "media.viewImage",
   "process.wait",
   "process.kill",
   "tool.discover",
@@ -38,7 +39,7 @@ test("baseTool fact matrix covers the core and multiagent mesh catalog without r
 
   assert.equal(matrix.surface, "basetool.factMatrix");
   assert.equal(matrix.version, "praxis.basetool.factMatrix.v1");
-  assert.equal(matrix.total, 24);
+  assert.equal(matrix.total, 25);
   assert.deepEqual(matrix.profiles.map((row) => row.name), [
     "codingCore",
     "researchCore",

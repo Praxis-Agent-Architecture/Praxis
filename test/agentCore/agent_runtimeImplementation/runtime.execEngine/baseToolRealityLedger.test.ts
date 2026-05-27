@@ -21,11 +21,11 @@ test("baseToolRealityLedger covers the semantic basetool catalog", () => {
   const snapshot = snapshotBaseToolRealityLedger({ executor, implementedPortPaths });
   const ledgerIds = new Set(ledger.map((entry) => entry.toolId));
 
-  assert.equal(ledger.length, 24);
-  assert.equal(snapshot.total, 24);
-  assert.equal(snapshot.expectedTotal, 24);
+  assert.equal(ledger.length, 25);
+  assert.equal(snapshot.total, 25);
+  assert.equal(snapshot.expectedTotal, 25);
   assert.equal(snapshot.byFamily.work ?? 0, 0);
-  assert.equal(snapshot.byStorage["semantic-catalog"], 24);
+  assert.equal(snapshot.byStorage["semantic-catalog"], 25);
   assert.equal(ledgerIds.has("file.read"), true);
   assert.equal(ledgerIds.has("shell.run"), true);
   assert.equal(ledgerIds.has("context.load"), true);
@@ -41,8 +41,8 @@ test("baseToolRealityLedger covers the semantic basetool catalog", () => {
   assert.equal(fileRead.liveStatus, "notProven");
   assert.equal(fileRead.developerReadiness, "ready");
 
-  assert.equal(snapshot.stageCounts.mounted, 24);
-  assert.equal(snapshot.stageCounts.contractReady, 24);
+  assert.equal(snapshot.stageCounts.mounted, 25);
+  assert.equal(snapshot.stageCounts.contractReady, 25);
 });
 
 test("baseToolRealityLedger distinguishes host-ready ports from adapter-required ports", () => {

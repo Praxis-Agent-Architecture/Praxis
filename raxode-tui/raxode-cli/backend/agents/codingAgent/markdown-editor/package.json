@@ -1,0 +1,13 @@
+{
+  "name": "markdown-editor",
+  "version": "1.0.0",
+  "description": "A full-featured Markdown editor and previewer",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "marked": "^14.0.0"
+  }
+}

@@ -170,6 +170,7 @@ function view(sessionId: string): PraxisApplicationViewModel {
     sessionId,
     agentId: "agent.test",
     agentEntries: [],
+    agents: { active: 1 },
     status: "completed",
     workspaceRoot: "/tmp/project",
     mode: "dry-run",

@@ -60,6 +60,52 @@ test("runtime fallback CompactExecutor returns a public-safe CompactRecord", asy
   assert.equal(result.record.before.materialRefs.length, 3);
   assert.equal(result.record.after.sessionSummaryRef.endsWith(":sessionSummary"), true);
   assert.equal(result.record.publicSafe, true);
-  assert.match(result.sessionSummaryText, /Compacted 3 material refs/);
+  assert.match(result.sessionSummaryText, /ledger-aware passive denoise/);
+  assert.match(result.sessionSummaryText, /Preserve causal order/);
   assert.match(result.recentConversationText, /Keep this user turn/);
+});
+
+test("runtime fallback CompactExecutor preserves ledger cause-action-result material", async () => {
+  const executor = createRuntimeFallbackCompactExecutor();
+  const result = await executor.compact({
+    sessionId: "session.ledger.compact",
+    trigger: "toolLoopBoundary",
+    materialRefs: ["recent.1", "observation.1", "empty.1"],
+    materials: [
+      {
+        id: "observation.1",
+        promptSegmentKind: "observations",
+        source: "application.ledger.tool",
+        text: "tool: patch.apply\ncausedBy: model.call.1\nresult: wrote src/app.ts\nverification: npm run build passed",
+        metadata: { artifactRefs: ["artifact.patch.1"] },
+      },
+      {
+        id: "recent.1",
+        promptSegmentKind: "recentConversation",
+        source: "application.ledger.conversation",
+        text: "user: Build the editor.\nmodel: decided to inspect files.\ntool: file.search completed.",
+      },
+      {
+        id: "empty.1",
+        promptSegmentKind: "observations",
+        text: "   ",
+      },
+    ],
+    currentUserTurnText: "Continue from the verified editor build.",
+    estimatedTokens: 950,
+    contextWindowTokens: 1000,
+    now: "2026-05-26T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.match(result.sessionSummaryText, /user: Build the editor/u);
+  assert.match(result.sessionSummaryText, /tool: patch\.apply/u);
+  assert.match(result.sessionSummaryText, /verification: npm run build passed/u);
+  assert.match(result.recentConversationText, /file\.search completed/u);
+  assert.match(result.recentConversationText, /Continue from the verified editor build/u);
+  assert.deepEqual(result.record.artifactRefs, ["artifact.patch.1"]);
+  assert.equal(result.record.metadata.passiveDenoise, "ledger-aware");
+  assert.equal(result.record.metadata.droppedEmptyMaterials, 1);
+  assert.equal(result.events.includes("contextCompact.runtimeFallback.passiveDenoise.completed"), true);
 });

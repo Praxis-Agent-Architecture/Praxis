@@ -26,8 +26,9 @@ function parsePatch(patch: string): { ok: true; changes: readonly PatchFileChang
   while (index < lines.length) {
     const line = lines[index];
     if (line === "*** End Patch") break;
-    if (line.startsWith("*** Add File: ")) {
-      const filePath = line.slice("*** Add File: ".length).trim();
+    const addFileMatch = line.match(/^\*\*\* (?:Add|Create|Create New) File: (.+)$/u);
+    if (addFileMatch !== null) {
+      const filePath = (addFileMatch[1] ?? "").trim();
       if (filePath.length === 0) return { ok: false, message: "Add File path cannot be empty." };
       index++;
       const content: string[] = [];
@@ -36,6 +37,46 @@ function parsePatch(patch: string): { ok: true; changes: readonly PatchFileChang
         if (!item.startsWith("+")) return { ok: false, message: `Add File line must start with '+': ${item}` };
         content.push(item.slice(1));
         index++;
+      }
+      changes.push({ type: "add", path: filePath, content: content.join("\n") + (content.length > 0 ? "\n" : "") });
+      continue;
+    }
+    const fileMatch = line.match(/^\*\*\* File: (.+)$/u);
+    if (fileMatch !== null) {
+      const filePath = (fileMatch[1] ?? "").trim();
+      if (filePath.length === 0) return { ok: false, message: "File path cannot be empty." };
+      index++;
+      const content: string[] = [];
+      while (index < lines.length && !lines[index].startsWith("*** ")) {
+        const item = lines[index];
+        if (!item.startsWith("+")) return { ok: false, message: `File line must start with '+': ${item}` };
+        content.push(item.slice(1));
+        index++;
+      }
+      changes.push({ type: "add", path: filePath, content: content.join("\n") + (content.length > 0 ? "\n" : "") });
+      continue;
+    }
+    if (line === "--- /dev/null" && (lines[index + 1] ?? "").startsWith("+++ ")) {
+      const rawFilePath = (lines[index + 1] ?? "").slice("+++ ".length).trim();
+      const filePath = rawFilePath.startsWith("b/") ? rawFilePath.slice(2) : rawFilePath;
+      if (filePath.length === 0 || filePath === "/dev/null") return { ok: false, message: "Unified add file path cannot be empty." };
+      index += 2;
+      if ((lines[index] ?? "").startsWith("@@")) index++;
+      const content: string[] = [];
+      while (index < lines.length && !lines[index].startsWith("*** ") && lines[index] !== "--- /dev/null") {
+        const item = lines[index];
+        if (item.startsWith("+")) {
+          content.push(item.slice(1));
+          index++;
+          continue;
+        }
+        if (item.startsWith("-") || item.startsWith(" ")) return { ok: false, message: `Unified add file line must be added content: ${item}` };
+        if (item.trim().length === 0) {
+          content.push("");
+          index++;
+          continue;
+        }
+        return { ok: false, message: `Unified add file line must start with '+': ${item}` };
       }
       changes.push({ type: "add", path: filePath, content: content.join("\n") + (content.length > 0 ? "\n" : "") });
       continue;

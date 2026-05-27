@@ -36,6 +36,7 @@ const coreToolIds = [
   "agent.kill",
   "mcp.use",
   "mcp.resources",
+  "media.viewImage",
   "process.wait",
   "process.kill",
   "tool.discover",
@@ -121,6 +122,7 @@ test("basetool Coding Core descriptor exposes the implemented core tool ids", ()
     "context.load",
     "mcp.use",
     "mcp.resources",
+    "media.viewImage",
     "process.wait",
     "process.kill",
     "plan.update",
@@ -457,6 +459,37 @@ test("mcp.use and mcp.resources route to MCP runtime ports", async () => {
   assert.deepEqual(readInput, { serverId: "docs", uri: "file://readme" });
 });
 
+test("media.viewImage validates image selectors and calls media runtime port", async () => {
+  const lookup = createBaseToolRegistry().lookupHandler("media.viewImage");
+  assert.equal(lookup.ok, true);
+  if (!lookup.ok) return;
+
+  const invalid = await lookup.handler.invoke({
+    toolId: "media.viewImage",
+    input: { prompt: "what is this?" },
+    executor: {},
+  });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error?.code, "MISSING_REQUIRED_FIELD");
+
+  let received: unknown;
+  const result = await lookup.handler.invoke({
+    toolId: "media.viewImage",
+    input: { imageRef: "attachment:1", prompt: "describe", detail: "high", maxBytes: 1024 },
+    executor: {
+      media: {
+        viewImage(request) {
+          received = request;
+          return { ok: true, output: { description: "image" } };
+        },
+      },
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(received, { imageRef: "attachment:1", prompt: "describe", detail: "high", maxBytes: 1024 });
+  assert.equal(result.metadata?.runtimePort, "media.viewImage");
+});
+
 test("process.wait and process.kill validate ids and call runtime process ports", async () => {
   const registry = createBaseToolRegistry();
   const waitLookup = registry.lookupHandler("process.wait");
@@ -623,6 +656,53 @@ test("patch.apply applies add update and delete through filesystem ports", async
     changeCount: 3,
     summary: "Applied patch to 3 files.",
   });
+
+  const createNewFileResult = await lookup.handler.invoke({
+    toolId: "patch.apply",
+    input: {
+      patch: [
+        "*** Begin Patch",
+        "*** Create New File: drift.txt",
+        "+drift",
+        "*** End Patch",
+      ].join("\n"),
+    },
+    executor,
+  });
+  assert.equal(createNewFileResult.ok, true);
+  assert.deepEqual(files.get("drift.txt"), "drift\n");
+
+  const fileDirectiveResult = await lookup.handler.invoke({
+    toolId: "patch.apply",
+    input: {
+      patch: [
+        "*** Begin Patch",
+        "*** File: file-directive.txt",
+        "+file directive",
+        "*** End Patch",
+      ].join("\n"),
+    },
+    executor,
+  });
+  assert.equal(fileDirectiveResult.ok, true);
+  assert.deepEqual(files.get("file-directive.txt"), "file directive\n");
+
+  const unifiedAddResult = await lookup.handler.invoke({
+    toolId: "patch.apply",
+    input: {
+      patch: [
+        "*** Begin Patch",
+        "--- /dev/null",
+        "+++ b/unified.txt",
+        "@@",
+        "+unified",
+        "*** End Patch",
+      ].join("\n"),
+    },
+    executor,
+  });
+  assert.equal(unifiedAddResult.ok, true);
+  assert.deepEqual(files.get("unified.txt"), "unified\n");
 });
 
 test("semantic basetool support catalog reports readiness from implemented ports", () => {
@@ -630,7 +710,7 @@ test("semantic basetool support catalog reports readiness from implemented ports
   const shellRun = catalog.find((entry) => entry.toolId === "shell.run");
   const fileRead = catalog.find((entry) => entry.toolId === "file.read");
 
-  assert.equal(catalog.length, 24);
+  assert.equal(catalog.length, 25);
   assert.equal(shellRun?.readiness, "available");
   assert.equal(fileRead?.readiness, "unavailable");
 

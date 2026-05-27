@@ -7,6 +7,8 @@ export type {
   PraxisApplicationAttachment,
   PraxisApplicationAgentEntryView,
   PraxisApplicationAuxiliaryTaskInput,
+  PraxisApplicationAuthProfileView,
+  PraxisApplicationAuthState,
   PraxisApplicationCommand,
   PraxisApplicationCommandResult,
   PraxisApplicationContextTelemetry,

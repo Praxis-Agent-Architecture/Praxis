@@ -337,7 +337,7 @@ test("rax test --all-testable reports the core BaseTool readiness matrix", async
       };
     };
   };
-  assert.equal(payload.readiness?.toolReadiness?.total, 24);
+  assert.equal(payload.readiness?.toolReadiness?.total, 25);
   assert.equal(payload.readiness?.toolReadiness?.ready, 10);
   assert.deepEqual(payload.readiness?.toolReadiness?.missing, [
     "agent.inbox",
@@ -351,6 +351,7 @@ test("rax test --all-testable reports the core BaseTool readiness matrix", async
     "context.load",
     "mcp.resources",
     "mcp.use",
+    "media.viewImage",
     "skill.load",
     "user.ask",
     "web.search",

@@ -58,12 +58,17 @@ test("toolSchemaCompatibilityLayer lowers Praxis tools to OpenAI, Claude, and Ge
   assert.deepEqual((anthropic.tools[anthropic.tools.length - 1] as { cache_control?: unknown }).cache_control, { type: "ephemeral" });
 
   const geminiPayload = gemini.providerPayload as { config?: { tools?: { functionDeclarations?: unknown[] }[] } };
-  assert.equal(geminiPayload.config?.tools?.[0]?.functionDeclarations?.length, 6);
+  assert.equal(geminiPayload.config?.tools?.[0]?.functionDeclarations?.length, 5);
   assert.equal((geminiPayload.config?.tools?.[0]?.functionDeclarations?.[0] as { name?: string }).name, "praxis_tool_file_read");
   assert.equal(openai.tools.some((item) => item.name === "praxis_expand_tool_context"), true);
   const expandTool = openai.tools.find((item) => item.name === "praxis_expand_tool_context") as { parameters?: { required?: string[]; properties?: { targetKind?: { enum?: string[] } } } } | undefined;
   assert.deepEqual(expandTool?.parameters?.required, ["targetKind", "toolId"]);
   assert.deepEqual(expandTool?.parameters?.properties?.targetKind?.enum, ["tool"]);
+  const openAiCompat = lowerPraxisToolsForProvider({ providerFamily: "openaiChatCompletions", tools: fixtureTools });
+  const openAiCompatToolNames = openAiCompat.tools.map((item) => (item.function as { name?: string } | undefined)?.name);
+  assert.equal(openAiCompatToolNames.includes("praxis_expand_tool_context"), false);
+  assert.equal(openAiCompatToolNames.includes("praxis_ephemeral_procedure"), true);
+  assert.equal(openAiCompatToolNames.includes("praxis_request_approval"), true);
 
   const procedureTool = openai.tools.find((item) => item.name === "praxis_ephemeral_procedure") as {
     parameters?: {

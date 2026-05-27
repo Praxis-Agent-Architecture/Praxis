@@ -274,13 +274,13 @@ export function createPraxisToolDeclarations(input: {
     });
 }
 
-function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
-  return [
+function runtimeDecisionDeclarations(providerFamily: ProviderToolSchemaFamily): readonly PraxisToolDeclaration[] {
+  const declarations: PraxisToolDeclaration[] = [
     {
       toolId: "praxis.runtime.ephemeralProcedure",
       providerName: "praxis_ephemeral_procedure",
       providerKind: "baseTool",
-      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability. Procedure steps must obey each BaseTool contract: shell.run steps must never create or modify workspace files with redirection, heredocs, cat, tee, or ad-hoc file writes; use patch.apply for workspace file changes.",
+      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability. Procedure steps must obey each BaseTool contract. Use patch.apply for precise source patches, or shell.run for governed commands and practical workspace writes when shell is clearer.",
       inputSchema: normalizeProviderInputSchema({
         type: "object",
         additionalProperties: true,
@@ -309,7 +309,7 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
                 input: {
                   type: "object",
                   additionalProperties: true,
-                  description: "Input for the selected BaseTool, including workspaceRoot when the BaseTool schema requires a workspace scope. Do not put workspace file contents into shell commands; file creation and edits must be expressed as patch.apply inputs.",
+                  description: "Input for the selected BaseTool, including workspaceRoot when the BaseTool schema requires a workspace scope. Keep workspace writes scoped and auditable; verify written files after execution.",
                 },
                 dependsOn: { type: "array", items: { type: "string" } },
                 riskLevel: { type: "string", enum: ["low", "medium", "high"] },
@@ -337,7 +337,10 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
       }),
       metadata: { runtimeDecisionTool: true },
     },
-    {
+  ];
+
+  if (providerFamily === "openaiResponses") {
+    declarations.push({
       toolId: "praxis.runtime.expandToolContext",
       providerName: "praxis_expand_tool_context",
       providerKind: "baseTool",
@@ -353,8 +356,10 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
         },
       }),
       metadata: { runtimeDecisionTool: true },
-    },
-  ];
+    });
+  }
+
+  return declarations;
 }
 
 function openAiTool(declaration: PraxisToolDeclaration): Readonly<Record<string, unknown>> {
@@ -445,7 +450,7 @@ export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProvider
     : allTools.filter((tool) => visibleToolIds.has(tool.toolId));
   const declarations = [
     ...createPraxisToolDeclarations({ tools, mappings }),
-    ...(request.includeRuntimeDecisionTools === false ? [] : runtimeDecisionDeclarations()),
+    ...(request.includeRuntimeDecisionTools === false ? [] : runtimeDecisionDeclarations(request.providerFamily)),
   ];
 
   const providerTools = request.providerFamily === "openaiResponses"

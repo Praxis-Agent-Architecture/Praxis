@@ -9,7 +9,8 @@
     "access": "public"
   },
   "bin": {
-    "rax": "./bin/rax"
+    "rax": "./bin/rax",
+    "praxis-raxode": "./raxode-tui/bin/raxode"
   },
   "exports": {
     ".": "./src/agentCore/index.ts",
@@ -18,13 +19,20 @@
     "./application": "./src/applicationLayer/index.ts",
     "./application-layer": "./src/applicationLayer/index.ts",
     "./basetool": "./src/basetool/index.ts",
+    "./modelAdapter/*": "./src/modelAdapter/*",
+    "./model-adapter/*": "./src/modelAdapter/*",
+    "./provider/*": "./src/modelAdapter/*",
     "./memory": "./src/memory_managementPool/index.ts",
-    "./rax": "./src/rax_packageManager/index.ts"
+    "./rax": "./src/rax_packageManager/index.ts",
+    "./raxode": "./raxode-tui/raxode-cli/index.ts",
+    "./raxode/backend": "./raxode-tui/raxode-cli/backend/raxodeBackend.ts",
+    "./raxode/contracts": "./raxode-tui/raxode-cli/contracts.ts"
   },
   "files": [
     "bin",
     "src",
     "examples",
+    "raxode-tui",
     "!examples/scripts/agentcore_chat.ts",
     "!examples/scripts/agentcore_tool_lab.ts",
     "!examples/scripts/agentcore_all_tools_matrix.ts",
@@ -54,7 +62,7 @@
     "!**/*.test.ts"
   ],
   "engines": {
-    "node": ">=24.15.0 <25"
+    "node": ">=22.22.3"
   },
   "scripts": {
     "build": "npm run typecheck",
@@ -64,12 +72,15 @@
     "example:minimal": "node --import tsx examples/minimal/runRepoInspector.ts",
     "example:fullstack": "node --import tsx examples/fullstack/runRepoInspector.ts",
     "smoke:agentCore": "node --import tsx examples/scripts/agentcore_smoke.ts",
+    "raxode:typecheck": "tsc -p raxode-tui/tsconfig.json --noEmit",
+    "raxode:test:backend": "cd raxode-tui && node --import tsx --test raxode-cli/frontend/bridge/*.test.ts raxode-cli/frontend/tui/cli/*.test.ts raxode-cli/frontend/tui/input/*.test.ts raxode-cli/backend/tests/*.test.ts",
+    "raxode:test:application": "npm run raxode:test:backend",
     "test:agentCore:live": "AGENTCORE_LIVE_TEST=1 node --import tsx --test test/agentCore/agentCoreLiveSmoke.test.ts",
     "test:agentCore": "find test/agentCore \\( -path test/agentCore/agent_executionEngine/basic_toolLayer \\) -prune -o -type f -name '*.test.ts' -print0 | xargs -0 node --import tsx --test",
     "test:unit": "npm run test:agentCore"
   },
   "devDependencies": {
-    "@types/node": "^24.12.0"
+    "@types/node": "^22.19.19"
   },
   "optionalDependencies": {
     "@ffmpeg/core": "^0.12.10",

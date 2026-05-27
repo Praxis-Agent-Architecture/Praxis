@@ -136,6 +136,12 @@ function fail(code: string, message: string, metadata?: Readonly<Record<string, 
   return { ok: false, error: { code, message, publicSafe: true }, metadata };
 }
 
+function nodeErrorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string"
+    ? String((error as { code?: unknown }).code)
+    : undefined;
+}
+
 function unavailable(portPath: string): BaseToolExecutorResult {
   return fail("PROVIDER_UNAVAILABLE", `${portPath} is not implemented by the semantic basetool runtime port factory.`);
 }
@@ -169,12 +175,19 @@ function resolvePath(context: RuntimeBaseToolExecutorContext, inputPath: unknown
   }
   const root = workspaceRoot(context);
   const absolute = path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(root, inputPath);
+  const profile = policyProfileForContext(context);
   const allowedRoots = (context.policy?.allowedRoots ?? [root]).map((item) => path.resolve(item));
   if (!allowedRoots.some((allowedRoot) => isInside(allowedRoot, absolute))) {
-    return fail("PATH_OUTSIDE_ALLOWED_ROOTS", `Path ${inputPath} is outside allowed runtime roots.`);
+    return ok(absolute, {
+      workspaceRoot: root,
+      allowedRoots,
+      requestedPath: inputPath,
+      normalizedPath: absolute,
+      workspaceOutsideAllowedRoots: true,
+      policyProfile: profile,
+    });
   }
-  const profile = policyProfileForContext(context);
-  if (profile !== "bapr" && profile !== "yolo" && isSecretPath(absolute)) {
+  if (profile !== "yolo" && isSecretPath(absolute)) {
     return fail("SECRET_PATH_DENIED", "Secret environment files require explicit runtime approval before model-visible tools may access them.", {
       needsApproval: true,
       path: inputPath,
@@ -264,21 +277,51 @@ function approvedByRuntimeContext(value: unknown): boolean {
 
 function resolveCommandCwd(context: RuntimeBaseToolExecutorContext, inputCwd: string | undefined): BaseToolExecutorResult<string> {
   const root = workspaceRoot(context);
+  const profile = policyProfileForContext(context);
+  if (profile === "bapr") {
+    return ok(path.resolve(inputCwd === undefined || inputCwd.trim().length === 0 ? root : inputCwd), {
+      workspaceRoot: root,
+      allowedRoots: ["*"],
+      mappingSource: "bapr",
+    });
+  }
   const result = normalizeToolCwd(inputCwd, {
     workspaceRoot: root,
     allowedRoots: context.policy?.allowedRoots ?? [root],
   });
+  if (!result.ok && result.reason === "CWD_REJECTED" && result.normalizedPath !== undefined) {
+    return ok(result.normalizedPath, {
+      ...workspacePathMetadata(result, "cwd"),
+      workspaceOutsideAllowedRoots: true,
+      policyProfile: profile,
+    });
+  }
   if (!result.ok) return fail(result.reason, result.message, workspacePathMetadata(result, "cwd"));
   return ok(result.normalizedPath, workspacePathMetadata(result, "cwd"));
 }
 
 function resolveCommandPathArgument(context: RuntimeBaseToolExecutorContext, inputPath: string | undefined): BaseToolExecutorResult<string> {
   const root = workspaceRoot(context);
+  const profile = policyProfileForContext(context);
+  if (profile === "bapr") {
+    return ok(inputPath === undefined || inputPath.trim().length === 0 ? "." : inputPath, {
+      workspaceRoot: root,
+      allowedRoots: ["*"],
+      mappingSource: "bapr",
+    });
+  }
   const result = normalizeWorkspacePath(inputPath ?? ".", {
     workspaceRoot: root,
     allowedRoots: context.policy?.allowedRoots ?? [root],
     kind: "path",
   });
+  if (!result.ok && result.reason === "OUTSIDE_ALLOWED_ROOTS" && result.normalizedPath !== undefined) {
+    return ok(result.normalizedPath, {
+      ...workspacePathMetadata(result, "path"),
+      workspaceOutsideAllowedRoots: true,
+      policyProfile: profile,
+    });
+  }
   if (!result.ok) return fail(result.reason, result.message, workspacePathMetadata(result, "path"));
   const relative = workspaceRelativePath(result.normalizedPath, root);
   return ok(relative ?? result.normalizedPath, workspacePathMetadata(result, "path"));
@@ -323,8 +366,26 @@ function createFilesystemExecutor(context: RuntimeBaseToolExecutorContext): Base
     readText: withAdapter(context, "filesystem", "readText", async (request) => {
       const resolved = resolvePath(context, request?.path ?? request?.targetPath);
       if (!resolved.ok) return resolved;
-      const content = await readFile(String(resolved.output), "utf8");
-      return { content: truncate(context, content, request?.maxBytes), path: resolved.output };
+      let content: string;
+      try {
+        content = await readFile(String(resolved.output), "utf8");
+      } catch (error) {
+        const code = nodeErrorCode(error);
+        if (code === "ENOENT" || code === "ENOTDIR") {
+          return fail("FILE_NOT_FOUND", `File ${request?.path ?? request?.targetPath} was not found.`, {
+            path: resolved.output,
+          });
+        }
+        if (code === "EISDIR") {
+          return fail("PATH_IS_DIRECTORY", `Path ${request?.path ?? request?.targetPath} is a directory, not a file.`, {
+            path: resolved.output,
+          });
+        }
+        return fail("FILE_READ_FAILED", error instanceof Error ? error.message : "File read failed.", {
+          path: resolved.output,
+        });
+      }
+      return ok({ content: truncate(context, content, request?.maxBytes), path: resolved.output }, resolved.metadata);
     }),
     writeText: withAdapter(context, "filesystem", "writeText", async (request) => {
       if (context.policy?.allowFilesystemWrite === false) return fail("FILESYSTEM_WRITE_DISABLED", "Filesystem writes are disabled by runtime policy.");
@@ -360,6 +421,7 @@ async function runCommand(
     toolId?: string;
     invocationId?: string;
     shellScript?: boolean;
+    timeoutMs?: number;
     network?: "allow" | "deny" | "approval" | "provider-policy";
   } = {},
 ): Promise<BaseToolExecutorResult> {
@@ -380,7 +442,7 @@ async function runCommand(
       args: finalArgs,
       cwd: commandCwd,
       env: context.environment,
-      timeoutMs: context.resourceLimits?.timeoutMs,
+      timeoutMs: input.timeoutMs ?? context.resourceLimits?.timeoutMs,
       maxOutputBytes: context.resourceLimits?.maxOutputBytes,
       sandbox: spec,
       preparedSandbox: context.preparedSandbox ?? legacyPreparedSandbox(context.sandbox),
@@ -413,21 +475,50 @@ async function runCommand(
     });
   }
   return new Promise((resolve) => {
+    let settled = false;
     const child = spawn(program, finalArgs, {
       cwd: commandCwd,
       env: { ...process.env, ...(context.environment ?? {}) },
       shell: false,
     });
+    const timeoutMs = input.timeoutMs ?? context.resourceLimits?.timeoutMs;
+    const timeout = typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        child.kill("SIGTERM");
+        setTimeout(() => {
+          if (child.pid !== undefined && processExists(child.pid)) child.kill("SIGKILL");
+        }, 1_000).unref();
+        resolve(fail("COMMAND_TIMEOUT", `Command timed out after ${Math.floor(timeoutMs)}ms.`, {
+          exitCode: 124,
+          stdout: truncate(context, stdout),
+          stderr: truncate(context, stderr),
+          ...resolvedCwd.metadata,
+        }));
+      }, timeoutMs)
+      : undefined;
+    timeout?.unref();
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => { stdout += String(chunk); });
     child.stderr.on("data", (chunk) => { stderr += String(chunk); });
-    child.on("error", (error) => resolve(fail("PROCESS_SPAWN_FAILED", error.message)));
-    child.on("close", (exitCode) => resolve(ok({
+    child.on("error", (error) => {
+      if (settled) return;
+      settled = true;
+      if (timeout !== undefined) clearTimeout(timeout);
+      resolve(fail("PROCESS_SPAWN_FAILED", error.message));
+    });
+    child.on("close", (exitCode) => {
+      if (settled) return;
+      settled = true;
+      if (timeout !== undefined) clearTimeout(timeout);
+      resolve(ok({
       exitCode: exitCode ?? 0,
       stdout: truncate(context, stdout),
       stderr: truncate(context, stderr),
-    }, resolvedCwd.metadata)));
+      }, resolvedCwd.metadata));
+    });
   });
 }
 
@@ -442,6 +533,7 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): BaseToolE
         toolId: "shell.run",
         invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
         shellScript: true,
+        timeoutMs: typeof request?.timeoutMs === "number" ? request.timeoutMs : undefined,
       });
     }),
   };
@@ -454,6 +546,7 @@ function createProcessExecutor(context: RuntimeBaseToolExecutorContext): BaseToo
       return runCommand(context, String(request?.command ?? ""), Array.isArray(request?.args) ? request.args.map(String) : [], typeof request?.cwd === "string" ? request.cwd : undefined, {
         toolId: "process.run",
         invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
+        timeoutMs: typeof request?.timeoutMs === "number" ? request.timeoutMs : undefined,
       });
     }),
     wait: withAdapter(context, "process", "wait", async (request) => {
@@ -616,6 +709,7 @@ function createToolExecutor(context: RuntimeBaseToolExecutorContext): BaseToolEx
         inputSchema: definition.inputSchema,
         dependencies: definition.dependencies,
         toolSkill: definition.toolSkill,
+        manual: definition.metadata?.profileDescriptionOverlay ?? definition.metadata ?? {},
       };
     }),
   };

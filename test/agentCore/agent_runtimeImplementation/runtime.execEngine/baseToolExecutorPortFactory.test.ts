@@ -61,8 +61,8 @@ test("baseToolSupportCatalog covers the semantic basetool catalog without work T
   const snapshot = snapshotBaseToolSupportCatalog();
 
   assert.equal(baseToolSupportCatalogDescriptor.semanticCatalog, true);
-  assert.equal(catalog.length, 24);
-  assert.equal(snapshot.total, 24);
+  assert.equal(catalog.length, 25);
+  assert.equal(snapshot.total, 25);
   assert.equal(snapshot.byFamily.work ?? 0, 0);
   assert.equal(catalog.some((entry) => entry.storageFamily === "workBase"), false);
 
@@ -328,6 +328,77 @@ test("runtime factory executor can drive semantic core tools through mounted bas
   if (!shell.ok) throw new Error("expected shell.run to dispatch");
   assert.equal(shell.toolResult.ok, true);
   if (shell.toolResult.ok) assert.equal(shell.toolResult.output.stdout, "shell-ok");
+});
+
+test("runtime filesystem read returns public file-not-found errors", async () => {
+  const workspace = await makeWorkspace();
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-file-not-found",
+    sessionId: "session-factory-file-not-found",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+    },
+  });
+
+  const result = await executor.filesystem?.readText?.({ path: "missing.txt" });
+  assert.equal(result?.ok, false);
+  assert.equal(result?.error?.code, "FILE_NOT_FOUND");
+});
+
+test("runtime filesystem read lets policy profiles reach paths outside workspace roots", async () => {
+  const workspace = await makeWorkspace();
+  const outsideRoot = await mkdtemp(path.join(os.tmpdir(), "praxis-semantic-outside-"));
+  const outsidePath = path.join(outsideRoot, "outside.txt");
+  await writeFile(outsidePath, "outside-ok", "utf8");
+
+  const standardExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-standard-outside",
+    sessionId: "session-factory-standard-outside",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+    },
+    policyProfile: "standard",
+  });
+  const standard = await standardExecutor.filesystem?.readText?.({ path: outsidePath });
+  assert.equal(standard?.ok, true);
+  if (standard?.ok) {
+    assert.equal(standard.output.content, "outside-ok");
+    assert.equal(standard.metadata?.workspaceOutsideAllowedRoots, true);
+  }
+
+  const baprExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-bapr-outside",
+    sessionId: "session-factory-bapr-outside",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+    },
+    policyProfile: "bapr",
+  });
+  const bapr = await baprExecutor.filesystem?.readText?.({ path: outsidePath });
+  assert.equal(bapr?.ok, true);
+  if (bapr?.ok) assert.equal(bapr.output.content, "outside-ok");
+});
+
+test("runtime shell uses request timeout for attached commands", async () => {
+  const workspace = await makeWorkspace();
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-shell-timeout",
+    sessionId: "session-factory-shell-timeout",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowShellExecution: true,
+    },
+  });
+
+  const startedAt = Date.now();
+  const result = await executor.shell?.run?.({ command: "sleep 1", cwd: workspace, timeoutMs: 20 });
+  assert.equal(result?.ok, false);
+  assert.equal(result?.error?.code, "COMMAND_TIMEOUT");
+  assert.ok(Date.now() - startedAt < 900);
 });
 
 test("network.fetch is real while network.search remains adapter-required", async () => {

@@ -195,7 +195,7 @@ function toolSummaryCard(tool: ToolSpec, riskLevel: string | undefined): string 
     `input=${inputHint(tool)}`,
     `risk=${riskSummary(tool, riskLevel)}`,
     `useWhen=${family}/${group} matches the current evidence or action`,
-    `manual=praxis_expand_tool_context targetKind=tool toolId=${tool.toolId}`,
+    `manual=tool.describe toolId=${tool.toolId}`,
   ].join("; ");
 }
 
@@ -376,7 +376,7 @@ export function createBaseToolContextTree(
       ? [
           "Praxis BaseTools are runtime-governed tools grouped by family, subgroup, and concrete toolId.",
           "All mounted provider tool schemas are available separately; this PromptPack section is the stable manual index and compact tool summary layer.",
-          "Read tool summary cards first. If a concrete tool remains unclear or repeated calls fail, request praxis_expand_tool_context with targetKind=tool and the exact toolId.",
+          "Read tool summary cards first. If a concrete tool remains unclear or repeated calls fail, call tool.describe with the exact toolId.",
           "Expanded concrete manuals are one-turn material and should be treated as read-once guidance.",
         ].join("\n")
       : [

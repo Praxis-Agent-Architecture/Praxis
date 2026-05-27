@@ -113,6 +113,18 @@ export type MultiagentKillInput = {
   now?: string;
 };
 
+export type MultiagentEnsureSessionInput = {
+  sessionId: string;
+  agentId?: string;
+  name?: string;
+  description?: string;
+  workingDirectory?: string;
+  lifecycle?: MultiagentLifecycleMode;
+  status?: MultiagentSessionStatus;
+  now?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+};
+
 export type MultiagentSpawnResult = {
   session: MultiagentAgentSession;
   initialMessage: MultiagentMessage;
@@ -123,6 +135,7 @@ export type MultiagentWaitResult = {
 };
 
 export type MultiagentRuntime = {
+  ensureSession(input: MultiagentEnsureSessionInput): Promise<MultiagentAgentSession>;
   spawn(input: MultiagentSpawnInput): Promise<MultiagentSpawnResult>;
   message(input: MultiagentMessageInput): Promise<MultiagentMessage>;
   inbox(input: MultiagentInboxInput): Promise<readonly MultiagentMessage[]>;

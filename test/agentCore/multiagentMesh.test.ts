@@ -368,3 +368,34 @@ test("project multiagent runtime seeds the default project session for immediate
     await rm(workspaceRoot, { recursive: true, force: true });
   }
 });
+
+test("multiagent runtime can ensure application-created sessions before spawn", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "praxis-mesh-"));
+  try {
+    const runtime = createInMemoryMultiagentRuntime({
+      projectId: "project.mesh",
+      workspaceRoot,
+      defaultModel: "deepseek-v4-pro",
+    });
+
+    const ensured = await runtime.ensureSession({
+      sessionId: "direct-session.late",
+      agentId: "agent.application.primary",
+      workingDirectory: workspaceRoot,
+      status: "idle",
+      metadata: { source: "application.session" },
+      now: "2026-05-27T00:00:00.000Z",
+    });
+    assert.equal(ensured.sessionId, "direct-session.late");
+    assert.equal(ensured.agentId, "agent.application.primary");
+
+    const spawned = await runtime.spawn({
+      requesterSessionId: "direct-session.late",
+      task: "Review the new session.",
+    });
+    assert.equal(spawned.initialMessage.fromSessionId, "direct-session.late");
+    assert.equal((await runtime.list()).length, 2);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
+});

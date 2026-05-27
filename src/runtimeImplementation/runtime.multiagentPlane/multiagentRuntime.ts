@@ -9,6 +9,7 @@ import path from "node:path";
 import type { PraxisProjectRuntime } from "../runtime.projectPlane/projectRuntime.js";
 import type {
   MultiagentAgentSession,
+  MultiagentEnsureSessionInput,
   MultiagentInboxInput,
   MultiagentInspectInput,
   MultiagentKillInput,
@@ -171,6 +172,42 @@ export function createInMemoryMultiagentRuntime(input: {
     return session;
   }
 
+  function ensureSession(ensureInput: MultiagentEnsureSessionInput): MultiagentAgentSession {
+    const existing = sessions.get(ensureInput.sessionId);
+    const timestamp = nowIso(ensureInput.now);
+    const workingDirectory = ensureInsideWorkspace(
+      workspaceRoot,
+      ensureInput.workingDirectory ?? existing?.workingDirectory ?? workspaceRoot,
+    );
+    const session: MultiagentAgentSession = existing === undefined
+      ? {
+        sessionId: ensureInput.sessionId,
+        projectId: input.projectId,
+        agentId: ensureInput.agentId ?? agentId(input.projectId),
+        name: ensureInput.name,
+        description: ensureInput.description,
+        workingDirectory,
+        lifecycle: ensureInput.lifecycle ?? "persistent",
+        status: ensureInput.status ?? "idle",
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        model: input.defaultModel,
+        metadata: ensureInput.metadata ?? {},
+      }
+      : {
+        ...existing,
+        agentId: ensureInput.agentId ?? existing.agentId,
+        name: ensureInput.name ?? existing.name,
+        description: ensureInput.description ?? existing.description,
+        workingDirectory,
+        lifecycle: ensureInput.lifecycle ?? existing.lifecycle,
+        status: ensureInput.status ?? existing.status,
+        updatedAt: timestamp,
+        metadata: { ...existing.metadata, ...(ensureInput.metadata ?? {}) },
+      };
+    return safeSession(updateSession(session));
+  }
+
   function revive(session: MultiagentAgentSession, now: string): MultiagentAgentSession {
     if (!isInactive(session.status)) return session;
     return updateSession({ ...session, status: "idle", updatedAt: now });
@@ -259,6 +296,9 @@ export function createInMemoryMultiagentRuntime(input: {
   }
 
   return {
+    async ensureSession(ensureInput: MultiagentEnsureSessionInput): Promise<MultiagentAgentSession> {
+      return ensureSession(ensureInput);
+    },
     async spawn(spawnInput: MultiagentSpawnInput): Promise<MultiagentSpawnResult> {
       const createdAt = nowIso(spawnInput.now);
       const requester = readSession(spawnInput.requesterSessionId);

@@ -82,6 +82,97 @@ export type CompactExecutor = {
   compact(request: CompactExecutorRequest): Promise<CompactExecutorResult>;
 };
 
+function estimateTextTokens(text: string): number {
+  const trimmed = text.trim();
+  return trimmed.length === 0 ? 0 : Math.max(1, Math.ceil(trimmed.length / 4));
+}
+
+function compactText(text: string, maxChars: number): string {
+  const normalized = text.replace(/\n{3,}/gu, "\n\n").trim();
+  if (normalized.length <= maxChars) return normalized;
+  const head = Math.max(1, Math.floor(maxChars * 0.65));
+  const tail = Math.max(1, maxChars - head - 80);
+  return `${normalized.slice(0, head).trimEnd()}\n[... passive compact omitted repetitive payload; raw material remains by ref ...]\n${normalized.slice(-tail).trimStart()}`;
+}
+
+function materialTitle(input: NonNullable<CompactExecutorRequest["materials"]>[number]): string {
+  return [
+    input.promptSegmentKind ?? "material",
+    input.source === undefined ? undefined : `source=${input.source}`,
+    `id=${input.id}`,
+  ].filter((part): part is string => part !== undefined).join(" | ");
+}
+
+function materialPriority(input: NonNullable<CompactExecutorRequest["materials"]>[number]): number {
+  const kind = input.promptSegmentKind ?? "";
+  const source = input.source ?? "";
+  if (kind === "recentConversation") return 0;
+  if (kind === "observations") return 1;
+  if (kind === "sessionSummary") return 2;
+  if (kind === "retrievedContext") return 3;
+  if (source.includes("conversation") || source.includes("ledger")) return 0;
+  if (source.includes("observation") || source.includes("tool")) return 1;
+  return 4;
+}
+
+function passiveDenoiseCompactMaterials(request: CompactExecutorRequest): {
+  summaryText: string;
+  recentConversationText: string;
+  compactedMaterialRefs: readonly string[];
+  artifactRefs: readonly string[];
+  denoisedMaterials: number;
+  droppedEmptyMaterials: number;
+} {
+  const materials = (request.materials ?? [])
+    .filter((material) => material.text.trim().length > 0)
+    .sort((left, right) => materialPriority(left) - materialPriority(right));
+  const droppedEmptyMaterials = (request.materials?.length ?? 0) - materials.length;
+  const compactedMaterialRefs = materials.length > 0
+    ? materials.map((material) => material.id)
+    : request.materialRefs;
+  const artifactRefs = materials.flatMap((material) => {
+    const value = material.metadata?.artifactRefs;
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
+      : [];
+  });
+
+  const causalSections = materials.map((material) => {
+    const body = compactText(material.text, material.promptSegmentKind === "recentConversation" ? 3_500 : 2_000);
+    return [`### ${materialTitle(material)}`, body].join("\n");
+  });
+  const currentTurn = request.currentUserTurnText === undefined
+    ? undefined
+    : `### currentUserTurn\n${compactText(request.currentUserTurnText, 2_000)}`;
+  const summaryText = [
+    "Runtime fallback compact summary (ledger-aware passive denoise).",
+    `Trigger: ${request.trigger}. Preserve causal order: user intent -> model/tool action -> result/error -> verification/artifact refs.`,
+    `Before compact: estimatedTokens=${request.estimatedTokens}, contextWindowTokens=${request.contextWindowTokens}, materialRefs=${request.materialRefs.length}.`,
+    droppedEmptyMaterials > 0 ? `Dropped ${droppedEmptyMaterials} empty material(s) during passive denoise.` : undefined,
+    ...causalSections,
+    currentTurn,
+  ].filter((part): part is string => part !== undefined && part.trim().length > 0).join("\n\n");
+
+  const recentConversationMaterials = materials.filter((material) =>
+    material.promptSegmentKind === "recentConversation" ||
+    (material.source ?? "").includes("conversation") ||
+    (material.source ?? "").includes("ledger")
+  );
+  const recentConversationText = [
+    ...recentConversationMaterials.map((material) => compactText(material.text, 2_500)),
+    request.currentUserTurnText,
+  ].filter((part): part is string => typeof part === "string" && part.trim().length > 0).join("\n\n---\n\n");
+
+  return {
+    summaryText: compactText(summaryText, 24_000),
+    recentConversationText: compactText(recentConversationText, 8_000),
+    compactedMaterialRefs,
+    artifactRefs: [...new Set(artifactRefs)],
+    denoisedMaterials: materials.length,
+    droppedEmptyMaterials,
+  };
+}
+
 export function decideTurnBoundaryCompact(input: {
   trigger?: CompactTriggerKind;
   estimatedNextPromptTokens: number;
@@ -114,12 +205,9 @@ export function createRuntimeFallbackCompactExecutor(): CompactExecutor {
     async compact(request) {
       const now = request.now ?? new Date().toISOString();
       const thresholdRatio = request.thresholdRatio ?? 0.95;
-      const summaryText = [
-        "Runtime fallback compact summary.",
-        `Compacted ${request.materialRefs.length} material refs after ${request.trigger}.`,
-        request.currentUserTurnText === undefined ? "" : `Current user turn to preserve: ${request.currentUserTurnText}`,
-      ].filter(Boolean).join("\n");
-      const recentConversationText = request.currentUserTurnText ?? "";
+      const denoised = passiveDenoiseCompactMaterials(request);
+      const summaryText = denoised.summaryText;
+      const recentConversationText = denoised.recentConversationText;
       const compactId = `${request.sessionId}:compact:${now}`;
       return {
         ok: true,
@@ -136,18 +224,23 @@ export function createRuntimeFallbackCompactExecutor(): CompactExecutor {
             materialRefs: request.materialRefs,
           },
           after: {
-            estimatedTokens: Math.max(1, Math.ceil(summaryText.length / 4) + Math.ceil(recentConversationText.length / 4)),
+            estimatedTokens: Math.max(1, estimateTextTokens(summaryText) + estimateTextTokens(recentConversationText)),
             sessionSummaryRef: `${compactId}:sessionSummary`,
             recentConversationRefs: recentConversationText.length === 0 ? [] : [`${compactId}:recentConversation`],
           },
-          compactedMaterialRefs: request.materialRefs,
-          artifactRefs: [],
+          compactedMaterialRefs: denoised.compactedMaterialRefs,
+          artifactRefs: denoised.artifactRefs,
           createdAt: now,
           executor: "runtimeFallback",
-          metadata: request.metadata ?? {},
+          metadata: {
+            ...(request.metadata ?? {}),
+            passiveDenoise: "ledger-aware",
+            denoisedMaterials: denoised.denoisedMaterials,
+            droppedEmptyMaterials: denoised.droppedEmptyMaterials,
+          },
           publicSafe: true,
         },
-        events: ["contextCompact.runtimeFallback.completed"],
+        events: ["contextCompact.runtimeFallback.passiveDenoise.completed", "contextCompact.runtimeFallback.completed"],
       };
     },
   };

@@ -116,6 +116,7 @@ export type PraxisApplicationUsageTelemetry = {
   cachedInputTokens?: number;
   lastInputTokens?: number;
   lastTotalTokens?: number;
+  lastPromptPackTokens?: number;
   source?: string;
   estimated: boolean;
   modelCalls: number;
@@ -124,11 +125,14 @@ export type PraxisApplicationUsageTelemetry = {
 export type PraxisApplicationContextTelemetry = {
   activeTokens: number;
   promptTokens: number;
+  sessionContextTokens: number;
+  compressionLimitTokens?: number;
   transcriptTokens: number;
   summaryTokens: number;
   historyMessages: number;
   lastRequestInputTokens?: number;
   lastRequestTotalTokens?: number;
+  promptPackTokens?: number;
   historyEstimatedTokens?: number;
   contextSource?: "application.history.estimate" | "provider.model-call.usage";
   usageSource?: string;
@@ -182,6 +186,9 @@ export type PraxisApplicationViewModel = {
   sessionId: string;
   agentId: string;
   agentEntries: readonly PraxisApplicationAgentEntryView[];
+  agents: {
+    active: number;
+  };
   status: PraxisApplicationStatus;
   workspaceRoot: string;
   mode: PraxisApplicationRuntimeMode;

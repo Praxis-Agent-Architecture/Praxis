@@ -100,8 +100,9 @@ const codingDescribeOverlays = {
     avoidWhen: ["A structured file or patch tool can express the change more safely."],
   }),
   "patch.apply": overlay({
-    summary: "Apply a Codex-style patch to source files after inspecting the target.",
+    summary: "Apply a Codex-style patch to source files after inspecting the target. For new files use exactly: *** Begin Patch, then *** Add File: path, then every content line prefixed with '+', then *** End Patch.",
     useWhen: ["You know the exact source edit and want a reviewable patch-shaped change."],
+    examples: ["Create file: *** Begin Patch\\n*** Add File: server.js\\n+console.log('ok')\\n*** End Patch"],
   }),
   "file.search": overlay({
     summary: "Search source files with a fast text query before opening precise files.",
@@ -172,6 +173,10 @@ const agentDescribeOverlays = {
   }),
   "agent.wait": overlay({
     summary: "Wait for the reply correlated to a message this session sent.",
+  }),
+  "media.viewImage": overlay({
+    summary: "Inspect attached screenshots, workspace images, and visual artifacts through the runtime media port.",
+    useWhen: ["The user provides an image or asks a visual question."],
   }),
   "mcp.use": overlay({
     summary: "Call a mounted MCP tool when the runtime has explicitly provided that server.",
