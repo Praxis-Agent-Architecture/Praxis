@@ -50,4 +50,3 @@ export function textFromContent(content: string | RaxContentPart[]): string {
     .map((part) => part.text)
     .join("");
 }
-

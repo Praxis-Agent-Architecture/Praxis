@@ -23,4 +23,3 @@ export function raxModelId(value: string): RaxModelId {
 export function raxRouteId(value: string): RaxRouteId {
   return value as RaxRouteId;
 }
-

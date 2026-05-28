@@ -38,4 +38,3 @@ export type RaxModelProtocol = {
     prepared: RaxPreparedModelRequest,
   ) => Effect.Effect<RaxModelEvent[], RaxModelError>;
 };
-

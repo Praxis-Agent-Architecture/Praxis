@@ -8,4 +8,3 @@ export function createRaxodeIdentity(): AgentIdentity {
     description: "The full-capability coding agent behind the Raxode TUI application.",
   };
 }
-

@@ -23,4 +23,3 @@ test("provider auth profiles preserve provider-specific API key headers", async 
   assert.equal(google.headers["x-goog-api-key"], "google-key");
   assert.equal(google.redactedHeaders["x-goog-api-key"], "[redacted]");
 });
-

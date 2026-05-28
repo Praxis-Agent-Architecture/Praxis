@@ -10,4 +10,3 @@ export function createRaxodeToolPolicy(profile: RaxodePolicyProfile): BaseToolPo
   if (profile === "bapr") return praxis.toolPolicies.bapr({ matrixId: "toolPolicy.raxode.bapr" });
   return praxis.toolPolicies.standard({ matrixId: "toolPolicy.raxode.standard" });
 }
-

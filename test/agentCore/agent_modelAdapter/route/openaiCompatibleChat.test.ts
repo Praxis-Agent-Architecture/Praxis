@@ -67,4 +67,3 @@ test("openai.compatible_chat prepares, streams, and folds tool-call events", asy
   assert.deepEqual(response.toolCalls[0]?.input, { path: "README.md" });
   assert.equal(response.usage?.totalTokens, 15);
 });
-

@@ -31,4 +31,3 @@ export class RaxCompatRegistry {
 }
 
 export const defaultRaxCompatRegistry = new RaxCompatRegistry();
-

@@ -7,4 +7,3 @@ export const deepSeekProvider = createOpenAICompatibleProvider({
   apiKeyEnv: "DEEPSEEK_API_KEY",
   models: ["deepseek-chat", "deepseek-reasoner"],
 });
-

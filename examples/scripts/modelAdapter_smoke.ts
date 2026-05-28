@@ -36,4 +36,3 @@ console.log(JSON.stringify({
   text: response.text,
   usage: response.usage,
 }, null, 2));
-

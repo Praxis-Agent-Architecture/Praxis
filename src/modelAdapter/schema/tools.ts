@@ -57,4 +57,3 @@ function hashString(value: string): number {
   }
   return hash;
 }
-

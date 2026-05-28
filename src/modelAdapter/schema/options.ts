@@ -20,4 +20,3 @@ export type RaxHttpOptions = {
   timeoutMs?: number;
   signal?: AbortSignal;
 };
-

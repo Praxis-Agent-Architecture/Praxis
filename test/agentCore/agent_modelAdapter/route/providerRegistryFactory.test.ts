@@ -35,4 +35,3 @@ test("default model client factory applies transport overrides to provider route
 
   assert.equal(response.text, "factory");
 });
-

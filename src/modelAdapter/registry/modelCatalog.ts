@@ -31,4 +31,3 @@ export class RaxModelCatalog {
 }
 
 export const defaultRaxModelCatalog = new RaxModelCatalog();
-

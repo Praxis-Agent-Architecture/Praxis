@@ -14,4 +14,3 @@ export function splitNativeRaxTools(tools: RaxToolDefinition[] = []): RaxToolBri
     metadata: { nativeToolCount: nativeTools.length, unifiedToolCount: tools.length - nativeTools.length },
   };
 }
-

@@ -66,4 +66,3 @@ export function createMainLoopCoreEvent(input: {
     metadata: input.metadata ?? {},
   };
 }
-
