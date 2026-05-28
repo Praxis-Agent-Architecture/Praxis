@@ -85,5 +85,7 @@ test.workspacve/
 test.work/
 tmpmd/
 testspace/
+testspace-2/
+.tmp/
 raxode-tui/**/node_modules/
 raxode-tui/**/.raxode/
