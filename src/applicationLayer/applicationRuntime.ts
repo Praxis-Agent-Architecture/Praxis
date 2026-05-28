@@ -26,6 +26,8 @@ import {
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
   type BaseToolProfileName,
+  type CompactExecutor,
+  type PreCompactGovernanceExecutor,
   type PraxisProjectRuntime,
 } from "../agentCore/index.js";
 import {
@@ -151,6 +153,11 @@ export type PraxisApplicationRuntimeOptions = {
   initialConversations?: readonly PraxisApplicationInitialConversation[];
   foundationProject?: PraxisProjectRuntime;
   openFoundationProject?: boolean;
+  compactExecutor?: CompactExecutor;
+  preCompactGovernanceExecutor?: PreCompactGovernanceExecutor;
+  preCompactGovernanceEnabled?: boolean;
+  compactContextWindowTokens?: number;
+  compactThresholdRatio?: number;
   liveProviderResolver?: (manifest: AgentManifest, context?: {
     sessionId: string;
     runtimeId: string;
@@ -475,7 +482,7 @@ function flattenedToolArguments(argumentsRecord: Record<string, unknown>): Recor
 }
 
 function formatPathList(paths: readonly string[], maxItems = 4): string {
-  const cleanPaths = paths.map((item) => item.trim()).filter((item) => item.length > 0);
+  const cleanPaths = [...new Set(paths.map((item) => item.trim()).filter((item) => item.length > 0))];
   if (cleanPaths.length === 0) return "file";
   const shown = cleanPaths.slice(0, maxItems).join(", ");
   return cleanPaths.length > maxItems ? `${shown}, +${cleanPaths.length - maxItems} more` : shown;
@@ -722,6 +729,21 @@ function modelAutoCompactTokenLimit(model: PraxisApplicationModelState): number 
   return Math.max(1, Math.floor(baseLimit * APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD));
 }
 
+function applicationCompressionLimitTokens(input: {
+  model: PraxisApplicationModelState;
+  compactContextWindowTokens?: number;
+  compactThresholdRatio?: number;
+}): number | undefined {
+  const compactWindow = input.compactContextWindowTokens;
+  if (typeof compactWindow === "number" && Number.isFinite(compactWindow) && compactWindow > 0) {
+    const ratio = typeof input.compactThresholdRatio === "number" && Number.isFinite(input.compactThresholdRatio)
+      ? Math.min(1, Math.max(0.01, input.compactThresholdRatio))
+      : APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD;
+    return Math.max(1, Math.floor(compactWindow * ratio));
+  }
+  return modelAutoCompactTokenLimit(input.model);
+}
+
 function estimateTaskTextTokens(input: {
   currentUserText: string;
   history: readonly ApplicationConversationMessage[];
@@ -832,6 +854,7 @@ function estimateConversationContext(input: {
   summary?: ApplicationConversationSummary;
   usage?: PraxisApplicationUsageTelemetry;
   model: PraxisApplicationModelState;
+  compressionLimitTokens?: number;
 }): PraxisApplicationContextTelemetry {
   const historyText = formatConversationHistory(input.messages, input.summary) ?? "";
   const summaryTokens = estimateContextTokens(input.summary?.text ?? "");
@@ -859,7 +882,7 @@ function estimateConversationContext(input: {
     activeTokens,
     promptTokens: activeTokens,
     sessionContextTokens,
-    compressionLimitTokens: modelAutoCompactTokenLimit(input.model),
+    compressionLimitTokens: input.compressionLimitTokens ?? modelAutoCompactTokenLimit(input.model),
     transcriptTokens,
     summaryTokens,
     historyMessages: input.messages.length,
@@ -1219,8 +1242,14 @@ function summarizeFileToolOutputForHumans(toolCall: AgentToolCallRecord, output:
 
   if (toolCall.toolId === "file.edit" || toolCall.toolId === "patch.apply") {
     const bytes = numberValue(output?.bytesWritten);
+    const changedFiles = [
+      ...stringArrayValue(output?.changedFiles),
+      ...stringArrayValue(output?.changed),
+      ...stringArrayValue(output?.committedFiles),
+    ];
+    const changedFileSummary = changedFiles.length > 0 ? ` for ${formatPathList(changedFiles)}` : targetPath ? ` for ${targetPath}` : "";
     const lines = [
-      `${toolCall.toolId} completed${targetPath ? ` for ${targetPath}` : ""}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
+      `${toolCall.toolId} completed${changedFileSummary}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
     ];
     if (toolCall.toolId === "file.edit") {
       const searchText = rawStringValue(args.searchText);
@@ -1235,10 +1264,19 @@ function summarizeFileToolOutputForHumans(toolCall: AgentToolCallRecord, output:
         }));
       }
     } else {
-      const patch = rawStringValue(args.patch);
-      if (patch !== undefined) {
+      const outputPreview = Array.isArray(output?.diffPreview)
+        ? output.diffPreview.flatMap((line) => typeof line === "string" ? [line] : [])
+        : [];
+      if (outputPreview.length > 0) {
+        lines.push(...outputPreview.slice(0, CODE_MODIFY_DIFF_PREVIEW_MAX_LINES));
+      } else {
+        const patch = rawStringValue(args.patch);
+        if (patch !== undefined) {
         lines.push(...patchApplyDiffPreviewLines({ patch }));
+        }
       }
+      const contextHint = stringValue(output?.contextHint);
+      if (contextHint !== undefined) lines.push(contextHint);
     }
     return lines;
   }
@@ -1854,6 +1892,7 @@ function createModelProgressEvent(input: {
   status: PraxisApplicationStatus;
   model: PraxisApplicationModelState;
   conversationContext?: PraxisApplicationContextTelemetry;
+  compressionLimitTokens?: number;
 }): Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> {
   const usage = input.progress.phase === "started" ? undefined : input.progress.usage;
   const contextInputTokens = usage?.inputTokens;
@@ -1904,7 +1943,9 @@ function createModelProgressEvent(input: {
               input.conversationContext?.historyEstimatedTokens ?? 0,
               input.conversationContext?.transcriptTokens ?? 0,
             ),
-            compressionLimitTokens: modelAutoCompactTokenLimit(input.model),
+            compressionLimitTokens: input.compressionLimitTokens
+              ?? input.conversationContext?.compressionLimitTokens
+              ?? modelAutoCompactTokenLimit(input.model),
             lastRequestInputTokens: contextInputTokens,
             lastRequestTotalTokens: contextTotalTokens,
             promptPackTokens,
@@ -3330,11 +3371,17 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
 
   function view(): PraxisApplicationViewModel {
     const agentId = state.manifest?.identity.id ?? project.descriptor.agent?.id ?? "agent.unknown";
+    const compressionLimitTokens = applicationCompressionLimitTokens({
+      model: state.model,
+      compactContextWindowTokens: options.compactContextWindowTokens,
+      compactThresholdRatio: options.compactThresholdRatio,
+    });
     const context = estimateConversationContext({
       messages: state.conversationHistory.get(state.sessionId) ?? [],
       summary: state.conversationSummaries.get(state.sessionId),
       usage: state.usage,
       model: state.model,
+      compressionLimitTokens,
     });
     const lines = [
       `application: ${applicationId}`,
@@ -3825,12 +3872,18 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
       anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
       geminiGenerateContentTransport: liveProvider?.geminiGenerateContentTransport,
+      allowPreviousResponseId: false,
       previousProviderResponse: state.lastProviderResponseBySession.get(state.sessionId),
       exposeProviderTools: true,
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
       toolContextUsage: state.toolContextUsage.get(state.sessionId),
       conversationWindow,
       sessionSummary,
+      compactExecutor: options.compactExecutor,
+      preCompactGovernanceExecutor: options.preCompactGovernanceExecutor,
+      preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
+      compactContextWindowTokens: options.compactContextWindowTokens,
+      compactThresholdRatio: options.compactThresholdRatio,
       approvalResolver: approvalResolverForRun(),
       agentReviewResolver: options.agentReviewResolver,
       storage: {
@@ -3874,10 +3927,20 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           turnId,
           status: "running",
           model: state.model,
+          compressionLimitTokens: applicationCompressionLimitTokens({
+            model: state.model,
+            compactContextWindowTokens: options.compactContextWindowTokens,
+            compactThresholdRatio: options.compactThresholdRatio,
+          }),
           conversationContext: estimateConversationContext({
             messages: state.conversationHistory.get(state.sessionId) ?? preparedHistory.history,
             summary: state.conversationSummaries.get(state.sessionId) ?? preparedHistory.summary,
             model: state.model,
+            compressionLimitTokens: applicationCompressionLimitTokens({
+              model: state.model,
+              compactContextWindowTokens: options.compactContextWindowTokens,
+              compactThresholdRatio: options.compactThresholdRatio,
+            }),
           }),
         }));
       },
@@ -3960,8 +4023,14 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       },
     });
     return result.ok
-      ? { ok: true, view: view(), events: [done] }
-      : { ok: false, view: view(), events: [done], error: state.error ?? { code: "RUNTIME_FAILED", message: "runtime failed" } };
+      ? { ok: true, view: view(), events: [done], output: { text: result.finalOutput } }
+      : {
+        ok: false,
+        view: view(),
+        events: [done],
+        output: { text: result.error.message },
+        error: state.error ?? { code: "RUNTIME_FAILED", message: "runtime failed" },
+      };
   }
 
   return {

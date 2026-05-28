@@ -170,6 +170,8 @@ import {
   interpretModelDecision,
 } from "../executionEngine/coreLogic/modelDecision.js";
 import {
+  createContextCompactionPipelineExecutor,
+  createLocalSummaryCompactExecutor,
   createRuntimeFallbackCompactExecutor,
   decideTurnBoundaryCompact,
 } from "../executionEngine/coreLogic/contextCompact.js";
@@ -554,14 +556,26 @@ export {
 } from "../executionEngine/promptPack/promptAssembler.js";
 
 export {
+  createContextCompactionPipelineExecutor,
+  createLocalSummaryCompactExecutor,
   createRuntimeFallbackCompactExecutor,
   decideTurnBoundaryCompact,
+  CONTEXT_COMPACTOR_RESPONSE_SCHEMA,
+  CONTEXT_ORGANIZER_RESPONSE_SCHEMA,
+  LOCAL_SUMMARY_COMPACT_RESPONSE_SCHEMA,
+  type ContextCompactionPipelineOptions,
+  type ContextOrganizerPacket,
+  type CompactModelCaller,
+  type CompactModelCallerRequest,
+  type CompactModelCallerResponse,
+  type CompactModelMessage,
   type CompactExecutor,
   type CompactExecutorRequest,
   type CompactExecutorResult,
   type CompactRecord,
   type CompactThresholdDecision,
   type CompactTriggerKind,
+  type LocalSummaryCompactExecutorOptions,
 } from "../executionEngine/coreLogic/contextCompact.js";
 
 export {
@@ -1056,6 +1070,8 @@ export const executionCore = Object.freeze({
   resolveMainLoopBudget,
   runMainLoop,
   selectMainLoopModel,
+  createContextCompactionPipelineExecutor,
+  createLocalSummaryCompactExecutor,
   createRuntimeFallbackCompactExecutor,
   createObservationMaterial,
 });

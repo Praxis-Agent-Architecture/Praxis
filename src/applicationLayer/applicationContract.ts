@@ -361,6 +361,7 @@ export type PraxisApplicationCommandResult =
       ok: false;
       view: PraxisApplicationViewModel;
       events: readonly PraxisApplicationEvent[];
+      output?: unknown;
       error: {
         code: string;
         message: string;

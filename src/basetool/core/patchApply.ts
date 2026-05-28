@@ -15,6 +15,109 @@ type PatchHunk = {
   readonly lines: readonly string[];
 };
 
+const PATCH_DIFF_PREVIEW_MAX_LINES = 18;
+const PATCH_DIFF_PREVIEW_MAX_BYTES = 3_500;
+
+type PatchChangeEntry = {
+  readonly path: string;
+  readonly changeType: PatchFileChange["type"];
+  readonly additions?: number;
+  readonly deletions?: number;
+};
+
+function countContentLines(content: string): number {
+  if (content.length === 0) return 0;
+  const normalized = content.endsWith("\n") ? content.slice(0, -1) : content;
+  if (normalized.length === 0) return 0;
+  return normalized.split("\n").length;
+}
+
+function statsForChange(change: PatchFileChange): PatchChangeEntry {
+  if (change.type === "add") {
+    return {
+      path: change.path,
+      changeType: change.type,
+      additions: countContentLines(change.content),
+      deletions: 0,
+    };
+  }
+  if (change.type === "delete") {
+    return {
+      path: change.path,
+      changeType: change.type,
+    };
+  }
+  let additions = 0;
+  let deletions = 0;
+  for (const hunk of change.hunks) {
+    for (const line of hunk.lines) {
+      if (line.startsWith("+")) additions++;
+      if (line.startsWith("-")) deletions++;
+    }
+  }
+  return {
+    path: change.path,
+    changeType: change.type,
+    additions,
+    deletions,
+  };
+}
+
+function patchDiffPreviewLines(patch: string): string[] {
+  if (Buffer.byteLength(patch) > PATCH_DIFF_PREVIEW_MAX_BYTES) return [];
+  const lines = patch.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const preview: string[] = [];
+  let currentPath = "patch";
+  const pushHeader = (path: string): void => {
+    currentPath = path.trim() || currentPath;
+    const header = `@@ ${currentPath} @@`;
+    if (preview[preview.length - 1] !== header) preview.push(header);
+  };
+  const pushDiff = (marker: "+" | "-", content: string): void => {
+    preview.push(`${marker} ${content.length > 0 ? content : " "}`);
+  };
+
+  for (const line of lines) {
+    if (line === "*** End Patch") break;
+    const pathMatch = line.match(/^\*\*\* (?:Add|Create|Create New|Update|Delete) File: (.+)$/u)
+      ?? line.match(/^\*\*\* File: (.+)$/u);
+    if (pathMatch !== null) {
+      pushHeader(pathMatch[1] ?? currentPath);
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const path = line.slice("+++ ".length).replace(/^b\//u, "");
+      if (path !== "/dev/null") pushHeader(path);
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      const path = line.slice("--- ".length).replace(/^a\//u, "");
+      if (path !== "/dev/null") pushHeader(path);
+      continue;
+    }
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      pushDiff("+", line.slice(1));
+      continue;
+    }
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      pushDiff("-", line.slice(1));
+    }
+  }
+
+  if (!preview.some((line) => line.startsWith("+") || line.startsWith("-"))) return [];
+  if (preview.length <= PATCH_DIFF_PREVIEW_MAX_LINES) return preview;
+  return [
+    ...preview.slice(0, PATCH_DIFF_PREVIEW_MAX_LINES - 1),
+    "... diff preview trimmed",
+  ];
+}
+
+function sumKnownStats(entries: readonly PatchChangeEntry[], key: "additions" | "deletions"): number | undefined {
+  const known = entries.flatMap((entry) => typeof entry[key] === "number" ? [entry[key]] : []);
+  if (known.length === 0) return undefined;
+  return known.reduce((total, item) => total + item, 0);
+}
+
 function parsePatch(patch: string): { ok: true; changes: readonly PatchFileChange[] } | { ok: false; message: string } {
   const normalized = patch.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   const lines = normalized.split("\n");
@@ -199,6 +302,10 @@ export async function invokePatchApplyCore(
   if (!patch.ok) return patch.result;
   const parsed = parsePatch(patch.value);
   if (!parsed.ok) return errorResult(definition, "INVALID_PATCH", parsed.message);
+  const entries = parsed.changes.map(statsForChange);
+  const additions = sumKnownStats(entries, "additions");
+  const deletions = sumKnownStats(entries, "deletions");
+  const diffPreview = patchDiffPreviewLines(patch.value);
 
   const writeText = namespaceMethod(definition, request, "filesystem", "writeText");
   if (!writeText.ok) return writeText.result;
@@ -242,10 +349,17 @@ export async function invokePatchApplyCore(
 
   return okResult(definition, {
     changed,
+    changedFiles: changed,
     changeCount: changed.length,
+    entries,
+    ...(additions === undefined ? {} : { additions }),
+    ...(deletions === undefined ? {} : { deletions }),
+    ...(changed.length === 1 ? { targetPath: changed[0] } : {}),
+    ...(diffPreview.length === 0 ? {} : { diffPreview }),
     summary: `Applied patch to ${changed.length} file${changed.length === 1 ? "" : "s"}.`,
+    contextHint: "The patch output records changed files, line stats, and a compact diff preview. Do not reread these files only to confirm this successful patch; use targeted reads only for new evidence, follow-up edits, or failed verification.",
   }, {
     events: ["basetool.core.patch.apply.completed"],
-    metadata: { changed },
+    metadata: { changed, changedFiles: changed, entries, additions, deletions },
   });
 }

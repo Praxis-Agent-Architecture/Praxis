@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createContextCompactionPipelineExecutor,
+  createLocalSummaryCompactExecutor,
   createRuntimeFallbackCompactExecutor,
   decideTurnBoundaryCompact,
 } from "../../../../src/executionEngine/coreLogic/contextCompact.js";
@@ -108,4 +110,166 @@ test("runtime fallback CompactExecutor preserves ledger cause-action-result mate
   assert.equal(result.record.metadata.passiveDenoise, "ledger-aware");
   assert.equal(result.record.metadata.droppedEmptyMaterials, 1);
   assert.equal(result.events.includes("contextCompact.runtimeFallback.passiveDenoise.completed"), true);
+});
+
+test("local summary CompactExecutor uses a model caller over passive compact material", async () => {
+  const calls: unknown[] = [];
+  const executor = createLocalSummaryCompactExecutor({
+    caller: async (request) => {
+      calls.push(request);
+      assert.equal(request.kind, "praxis.contextCompact.modelCallerRequest");
+      assert.equal(request.responseFormat, "json");
+      assert.match(request.messages[0]?.text ?? "", /not a new agent/u);
+      assert.match(request.messages[1]?.text ?? "", /patch\.apply/u);
+      return {
+        sessionSummaryText: "User asked to build the editor. patch.apply wrote src/app.ts. npm run build passed.",
+        recentConversationText: "Continue from the verified editor build.",
+        preservedFacts: ["src/app.ts was written", "npm run build passed"],
+        removedNoise: ["duplicate shell output"],
+        artifactRefs: ["artifact.patch.2"],
+      };
+    },
+  });
+  const result = await executor.compact({
+    sessionId: "session.local.summary.compact",
+    trigger: "toolLoopBoundary",
+    materialRefs: ["recent.1", "observation.1"],
+    materials: [
+      {
+        id: "recent.1",
+        promptSegmentKind: "recentConversation",
+        source: "application.ledger.conversation",
+        text: "user: Build the editor.\nassistant: applying patch.",
+      },
+      {
+        id: "observation.1",
+        promptSegmentKind: "observations",
+        source: "application.ledger.tool",
+        text: "tool: patch.apply\nresult: wrote src/app.ts\nverification: npm run build passed",
+        metadata: { artifactRefs: ["artifact.patch.1"] },
+      },
+    ],
+    currentUserTurnText: "Continue.",
+    estimatedTokens: 950,
+    contextWindowTokens: 1000,
+    now: "2026-05-28T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(calls.length, 1);
+  assert.equal(result.record.executor, "summaryAgent");
+  assert.equal(result.record.metadata.compactBackend, "local-summary-model-call");
+  assert.deepEqual(result.record.artifactRefs, ["artifact.patch.1", "artifact.patch.2"]);
+  assert.deepEqual(result.record.metadata.preservedFacts, ["src/app.ts was written", "npm run build passed"]);
+  assert.match(result.sessionSummaryText, /patch\.apply wrote src\/app\.ts/u);
+  assert.match(result.recentConversationText, /verified editor build/u);
+  assert.equal(result.events.includes("contextCompact.localSummary.completed"), true);
+});
+
+test("local summary CompactExecutor can fallback to runtime passive compaction", async () => {
+  const executor = createLocalSummaryCompactExecutor({
+    caller: async () => {
+      throw new Error("summary model unavailable");
+    },
+  });
+  const result = await executor.compact({
+    sessionId: "session.local.summary.fallback",
+    trigger: "turnBoundary",
+    materialRefs: ["recent.1"],
+    materials: [{
+      id: "recent.1",
+      promptSegmentKind: "recentConversation",
+      text: "user: Continue from prior work.",
+    }],
+    estimatedTokens: 950,
+    contextWindowTokens: 1000,
+    now: "2026-05-28T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.record.executor, "runtimeFallback");
+  assert.equal(result.events.includes("contextCompact.localSummary.fallbackAfterModelFailure"), true);
+  assert.match(result.sessionSummaryText, /Runtime fallback compact summary/u);
+});
+
+test("context compaction pipeline runs organizer then compactor as runtime-controlled utility passes", async () => {
+  const calls: { role: string; system: string; user: string }[] = [];
+  const executor = createContextCompactionPipelineExecutor({
+    organizerCaller: async (request) => {
+      calls.push({
+        role: String(request.metadata.utilityAgentRole),
+        system: request.messages[0]?.text ?? "",
+        user: request.messages[1]?.text ?? "",
+      });
+      assert.equal(request.metadata.utilityAgentRole, "contextOrganizer");
+      assert.equal(request.metadata.promptPackOverride, "replace-1-2-drop-3");
+      assert.equal(request.metadata.toolDeclarations, "removed");
+      assert.match(request.messages[0]?.text ?? "", /temporary utility pass/u);
+      assert.match(request.messages[0]?.text ?? "", /removed layer 3 toolDeclarations/u);
+      return {
+        organizedText: "Active task: keep editor build state. Verified patch.apply wrote src/app.ts. Drop duplicate ls output.",
+        preservedFacts: ["patch.apply wrote src/app.ts"],
+        removedNoise: ["duplicate ls output"],
+        staleClaims: ["old server port failed"],
+        artifactRefs: ["artifact.organized.1"],
+      };
+    },
+    compactorCaller: async (request) => {
+      calls.push({
+        role: String(request.metadata.utilityAgentRole),
+        system: request.messages[0]?.text ?? "",
+        user: request.messages[1]?.text ?? "",
+      });
+      assert.equal(request.metadata.utilityAgentRole, "contextCompactor");
+      assert.equal(request.metadata.promptPackOverride, "replace-1-2-drop-3");
+      assert.match(request.messages[1]?.text ?? "", /patch\.apply wrote src\/app\.ts/u);
+      return {
+        sessionSummaryText: "User is building an editor. src/app.ts was written by patch.apply and duplicate ls output was removed.",
+        recentConversationText: "Resume by verifying the editor build and continuing implementation.",
+        preservedFacts: ["src/app.ts was written"],
+        removedNoise: ["duplicate ls output"],
+        artifactRefs: ["artifact.compacted.1"],
+      };
+    },
+  });
+
+  const result = await executor.compact({
+    sessionId: "session.pipeline.compact",
+    trigger: "turnBoundary",
+    materialRefs: ["recent.1", "observation.1"],
+    materials: [
+      {
+        id: "recent.1",
+        promptSegmentKind: "recentConversation",
+        source: "application.ledger.conversation",
+        text: "user: Build the editor.\nassistant: applying patch.\nassistant: duplicate status.",
+      },
+      {
+        id: "observation.1",
+        promptSegmentKind: "observations",
+        source: "application.ledger.tool",
+        text: "tool: patch.apply\nresult: wrote src/app.ts\nverification: pending",
+        metadata: { artifactRefs: ["artifact.patch.1"] },
+      },
+    ],
+    currentUserTurnText: "Continue without repeating completed work.",
+    estimatedTokens: 950,
+    contextWindowTokens: 1000,
+    now: "2026-05-28T00:00:00.000Z",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(calls.map((call) => call.role), ["contextOrganizer", "contextCompactor"]);
+  assert.equal(result.record.executor, "summaryAgent");
+  assert.equal(result.record.metadata.compactBackend, "runtime-controlled-utility-agent-pipeline");
+  assert.equal(result.record.metadata.utilityAgentLifecycle, "oneshot-disposed");
+  assert.deepEqual(result.record.artifactRefs, ["artifact.patch.1", "artifact.organized.1", "artifact.compacted.1"]);
+  assert.match(result.sessionSummaryText, /src\/app\.ts was written/u);
+  assert.match(result.recentConversationText, /Resume by verifying/u);
+  assert.equal(result.events.includes("contextCompact.pipeline.organizer.completed"), true);
+  assert.equal(result.events.includes("contextCompact.pipeline.compactor.completed"), true);
+  assert.equal(result.events.includes("contextCompact.pipeline.completed"), true);
 });

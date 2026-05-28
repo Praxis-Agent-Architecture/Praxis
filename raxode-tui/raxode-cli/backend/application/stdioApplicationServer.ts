@@ -17,6 +17,7 @@ import {
   createRaxodeLiveProvider,
   resolveRaxodeConfiguredModelOptions,
 } from "../authentication/liveProvider.js";
+import { inspectRaxodeMemoryBridge } from "../memory/memoryBridge.js";
 import { raxodeApplication } from "./raxodeApplication.js";
 import type { RaxodeLocalReadinessProbeInput } from "./localReadinessProbe.js";
 import {
@@ -78,6 +79,13 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
   const reasoningEffort = options.reasoningEffort ?? modelOptions.reasoningEffort;
   const maxOutputTokens = options.maxOutputTokens ?? modelOptions.maxOutputTokens;
   const permissionProfile = options.policyProfile ?? "permissive";
+  const projectRoot = options.projectRoot ?? defaultProjectRoot();
+  const memoryBridge = await inspectRaxodeMemoryBridge({
+    projectRoot,
+    cwd: startDir,
+    profile: options.memoryProfile,
+    now: options.now,
+  });
   const agentOptions: RaxodeOptions = {
     policyProfile: permissionProfile,
     sandboxProfile: options.sandboxProfile,
@@ -90,8 +98,10 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     model,
     reasoningEffort,
     maxOutputTokens,
+    memoryProfile: memoryBridge.profile,
+    memoryPromptGuide: memoryBridge.promptGuide,
   };
-  const created = await createApplicationProjectRuntime(options.projectRoot ?? defaultProjectRoot(), {
+  const created = await createApplicationProjectRuntime(projectRoot, {
     applicationId: raxodeApplication.id,
     cwd: startDir,
     mode: "live",

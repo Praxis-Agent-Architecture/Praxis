@@ -5042,7 +5042,9 @@ export class PraxisRuntimeKernel {
         toolResultBudget: providerToolResultHistory.budget,
         promptSplit,
       });
-      const previousProviderResponseId = options.allowPreviousResponseId === true &&
+      const canUsePreviousProviderResponseId = providerResponseOutputItems.length === 0 && toolResultInputs.length === 0;
+      const previousProviderResponseId = canUsePreviousProviderResponseId &&
+        options.allowPreviousResponseId === true &&
         manifest.model.endpointShape !== "chat_completions" &&
         manifest.model.provider !== "anthropic" &&
         previousProviderResponse !== undefined &&

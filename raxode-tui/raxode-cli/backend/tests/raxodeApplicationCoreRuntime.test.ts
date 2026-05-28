@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -85,10 +85,10 @@ test("raxode backend runs through applicationLayer with codingCore defaults", as
     assert.equal(result.view.permissionProfile, "permissive");
     assert.equal(result.view.toolProfile, "agentCore");
     assert.equal(result.view.tools.mounted, 25);
-    assert.equal(result.view.model.contextWindowTokens, 1_000_000);
-    assert.equal(result.view.model.maxInputTokens, 616_000);
+    assert.equal(result.view.model.contextWindowTokens, 400_000);
+    assert.equal(result.view.model.maxInputTokens, 272_000);
     assert.equal(result.view.model.inputBudgetThreshold, 0.95);
-    assert.equal(result.view.model.usableInputTokens, 585_200);
+    assert.equal(result.view.model.usableInputTokens, 258_400);
   } finally {
     isolated.cleanup();
   }
@@ -340,6 +340,7 @@ test("raxode application runtime preserves same-session turns in the next provid
       },
     });
     assert.equal(first.ok, true);
+    assert.deepEqual(first.output, { text: "已记住暗号 BLUE-ORBIT。" });
     const firstBody = JSON.stringify(providerBodies[0]);
     assert.match(firstBody, /declaredRuntimeContext/u);
     assert.match(firstBody, /toolDeclarations/u);
@@ -365,6 +366,7 @@ test("raxode application runtime preserves same-session turns in the next provid
     isolated.cleanup();
   }
   assert.equal(providerBodies.length, 2);
+  assert.equal((providerBodies[1] as { previous_response_id?: string }).previous_response_id, undefined);
   const secondBody = JSON.stringify(providerBodies[1]);
   assert.match(secondBody, /请记住暗号 BLUE-ORBIT/u);
   assert.match(secondBody, /已记住暗号 BLUE-ORBIT/u);
@@ -384,6 +386,7 @@ test("raxode application runtime preserves same-session turns in the next provid
               segmentKind: string;
               materialCount: number;
               estimatedTokens: number;
+              materialRefs?: readonly string[];
             }[];
           };
           comparisonToPrevious?: {
@@ -407,6 +410,67 @@ test("raxode application runtime preserves same-session turns in the next provid
   assert.ok(recentConversationSegment);
   assert.ok(recentConversationSegment.materialCount >= 2);
   assert.equal(recentConversationSegment.estimatedTokens > 0, true);
+  assert.ok(recentConversationSegment.materialRefs?.[0]?.includes("turn.1.user"));
+  assert.ok(recentConversationSegment.materialRefs?.at(-1)?.includes("turn.1.assistant.final"));
+});
+
+test("raxode application runtime places memory semantic index in memoryContext", async () => {
+  const isolated = createIsolatedBackendRoot();
+  const memoryRoot = mkdtempSync(path.join(tmpdir(), "raxode-memory-context-"));
+  mkdirSync(path.join(memoryRoot, "daily"), { recursive: true });
+  writeFileSync(
+    path.join(memoryRoot, "MEMORY.md"),
+    "# Project Memory\n\n## Stable Facts\n\n- raxode核心目标: build GUI-first coding product.\n",
+    "utf8",
+  );
+  writeFileSync(
+    path.join(memoryRoot, "daily", "2026-05-10.md"),
+    "# Daily Memory 2026-05-10\n\n## Notes\n\n- daily验证: memoryContext layer seven works.\n",
+    "utf8",
+  );
+  const providerBodies: unknown[] = [];
+  const backend = await createRaxodeBackend({
+    projectRoot: isolated.backendRoot,
+    projectMemoryRoot: memoryRoot,
+    memoryProfile: "appendOnly",
+    now: () => "2026-05-10T00:00:00.000Z",
+    localReadinessProbe: readyLocalReadinessProbe,
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      provider: "openai",
+      endpointShape: "responses",
+      providerRoute: "openai_responses",
+      providerCaller: async (envelope: OpenAIV1ResponsesRequestEnvelope) => {
+        providerBodies.push(envelope.body);
+        return { id: "resp-memory-context", output_text: "memory context ok" };
+      },
+    }),
+  });
+  try {
+    const result = await backend.run({
+      task: "inspect memory context",
+      cwd: isolated.backendRoot,
+      mode: "live",
+      sessionId: "session.raxode.memory-context.test",
+    });
+    assert.equal(result.ok, true);
+    const bodyText = JSON.stringify(providerBodies[0]);
+    assert.match(bodyText, /Memory semantic index/u);
+    assert.match(bodyText, /raxode核心目标/u);
+    assert.match(bodyText, /MEMORY\.md:5/u);
+    assert.match(bodyText, /daily\/2026-05-10\.md:5/u);
+    const modelCompleted = result.view.events.find((event) =>
+      event.kind === "model" && event.metadata?.modelPhase === "completed"
+    );
+    const memorySegment = modelCompleted?.metadata?.cacheDebug?.promptPack?.segments?.find((segment) =>
+      segment.segmentKind === "memoryContext"
+    );
+    assert.equal(memorySegment?.materialCount, 1);
+    assert.ok((memorySegment?.estimatedTokens ?? 0) > 0);
+  } finally {
+    isolated.cleanup();
+    rmSync(memoryRoot, { recursive: true, force: true });
+  }
 });
 
 test("raxode application runtime mounts multiagent tools for application sessions", async () => {
@@ -477,6 +541,8 @@ test("raxode application runtime mounts multiagent tools for application session
     });
     assert.equal(turn.ok, true);
     assert.equal(providerCalls, 2);
+    assert.equal((providerBodies[0] as { previous_response_id?: string }).previous_response_id, undefined);
+    assert.equal((providerBodies[1] as { previous_response_id?: string }).previous_response_id, undefined);
     assert.equal(turn.view.sessionId, sessionId);
     assert.equal(turn.view.counters.toolCalls, 1);
     assert.equal(turn.view.finalOutput, "agent spawned");

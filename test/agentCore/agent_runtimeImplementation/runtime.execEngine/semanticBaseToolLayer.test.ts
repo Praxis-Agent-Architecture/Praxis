@@ -651,11 +651,26 @@ test("patch.apply applies add update and delete through filesystem ports", async
   assert.deepEqual(files.get("add.txt"), "new\n");
   assert.deepEqual(files.get("update.txt"), "hello\nnew\nbye\n");
   assert.equal(files.has("delete.txt"), false);
-  assert.deepEqual(result.output, {
-    changed: ["add.txt", "update.txt", "delete.txt"],
-    changeCount: 3,
-    summary: "Applied patch to 3 files.",
-  });
+  assert.equal((result.output as { summary?: string }).summary, "Applied patch to 3 files.");
+  assert.deepEqual((result.output as { changed?: readonly string[] }).changed, ["add.txt", "update.txt", "delete.txt"]);
+  assert.deepEqual((result.output as { changedFiles?: readonly string[] }).changedFiles, ["add.txt", "update.txt", "delete.txt"]);
+  assert.equal((result.output as { changeCount?: number }).changeCount, 3);
+  assert.equal((result.output as { additions?: number }).additions, 2);
+  assert.equal((result.output as { deletions?: number }).deletions, 1);
+  assert.deepEqual((result.output as { entries?: readonly unknown[] }).entries, [
+    { path: "add.txt", changeType: "add", additions: 1, deletions: 0 },
+    { path: "update.txt", changeType: "update", additions: 1, deletions: 1 },
+    { path: "delete.txt", changeType: "delete" },
+  ]);
+  assert.deepEqual((result.output as { diffPreview?: readonly string[] }).diffPreview, [
+    "@@ add.txt @@",
+    "+ new",
+    "@@ update.txt @@",
+    "- old",
+    "+ new",
+    "@@ delete.txt @@",
+  ]);
+  assert.match(String((result.output as { contextHint?: string }).contextHint), /Do not reread/u);
 
   const createNewFileResult = await lookup.handler.invoke({
     toolId: "patch.apply",

@@ -343,6 +343,13 @@ function comparePromptMaterials(left: DefinedPromptMaterial, right: DefinedPromp
     }
   }
 
+  if (leftSegment === "recentConversation") {
+    const priorityDelta = left.priority - right.priority;
+    if (priorityDelta !== 0) {
+      return priorityDelta;
+    }
+  }
+
   if (isProtectedMaterial(left) && !isProtectedMaterial(right)) {
     return -1;
   }

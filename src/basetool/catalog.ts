@@ -154,7 +154,7 @@ export const semanticBaseToolCatalog = [
     toolId: "patch.apply",
     layer: "core",
     title: "Apply Patch",
-    description: "Apply a Codex-style patch. For Add File, every new content line must start with '+'.",
+    description: "Apply a Codex-style patch and return changed files, line stats, and a compact diff preview so successful structured edits do not need full-file readback just for confirmation. For Add File, every new content line must start with '+'.",
     risk: "write",
     runtimePorts: ["filesystem.writeText"],
     permissionHints: ["filesystem:write"],

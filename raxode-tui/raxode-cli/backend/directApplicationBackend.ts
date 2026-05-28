@@ -25,6 +25,7 @@ import type {
   PraxisApplicationUsageTelemetry,
 } from "@praxis-ai/praxis/application-layer";
 import type { RaxodeOptions } from "./agents/codingAgent/config/raxodeOptions.js";
+import { inspectRaxodeMemoryBridge } from "./memory/memoryBridge.js";
 import type { RaxodeLocalReadinessProbeInput } from "./application/localReadinessProbe.js";
 import {
   loadDirectTuiSessionSnapshot,
@@ -47,6 +48,11 @@ type DirectApplicationBackendOptions = RaxodeOptions & {
   initialTurnIndex?: number;
   now?: () => string;
   liveProviderResolver?: CreateApplicationProjectRuntimeOptions["liveProviderResolver"];
+  compactExecutor?: CreateApplicationProjectRuntimeOptions["compactExecutor"];
+  preCompactGovernanceExecutor?: CreateApplicationProjectRuntimeOptions["preCompactGovernanceExecutor"];
+  preCompactGovernanceEnabled?: CreateApplicationProjectRuntimeOptions["preCompactGovernanceEnabled"];
+  compactContextWindowTokens?: CreateApplicationProjectRuntimeOptions["compactContextWindowTokens"];
+  compactThresholdRatio?: CreateApplicationProjectRuntimeOptions["compactThresholdRatio"];
   localReadinessProbe?: Omit<RaxodeLocalReadinessProbeInput, "manifest">;
 };
 
@@ -106,6 +112,41 @@ function normalizeInitialTurnIndex(value: unknown): number {
       ? Number.parseInt(value, 10)
       : 0;
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : 0;
+}
+
+function parsePositiveIntegerEnv(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function parsePositiveRatioEnv(value: string | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function resolveDirectCompactOptions(options: DirectApplicationBackendOptions): {
+  compactContextWindowTokens?: number;
+  compactThresholdRatio?: number;
+} {
+  const exactLimit = parsePositiveIntegerEnv(
+    process.env.PRAXIS_COMPACT_LIMIT_TOKENS ?? process.env.RAXODE_COMPACT_LIMIT_TOKENS,
+  );
+  if (exactLimit !== undefined) {
+    return {
+      compactContextWindowTokens: exactLimit,
+      compactThresholdRatio: 1,
+    };
+  }
+  return {
+    compactContextWindowTokens: options.compactContextWindowTokens ?? parsePositiveIntegerEnv(
+      process.env.PRAXIS_COMPACT_CONTEXT_WINDOW_TOKENS ?? process.env.RAXODE_COMPACT_CONTEXT_WINDOW_TOKENS,
+    ),
+    compactThresholdRatio: options.compactThresholdRatio ?? parsePositiveRatioEnv(
+      process.env.PRAXIS_COMPACT_THRESHOLD_RATIO ?? process.env.RAXODE_COMPACT_THRESHOLD_RATIO,
+    ),
+  };
 }
 
 function resolveDirectApplicationMode(
@@ -1010,6 +1051,14 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
   const model = options.model ?? modelOptions.model;
   const reasoningEffort = options.reasoningEffort ?? modelOptions.reasoningEffort;
   const maxOutputTokens = options.maxOutputTokens ?? modelOptions.maxOutputTokens;
+  const compactOptions = resolveDirectCompactOptions(options);
+  const projectRoot = path.resolve(options.projectRoot ?? defaultProjectRoot());
+  const memoryBridge = await inspectRaxodeMemoryBridge({
+    projectRoot,
+    cwd,
+    profile: options.memoryProfile,
+    now: options.now,
+  });
   const agentOptions: RaxodeOptions = {
     policyProfile: permissionProfile,
     sandboxProfile: options.sandboxProfile,
@@ -1022,9 +1071,11 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     model,
     reasoningEffort,
     maxOutputTokens,
+    memoryProfile: memoryBridge.profile,
+    memoryPromptGuide: memoryBridge.promptGuide,
   };
 
-  const created = await applicationLayer.createApplicationProjectRuntime(options.projectRoot ?? defaultProjectRoot(), {
+  const created = await applicationLayer.createApplicationProjectRuntime(projectRoot, {
     applicationId: applicationModule.raxodeApplication.id,
     cwd,
     mode: resolveDirectApplicationMode(options.mode),
@@ -1039,6 +1090,11 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     agentOptions,
     initialConversations: restoredInitialConversation === undefined ? [] : [restoredInitialConversation],
     now: options.now,
+    compactExecutor: options.compactExecutor,
+    preCompactGovernanceExecutor: options.preCompactGovernanceExecutor,
+    preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
+    compactContextWindowTokens: compactOptions.compactContextWindowTokens,
+    compactThresholdRatio: compactOptions.compactThresholdRatio,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       startDir: cwd,
       sessionId: context?.sessionId,

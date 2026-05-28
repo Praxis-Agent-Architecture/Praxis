@@ -71,6 +71,11 @@ type RaxodeBackendRuntimePorts = Pick<
   | "foundationProject"
   | "openFoundationProject"
   | "liveProviderResolver"
+  | "compactExecutor"
+  | "preCompactGovernanceExecutor"
+  | "preCompactGovernanceEnabled"
+  | "compactContextWindowTokens"
+  | "compactThresholdRatio"
 >;
 
 export type RaxodeBackendOptions = RaxodeOptions & RaxodeBackendRuntimePorts & {
@@ -169,6 +174,11 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
     authStateProvider,
     foundationProject: options.foundationProject,
     openFoundationProject,
+    compactExecutor: options.compactExecutor,
+    preCompactGovernanceExecutor: options.preCompactGovernanceExecutor,
+    preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
+    compactContextWindowTokens: options.compactContextWindowTokens,
+    compactThresholdRatio: options.compactThresholdRatio,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => createRaxodeLiveProvider(manifest, {
       startDir,
       sessionId: context?.sessionId,

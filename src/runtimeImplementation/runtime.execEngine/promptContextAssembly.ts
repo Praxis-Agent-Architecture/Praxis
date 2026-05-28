@@ -4,7 +4,7 @@
  * 边界：只产出 Praxis PromptPack materials，不生成 provider payload，不执行 CMP/MP/Raxode 产品策略。
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 import { providerToolName, type ProviderToolNameMapping } from "../../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
@@ -246,6 +246,104 @@ function estimateTokens(text: string): number {
   return trimmed.length === 0 ? 0 : Math.max(1, Math.ceil(trimmed.length / 4));
 }
 
+function unique(values: readonly string[]): readonly string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function promptMemoryRoots(manifest: AgentManifest): readonly string[] {
+  const applicationInstructions = manifest.promptPack.metadata?.applicationInstructions;
+  if (typeof applicationInstructions !== "string" || applicationInstructions.trim().length === 0) return [];
+  const roots: string[] = [];
+  for (const line of applicationInstructions.split(/\r\n|\r|\n/u)) {
+    const match = /^(?:project|global):\s+(.+)$/u.exec(line.trim());
+    if (match?.[1] !== undefined) roots.push(path.resolve(match[1]));
+  }
+  return unique(roots);
+}
+
+function memoryMarkdownFiles(root: string): readonly { path: string; sourceType: "longTerm" | "dailyNote" }[] {
+  const files: { path: string; sourceType: "longTerm" | "dailyNote" }[] = [];
+  const longTerm = path.join(root, "MEMORY.md");
+  if (existsSync(longTerm)) files.push({ path: longTerm, sourceType: "longTerm" });
+  const dailyDir = path.join(root, "daily");
+  if (existsSync(dailyDir)) {
+    try {
+      const dailyFiles = readdirSync(dailyDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+        .map((entry) => path.join(dailyDir, entry.name))
+        .sort((left, right) => right.localeCompare(left))
+        .slice(0, 5);
+      files.push(...dailyFiles.map((filePath) => ({ path: filePath, sourceType: "dailyNote" as const })));
+    } catch {
+      return files;
+    }
+  }
+  return files;
+}
+
+function memoryCardLabel(line: string): string | undefined {
+  const trimmed = line.trim();
+  if (trimmed.length === 0) return undefined;
+  const heading = /^#{1,4}\s+(.+)$/u.exec(trimmed);
+  if (heading?.[1] !== undefined) return heading[1].trim();
+  const bullet = /^[-*]\s+(.+)$/u.exec(trimmed);
+  const body = bullet?.[1]?.trim() ?? trimmed;
+  if (body.length === 0) return undefined;
+  const split = /^([^:：]{2,80})[:：]\s*(.+)$/u.exec(body);
+  if (split?.[1] !== undefined && split[2] !== undefined) {
+    return `${split[1].trim()}: ${split[2].trim()}`;
+  }
+  return body;
+}
+
+function buildMemoryContextIndexMaterial(manifest: AgentManifest): PromptPackMaterialDraft | undefined {
+  const roots = promptMemoryRoots(manifest);
+  if (roots.length === 0) return undefined;
+  const cards: string[] = [];
+  for (const root of roots) {
+    for (const file of memoryMarkdownFiles(root)) {
+      let text: string;
+      try {
+        text = readFileSync(file.path, "utf8");
+      } catch {
+        continue;
+      }
+      const lines = text.split(/\r\n|\r|\n/u);
+      for (let index = 0; index < lines.length; index++) {
+        const label = memoryCardLabel(lines[index] ?? "");
+        if (label === undefined) continue;
+        const sourceType = file.sourceType === "longTerm" ? "stable" : "daily";
+        cards.push(`- [project:${sourceType}] ${label.slice(0, 180)} -> ${file.path}:${index + 1}`);
+        if (cards.length >= 40) break;
+      }
+      if (cards.length >= 40) break;
+    }
+    if (cards.length >= 40) break;
+  }
+  if (cards.length === 0) return undefined;
+  return {
+    id: "runtime:memory-context-index",
+    kind: "memory",
+    text: [
+      "Memory semantic index:",
+      "Use these short cards to decide where to search/read durable project memory. They are pointers, not the full memory body.",
+      ...cards,
+    ].join("\n"),
+    source: "runtime.memoryContext.semanticIndex",
+    sourceCategory: "process-product",
+    priority: 79,
+    trusted: true,
+    scope: "runtime.memoryContext",
+    promptSegmentKind: "memoryContext",
+    metadata: {
+      rootCount: roots.length,
+      cardCount: cards.length,
+      indexMode: "markdown-semantic-cards",
+      sqliteIndexPresent: roots.some((root) => existsSync(path.join(root, "index.sqlite"))),
+    },
+  };
+}
+
 function recentConversationBudget(input: PromptContextAssemblyRequest, usedTokensBeforeRecent: number): number | undefined {
   const explicit = input.budget?.maxRecentConversationTokens;
   if (explicit !== undefined) return Math.max(0, explicit);
@@ -407,12 +505,15 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
         ...(input.sessionSummary.metadata ?? {}),
       },
     }];
+  const memoryContextMaterial = buildMemoryContextIndexMaterial(input.manifest);
+  const memoryContextMaterials = memoryContextMaterial === undefined ? [] : [memoryContextMaterial];
 
   const stableAndDynamicBeforeRecent = [
     ...manifestPromptMaterials,
     declaredRuntimeContextMaterial,
     ...projectContextGovernanceMaterials,
     ...sessionSummaryMaterial,
+    ...memoryContextMaterials,
     {
       id: `task:${input.turnIndex}`,
       kind: "user" as const,
@@ -497,6 +598,7 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
       toolDeclarationsMaterial,
       ...projectContextGovernanceMaterials,
       ...sessionSummaryMaterial,
+      ...memoryContextMaterials,
       ...recent.materials,
       stableAndDynamicBeforeRecent.find((material) => material.id === `task:${input.turnIndex}`)!,
       stableAndDynamicBeforeRecent.find((material) => material.id === "runtime:base-tool-protocol")!,

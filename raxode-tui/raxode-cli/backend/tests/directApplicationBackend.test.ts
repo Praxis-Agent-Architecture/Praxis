@@ -134,10 +134,10 @@ test("direct application backend speaks direct ready and writes ordered compatib
     rows.filter((row) => row.event === "assistant_delta").map((row) => row.text ?? "").join(""),
     /dry-run/u,
   );
-  assert.equal(rows.find((row) => row.event === "session_start")?.context?.windowTokens, 1_000_000);
-  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.maxInputTokens, 616_000);
-  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.usableInputTokens, 585_200);
-  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.compressionLimitTokens, 555_940);
+  assert.equal(rows.find((row) => row.event === "session_start")?.context?.windowTokens, 400_000);
+  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.maxInputTokens, 272_000);
+  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.usableInputTokens, 258_400);
+  assert.equal(rows.find((row) => row.event === "turn_result")?.core?.context?.compressionLimitTokens, 245_480);
   assert.equal(rows.find((row) => row.event === "turn_result")?.core?.usage?.estimated, true);
   assert.equal(rows.find((row) => row.event === "turn_result")?.core?.usage?.inputTokens, undefined);
   assert.equal(typeof rows.find((row) => row.event === "turn_result")?.core?.elapsedMs, "number");

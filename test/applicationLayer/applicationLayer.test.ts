@@ -494,7 +494,7 @@ test("applicationLayer tool progress summaries use semantic basetool ids", () =>
   });
   assert.equal(patchCompleted.metadata?.familyKey, "code");
   assert.deepEqual(patchCompleted.metadata?.humanResultSummary, [
-    "patch.apply completed",
+    "patch.apply completed for README.md",
     "@@ README.md @@",
     "-   ? | old",
     "+   ? | new",
