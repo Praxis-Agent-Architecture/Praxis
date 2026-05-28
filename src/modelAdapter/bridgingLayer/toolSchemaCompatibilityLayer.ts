@@ -209,6 +209,17 @@ function sanitizeNestedSchema(schema: unknown): unknown {
   return output;
 }
 
+function sanitizeProviderParameterRoot(schema: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const output: Record<string, unknown> = { ...schema };
+  delete output.oneOf;
+  delete output.anyOf;
+  delete output.allOf;
+  delete output.enum;
+  delete output.not;
+  delete output.const;
+  return output;
+}
+
 export function normalizeProviderInputSchema(inputSchema: unknown): Readonly<Record<string, unknown>> {
   if (inputSchema === true || inputSchema === undefined || inputSchema === null) {
     return { type: "object", properties: {} };
@@ -237,7 +248,7 @@ export function normalizeProviderInputSchema(inputSchema: unknown): Readonly<Rec
       ? schema.required.map(String).filter((key) => propertyKeys.has(key))
       : undefined;
     return {
-      ...schema,
+      ...sanitizeProviderParameterRoot(schema),
       type: "object",
       properties,
       ...(required === undefined ? {} : { required }),

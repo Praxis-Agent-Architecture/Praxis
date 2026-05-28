@@ -40,6 +40,8 @@ export {
   createPraxisApplicationRuntime,
   type PraxisApplicationBaseToolIntegrationOptions,
   type CreateApplicationProjectRuntimeOptions,
+  type PraxisApplicationInitialConversation,
+  type PraxisApplicationInitialConversationMessage,
   type PraxisApplicationLiveProvider,
   type PraxisApplicationRuntimeOptions,
 } from "./applicationRuntime.js";

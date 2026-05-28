@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import process from "node:process";
 import { promisify } from "node:util";
 import test from "node:test";
 
@@ -18,8 +19,15 @@ type RaxodeSmokeView = {
 
 async function runRaxodeLiveSmoke(prompt: string): Promise<RaxodeSmokeView> {
   const { stdout } = await execFileAsync(
-    "./bin/raxode-cli",
-    ["--process", "--json", "--live", "--permission", "bapr", prompt],
+    process.execPath,
+    [
+      "--import",
+      "tsx",
+      "raxode-cli/backend/application/runRaxodeBackend.ts",
+      "--live",
+      "--policy=bapr",
+      prompt,
+    ],
     {
       cwd: process.cwd(),
       timeout: 300_000,
@@ -33,24 +41,44 @@ async function runRaxodeLiveSmoke(prompt: string): Promise<RaxodeSmokeView> {
   );
   const jsonStart = stdout.indexOf("{");
   assert.notEqual(jsonStart, -1, stdout);
-  return JSON.parse(stdout.slice(jsonStart)) as RaxodeSmokeView;
+  const payload = JSON.parse(stdout.slice(jsonStart)) as {
+    result?: {
+      ok?: boolean;
+      view?: {
+        finalOutput?: string;
+        counters?: RaxodeSmokeView["counters"];
+      };
+      events?: Array<{
+        kind?: string;
+        message?: string;
+        metadata?: RaxodeSmokeView["counters"];
+      }>;
+    };
+  };
+  const events = payload.result?.events ?? [];
+  const finalEvent = [...events].reverse().find((event) => event.kind === "final");
+  return {
+    status: payload.result?.ok === true ? "completed" : "failed",
+    finalOutput: payload.result?.view?.finalOutput ?? finalEvent?.message,
+    counters: payload.result?.view?.counters ?? finalEvent?.metadata,
+  };
 }
 
 const cases = [
   {
     name: "shell.run",
     prompt: "请实际调用 shell.run 执行 pwd，然后只回答命令输出。",
-    expected: "/home/proview/Desktop/Praxis_series/development/Praxis",
+    expected: process.cwd(),
   },
   {
     name: "file.search",
     prompt: "请实际调用 file.search 在当前仓库搜索字符串 \"PraxisApplicationRuntime\"，只回答匹配到的一个文件路径。",
-    expected: "src/applicationLayer/",
+    expected: "raxode-cli/",
   },
   {
     name: "file.read",
     prompt: "请实际调用 file.read 读取 package.json，只回答里面的 name 字段值。",
-    expected: "@praxis-ai/praxis",
+    expected: "@praxis-ai/raxode",
   },
   {
     name: "web.fetch",

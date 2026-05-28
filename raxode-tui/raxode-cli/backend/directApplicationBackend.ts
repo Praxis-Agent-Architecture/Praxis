@@ -18,6 +18,8 @@ import type {
   CreateApplicationProjectRuntimeOptions,
   PraxisApplicationEvent,
   PraxisApplicationContextTelemetry,
+  PraxisApplicationInitialConversation,
+  PraxisApplicationInitialConversationMessage,
   PraxisApplicationPermissionProfile,
   PraxisApplicationRuntimeMode,
   PraxisApplicationUsageTelemetry,
@@ -29,6 +31,8 @@ import {
   listDirectTuiAgents,
   saveDirectTuiAgent,
   saveDirectTuiSessionSnapshot,
+  type DirectTuiSessionMessageRecord,
+  type DirectTuiSessionSnapshot,
 } from "../frontend/tui/input/direct-session-store.js";
 
 type DirectApplicationBackendOptions = RaxodeOptions & {
@@ -784,6 +788,70 @@ function persistDirectMultiagentSession(input: {
   }, input.cwd);
 }
 
+function directSessionMessageRole(
+  message: DirectTuiSessionMessageRecord,
+): PraxisApplicationInitialConversationMessage["role"] {
+  if (message.kind === "user") return "user";
+  if (message.kind === "assistant") return "assistant";
+  if (message.kind === "status") {
+    const source = typeof message.metadata?.source === "string" ? message.metadata.source : "";
+    if (source.includes("tool") || typeof message.capabilityKey === "string") return "tool";
+    return "runtime-summary";
+  }
+  if (message.kind === "error") return "runtime-summary";
+  return "runtime-summary";
+}
+
+function directSessionMessageStatus(
+  message: DirectTuiSessionMessageRecord,
+): PraxisApplicationInitialConversationMessage["status"] | undefined {
+  if (message.status === "failed" || message.kind === "error" || message.errorCode) return "failed";
+  if (message.status === "completed" || message.kind === "user" || message.kind === "assistant" || message.kind === "status") {
+    return "completed";
+  }
+  return undefined;
+}
+
+function directSessionSnapshotToInitialConversation(
+  snapshot: DirectTuiSessionSnapshot | undefined | null,
+): PraxisApplicationInitialConversation | undefined {
+  if (!snapshot || snapshot.messages.length === 0) return undefined;
+  const messages = snapshot.messages.flatMap((message): PraxisApplicationInitialConversationMessage[] => {
+    const text = message.text.trim();
+    if (text.length === 0) return [];
+    return [{
+      role: directSessionMessageRole(message),
+      text,
+      turnId: message.turnId ?? "restored",
+      createdAt: message.createdAt,
+      messageId: message.messageId,
+      metadata: {
+        source: "raxode.directTuiSessionSnapshot",
+        originalKind: message.kind,
+        ...(message.title ? { title: message.title } : {}),
+        ...(message.capabilityKey ? { capabilityKey: message.capabilityKey } : {}),
+        ...(message.errorCode ? { errorCode: message.errorCode } : {}),
+        ...(message.metadata ?? {}),
+      },
+      status: directSessionMessageStatus(message),
+    }];
+  });
+  if (messages.length === 0) return undefined;
+  return {
+    sessionId: snapshot.sessionId,
+    messages,
+    ...(snapshot.exitSummary === undefined
+      ? {}
+      : {
+        summary: {
+          text: `Restored Raxode direct TUI session ${snapshot.name} with ${snapshot.messages.length} persisted transcript messages and ${snapshot.exitSummary.requestCount} model requests.`,
+          compactedMessages: 0,
+          updatedAt: snapshot.exitSummary.generatedAt,
+        },
+      }),
+  };
+}
+
 export async function startDirectApplicationBackend(options: DirectApplicationBackendOptions = {}): Promise<void> {
   const input = options.input ?? process.stdin;
   const output = options.output ?? process.stdout;
@@ -791,6 +859,8 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
   const cwd = path.resolve(options.cwd ?? process.env.PRAXIS_WORKSPACE_ROOT ?? process.cwd());
   const sessionId = options.sessionId ?? process.env.PRAXIS_DIRECT_SESSION_ID ?? `direct-${Date.now()}`;
   const stateRoot = defaultStateRoot(cwd);
+  const restoredSessionSnapshot = loadDirectTuiSessionSnapshot(sessionId, cwd);
+  const restoredInitialConversation = directSessionSnapshotToInitialConversation(restoredSessionSnapshot);
   const permissionProfile = normalizePermissionProfile(
     options.policyProfile
       ?? process.env.RAXODE_APPLICATION_PERMISSION_PROFILE
@@ -967,6 +1037,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     maxOutputTokens,
     permissionProfile,
     agentOptions,
+    initialConversations: restoredInitialConversation === undefined ? [] : [restoredInitialConversation],
     now: options.now,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       startDir: cwd,

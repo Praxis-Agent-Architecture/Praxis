@@ -3160,6 +3160,93 @@ test("PraxisRuntimeKernel.runManifest grants shell.run runtime permissions", asy
   assert.equal(grantedPermissions?.includes("process:spawn"), true);
 });
 
+test("PraxisRuntimeKernel.runManifest reuses same-turn duplicate shell.run observations", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-shell-reuse-"));
+
+  class ShellReuseAgent extends PraxisAgent {
+    identity = "agent.shell-reuse";
+    model = model("gpt-5.4", { carrierId: "carrier.shell-reuse" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("shell.run")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 3, maxToolCalls: 2 }),
+    });
+  }
+
+  const baseExecutor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-shell-reuse",
+    sessionId: "session-shell-reuse",
+    policy: {
+      workspaceRoot: workspace,
+      allowedRoots: [workspace],
+      allowShellExecution: true,
+    },
+  });
+
+  let calls = 0;
+  const shellPort = baseExecutor.shell;
+  if (shellPort?.run === undefined) throw new Error("expected shell.run test executor");
+  const shellRun = shellPort.run.bind(shellPort);
+  let realShellExecutions = 0;
+  shellPort.run = async (input) => {
+    realShellExecutions += 1;
+    return shellRun(input);
+  };
+
+  const duplicateCommand = "printf duplicate-shell-observation";
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-reuse" }).run(
+    new ShellReuseAgent(),
+    "run the same shell command twice",
+    {
+      sessionId: "session-shell-reuse",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor: baseExecutor,
+      providerCaller: async () => {
+        calls += 1;
+        if (calls === 1 || calls === 2) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "shell.run",
+              call_id: calls === 1 ? "shell-first" : "shell-second",
+              arguments: JSON.stringify({
+                command: duplicateCommand,
+                cwd: workspace,
+                context: {
+                  workspaceRoot: workspace,
+                  allowedRoots: [workspace],
+                  grantedPermissions: ["tool.execute"],
+                },
+              }),
+            }],
+          };
+        }
+        return { output_text: "duplicate shell command reused previous observation" };
+      },
+      now: () => "2026-05-15T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.length, 2);
+  assert.equal(realShellExecutions, 1);
+  assert.equal(result.toolCalls[0]?.callId, "shell-first");
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /duplicate-shell-observation/u);
+  assert.equal(result.toolCalls[1]?.callId, "shell-second");
+  assert.equal((result.toolCalls[1]?.output as { kind?: string }).kind, "agentCore.basicTool.shell.run.cachedObservation");
+  assert.equal(result.mainLoopSteps.some((step) => step.metadata.duplicateObservationReuse === true), true);
+});
+
 test("PraxisRuntimeKernel.runManifest keeps shell.run permissions stable for repeated shell tools", async () => {
   class ShellServiceAgent extends PraxisAgent {
     identity = "agent.shell-service";

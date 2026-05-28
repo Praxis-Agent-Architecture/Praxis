@@ -104,6 +104,28 @@ export type PraxisApplicationBaseToolIntegrationOptions = {
   onToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
 };
 
+export type PraxisApplicationInitialConversationMessage = {
+  role: "user" | "assistant" | "model" | "tool" | "runtime-summary" | (string & {});
+  text: string;
+  turnId: string;
+  createdAt: string;
+  messageId?: string;
+  causedBy?: string;
+  artifactRefs?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
+  status?: "completed" | "failed";
+};
+
+export type PraxisApplicationInitialConversation = {
+  sessionId: string;
+  messages: readonly PraxisApplicationInitialConversationMessage[];
+  summary?: {
+    text: string;
+    compactedMessages: number;
+    updatedAt: string;
+  };
+};
+
 export type PraxisApplicationRuntimeOptions = {
   project: PraxisApplicationProject;
   applicationId?: string;
@@ -126,6 +148,7 @@ export type PraxisApplicationRuntimeOptions = {
   contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
   onApplicationToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
+  initialConversations?: readonly PraxisApplicationInitialConversation[];
   foundationProject?: PraxisProjectRuntime;
   openFoundationProject?: boolean;
   liveProviderResolver?: (manifest: AgentManifest, context?: {
@@ -186,7 +209,7 @@ type RuntimeState = {
 };
 
 type ApplicationConversationMessage = {
-  role: "user" | "assistant" | "model" | "tool" | "runtime-summary" | (string & {});
+  role: PraxisApplicationInitialConversationMessage["role"];
   text: string;
   turnId: string;
   createdAt: string;
@@ -220,6 +243,38 @@ const APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD = 0.95;
 
 function defaultNow(): string {
   return new Date().toISOString();
+}
+
+function initialConversationHistoryMap(
+  conversations: readonly PraxisApplicationInitialConversation[] | undefined,
+): Map<string, ApplicationConversationMessage[]> {
+  const map = new Map<string, ApplicationConversationMessage[]>();
+  for (const conversation of conversations ?? []) {
+    const sessionId = conversation.sessionId.trim();
+    if (sessionId.length === 0) continue;
+    map.set(sessionId, conversation.messages.map((message) => ({
+      ...message,
+      text: truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS),
+    })));
+  }
+  return map;
+}
+
+function initialConversationSummaryMap(
+  conversations: readonly PraxisApplicationInitialConversation[] | undefined,
+): Map<string, ApplicationConversationSummary> {
+  const map = new Map<string, ApplicationConversationSummary>();
+  for (const conversation of conversations ?? []) {
+    const sessionId = conversation.sessionId.trim();
+    if (sessionId.length === 0 || conversation.summary === undefined) continue;
+    map.set(sessionId, {
+      text: truncateMiddle(conversation.summary.text, APPLICATION_SESSION_SUMMARY_MAX_CHARS),
+      compactedMessages: Math.max(0, Math.floor(conversation.summary.compactedMessages)),
+      updatedAt: conversation.summary.updatedAt,
+      source: "application.history.autoCompact.v1",
+    });
+  }
+  return map;
 }
 
 function event(input: Omit<PraxisApplicationEvent, "publicSafe">): PraxisApplicationEvent {
@@ -1798,6 +1853,7 @@ function createModelProgressEvent(input: {
   turnId: string;
   status: PraxisApplicationStatus;
   model: PraxisApplicationModelState;
+  conversationContext?: PraxisApplicationContextTelemetry;
 }): Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> {
   const usage = input.progress.phase === "started" ? undefined : input.progress.usage;
   const contextInputTokens = usage?.inputTokens;
@@ -1842,16 +1898,21 @@ function createModelProgressEvent(input: {
             usageSource: usage?.source ?? "provider.model-call.usage",
             activeTokens: contextInputTokens,
             promptTokens: contextInputTokens,
-            sessionContextTokens: Math.max(promptPackTokens ?? 0, contextInputTokens),
+            sessionContextTokens: Math.max(
+              promptPackTokens ?? 0,
+              contextInputTokens,
+              input.conversationContext?.historyEstimatedTokens ?? 0,
+              input.conversationContext?.transcriptTokens ?? 0,
+            ),
             compressionLimitTokens: modelAutoCompactTokenLimit(input.model),
             lastRequestInputTokens: contextInputTokens,
             lastRequestTotalTokens: contextTotalTokens,
             promptPackTokens,
-            transcriptTokens: 0,
-            summaryTokens: 0,
-            historyMessages: 0,
+            transcriptTokens: input.conversationContext?.transcriptTokens ?? 0,
+            summaryTokens: input.conversationContext?.summaryTokens ?? 0,
+            historyMessages: input.conversationContext?.historyMessages ?? 0,
             estimated: usage?.estimated ?? false,
-            compacted: false,
+            compacted: input.conversationContext?.compacted ?? false,
           },
       errorMessage: input.progress.phase === "failed" ? input.progress.error?.message : undefined,
     },
@@ -2923,8 +2984,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     approvals: new Map(),
     pendingApprovalResolvers: new Map(),
     cancelledAuxiliaryTasks: new Set(),
-    conversationHistory: new Map(),
-    conversationSummaries: new Map(),
+    conversationHistory: initialConversationHistoryMap(options.initialConversations),
+    conversationSummaries: initialConversationSummaryMap(options.initialConversations),
     modelCacheDebugBySession: new Map(),
     lastProviderResponseBySession: new Map(),
     toolContextSelections: new Map(),
@@ -3813,6 +3874,11 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           turnId,
           status: "running",
           model: state.model,
+          conversationContext: estimateConversationContext({
+            messages: state.conversationHistory.get(state.sessionId) ?? preparedHistory.history,
+            summary: state.conversationSummaries.get(state.sessionId) ?? preparedHistory.summary,
+            model: state.model,
+          }),
         }));
       },
       onToolCallProgress: (progress) => {

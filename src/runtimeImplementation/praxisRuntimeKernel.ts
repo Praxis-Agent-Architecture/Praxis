@@ -2055,8 +2055,67 @@ function fileReadCacheKey(toolId: string, args: Readonly<Record<string, unknown>
   })}`;
 }
 
+function shellRunCacheKey(toolId: string, args: Readonly<Record<string, unknown>>): string | undefined {
+  if (toolId !== "shell.run") return undefined;
+  const command = firstStringValueForKernel(args.command, args.script);
+  if (command === undefined) return undefined;
+  return `${toolId}:${stableJsonForHash({
+    command,
+    cwd: firstStringValueForKernel(args.cwd) ?? "",
+    context: normalizeToolContext(args.context),
+  })}`;
+}
+
 function invalidatesFileReadCache(toolId: string): boolean {
   return toolId === "patch.apply" || toolId === "shell.run";
+}
+
+function invalidatesShellRunCache(toolId: string): boolean {
+  return toolId === "patch.apply" || toolId === "file.write" || toolId === "file.edit";
+}
+
+function duplicateShellRunRecord(input: {
+  sessionId: string;
+  toolCallId: string;
+  toolId: string;
+  providerToolName?: string;
+  args: Readonly<Record<string, unknown>>;
+  previousCallId: string;
+  now: string;
+}): { record: AgentToolCallRecord; observation: RuntimeObservationMaterial } {
+  const payload = {
+    kind: "agentCore.basicTool.shell.run.cachedObservation",
+    duplicateOfToolCallId: input.previousCallId,
+    command: firstStringValueForKernel(input.args.command, input.args.script) ?? "",
+    cwd: firstStringValueForKernel(input.args.cwd) ?? "",
+    unsafeSideEffects: false,
+    note: "This shell.run request repeats the same command and cwd already executed earlier in this model turn. Use the previous observation instead of rerunning it.",
+  };
+  const record: AgentToolCallRecord = {
+    callId: input.toolCallId,
+    toolId: input.toolId,
+    arguments: input.args,
+    ok: true,
+    output: payload,
+  };
+  const observation = createObservationMaterial({
+    observationId: `${input.sessionId}:observation:${input.toolCallId}:cached-shell`,
+    source: "runtime",
+    status: "completed",
+    title: `BaseTool ${input.toolId} cached`,
+    summary: `duplicate shell.run skipped; previous observation ${input.previousCallId} already contains the command result`,
+    refs: [input.toolCallId, input.toolId, input.previousCallId],
+    payload,
+    metadata: metadataRecord({
+      toolCallId: input.toolCallId,
+      toolId: input.toolId,
+      providerToolName: input.providerToolName ?? "",
+      duplicateOfToolCallId: input.previousCallId,
+      duplicateObservationReuse: true,
+      createdAt: input.now,
+    }),
+  });
+  return { record, observation };
 }
 
 function duplicateFileReadRecord(input: {
@@ -4286,6 +4345,7 @@ export class PraxisRuntimeKernel {
     const mainLoopSteps: MainLoopStepRecord[] = [];
     const observations: RuntimeObservationMaterial[] = [];
     const sameTurnFileReadCache = new Map<string, { callId: string; fullFileRead: boolean }>();
+    const sameTurnShellRunCache = new Map<string, { callId: string }>();
     const createdAt = now();
 
     await store.createSession({
@@ -5643,6 +5703,57 @@ export class PraxisRuntimeKernel {
             });
             return { ok: true, continueLoop: true, events: ["runtime.baseTool.fileRead.duplicateObservationReused"] };
           }
+          const shellCacheKey = shellRunCacheKey(decision.toolCall.toolId, decision.toolCall.arguments);
+          const cachedShell = shellCacheKey === undefined ? undefined : sameTurnShellRunCache.get(shellCacheKey);
+          if (cachedShell !== undefined) {
+            const reused = duplicateShellRunRecord({
+              sessionId,
+              toolCallId: decision.toolCall.callId,
+              toolId: decision.toolCall.toolId,
+              providerToolName: decision.toolCall.providerToolName,
+              args: decision.toolCall.arguments,
+              previousCallId: cachedShell.callId,
+              now: now(),
+            });
+            await options.onToolCallProgress?.({
+              phase: "completed",
+              providerToolName: decision.toolCall.providerToolName,
+              record: reused.record,
+            });
+            toolCalls.push(reused.record);
+            observations.push(reused.observation);
+            await store.appendInvocation(invocation(sessionId, reused.record.callId, "tool", reused.record.toolId, true, now(), {
+              ok: true,
+              decisionId: decision.decisionId,
+              duplicateOfToolCallId: cachedShell.callId,
+            }));
+            await recordMainLoopStep({
+              store,
+              sessionId,
+              createdAt: now(),
+              events,
+              mainLoopSteps,
+              step: createMainLoopStepRecord({
+                sessionId,
+                turnIndex: turn,
+                stepIndex: stepBase + 6 + decisionIndex,
+                actionPrimitive: "invokeBaseTool",
+                status: "completed",
+                inputRefs: [decision.decisionId],
+                outputRefs: [reused.record.callId],
+                toolCallId: reused.record.callId,
+                observationRefs: [reused.observation.observationId],
+                now: now(),
+                metadata: {
+                  toolId: reused.record.toolId,
+                  providerToolName: decision.toolCall.providerToolName ?? "",
+                  duplicateObservationReuse: true,
+                  duplicateOfToolCallId: cachedShell.callId,
+                },
+              }),
+            });
+            return { ok: true, continueLoop: true, events: ["runtime.baseTool.shellRun.duplicateObservationReused"] };
+          }
           const executed = await executeBaseToolDecision({
             runtimeId,
             sessionId,
@@ -5679,6 +5790,12 @@ export class PraxisRuntimeKernel {
               callId: executed.record.callId,
               fullFileRead: !truncated,
             });
+          }
+          if (shellCacheKey !== undefined && executed.record.ok) {
+            sameTurnShellRunCache.set(shellCacheKey, { callId: executed.record.callId });
+          }
+          if (invalidatesShellRunCache(executed.record.toolId)) {
+            sameTurnShellRunCache.clear();
           }
           toolContextHeatState = applyBaseToolContextUsage(
             toolContextHeatState,

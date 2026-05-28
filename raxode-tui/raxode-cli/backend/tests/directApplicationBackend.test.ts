@@ -8,6 +8,7 @@ import nodeTest from "node:test";
 import { promisify } from "node:util";
 
 import { startDirectApplicationBackend } from "../directApplicationBackend.js";
+import { saveDirectTuiSessionSnapshot } from "../../frontend/tui/input/direct-session-store.js";
 
 const execFileAsync = promisify(execFile);
 const test = nodeTest;
@@ -355,6 +356,132 @@ test("direct application backend maps live stream deltas onto the resumed UI tur
     process.env.RAXODE_STREAM_FPS = previousStreamFps;
   }
   await rm(stateRoot, { recursive: true, force: true });
+});
+
+test("direct application backend hydrates persisted session transcript into resumed provider context", async () => {
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-hydrate-state-"));
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-hydrate-workspace-"));
+  const previousStreamFps = process.env.RAXODE_STREAM_FPS;
+  process.env.RAXODE_STREAM_FPS = "1000";
+  const sessionId = "direct-hydrate-context-test";
+  saveDirectTuiSessionSnapshot({
+    schemaVersion: 1,
+    sessionId,
+    agentId: "agent.core:main",
+    name: "hydrate-context",
+    workspace: workspaceRoot,
+    route: "test",
+    model: responsesRoute.model,
+    createdAt: "2026-05-10T00:00:00.000Z",
+    updatedAt: "2026-05-10T00:00:01.000Z",
+    selectedAgentId: "agent.core:main",
+    agents: [],
+    messages: [
+      {
+        messageId: "persisted-user-1",
+        kind: "user",
+        text: "请记住这个跨后端恢复标记 BLUE-ORBIT-HYDRATE。",
+        createdAt: "2026-05-10T00:00:00.000Z",
+        turnId: "turn-1",
+      },
+      {
+        messageId: "persisted-tool-1",
+        kind: "status",
+        title: "File",
+        text: "Read workflow-studio/dag.js Path: workflow-studio/dag.js",
+        createdAt: "2026-05-10T00:00:00.500Z",
+        turnId: "turn-1",
+        metadata: { source: "tool_summary", capabilityKey: "file.read", summaryState: "completed" },
+      },
+      {
+        messageId: "persisted-assistant-1",
+        kind: "assistant",
+        text: "我已经知道 BLUE-ORBIT-HYDRATE 和当前工程结构。",
+        createdAt: "2026-05-10T00:00:01.000Z",
+        turnId: "turn-1",
+      },
+    ],
+    usageLedger: [],
+  }, workspaceRoot);
+
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const errorOutput = new PassThrough();
+  let stdout = "";
+  let stderr = "";
+  output.on("data", (chunk: Buffer | string) => {
+    stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  errorOutput.on("data", (chunk: Buffer | string) => {
+    stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  const providerBodies: unknown[] = [];
+
+  const done = startDirectApplicationBackend({
+    input,
+    output,
+    errorOutput,
+    cwd: workspaceRoot,
+    sessionId,
+    stateRoot,
+    mode: "live",
+    ...responsesRoute,
+    initialTurnIndex: 1,
+    liveProviderResolver: async () => ({
+      auth: {
+        kind: "oauth",
+        present: true,
+        headerPlan: [],
+        queryPlan: [],
+        publicSafe: true,
+      },
+      providerCaller: async (envelope) => {
+        providerBodies.push(envelope.body);
+        return { output_text: "hydrated ok", usage: { input_tokens: 42, output_tokens: 2 } };
+      },
+    }),
+  });
+
+  input.write(`${JSON.stringify({
+    type: "direct_user_input",
+    text: "刚才的跨后端恢复标记是什么？",
+  })}\u0000/exit\u0000`);
+  input.end();
+  await done;
+
+  assert.equal(stderr, "");
+  assert.equal(providerBodies.length, 1);
+  assert.match(JSON.stringify(providerBodies[0]), /BLUE-ORBIT-HYDRATE/u);
+  const logPath = stdout.match(/log file: (.+)/u)?.[1]?.trim();
+  assert.ok(logPath);
+  const rows = (await readFile(logPath, "utf8"))
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as {
+      event?: string;
+      stage?: string;
+      context?: { historyMessages?: number; transcriptTokens?: number };
+      cacheDebug?: {
+        promptPack?: {
+          segments?: Array<{ segmentKind?: string; materialCount?: number; estimatedTokens?: number }>;
+        };
+      };
+    });
+  const modelEnd = rows.find((row) => row.event === "stage_end" && row.stage === "core/model.infer");
+  assert.ok((modelEnd?.context?.historyMessages ?? 0) >= 3);
+  assert.ok((modelEnd?.context?.transcriptTokens ?? 0) > 0);
+  const recentConversation = modelEnd?.cacheDebug?.promptPack?.segments?.find((segment) =>
+    segment.segmentKind === "recentConversation");
+  assert.ok((recentConversation?.materialCount ?? 0) >= 3);
+  assert.ok((recentConversation?.estimatedTokens ?? 0) > 0);
+
+  if (previousStreamFps === undefined) {
+    delete process.env.RAXODE_STREAM_FPS;
+  } else {
+    process.env.RAXODE_STREAM_FPS = previousStreamFps;
+  }
+  await rm(stateRoot, { recursive: true, force: true });
+  await rm(workspaceRoot, { recursive: true, force: true });
 });
 
 test("direct application backend logs tool call preview events before tool execution completes", async () => {

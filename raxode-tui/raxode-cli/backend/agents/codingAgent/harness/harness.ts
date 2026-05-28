@@ -74,8 +74,8 @@ export function createRaxodeHarness(options: NormalizedRaxodeOptions): HarnessSp
       ],
     }),
     loop: praxis.loop.standard({
-      maxModelTurns: 4096,
-      maxToolCalls: 4096,
+      maxModelTurns: 256,
+      maxToolCalls: 1024,
     }),
     modules: {
       dependencyPlane: { mode: "prepare-declared-capabilities" },

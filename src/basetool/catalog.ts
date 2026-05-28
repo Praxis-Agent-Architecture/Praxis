@@ -518,10 +518,6 @@ export const semanticBaseToolCatalog = [
         maxBytes: { type: "number", description: "Optional byte limit for local image reads." },
       },
       additionalProperties: false,
-      anyOf: [
-        { required: ["imageRef"] },
-        { required: ["imagePath"] },
-      ],
     }),
   }),
   define({

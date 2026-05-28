@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Kanban</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="logo">MK</span>
+        <div>
+          <h1>Mini Kanban</h1>
+          <p>纯 Node.js 看板</p>
+        </div>
+      </div>
+
+      <label class="search-box">
+        <span>搜索任务</span>
+        <input id="searchInput" type="search" placeholder="标题、描述、标签...">
+      </label>
+
+      <section>
+        <h2>任务列表</h2>
+        <ul id="taskList" class="task-list"></ul>
+      </section>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">todo / doing / done</p>
+          <h2>团队任务看板</h2>
+        </div>
+        <button id="themeToggle" class="ghost-button" type="button">切换深浅色</button>
+      </header>
+
+      <form id="taskForm" class="task-form">
+        <input type="hidden" id="taskId">
+        <input id="title" required maxlength="80" placeholder="任务标题">
+        <input id="tags" placeholder="标签，用逗号分隔">
+        <select id="priority">
+          <option value="low">低优先级</option>
+          <option value="medium" selected>中优先级</option>
+          <option value="high">高优先级</option>
+        </select>
+        <select id="status">
+          <option value="todo">todo</option>
+          <option value="doing">doing</option>
+          <option value="done">done</option>
+        </select>
+        <textarea id="description" rows="2" placeholder="任务描述"></textarea>
+        <div class="form-actions">
+          <button type="submit">保存任务</button>
+          <button id="resetForm" type="button" class="ghost-button">清空</button>
+        </div>
+      </form>
+
+      <section id="board" class="board" aria-label="Kanban board"></section>
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
