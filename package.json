@@ -13,28 +13,80 @@
     "praxis-raxode": "raxode-tui/bin/raxode"
   },
   "exports": {
-    ".": "./src/agentCore/index.ts",
-    "./agentCore": "./src/agentCore/index.ts",
-    "./agent-core": "./src/agentCore/index.ts",
-    "./application": "./src/applicationLayer/index.ts",
-    "./application-layer": "./src/applicationLayer/index.ts",
-    "./basetool": "./src/basetool/index.ts",
-    "./modelAdapter/*": "./src/modelAdapter/*.ts",
-    "./model-adapter/*": "./src/modelAdapter/*.ts",
-    "./provider/*": "./src/modelAdapter/*.ts",
-    "./memory": "./src/memory_managementPool/index.ts",
-    "./modelAdapter": "./src/modelAdapter/index.ts",
-    "./model-adapter": "./src/modelAdapter/index.ts",
-    "./rax": "./src/rax_packageManager/index.ts",
-    "./raxode": "./raxode-tui/raxode-cli/index.ts",
-    "./raxode/backend": "./raxode-tui/raxode-cli/backend/raxodeBackend.ts",
-    "./raxode/contracts": "./raxode-tui/raxode-cli/contracts.ts"
+    ".": {
+      "types": "./dist/agentCore/index.d.ts",
+      "import": "./dist/agentCore/index.js"
+    },
+    "./agentCore": {
+      "types": "./dist/agentCore/index.d.ts",
+      "import": "./dist/agentCore/index.js"
+    },
+    "./agent-core": {
+      "types": "./dist/agentCore/index.d.ts",
+      "import": "./dist/agentCore/index.js"
+    },
+    "./application": {
+      "types": "./dist/applicationLayer/index.d.ts",
+      "import": "./dist/applicationLayer/index.js"
+    },
+    "./application-layer": {
+      "types": "./dist/applicationLayer/index.d.ts",
+      "import": "./dist/applicationLayer/index.js"
+    },
+    "./basetool": {
+      "types": "./dist/basetool/index.d.ts",
+      "import": "./dist/basetool/index.js"
+    },
+    "./modelAdapter/*": {
+      "types": "./dist/modelAdapter/*.d.ts",
+      "import": "./dist/modelAdapter/*.js"
+    },
+    "./model-adapter/*": {
+      "types": "./dist/modelAdapter/*.d.ts",
+      "import": "./dist/modelAdapter/*.js"
+    },
+    "./provider/*": {
+      "types": "./dist/modelAdapter/*.d.ts",
+      "import": "./dist/modelAdapter/*.js"
+    },
+    "./memory": {
+      "types": "./dist/memory_managementPool/index.d.ts",
+      "import": "./dist/memory_managementPool/index.js"
+    },
+    "./modelAdapter": {
+      "types": "./dist/modelAdapter/index.d.ts",
+      "import": "./dist/modelAdapter/index.js"
+    },
+    "./model-adapter": {
+      "types": "./dist/modelAdapter/index.d.ts",
+      "import": "./dist/modelAdapter/index.js"
+    },
+    "./rax": {
+      "types": "./dist/rax_packageManager/index.d.ts",
+      "import": "./dist/rax_packageManager/index.js"
+    },
+    "./raxode": {
+      "types": "./raxode-tui/dist/raxode-cli/index.d.ts",
+      "import": "./raxode-tui/dist/raxode-cli/index.js"
+    },
+    "./raxode/backend": {
+      "types": "./raxode-tui/dist/raxode-cli/backend/raxodeBackend.d.ts",
+      "import": "./raxode-tui/dist/raxode-cli/backend/raxodeBackend.js"
+    },
+    "./raxode/contracts": {
+      "types": "./raxode-tui/dist/raxode-cli/contracts.d.ts",
+      "import": "./raxode-tui/dist/raxode-cli/contracts.js"
+    },
+    "./package.json": "./package.json"
   },
   "files": [
     "bin",
-    "src",
+    "dist",
     "examples",
-    "raxode-tui",
+    "raxode-tui/bin",
+    "raxode-tui/dist",
+    "raxode-tui/package.json",
+    "raxode-tui/tsconfig.json",
     "!examples/scripts/agentcore_chat.ts",
     "!examples/scripts/agentcore_tool_lab.ts",
     "!examples/scripts/agentcore_all_tools_matrix.ts",
@@ -69,7 +121,8 @@
     "node": ">=22.22.3"
   },
   "scripts": {
-    "build": "npm run typecheck",
+    "clean": "node automations/clean-dist.mjs",
+    "build": "npm run clean && tsc -p tsconfig.build.json && tsc -p raxode-tui/tsconfig.build.json && node automations/copy-dist-assets.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "pack:dry-run": "npm pack --dry-run --json",
     "pack:dist": "mkdir -p dist && npm pack --pack-destination dist",

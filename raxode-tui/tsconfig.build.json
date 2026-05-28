@@ -7,7 +7,19 @@
     "noEmit": false,
     "outDir": "dist",
     "rootDir": ".",
-    "sourceMap": false
+    "sourceMap": false,
+    "paths": {
+      "@praxis-ai/praxis": ["../dist/agentCore/index.d.ts"],
+      "@praxis-ai/praxis/agentCore": ["../dist/agentCore/index.d.ts"],
+      "@praxis-ai/praxis/agent-core": ["../dist/agentCore/index.d.ts"],
+      "@praxis-ai/praxis/application": ["../dist/applicationLayer/index.d.ts"],
+      "@praxis-ai/praxis/application-layer": ["../dist/applicationLayer/index.d.ts"],
+      "@praxis-ai/praxis/basetool": ["../dist/basetool/index.d.ts"],
+      "@praxis-ai/praxis/memory": ["../dist/memory_managementPool/index.d.ts"],
+      "@praxis-ai/praxis/modelAdapter/*": ["../dist/modelAdapter/*.d.ts"],
+      "@praxis-ai/praxis/model-adapter/*": ["../dist/modelAdapter/*.d.ts"],
+      "@praxis-ai/praxis/provider/*": ["../dist/modelAdapter/*.d.ts"]
+    }
   },
   "include": ["raxode-cli/**/*.ts", "raxode-cli/**/*.tsx"],
   "exclude": ["node_modules", "dist", "raxode-cli/**/*.test.ts", "raxode-cli/frontend/tui/memory/generated/**"]
