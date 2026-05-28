@@ -1,6 +1,6 @@
 {
   "name": "@praxis-ai/praxis",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": false,
   "type": "module",
   "description": "Praxis agentCore architecture scaffold, tests, and engineering contracts.",
@@ -9,8 +9,8 @@
     "access": "public"
   },
   "bin": {
-    "rax": "./bin/rax",
-    "praxis-raxode": "./raxode-tui/bin/raxode"
+    "rax": "bin/rax",
+    "praxis-raxode": "raxode-tui/bin/raxode"
   },
   "exports": {
     ".": "./src/agentCore/index.ts",
@@ -19,9 +19,9 @@
     "./application": "./src/applicationLayer/index.ts",
     "./application-layer": "./src/applicationLayer/index.ts",
     "./basetool": "./src/basetool/index.ts",
-    "./modelAdapter/*": "./src/modelAdapter/*",
-    "./model-adapter/*": "./src/modelAdapter/*",
-    "./provider/*": "./src/modelAdapter/*",
+    "./modelAdapter/*": "./src/modelAdapter/*.ts",
+    "./model-adapter/*": "./src/modelAdapter/*.ts",
+    "./provider/*": "./src/modelAdapter/*.ts",
     "./memory": "./src/memory_managementPool/index.ts",
     "./modelAdapter": "./src/modelAdapter/index.ts",
     "./model-adapter": "./src/modelAdapter/index.ts",

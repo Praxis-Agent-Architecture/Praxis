@@ -462,7 +462,18 @@ test("raxode application runtime places memory semantic index in memoryContext",
     const modelCompleted = result.view.events.find((event) =>
       event.kind === "model" && event.metadata?.modelPhase === "completed"
     );
-    const memorySegment = modelCompleted?.metadata?.cacheDebug?.promptPack?.segments?.find((segment) =>
+    const cacheDebug = modelCompleted?.metadata?.cacheDebug as
+      | {
+          promptPack?: {
+            segments?: Array<{
+              segmentKind?: string;
+              materialCount?: number;
+              estimatedTokens?: number;
+            }>;
+          };
+        }
+      | undefined;
+    const memorySegment = cacheDebug?.promptPack?.segments?.find((segment) =>
       segment.segmentKind === "memoryContext"
     );
     assert.equal(memorySegment?.materialCount, 1);
