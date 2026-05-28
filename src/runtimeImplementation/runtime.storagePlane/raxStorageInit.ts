@@ -52,6 +52,8 @@ export function planRaxStorageInit(layout: RaxStorageLayout): RaxStorageInitPlan
     layout.home.providerProfiles,
     layout.home.packageCache,
     layout.home.toolDeps,
+    layout.home.toolDepsBin,
+    layout.home.toolDepsLocks,
     layout.home.trust,
     layout.home.logs,
     layout.home.runtimeSockets,

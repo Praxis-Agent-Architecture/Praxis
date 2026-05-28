@@ -15,7 +15,7 @@ export async function invokeProcessWaitCore(
   const wait = namespaceMethod(definition, request, "process", "wait");
   if (!wait.ok) return wait.result;
 
-  return callRuntimePort(definition, wait.value(compactRecord({ processId: processId.value, timeoutMs: timeoutMs.value })), {
+  return callRuntimePort(definition, wait.value(compactRecord({ processId: processId.value, timeoutMs: timeoutMs.value, context: input.value.context })), {
     portPath: "process.wait",
     metadata: { processId: processId.value },
   });

@@ -14,16 +14,16 @@ defineAgentCoreContractTest({
 
 const codeReadEntry: BaseToolSupportCatalogEntry = {
   toolId: "file.read",
-  family: "code",
+  family: "file",
   storageFamily: "coreBase",
-  group: "explore",
+  group: "file",
   title: "Read file",
   riskLevel: "normal",
   permissionHints: [],
   dependencies: [],
   requiredSupports: [],
   readiness: "available",
-  storageDocPath: "src/storagePool/baseToolStorage/coreBase/explore",
+  storageDocPath: "src/basetool/catalog.ts#file.read",
 };
 
 const shellDangerousEntry: BaseToolSupportCatalogEntry = {
@@ -37,21 +37,21 @@ const shellDangerousEntry: BaseToolSupportCatalogEntry = {
   dependencies: [],
   requiredSupports: [],
   readiness: "available",
-  storageDocPath: "src/storagePool/baseToolStorage/coreBase/shell",
+  storageDocPath: "src/basetool/catalog.ts#shell.run",
 };
 
 const codeOverwriteEntry: BaseToolSupportCatalogEntry = {
   toolId: "patch.apply",
-  family: "code",
+  family: "patch",
   storageFamily: "coreBase",
-  group: "edit",
-  title: "Overwrite file",
+  group: "patch",
+  title: "Apply patch",
   riskLevel: "risky",
   permissionHints: ["filesystem:write"],
   dependencies: [],
   requiredSupports: [],
   readiness: "available",
-  storageDocPath: "src/storagePool/baseToolStorage/coreBase/edit",
+  storageDocPath: "src/basetool/catalog.ts#patch.apply",
 };
 
 test("BaseTool governance allows bapr policy while preserving host-observed sandbox metadata", () => {

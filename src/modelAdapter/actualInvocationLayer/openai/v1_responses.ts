@@ -75,6 +75,7 @@ export type OpenAIV1ResponsesRequestEnvelope = {
   grantedScopes: readonly string[];
   dryRun: boolean;
   providerCallPlanned: boolean;
+  signal?: AbortSignal;
   unsafeSideEffects: false;
   providerFieldsOpaque: true;
 };
@@ -102,6 +103,7 @@ export type OpenAIV1ResponsesInvocationRequest = {
   mockResponse?: unknown;
   expectResponseObject?: boolean;
   caller?: OpenAIV1ResponsesProviderCaller;
+  signal?: AbortSignal;
 };
 
 export type OpenAIV1ResponsesResponseEnvelope = {
@@ -489,6 +491,7 @@ export async function invokeOpenAIV1Responses(
     grantedScopes: requestedScopes,
     dryRun: !liveMode,
     providerCallPlanned: liveMode,
+    signal: input.signal,
     unsafeSideEffects: false,
     providerFieldsOpaque: true,
   };
@@ -519,6 +522,16 @@ export async function invokeOpenAIV1Responses(
     return failure(
       "CALLER_REQUIRED",
       "OpenAI v1 responses live invocation requires an injected provider caller",
+      "provider",
+      false,
+      request,
+    );
+  }
+
+  if (input.signal?.aborted === true) {
+    return failure(
+      "PROVIDER_TIMEOUT",
+      "OpenAI v1 responses invocation was aborted before provider call",
       "provider",
       false,
       request,

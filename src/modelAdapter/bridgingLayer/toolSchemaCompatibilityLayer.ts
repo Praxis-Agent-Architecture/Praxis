@@ -122,7 +122,7 @@ function providerKindFor(tool: AgentManifest["harness"]["tools"][number]): Praxi
   if (explicit === "tap" || explicit === "officialTap") return "tap";
   if (explicit === "mcp" || explicit === "mcp-static") return "mcp-static";
   if (explicit === "dynamic" || explicit === "external-dynamic") return "dynamic";
-  if (tool.family === "mcpBase" || tool.toolId.startsWith("mcp.")) return "mcp-static";
+  if (tool.toolId.startsWith("mcp.")) return "mcp-static";
   if (tool.toolId.startsWith("tap.") || tool.family === "tap") return "tap";
   return "baseTool";
 }
@@ -209,6 +209,17 @@ function sanitizeNestedSchema(schema: unknown): unknown {
   return output;
 }
 
+function sanitizeProviderParameterRoot(schema: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> {
+  const output: Record<string, unknown> = { ...schema };
+  delete output.oneOf;
+  delete output.anyOf;
+  delete output.allOf;
+  delete output.enum;
+  delete output.not;
+  delete output.const;
+  return output;
+}
+
 export function normalizeProviderInputSchema(inputSchema: unknown): Readonly<Record<string, unknown>> {
   if (inputSchema === true || inputSchema === undefined || inputSchema === null) {
     return { type: "object", properties: {} };
@@ -237,7 +248,7 @@ export function normalizeProviderInputSchema(inputSchema: unknown): Readonly<Rec
       ? schema.required.map(String).filter((key) => propertyKeys.has(key))
       : undefined;
     return {
-      ...schema,
+      ...sanitizeProviderParameterRoot(schema),
       type: "object",
       properties,
       ...(required === undefined ? {} : { required }),
@@ -274,13 +285,13 @@ export function createPraxisToolDeclarations(input: {
     });
 }
 
-function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
-  return [
+function runtimeDecisionDeclarations(providerFamily: ProviderToolSchemaFamily): readonly PraxisToolDeclaration[] {
+  const declarations: PraxisToolDeclaration[] = [
     {
       toolId: "praxis.runtime.ephemeralProcedure",
       providerName: "praxis_ephemeral_procedure",
       providerKind: "baseTool",
-      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability. Procedure steps must obey each BaseTool contract: shell steps must never create or modify workspace files with redirection, heredocs, cat, tee, or ad-hoc file writes; use code.overwrite, code.modify, or code.replaceFile steps for workspace file changes, and include workspaceRoot for code.overwrite inputs.",
+      description: "Plan a one-time governed orchestration of already mounted Praxis BaseTools. This does not create a new tool or TAP capability. Procedure steps must obey each BaseTool contract. Use patch.apply for precise source patches, or shell.run for governed commands and practical workspace writes when shell is clearer.",
       inputSchema: normalizeProviderInputSchema({
         type: "object",
         additionalProperties: true,
@@ -304,12 +315,12 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
                 stepId: { type: "string" },
                 baseToolId: {
                   type: "string",
-                  description: "Mounted BaseTool id. Use code.overwrite/code.modify/code.replaceFile for workspace file edits; shell.* steps are only for commands, process control, and verification.",
+                  description: "Mounted BaseTool id. Use file.read/file.search for workspace inspection, patch.apply for workspace edits, and shell.run only for commands, process control, and verification.",
                 },
                 input: {
                   type: "object",
                   additionalProperties: true,
-                  description: "Input for the selected BaseTool. Do not put workspace file contents into shell commands; file creation and edits must be expressed as code.* tool inputs. For code.overwrite, include workspaceRoot, targetPath, and content.",
+                  description: "Input for the selected BaseTool, including workspaceRoot when the BaseTool schema requires a workspace scope. Keep workspace writes scoped and auditable; verify written files after execution.",
                 },
                 dependsOn: { type: "array", items: { type: "string" } },
                 riskLevel: { type: "string", enum: ["low", "medium", "high"] },
@@ -337,7 +348,10 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
       }),
       metadata: { runtimeDecisionTool: true },
     },
-    {
+  ];
+
+  if (providerFamily === "openaiResponses") {
+    declarations.push({
       toolId: "praxis.runtime.expandToolContext",
       providerName: "praxis_expand_tool_context",
       providerKind: "baseTool",
@@ -353,8 +367,10 @@ function runtimeDecisionDeclarations(): readonly PraxisToolDeclaration[] {
         },
       }),
       metadata: { runtimeDecisionTool: true },
-    },
-  ];
+    });
+  }
+
+  return declarations;
 }
 
 function openAiTool(declaration: PraxisToolDeclaration): Readonly<Record<string, unknown>> {
@@ -445,7 +461,7 @@ export function lowerPraxisToolsForProvider(request: LowerPraxisToolsForProvider
     : allTools.filter((tool) => visibleToolIds.has(tool.toolId));
   const declarations = [
     ...createPraxisToolDeclarations({ tools, mappings }),
-    ...(request.includeRuntimeDecisionTools === false ? [] : runtimeDecisionDeclarations()),
+    ...(request.includeRuntimeDecisionTools === false ? [] : runtimeDecisionDeclarations(request.providerFamily)),
   ];
 
   const providerTools = request.providerFamily === "openaiResponses"

@@ -1,0 +1,24 @@
+{
+  "name": "praxis-knowledge-hub",
+  "version": "1.0.0",
+  "description": "Local project knowledge base API built with Fastify, TypeScript, and SQLite.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test --import tsx test/*.test.ts",
+    "db:init": "tsx src/db/init.ts"
+  },
+  "dependencies": {
+    "@fastify/sensible": "^6.0.3",
+    "fastify": "^5.2.1",
+    "nanoid": "^5.0.9",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

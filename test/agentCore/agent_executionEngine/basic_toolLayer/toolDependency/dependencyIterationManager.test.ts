@@ -199,3 +199,20 @@ test("planToolDependencyIteration leaves satisfied reports complete and blocks r
     assert.equal(blockedPlan.plan.refreshSteps[0]?.action, "request-scope");
   }
 });
+
+test("planToolDependencyIteration ignores optional blocked dependencies for refresh planning", () => {
+  const report = manageToolDependencies({
+    toolId: "browser.optional",
+    declarations: [{ dependencyId: "playwright", kind: "npm", required: false }],
+    probes: [{ dependencyId: "playwright", blocked: true }],
+  });
+  assert.equal(report.ok, true);
+  if (!report.ok) return;
+
+  const plan = planToolDependencyIteration({ toolId: "browser.optional", report: report.report });
+  assert.equal(plan.ok, true);
+  if (!plan.ok) return;
+
+  assert.equal(plan.plan.status, "complete");
+  assert.deepEqual(plan.plan.refreshSteps, []);
+});

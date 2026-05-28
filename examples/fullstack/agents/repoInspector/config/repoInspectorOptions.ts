@@ -10,8 +10,6 @@ export type RepoInspectorOptions = {
   sandboxProfile?: RepoInspectorSandboxProfile;
   includeShell?: boolean;
   includeSkillAuthoring?: boolean;
-  includeOmni?: boolean;
-  includeComputerUse?: boolean;
   includeAllTestable?: boolean;
   persistence?: "memory" | "sqlite";
 };
@@ -25,8 +23,6 @@ export function normalizeRepoInspectorOptions(options: RepoInspectorOptions = {}
     sandboxProfile: options.sandboxProfile ?? "hostObserved",
     includeShell: options.includeShell === true || options.includeAllTestable === true,
     includeSkillAuthoring: options.includeSkillAuthoring === true || options.includeAllTestable === true,
-    includeOmni: options.includeOmni === true || options.includeAllTestable === true,
-    includeComputerUse: options.includeComputerUse === true || options.includeAllTestable === true,
     includeAllTestable: options.includeAllTestable ?? false,
     persistence: options.persistence ?? "sqlite",
   };

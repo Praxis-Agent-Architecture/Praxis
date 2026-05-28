@@ -66,7 +66,7 @@ test("createTapRuntimeBridge rejects invalid requests, governance denial, and un
   const denied = createTapRuntimeBridge({
     runtimeId: "runtime-1",
     tapModuleId: "tap",
-    toolAction: "tool.git.write",
+    toolAction: "tool.patch.apply",
     allowedModuleScopes: ["tool.read"],
     requestedScopes: ["tool.write"],
   });
@@ -78,7 +78,7 @@ test("createTapRuntimeBridge rejects invalid requests, governance denial, and un
   const unavailable = createTapRuntimeBridge({
     runtimeId: "runtime-1",
     tapModuleId: "tap",
-    toolAction: "tool.search",
+    toolAction: "tool.web.search",
     allowedModuleScopes: ["tool.invoke"],
     requestedScopes: ["tool.invoke"],
     channelAvailability: { execution: false },

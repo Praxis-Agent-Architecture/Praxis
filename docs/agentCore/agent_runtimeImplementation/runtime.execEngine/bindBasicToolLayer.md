@@ -40,6 +40,8 @@
 ## 5. 需要提供的能力
 
 - 实现执行引擎运行绑定中的 bind / Basic / Tool / Layer 能力
+- 默认能力族必须投影到当前 semantic basetool family：`file`、`patch`、`shell`、`process`、`web`、`plan`、`user`、`skill`、`context`、`mcp`、`agent`、`tool`。
+- 旧 `code` / `search` / `git` / `office` 这类细分工具族不再是默认绑定能力；需要产品层或 TAP 扩展时，应通过 `file` / `web` / `patch` / `work` 等新语义显式声明。
 - 需要把文件名表达的能力落实成清晰的类型、输入输出和最小行为。
 - 如果后续发现语义不足，应优先补接口契约，而不是把逻辑散落到相邻文件。
 - 把本文件能力包装成稳定的 TypeScript 类型、函数或类接口。

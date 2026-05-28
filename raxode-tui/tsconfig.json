@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "strict": true,
+    "noEmit": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@praxis-ai/praxis": ["../src/agentCore/index.ts"],
+      "@praxis-ai/praxis/agentCore": ["../src/agentCore/index.ts"],
+      "@praxis-ai/praxis/agent-core": ["../src/agentCore/index.ts"],
+      "@praxis-ai/praxis/application": ["../src/applicationLayer/index.ts"],
+      "@praxis-ai/praxis/application-layer": ["../src/applicationLayer/index.ts"],
+      "@praxis-ai/praxis/basetool": ["../src/basetool/index.ts"],
+      "@praxis-ai/praxis/memory": ["../src/memory_managementPool/index.ts"],
+      "@praxis-ai/praxis/raxode": ["./raxode-cli/index.ts"],
+      "@praxis-ai/praxis/raxode/backend": ["./raxode-cli/backend/raxodeBackend.ts"],
+      "@praxis-ai/praxis/raxode/contracts": ["./raxode-cli/contracts.ts"],
+      "@praxis-ai/praxis/modelAdapter/*": ["../src/modelAdapter/*.ts"],
+      "@praxis-ai/praxis/model-adapter/*": ["../src/modelAdapter/*.ts"],
+      "@praxis-ai/praxis/provider/*": ["../src/modelAdapter/*.ts"]
+    }
+  },
+  "include": ["raxode-cli/**/*.ts", "raxode-cli/**/*.tsx"],
+  "exclude": ["node_modules", "dist", "raxode-cli/frontend/tui/memory/generated/**"]
+}

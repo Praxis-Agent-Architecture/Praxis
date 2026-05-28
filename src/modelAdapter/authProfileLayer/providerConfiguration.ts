@@ -389,3 +389,24 @@ export function bindRaxodeRoleModel(input: {
     },
   };
 }
+
+export type ProviderEndpointShape = RaxodeEndpointShape | "gemini_generate_content" | "custom" | (string & {});
+export type ProviderUrlMode = RaxodeUrlMode;
+export type ProviderRequestUrlPlan = RaxodeProviderRequestUrlPlan;
+export type ProviderConfigurationError = RaxodeProviderConfigurationError;
+export type ProviderRequestUrlResult = RaxodeProviderRequestUrlResult;
+export type ProviderSecret = RaxodeSecret;
+export type ProviderSecretResult = RaxodeSecretResult;
+export type ProviderModelEntry = RaxodeModelEntry;
+export type ProviderModelEntryResult = RaxodeModelEntryResult;
+export type ProviderProfileConfiguration = RaxodeProviderProfile;
+export type ProviderProfileConfigurationResult = RaxodeProviderProfileResult;
+export type ProviderRoleBinding = RaxodeRoleBinding;
+export type ProviderRoleBindingResult = RaxodeRoleBindingResult;
+
+export const resolveProviderRequestUrl = resolveRaxodeProviderRequestUrl;
+export const maskProviderSecret = maskRaxodeSecret;
+export const createProviderSecret = createRaxodeSecret;
+export const createProviderModelEntry = createRaxodeModelEntry;
+export const createProviderProfileConfiguration = createRaxodeProviderProfile;
+export const bindProviderRoleModel = bindRaxodeRoleModel;

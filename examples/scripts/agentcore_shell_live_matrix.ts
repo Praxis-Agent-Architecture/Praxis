@@ -1,13 +1,7 @@
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
+import { callModelAdapterPrompt } from "./modelAdapterPromptClient.js";
 import {
   createFullShellExecutor,
   expectedCallSeen,
@@ -21,9 +15,6 @@ const args = process.argv.slice(2);
 const argSet = new Set(args);
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
-const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
-  ?? path.join(process.env.CODEX_HOME ?? path.join(process.env.HOME ?? "", ".codex"), "auth.json");
-const chatgptCodexClientVersion = process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0";
 const model = process.env.AGENTCORE_CODEX_MODEL ?? process.env.OPENAI_SMOKE_MODEL ?? "gpt-5.5";
 const reasoningEffort =
   process.env.AGENTCORE_CODEX_REASONING_EFFORT ??
@@ -37,53 +28,6 @@ const dialogueMode = argSet.has("--dialogue");
 function argValue(name: string): string | undefined {
   const prefix = `${name}=`;
   return args.find((arg) => arg.startsWith(prefix))?.slice(prefix.length);
-}
-
-function extractSseText(text: string): string {
-  const deltas: string[] = [];
-  const completed: string[] = [];
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("data:")) continue;
-    const payload = line.slice("data:".length).trim();
-    if (payload.length === 0 || payload === "[DONE]") continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(payload) as unknown;
-    } catch {
-      continue;
-    }
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) continue;
-    const record = parsed as Record<string, unknown>;
-    if (typeof record.delta === "string") deltas.push(record.delta);
-    if (record.type === "response.completed" && record.response !== undefined) {
-      const responseText = extractResponseText(record.response);
-      if (responseText.trim().length > 0) completed.push(responseText);
-    }
-  }
-  return deltas.join("").trim() || completed.join("\n").trim();
-}
-
-function extractResponseText(response: unknown): string {
-  if (typeof response === "string") return extractSseText(response) || response;
-  if (typeof response !== "object" || response === null) return String(response);
-  const record = response as Record<string, unknown>;
-  if (typeof record.output_text === "string" && record.output_text.trim().length > 0) return record.output_text.trim();
-  const outputValue = record.output;
-  if (Array.isArray(outputValue)) {
-    const parts: string[] = [];
-    for (const item of outputValue) {
-      if (typeof item !== "object" || item === null) continue;
-      const contentValue = (item as Record<string, unknown>).content;
-      if (!Array.isArray(contentValue)) continue;
-      for (const content of contentValue) {
-        if (typeof content !== "object" || content === null) continue;
-        const text = (content as Record<string, unknown>).text ?? (content as Record<string, unknown>).output_text;
-        if (typeof text === "string" && text.trim().length > 0) parts.push(text.trim());
-      }
-    }
-    if (parts.length > 0) return parts.join("\n");
-  }
-  return JSON.stringify(response, null, 2);
 }
 
 function parseJsonObject(text: string): unknown {
@@ -104,63 +48,7 @@ async function callResponsesApi(
   prompt: string,
   instructions = "你是 Praxis agentCore shell baseTool live matrix。你只输出 JSON tool_calls，不输出解释。",
 ): Promise<string> {
-  const credentialRef = createCredentialRef({
-    id: "agentcore-shell-live-matrix-chatgpt-codex",
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) throw new Error(JSON.stringify(credentialRef.error));
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) throw new Error(JSON.stringify(auth.error));
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: "chatgpt-codex.responses.agentcore-shell-live-matrix",
-    model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: "praxis-agentcore-shell-live-matrix",
-    clientVersion: chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) throw new Error(JSON.stringify(carrier.error));
-
-  const caller = createProviderCaller({
-    transport: fetchProviderTransport,
-    authMaterial: auth.resolved.privateMaterial,
-    timeoutMs: 60_000,
-  });
-
-  const result = await invokeChatGPTCodexResponses({
-    operation: "create",
-    baseUrl: carrier.carrier.baseURL,
-    auth: auth.resolved.envelope,
-    runtime: {
-      runtimeId: "agentcore-shell-live-matrix-runtime",
-      invocationId: `agentcore-shell-live-matrix-${Date.now()}`,
-      callerId: "agentcore-shell-live-matrix",
-    },
-    governance: { accepted: true },
-    dryRun: false,
-    caller,
-    headers: { "content-type": "application/json" },
-    clientName: "praxis-agentcore-shell-live-matrix",
-    clientVersion: chatgptCodexClientVersion,
-    expectResponseObject: false,
-    body: {
-      model,
-      instructions,
-      input: prompt,
-      reasoning: { effort: reasoningEffort },
-      max_output_tokens: maxOutputTokens,
-    },
-  });
-
-  if (!result.ok) throw new Error(JSON.stringify(result.error));
-  return extractResponseText(result.response.raw);
+  return await callModelAdapterPrompt(prompt, instructions, { model, reasoningEffort, maxOutputTokens });
 }
 
 function truncateText(value: unknown, maxChars = 1_200): string {

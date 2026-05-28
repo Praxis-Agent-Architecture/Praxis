@@ -39,6 +39,41 @@ type ToolPolicyCell = {
   agent: BaseToolAgentReviewMode;
 };
 
+type FilesystemBoundaryAccess = "read" | "write";
+
+function cell(
+  risk: BaseToolEffectiveRisk,
+  human: BaseToolHumanApprovalMode,
+  agent: BaseToolAgentReviewMode,
+): ToolPolicyCell {
+  return { risk, human, agent };
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function filesystemBoundaryAccess(args: Readonly<Record<string, unknown>> | undefined): FilesystemBoundaryAccess | undefined {
+  const context = isRecord(args?.context) ? args.context : {};
+  const audit = isRecord(context.auditMetadata) ? context.auditMetadata : {};
+  if (audit.workspaceOutsideAllowedRoots !== true) return undefined;
+  return audit.workspacePathAccess === "write" ? "write" : "read";
+}
+
+function outsideWorkspaceCell(profile: BaseToolPolicyProfile, access: FilesystemBoundaryAccess): ToolPolicyCell {
+  if (profile === "bapr") return cell("none", "never", "never");
+  if (profile === "yolo") return cell("safe", "never", "never");
+  if (access === "read") {
+    if (profile === "permissive") return cell("safe", "never", "never");
+    if (profile === "standard" || profile === "restricted") return cell("risky", "once", "afterFirstHuman");
+  }
+  if (access === "write") {
+    if (profile === "permissive") return cell("risky", "once", "afterFirstHuman");
+    if (profile === "standard" || profile === "restricted") return cell("dangerous", "always", "always");
+  }
+  return defaultCells[profile] ?? defaultCells.custom;
+}
+
 const defaultCells: Record<BaseToolPolicyProfile, ToolPolicyCell> = {
   bapr: { risk: "none", human: "never", agent: "never" },
   yolo: { risk: "safe", human: "never", agent: "never" },
@@ -127,6 +162,62 @@ const toolCells: Record<string, Partial<Record<BaseToolPolicyProfile, ToolPolicy
     standard: { risk: "dangerous", human: "always", agent: "always" },
     restricted: { risk: "dangerous", human: "always", agent: "always" },
   },
+  "agent.spawn": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+    standard: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+    restricted: { risk: "dangerous", human: "always", agent: "always" },
+  },
+  "agent.message": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "safe", human: "never", agent: "never" },
+    standard: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+    restricted: { risk: "dangerous", human: "always", agent: "always" },
+  },
+  "agent.inbox": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "safe", human: "never", agent: "never" },
+    standard: { risk: "safe", human: "never", agent: "never" },
+    restricted: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+  },
+  "agent.list": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "safe", human: "never", agent: "never" },
+    standard: { risk: "safe", human: "never", agent: "never" },
+    restricted: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+  },
+  "agent.inspect": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "safe", human: "never", agent: "never" },
+    standard: { risk: "safe", human: "never", agent: "never" },
+    restricted: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+  },
+  "agent.wait": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "safe", human: "never", agent: "never" },
+    standard: { risk: "safe", human: "never", agent: "never" },
+    restricted: { risk: "safe", human: "never", agent: "never" },
+  },
+  "agent.stop": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+    standard: { risk: "dangerous", human: "always", agent: "always" },
+    restricted: { risk: "dangerous", human: "always", agent: "always" },
+  },
+  "agent.kill": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+    standard: { risk: "dangerous", human: "always", agent: "always" },
+    restricted: { risk: "dangerous", human: "always", agent: "always" },
+  },
   "tool.discover": {
     bapr: { risk: "none", human: "never", agent: "never" },
     yolo: { risk: "safe", human: "never", agent: "never" },
@@ -160,6 +251,8 @@ export function policyCellForTool(input: {
   profile: BaseToolPolicyProfile;
   args?: Readonly<Record<string, unknown>>;
 }): ToolPolicyCell {
+  const boundaryAccess = filesystemBoundaryAccess(input.args);
+  if (boundaryAccess !== undefined) return outsideWorkspaceCell(input.profile, boundaryAccess);
   if (alwaysSafeTools.has(input.toolId)) return defaultCells[input.profile] ?? defaultCells.custom;
   const explicit = toolCells[input.toolId]?.[input.profile];
   const base = explicit ?? defaultCells[input.profile] ?? defaultCells.custom;

@@ -24,19 +24,27 @@ export type BaseToolFamily =
   | "agent"
   | "optional"
   | "runtime"
-  | "code"
+  | "file"
+  | "patch"
   | "shell"
-  | "git"
+  | "process"
+  | "web"
+  | "plan"
+  | "user"
   | "mcp"
-  | "computeruse"
-  | "office"
-  | "omni"
-  | "search"
+  | "computer"
+  | "work"
+  | "media"
   | "skill"
+  | "context"
   | "custom";
 
 export type BaseToolDependencyKind =
   | "binary"
+  | "npm"
+  | "dotnet-tool"
+  | "secret-ref"
+  | "mcp-server"
   | "package"
   | "service"
   | "permission"
@@ -51,6 +59,12 @@ export type BaseToolDependencyDeclaration = {
   kind: BaseToolDependencyKind;
   required: boolean;
   description: string;
+  version?: string;
+  acceptedVersions?: readonly string[];
+  install?: "auto" | "manual" | "disabled";
+  sourceRef?: string;
+  requiredScopes?: readonly string[];
+  secretRef?: string;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
@@ -243,8 +257,9 @@ export type BaseToolShellServiceStatusSnapshot = {
 
 export type BaseToolExecutorPort = {
   [namespace: string]: BaseToolExecutorNamespace | undefined;
+  agent?: BaseToolExecutorNamespace;
   artifact?: BaseToolExecutorNamespace;
-  computeruse?: BaseToolExecutorNamespace;
+  computer?: BaseToolExecutorNamespace;
   custom?: BaseToolExecutorNamespace;
   debug?: BaseToolExecutorNamespace;
   device?: BaseToolExecutorNamespace;
@@ -253,8 +268,8 @@ export type BaseToolExecutorPort = {
   lsp?: BaseToolExecutorNamespace;
   mcp?: BaseToolExecutorNamespace;
   network?: BaseToolExecutorNamespace;
-  office?: BaseToolExecutorNamespace;
-  omni?: BaseToolExecutorNamespace;
+  work?: BaseToolExecutorNamespace;
+  media?: BaseToolExecutorNamespace;
   process?: BaseToolExecutorNamespace;
   search?: BaseToolExecutorNamespace;
   shell?: BaseToolExecutorNamespace;

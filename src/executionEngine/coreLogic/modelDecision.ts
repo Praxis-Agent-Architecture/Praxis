@@ -14,7 +14,7 @@ import {
   raiseProviderToolCalls,
   type ProviderToolNameMapping,
   type ProviderToolSchemaFamily,
-} from "../../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
+} from "../../modelAdapter/toolBridge/providerToolLowering.js";
 
 export type ModelDecisionKind =
   | "finalOutput"
@@ -134,6 +134,26 @@ function extractChatChoiceText(choices: readonly unknown[]): string {
   return chunks.join("");
 }
 
+function extractGeminiText(raw: Readonly<Record<string, unknown>>): string {
+  const chunks: string[] = [];
+  const collectContent = (content: unknown) => {
+    if (!isRecord(content) || !Array.isArray(content.parts)) return;
+    for (const part of content.parts) {
+      if (!isRecord(part)) continue;
+      const partText = readString(part.text);
+      if (partText !== undefined) chunks.push(partText);
+    }
+  };
+
+  if (Array.isArray(raw.candidates)) {
+    for (const candidate of raw.candidates) {
+      if (isRecord(candidate)) collectContent(candidate.content);
+    }
+  }
+  collectContent(raw.content);
+  return chunks.join("\n").trim();
+}
+
 function extractText(raw: unknown): string {
   if (typeof raw === "string") {
     const streamChunks: string[] = [];
@@ -171,6 +191,9 @@ function extractText(raw: unknown): string {
   if (!isRecord(raw)) return "";
   const direct = readString(raw.output_text) ?? readString(raw.text);
   if (direct !== undefined) return direct;
+
+  const geminiText = extractGeminiText(raw);
+  if (geminiText.length > 0) return geminiText;
 
   if (Array.isArray(raw.choices)) {
     const text = extractChatChoiceText(raw.choices).trim();

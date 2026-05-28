@@ -12,9 +12,10 @@ import {
   model,
   PraxisAgent,
 } from "../../../../src/agentCore/index.js";
+import { semanticBaseToolCatalog } from "../../../../src/basetool/catalog.js";
 import type { BaseToolExecutorPort } from "../../../../src/basetool/types.js";
 
-const singleAgentCoreToolIds = [
+const coreToolIds = [
   "shell.run",
   "file.read",
   "file.search",
@@ -25,8 +26,17 @@ const singleAgentCoreToolIds = [
   "user.ask",
   "skill.load",
   "context.load",
+  "agent.spawn",
+  "agent.message",
+  "agent.inbox",
+  "agent.list",
+  "agent.inspect",
+  "agent.wait",
+  "agent.stop",
+  "agent.kill",
   "mcp.use",
   "mcp.resources",
+  "media.viewImage",
   "process.wait",
   "process.kill",
   "tool.discover",
@@ -52,10 +62,10 @@ test("semantic basetool codingCore profile compiles through OAO harness", () => 
   assert.equal(result.manifest.harness.tools[0]?.metadata?.profileName, "codingCore");
 });
 
-test("semantic basetool registry is narrowed to the single-agent core surface", () => {
+test("semantic basetool registry includes the core plus multiagent mesh surface", () => {
   const registry = createBaseToolRegistry();
-  assert.deepEqual(registry.all().map((definition) => definition.toolId), singleAgentCoreToolIds);
-  assert.equal(registry.lookup("agent.spawn").ok, false);
+  assert.deepEqual(registry.all().map((definition) => definition.toolId), coreToolIds);
+  assert.equal(registry.lookup("agent.spawn").ok, true);
   assert.equal(registry.lookup("browser.use").ok, false);
   assert.equal(registry.lookup("file.write").ok, false);
 });
@@ -112,12 +122,21 @@ test("basetool Coding Core descriptor exposes the implemented core tool ids", ()
     "context.load",
     "mcp.use",
     "mcp.resources",
+    "media.viewImage",
     "process.wait",
     "process.kill",
     "plan.update",
     "user.ask",
     "tool.discover",
     "tool.describe",
+    "agent.spawn",
+    "agent.message",
+    "agent.inbox",
+    "agent.list",
+    "agent.inspect",
+    "agent.wait",
+    "agent.stop",
+    "agent.kill",
   ]);
 });
 
@@ -304,8 +323,13 @@ test("skill.load and context.load validate and call extension ports", async () =
   const registry = createBaseToolRegistry();
   const skillLookup = registry.lookupHandler("skill.load");
   const contextLookup = registry.lookupHandler("context.load");
+  const contextDefinition = semanticBaseToolCatalog.find((tool) => tool.toolId === "context.load");
+  const planDefinition = semanticBaseToolCatalog.find((tool) => tool.toolId === "plan.update");
   assert.equal(skillLookup.ok, true);
   assert.equal(contextLookup.ok, true);
+  assert.deepEqual(contextDefinition?.inputSchema.schema.required, ["kind"]);
+  assert.deepEqual(contextDefinition?.permissionHints, ["context:read", "artifact:read"]);
+  assert.equal(planDefinition?.inputSchema.schema.required, undefined);
   if (!skillLookup.ok || !contextLookup.ok) return;
 
   const invalidSkill = await skillLookup.handler.invoke({
@@ -315,6 +339,27 @@ test("skill.load and context.load validate and call extension ports", async () =
   });
   assert.equal(invalidSkill.ok, false);
   assert.equal(invalidSkill.error?.code, "MISSING_REQUIRED_FIELD");
+  const invalidContext = await contextLookup.handler.invoke({
+    toolId: "context.load",
+    input: {},
+    executor: {},
+  });
+  assert.equal(invalidContext.ok, false);
+  assert.equal(invalidContext.error?.code, "MISSING_REQUIRED_FIELD");
+  const missingContextSelector = await contextLookup.handler.invoke({
+    toolId: "context.load",
+    input: { kind: "workspaceIndex" },
+    executor: {},
+  });
+  assert.equal(missingContextSelector.ok, false);
+  assert.equal(missingContextSelector.error?.code, "MISSING_CONTEXT_SELECTOR");
+  const missingContextRef = await contextLookup.handler.invoke({
+    toolId: "context.load",
+    input: { kind: "artifact", query: "not-enough" },
+    executor: {},
+  });
+  assert.equal(missingContextRef.ok, false);
+  assert.equal(missingContextRef.error?.code, "MISSING_CONTEXT_REF");
 
   let skillInput: unknown;
   const skillResult = await skillLookup.handler.invoke({
@@ -412,6 +457,37 @@ test("mcp.use and mcp.resources route to MCP runtime ports", async () => {
   });
   assert.equal(readResult.ok, true);
   assert.deepEqual(readInput, { serverId: "docs", uri: "file://readme" });
+});
+
+test("media.viewImage validates image selectors and calls media runtime port", async () => {
+  const lookup = createBaseToolRegistry().lookupHandler("media.viewImage");
+  assert.equal(lookup.ok, true);
+  if (!lookup.ok) return;
+
+  const invalid = await lookup.handler.invoke({
+    toolId: "media.viewImage",
+    input: { prompt: "what is this?" },
+    executor: {},
+  });
+  assert.equal(invalid.ok, false);
+  assert.equal(invalid.error?.code, "MISSING_REQUIRED_FIELD");
+
+  let received: unknown;
+  const result = await lookup.handler.invoke({
+    toolId: "media.viewImage",
+    input: { imageRef: "attachment:1", prompt: "describe", detail: "high", maxBytes: 1024 },
+    executor: {
+      media: {
+        viewImage(request) {
+          received = request;
+          return { ok: true, output: { description: "image" } };
+        },
+      },
+    },
+  });
+  assert.equal(result.ok, true);
+  assert.deepEqual(received, { imageRef: "attachment:1", prompt: "describe", detail: "high", maxBytes: 1024 });
+  assert.equal(result.metadata?.runtimePort, "media.viewImage");
 });
 
 test("process.wait and process.kill validate ids and call runtime process ports", async () => {
@@ -575,11 +651,73 @@ test("patch.apply applies add update and delete through filesystem ports", async
   assert.deepEqual(files.get("add.txt"), "new\n");
   assert.deepEqual(files.get("update.txt"), "hello\nnew\nbye\n");
   assert.equal(files.has("delete.txt"), false);
-  assert.deepEqual(result.output, {
-    changed: ["add.txt", "update.txt", "delete.txt"],
-    changeCount: 3,
-    summary: "Applied patch to 3 files.",
+  assert.equal((result.output as { summary?: string }).summary, "Applied patch to 3 files.");
+  assert.deepEqual((result.output as { changed?: readonly string[] }).changed, ["add.txt", "update.txt", "delete.txt"]);
+  assert.deepEqual((result.output as { changedFiles?: readonly string[] }).changedFiles, ["add.txt", "update.txt", "delete.txt"]);
+  assert.equal((result.output as { changeCount?: number }).changeCount, 3);
+  assert.equal((result.output as { additions?: number }).additions, 2);
+  assert.equal((result.output as { deletions?: number }).deletions, 1);
+  assert.deepEqual((result.output as { entries?: readonly unknown[] }).entries, [
+    { path: "add.txt", changeType: "add", additions: 1, deletions: 0 },
+    { path: "update.txt", changeType: "update", additions: 1, deletions: 1 },
+    { path: "delete.txt", changeType: "delete" },
+  ]);
+  assert.deepEqual((result.output as { diffPreview?: readonly string[] }).diffPreview, [
+    "@@ add.txt @@",
+    "+ new",
+    "@@ update.txt @@",
+    "- old",
+    "+ new",
+    "@@ delete.txt @@",
+  ]);
+  assert.match(String((result.output as { contextHint?: string }).contextHint), /Do not reread/u);
+
+  const createNewFileResult = await lookup.handler.invoke({
+    toolId: "patch.apply",
+    input: {
+      patch: [
+        "*** Begin Patch",
+        "*** Create New File: drift.txt",
+        "+drift",
+        "*** End Patch",
+      ].join("\n"),
+    },
+    executor,
   });
+  assert.equal(createNewFileResult.ok, true);
+  assert.deepEqual(files.get("drift.txt"), "drift\n");
+
+  const fileDirectiveResult = await lookup.handler.invoke({
+    toolId: "patch.apply",
+    input: {
+      patch: [
+        "*** Begin Patch",
+        "*** File: file-directive.txt",
+        "+file directive",
+        "*** End Patch",
+      ].join("\n"),
+    },
+    executor,
+  });
+  assert.equal(fileDirectiveResult.ok, true);
+  assert.deepEqual(files.get("file-directive.txt"), "file directive\n");
+
+  const unifiedAddResult = await lookup.handler.invoke({
+    toolId: "patch.apply",
+    input: {
+      patch: [
+        "*** Begin Patch",
+        "--- /dev/null",
+        "+++ b/unified.txt",
+        "@@",
+        "+unified",
+        "*** End Patch",
+      ].join("\n"),
+    },
+    executor,
+  });
+  assert.equal(unifiedAddResult.ok, true);
+  assert.deepEqual(files.get("unified.txt"), "unified\n");
 });
 
 test("semantic basetool support catalog reports readiness from implemented ports", () => {
@@ -587,7 +725,7 @@ test("semantic basetool support catalog reports readiness from implemented ports
   const shellRun = catalog.find((entry) => entry.toolId === "shell.run");
   const fileRead = catalog.find((entry) => entry.toolId === "file.read");
 
-  assert.equal(catalog.length, 16);
+  assert.equal(catalog.length, 25);
   assert.equal(shellRun?.readiness, "available");
   assert.equal(fileRead?.readiness, "unavailable");
 

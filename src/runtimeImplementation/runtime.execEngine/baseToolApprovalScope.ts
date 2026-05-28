@@ -24,6 +24,7 @@ export type BaseToolApprovalScope = {
     | "patch-files"
     | "command"
     | "process"
+    | "agent"
     | "mcp"
     | "registered-source";
   humanReadable: string;
@@ -44,6 +45,11 @@ function shortHash(value: string): string {
 
 function normalize(value: string | undefined): string {
   return value?.trim().replace(/\s+/gu, " ") ?? "";
+}
+
+function normalizedNumberOrText(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return normalize(text(value));
 }
 
 function domainFromUrl(value: string | undefined): string | undefined {
@@ -106,8 +112,34 @@ export function createBaseToolApprovalScope(input: {
     return scope(toolId, "command", shortHash(command), command || "unknown-command");
   }
   if (toolId === "process.kill") {
-    const processId = normalize(text(args.processId));
+    const processId = normalizedNumberOrText(args.processId);
     return scope(toolId, "process", processId || "unknown-process");
+  }
+  if (toolId === "agent.spawn") {
+    const target = JSON.stringify({
+      definition: normalize(text(args.agentDefinitionId)),
+      lifecycle: normalize(text(args.lifecycle)),
+      model: normalize(text(args.model)),
+      task: normalize(text(args.task)),
+      workingDirectory: normalize(text(args.workingDirectory)),
+    });
+    return scope(toolId, "agent", shortHash(target), target);
+  }
+  if (toolId === "agent.message") {
+    const targetSession = normalize(text(args.toSessionId)) || "unknown-session";
+    return scope(toolId, "agent", `message:${targetSession}`, targetSession);
+  }
+  if (toolId === "agent.inbox" || toolId === "agent.inspect" || toolId === "agent.stop" || toolId === "agent.kill") {
+    const sessionId = normalize(text(args.sessionId)) || "unknown-session";
+    return scope(toolId, "agent", sessionId);
+  }
+  if (toolId === "agent.list") {
+    const projectId = normalize(text(args.projectId)) || "current-project";
+    return scope(toolId, "agent", `list:${projectId}`, projectId);
+  }
+  if (toolId === "agent.wait") {
+    const messageId = normalize(text(args.messageId)) || "unknown-message";
+    return scope(toolId, "agent", `wait:${messageId}`, messageId);
   }
   if (toolId === "mcp.use") {
     const key = `${normalize(text(args.serverId)) || "default"}:${normalize(text(args.toolName)) || "unknown-tool"}`;
@@ -122,8 +154,9 @@ export function createBaseToolApprovalScope(input: {
     return scope(toolId, "registered-source", key);
   }
   if (toolId === "context.load") {
-    const key = normalize(text(args.source)) || "unknown-context-source";
-    return scope(toolId, "registered-source", key);
+    const kind = normalize(text(args.kind)) || "unknown-kind";
+    const selector = normalize(text(args.ref)) || normalize(text(args.query)) || "unknown-selector";
+    return scope(toolId, "registered-source", `${kind}:${selector}`, `${kind}:${selector}`);
   }
   if (toolId === "tool.discover" || toolId === "tool.describe") {
     const key = toolId === "tool.describe" ? normalize(text(args.toolId)) || "*" : normalize(text(args.query)) || "*";

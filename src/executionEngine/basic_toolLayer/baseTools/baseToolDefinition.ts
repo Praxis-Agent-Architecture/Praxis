@@ -1,3 +1,8 @@
+/*
+ * Legacy compatibility shim.
+ * Current semantic basetool definitions live in src/basetool.
+ */
+
 export type {
   BaseToolDefinition,
   BaseToolDependencyDeclaration,

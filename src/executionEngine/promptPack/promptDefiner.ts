@@ -36,6 +36,7 @@ export const PROMPT_PACK_SEGMENT_KINDS = [
   "toolDeclarations",
   "projectContext",
   "sessionSummary",
+  "recentConversation",
   "memoryContext",
   "retrievedContext",
   "observations",
@@ -291,6 +292,10 @@ export function inferPromptPackSegmentKind(material: PromptPackMaterialDraft): P
 
   if (material.kind === "cmp") {
     return "sessionSummary";
+  }
+
+  if (material.source?.startsWith("conversation.") || material.source?.startsWith("runtime.conversation.")) {
+    return "recentConversation";
   }
 
   if (material.kind === "memory") {

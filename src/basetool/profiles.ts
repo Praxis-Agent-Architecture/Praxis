@@ -66,6 +66,17 @@ const runtimeCoreTools = [
 
 const agentExtensionTools = ["skill.load", "context.load", "mcp.use", "mcp.resources"] as const;
 
+const multiagentMeshTools = [
+  "agent.spawn",
+  "agent.message",
+  "agent.inbox",
+  "agent.list",
+  "agent.inspect",
+  "agent.wait",
+  "agent.stop",
+  "agent.kill",
+] as const;
+
 const nonRuntimeToolIds = semanticBaseToolCatalog
   .filter((definition) => definition.layer !== "runtime")
   .map((definition) => definition.toolId);
@@ -78,6 +89,10 @@ function overlay(input: BaseToolProfileDescribeOverlay): BaseToolProfileDescribe
   return input;
 }
 
+function uniqueToolIds(values: readonly string[]): readonly string[] {
+  return [...new Set(values)];
+}
+
 const codingDescribeOverlays = {
   "shell.run": overlay({
     summary: "Run tests, build commands, diagnostics, and small repo-local scripts.",
@@ -85,8 +100,9 @@ const codingDescribeOverlays = {
     avoidWhen: ["A structured file or patch tool can express the change more safely."],
   }),
   "patch.apply": overlay({
-    summary: "Apply a Codex-style patch to source files after inspecting the target.",
+    summary: "Apply a Codex-style patch to source files after inspecting the target. For new files use exactly: *** Begin Patch, then *** Add File: path, then every content line prefixed with '+', then *** End Patch.",
     useWhen: ["You know the exact source edit and want a reviewable patch-shaped change."],
+    examples: ["Create file: *** Begin Patch\\n*** Add File: server.js\\n+console.log('ok')\\n*** End Patch"],
   }),
   "file.search": overlay({
     summary: "Search source files with a fast text query before opening precise files.",
@@ -144,6 +160,24 @@ const runtimeDescribeOverlays = {
 } satisfies Readonly<Record<string, BaseToolProfileDescribeOverlay>>;
 
 const agentDescribeOverlays = {
+  "agent.spawn": overlay({
+    summary: "Create a project-local agent session and send its first task message.",
+    useWhen: ["Parallel work or a specialized project-local agent session is useful."],
+    avoidWhen: ["A simple tool call or direct answer is enough."],
+  }),
+  "agent.message": overlay({
+    summary: "Send queued or steer messages to another project-local agent session by sessionId.",
+  }),
+  "agent.inbox": overlay({
+    summary: "Read current session inbox messages; reading marks selected messages as read.",
+  }),
+  "agent.wait": overlay({
+    summary: "Wait for the reply correlated to a message this session sent.",
+  }),
+  "media.viewImage": overlay({
+    summary: "Inspect attached screenshots, workspace images, and visual artifacts through the runtime media port.",
+    useWhen: ["The user provides an image or asks a visual question."],
+  }),
   "mcp.use": overlay({
     summary: "Call a mounted MCP tool when the runtime has explicitly provided that server.",
   }),
@@ -187,7 +221,7 @@ export const baseToolProfiles: Readonly<Record<BaseToolProfileName, BaseToolProf
     visibleToolIds: workCoreTools,
     deferredToolIds: ["mcp.resources"],
     runtimeToolIds,
-    extensionSlots: ["office", "pdf", "spreadsheet", "presentation", "artifact"],
+    extensionSlots: ["work", "pdf", "spreadsheet", "presentation", "artifact"],
     describeOverlays: workDescribeOverlays,
   },
   runtimeCore: {
@@ -204,10 +238,10 @@ export const baseToolProfiles: Readonly<Record<BaseToolProfileName, BaseToolProf
   agentCore: {
     name: "agentCore",
     title: "Agent Core",
-    description: "Praxis-designed single-agent standard profile. It exposes all current non-runtime core tools and keeps runtime tools available to the runtime plane.",
-    summary: "Use the complete Praxis single-agent core without opting into product/plugin full mode.",
+    description: "Praxis-designed standard agent profile. It exposes current non-runtime core tools, including project-local mesh tools, and keeps runtime tools available to the runtime plane.",
+    summary: "Use the complete Praxis agent core without opting into product/plugin full mode.",
     defaultPolicyProfile: "permissive",
-    visibleToolIds: nonRuntimeToolIds,
+    visibleToolIds: uniqueToolIds([...nonRuntimeToolIds, ...multiagentMeshTools]),
     deferredToolIds: [],
     runtimeToolIds,
     describeOverlays: agentDescribeOverlays,
@@ -215,13 +249,13 @@ export const baseToolProfiles: Readonly<Record<BaseToolProfileName, BaseToolProf
   fullCore: {
     name: "fullCore",
     title: "Full Core",
-    description: "Application-owned full-open profile for products such as Raxode. Praxis provides the slots and current single-agent core; applications register the extra plugins.",
+    description: "Application-owned full-open profile for products such as Raxode. Praxis provides the slots and current agent core; applications register the extra plugins.",
     summary: "Open the framework surface for application/plugin expansion while preserving Praxis contracts.",
     defaultPolicyProfile: "permissive",
-    visibleToolIds: nonRuntimeToolIds,
+    visibleToolIds: uniqueToolIds([...nonRuntimeToolIds, ...multiagentMeshTools]),
     deferredToolIds: [],
     runtimeToolIds,
-    extensionSlots: ["mcp", "skill", "context", "office", "omni", "browser", "computer", "memory", "artifact", "repo"],
+    extensionSlots: ["mcp", "skill", "context", "work", "media", "browser", "computer", "memory", "artifact", "repo"],
     describeOverlays: {
       ...agentDescribeOverlays,
       ...workDescribeOverlays,

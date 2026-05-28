@@ -1,13 +1,6 @@
-export type ShellWorkspaceWriteGuardReason =
-  | "outside-workspace"
-  | "readonly-workspace"
-  | "blocked-by-policy"
-  | "unknown";
+/*
+ * Legacy compatibility shim.
+ * New runtime code should import from runtime.execEngine/workspaceWriteGuard.js.
+ */
 
-export function describeShellWorkspaceWrite(reason: ShellWorkspaceWriteGuardReason | string): string {
-  return `shell workspace write guard: ${reason}`;
-}
-
-export function shellWorkspaceWriteGuardMessage(reason: ShellWorkspaceWriteGuardReason | string): string {
-  return describeShellWorkspaceWrite(reason);
-}
+export * from "../../../../runtimeImplementation/runtime.execEngine/workspaceWriteGuard.js";

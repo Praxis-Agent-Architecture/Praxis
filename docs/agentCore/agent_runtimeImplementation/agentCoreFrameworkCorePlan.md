@@ -122,7 +122,7 @@ This snapshot is repo-grounded from the Phase 0-2 pass and remains as the readin
 - Kernel entry path: `PraxisRuntimeKernel.run(agent, task)` compiles first, then calls `runManifest`; `runManifest` creates a session, records state/events/invocations, receives text input, builds a promptPack bridge, lowers it, invokes model runtime, interprets `ModelDecision`, invokes mounted BaseTools, records `MainLoopStepRecord`, and returns `AgentRunResult`.
 - Model live slice: `runtime.modelAdapter/modelInvocationRuntime.ts` can dry-run by default and can call the injected `codex_responses` provider path when governance/auth/provider caller allow it.
 - BaseTool live slice: `runtime.execEngine/baseToolRuntimeMount.ts` keeps the canonical chain `adaptRuntimeToolInvocation -> bridgeExecEngineInvocation -> createBaseToolRegistry().lookupHandler -> BaseToolHandler.invoke({ executor }) -> BaseToolExecutorPort.*`.
-- BaseTool runtime support: `baseToolSupportCatalog.ts` covers the current 176 builtin baseTool handlers excluding office TAP, and `baseToolExecutorPortFactory.ts` provides real host-backed support for the current safe subset plus stable unavailable boundaries for unimplemented providers.
+- BaseTool runtime support: `baseToolSupportCatalog.ts` covers the current compact semantic basetool catalog excluding work/plugin TAP, and `baseToolExecutorPortFactory.ts` provides real host-backed support for the current safe subset plus stable unavailable boundaries for application/runtime adapters.
 - Session/state/event persistence: `runtimeSessionStateEventStore.ts` has in-memory and SQLite stores for sessions, states, events, and invocations with public-safe JSON.
 - Text IO v1: `IOTransceiver/inputReceiver/textReceiver.ts` and output exposers have governed, tested contracts that feed the current kernel path.
 
@@ -569,7 +569,7 @@ runtime request
 
 ### Task Checklist
 
-- [x] Confirm 176-tool catalog coverage.
+- [x] Confirm semantic basetool catalog coverage.
 - [x] Add policy lookup by family/group/toolId.
 - [x] Map tool risk to safe/risky/dangerous.
 - [x] Implement standard profile behavior.

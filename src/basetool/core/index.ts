@@ -17,8 +17,19 @@ import { invokeSkillLoadCore } from "./skillLoad.js";
 import { invokeContextLoadCore } from "./contextLoad.js";
 import { invokeMcpUseCore } from "./mcpUse.js";
 import { invokeMcpResourcesCore } from "./mcpResources.js";
+import { invokeMediaViewImageCore } from "./mediaViewImage.js";
 import { invokeToolDiscoverCore } from "./toolDiscover.js";
 import { invokeToolDescribeCore } from "./toolDescribe.js";
+import {
+  invokeAgentInboxCore,
+  invokeAgentInspectCore,
+  invokeAgentKillCore,
+  invokeAgentListCore,
+  invokeAgentMessageCore,
+  invokeAgentSpawnCore,
+  invokeAgentStopCore,
+  invokeAgentWaitCore,
+} from "./agentTools.js";
 
 export type BaseToolCoreInvoker = (
   definition: BaseToolDefinition,
@@ -36,12 +47,21 @@ export const codingCoreToolIds = [
   "context.load",
   "mcp.use",
   "mcp.resources",
+  "media.viewImage",
   "process.wait",
   "process.kill",
   "plan.update",
   "user.ask",
   "tool.discover",
   "tool.describe",
+  "agent.spawn",
+  "agent.message",
+  "agent.inbox",
+  "agent.list",
+  "agent.inspect",
+  "agent.wait",
+  "agent.stop",
+  "agent.kill",
 ] as const;
 
 export type CodingCoreToolId = (typeof codingCoreToolIds)[number];
@@ -59,10 +79,19 @@ export const codingCoreInvokers: Readonly<Record<CodingCoreToolId, BaseToolCoreI
   "mcp.resources": invokeMcpResourcesCore,
   "process.wait": invokeProcessWaitCore,
   "process.kill": invokeProcessKillCore,
+  "media.viewImage": invokeMediaViewImageCore,
   "plan.update": invokePlanUpdateCore,
   "user.ask": invokeUserAskCore,
   "tool.discover": invokeToolDiscoverCore,
   "tool.describe": invokeToolDescribeCore,
+  "agent.spawn": invokeAgentSpawnCore,
+  "agent.message": invokeAgentMessageCore,
+  "agent.inbox": invokeAgentInboxCore,
+  "agent.list": invokeAgentListCore,
+  "agent.inspect": invokeAgentInspectCore,
+  "agent.wait": invokeAgentWaitCore,
+  "agent.stop": invokeAgentStopCore,
+  "agent.kill": invokeAgentKillCore,
 };
 
 export function lookupBaseToolCoreInvoker(toolId: string): BaseToolCoreInvoker | undefined {
@@ -92,7 +121,9 @@ export * from "./mcpUse.js";
 export * from "./mcpResources.js";
 export * from "./processWait.js";
 export * from "./processKill.js";
+export * from "./mediaViewImage.js";
 export * from "./planUpdate.js";
 export * from "./userAsk.js";
 export * from "./toolDiscover.js";
 export * from "./toolDescribe.js";
+export * from "./agentTools.js";

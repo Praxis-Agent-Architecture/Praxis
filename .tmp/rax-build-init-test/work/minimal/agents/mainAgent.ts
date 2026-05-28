@@ -32,9 +32,8 @@ export default class RepoAgentAgent extends praxis.AgentArchetype {
   });
   harness = praxis.harness({
     tools: praxis.tools([
-      praxis.baseTools.code.read(),
-      praxis.baseTools.code.searchRipgrep(),
-      ...praxis.toolSets.git.inspection(),
+      praxis.basetool.core.fileRead({ profileName: "codingCore" }),
+      praxis.basetool.core.fileSearch({ profileName: "codingCore" }),
     ]),
     loop: praxis.loop.standard({ maxModelTurns: 4, maxToolCalls: 8 }),
     policy: praxis.policy({ allowProviderCall: true, allowToolExecution: true }),

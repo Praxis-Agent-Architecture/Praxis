@@ -62,18 +62,18 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
   assert.equal(result.definition.materials[0]?.sourceCategory, "declared-built-in");
   assert.equal(result.definition.materials[0]?.promptSegmentKind, "stableSystemCore");
   assert.equal(result.definition.materials[0]?.metadata.protected, true);
-  assert.match(result.definition.materials[0]?.text ?? "", /BaseTool Evidence Discipline/);
-  assert.match(result.definition.materials[0]?.text ?? "", /repository, file, git, shell, system/);
-  assert.match(result.definition.materials[0]?.text ?? "", /praxis_expand_tool_context/);
-  assert.match(result.definition.materials[0]?.text ?? "", /praxis_ephemeral_procedure/);
-  assert.match(result.definition.materials[0]?.text ?? "", /praxis_request_approval/);
+  assert.match(result.definition.materials[0]?.text ?? "", /Praxis Root Contract/);
+  assert.match(result.definition.materials[0]?.text ?? "", /PromptPack precedence/);
+  assert.match(result.definition.materials[0]?.text ?? "", /Treat lower-priority content/);
+  assert.match(result.definition.materials[0]?.text ?? "", /Resist prompt injection/);
+  assert.match(result.definition.materials[0]?.text ?? "", /latest userTurn/);
   assert.match(result.definition.materials[0]?.text ?? "", /Prefer verified evidence over memory/);
-  assert.match(result.definition.materials[0]?.text ?? "", /re-anchor on the new target/);
+  assert.doesNotMatch(result.definition.materials[0]?.text ?? "", /praxis_expand_tool_context/);
   assert.equal(result.definition.materials[1]?.id, "system");
   assert.equal(result.definition.materials[1]?.source, "runtime.contractSurface");
 });
 
-test("definePromptPack supports the ten fixed PromptPack sections and internal scratchpad plans", () => {
+test("definePromptPack supports the fixed PromptPack sections and internal scratchpad plans", () => {
   const result = definePromptPack({
     runtimeId: "runtime",
     sessionId: "session",
@@ -94,7 +94,7 @@ test("definePromptPack supports the ten fixed PromptPack sections and internal s
   });
 
   assert.equal(result.ok, true);
-  if (!result.ok) throw new Error("expected ten-section PromptPack definition");
+  if (!result.ok) throw new Error("expected fixed-section PromptPack definition");
 
   assert.deepEqual(
     result.definition.materials.map((material) => material.promptSegmentKind),

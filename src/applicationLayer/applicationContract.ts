@@ -72,6 +72,29 @@ export type PraxisApplicationModelState = {
   metadataSource?: string;
 };
 
+export type PraxisApplicationAuthProfileView = {
+  profileId: string;
+  provider: string;
+  providerLabel: string;
+  endpointShape?: string;
+  baseURL?: string;
+  credentialRefId?: string;
+  secretId?: string;
+  secretPresent: boolean;
+  expiresAt?: string;
+  status: "unknown" | "active" | "expired" | "missing" | "error";
+  publicSafe: true;
+};
+
+export type PraxisApplicationAuthState = {
+  defaultRole?: string;
+  activeProfileId?: string;
+  profiles: readonly PraxisApplicationAuthProfileView[];
+  lastAuditEventKind?: string;
+  lastAuditAt?: string;
+  publicSafe: true;
+};
+
 export type PraxisApplicationToolCatalogState = {
   profile: PraxisApplicationToolProfile;
   availableProfiles: readonly PraxisApplicationToolProfile[];
@@ -93,6 +116,7 @@ export type PraxisApplicationUsageTelemetry = {
   cachedInputTokens?: number;
   lastInputTokens?: number;
   lastTotalTokens?: number;
+  lastPromptPackTokens?: number;
   source?: string;
   estimated: boolean;
   modelCalls: number;
@@ -101,11 +125,14 @@ export type PraxisApplicationUsageTelemetry = {
 export type PraxisApplicationContextTelemetry = {
   activeTokens: number;
   promptTokens: number;
+  sessionContextTokens: number;
+  compressionLimitTokens?: number;
   transcriptTokens: number;
   summaryTokens: number;
   historyMessages: number;
   lastRequestInputTokens?: number;
   lastRequestTotalTokens?: number;
+  promptPackTokens?: number;
   historyEstimatedTokens?: number;
   contextSource?: "application.history.estimate" | "provider.model-call.usage";
   usageSource?: string;
@@ -159,12 +186,23 @@ export type PraxisApplicationViewModel = {
   sessionId: string;
   agentId: string;
   agentEntries: readonly PraxisApplicationAgentEntryView[];
+  agents: {
+    active: number;
+  };
   status: PraxisApplicationStatus;
   workspaceRoot: string;
   mode: PraxisApplicationRuntimeMode;
   model: PraxisApplicationModelState;
+  auth?: PraxisApplicationAuthState;
   permissionProfile: PraxisApplicationPermissionProfile;
   toolProfile: PraxisApplicationToolProfile;
+  foundationProject?: {
+    projectId: string;
+    kind: "chat" | "workspace-project";
+    workspaceRoot: string;
+    sessionSqlitePath: string;
+    locked: boolean;
+  };
   sessions: readonly PraxisApplicationSessionSummary[];
   approvals: readonly PraxisApplicationApprovalSummary[];
   manifest?: PraxisApplicationManifestView;
@@ -323,6 +361,7 @@ export type PraxisApplicationCommandResult =
       ok: false;
       view: PraxisApplicationViewModel;
       events: readonly PraxisApplicationEvent[];
+      output?: unknown;
       error: {
         code: string;
         message: string;

@@ -258,6 +258,7 @@ function segmentCachePolicy(kind: PromptPackSegmentKind): PromptPackSegmentCache
   if (
     kind === "retrievedContext" ||
     kind === "observations" ||
+    kind === "recentConversation" ||
     kind === "userTurn" ||
     kind === "assistantScratchpadPlan"
   ) {
@@ -339,6 +340,13 @@ function comparePromptMaterials(left: DefinedPromptMaterial, right: DefinedPromp
     const providerDelta = toolProviderOrder(left) - toolProviderOrder(right);
     if (providerDelta !== 0) {
       return providerDelta;
+    }
+  }
+
+  if (leftSegment === "recentConversation") {
+    const priorityDelta = left.priority - right.priority;
+    if (priorityDelta !== 0) {
+      return priorityDelta;
     }
   }
 

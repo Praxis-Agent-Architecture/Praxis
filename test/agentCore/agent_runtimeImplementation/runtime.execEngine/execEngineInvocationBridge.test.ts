@@ -17,7 +17,7 @@ test("execEngineInvocationBridge plans dry-run invocation envelopes", () => {
     invocation: {
       invocationId: "invoke-1",
       kind: "tool",
-      target: "shellBase",
+      target: "shell.run",
       payload: { commandRef: "cmd:1" },
       auditRef: "audit:1",
     },
@@ -34,7 +34,7 @@ test("execEngineInvocationBridge plans dry-run invocation envelopes", () => {
     invocationId: "invoke-1",
     caller: { kind: "runtime-surface", id: "invocationMethod" },
     kind: "tool",
-    target: "shellBase",
+    target: "shell.run",
     payload: { commandRef: "cmd:1" },
     route: "runtime.execEngine.invocationBridge",
     auditRef: "audit:1",
@@ -53,7 +53,7 @@ test("execEngineInvocationBridge rejects unsafe real execution requests", () => 
     invocation: {
       invocationId: "invoke-tool-1",
       kind: "tool",
-      target: "gitBase",
+      target: "patch.apply",
       dryRun: false,
     },
   });

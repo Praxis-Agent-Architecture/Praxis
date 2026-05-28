@@ -20,7 +20,7 @@ import {
 import {
   adaptRuntimeToolInvocation,
   type BasicToolAdapterFamily,
-} from "../../executionEngine/basic_toolLayer/invocationAdapter.js";
+} from "../../basetool/invocationAdapter.js";
 import {
   bridgeExecEngineInvocation,
 } from "./execEngineInvocationBridge.js";
@@ -265,6 +265,7 @@ export async function invokeMountedBaseTool(
 
   const runtimeReadiness = evaluateBaseToolRuntimeReadiness({
     toolId,
+    toolInput: input,
     executor: request.executor,
     implementedPortPaths: request.implementedPortPaths ?? baseToolExecutorPortFactoryDescriptor.implementedAdapters,
     disabledSupports: request.disabledSupports,
@@ -287,6 +288,11 @@ export async function invokeMountedBaseTool(
       toolId,
       runtimeId,
       sessionId,
+      runtime: {
+        runtimeId,
+        sessionId,
+        toolCallId,
+      },
       input,
       executor: request.executor,
       metadata: request.metadata,

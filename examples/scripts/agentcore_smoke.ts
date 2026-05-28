@@ -11,12 +11,7 @@ import { bindPromptPack } from "../../src/runtimeImplementation/runtime.execEngi
 import { createAgentInvocationEntrypoint } from "../../src/runtimeImplementation/runtime.invocationMethod/agentInvocationEntrypoint.js";
 import { createInvocationResultSurface } from "../../src/runtimeImplementation/runtime.invocationMethod/invocationResultSurface.js";
 import { openModelInvocationEntrypoint } from "../../src/runtimeImplementation/runtime.invocationMethod/modelInvocationEntrypoint.js";
-import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
-import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
+import { callModelAdapterPrompt } from "./modelAdapterPromptClient.js";
 import { planModelInvocation } from "../../src/runtimeImplementation/runtime.modelAdapter/modelInvocationRuntime.js";
 import { lowerPromptForModelAdapter } from "../../src/runtimeImplementation/runtime.modelAdapter/promptLoweringRuntime.js";
 
@@ -39,9 +34,6 @@ const live = args.has("--live") || process.env.AGENTCORE_SMOKE_LIVE === "1";
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
 const localEnvPath = path.join(architectureRoot, ".env.agentcore.local");
-const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
-  ?? path.join(process.env.CODEX_HOME ?? path.join(process.env.HOME ?? "", ".codex"), "auth.json");
-const chatgptCodexClientVersion = process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0";
 
 function loadLocalEnvFile(): void {
   if (!existsSync(localEnvPath)) {
@@ -125,47 +117,6 @@ async function postJson(url: string, headers: Record<string, string>, body: Json
   return parsed;
 }
 
-function extractSseText(text: string): string {
-  const deltas: string[] = [];
-
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("data:")) {
-      continue;
-    }
-
-    const payload = line.slice("data:".length).trim();
-    if (payload.length === 0 || payload === "[DONE]") {
-      continue;
-    }
-
-    try {
-      const parsed = JSON.parse(payload) as Record<string, unknown>;
-      if (typeof parsed.delta === "string") {
-        deltas.push(parsed.delta);
-      }
-    } catch {
-      // Ignore non-JSON SSE payloads.
-    }
-  }
-
-  return deltas.join("").trim();
-}
-
-function extractProviderText(raw: unknown): string {
-  if (typeof raw === "string") {
-    return extractSseText(raw) || raw;
-  }
-
-  if (raw !== null && typeof raw === "object" && !Array.isArray(raw)) {
-    const record = raw as Record<string, unknown>;
-    if (typeof record.output_text === "string") {
-      return record.output_text;
-    }
-  }
-
-  return JSON.stringify(raw).slice(0, 120);
-}
-
 async function probeOpenAI(): Promise<LiveProbe> {
   const model = process.env.AGENTCORE_CODEX_MODEL ?? process.env.OPENAI_SMOKE_MODEL ?? "gpt-5.5";
   const reasoningEffort =
@@ -173,75 +124,15 @@ async function probeOpenAI(): Promise<LiveProbe> {
     process.env.OPENAI_SMOKE_REASONING_EFFORT ??
     process.env.OPENAI_REASONING_EFFORT ??
     "low";
-  const credentialRef = createCredentialRef({
-    id: "agentcore-smoke-chatgpt-codex",
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) {
-    throw new Error(JSON.stringify(credentialRef.error));
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: "chatgpt-codex.responses.smoke",
-    model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: "praxis-agentcore-smoke",
-    clientVersion: chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) {
-    throw new Error(JSON.stringify(carrier.error));
-  }
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) {
-    throw new Error(JSON.stringify(auth.error));
-  }
-
-  const caller = createProviderCaller({
-    transport: fetchProviderTransport,
-    authMaterial: auth.resolved.privateMaterial,
-    timeoutMs: 60_000,
-  });
-
-  const result = await invokeChatGPTCodexResponses({
-    operation: "create",
-    baseUrl: carrier.carrier.baseURL,
-    auth: auth.resolved.envelope,
-    governance: { accepted: true },
-    runtime: {
-      runtimeId: "agentcore-smoke-runtime",
-      invocationId: "agentcore-smoke-openai-probe",
-      callerId: "agentcore-smoke",
-    },
-    dryRun: false,
-    expectResponseObject: false,
-    caller,
-    headers: { "content-type": "application/json" },
-    clientName: "praxis-agentcore-smoke",
-    clientVersion: chatgptCodexClientVersion,
-    body: {
-      model,
-      instructions: "Return exactly the requested marker and nothing else.",
-      input: "Return exactly: agentCore-ok",
-      reasoning: { effort: reasoningEffort },
-      max_output_tokens: 32,
-    },
-  });
-  if (!result.ok) {
-    throw new Error(JSON.stringify(result.error));
-  }
-
-  const outputText = extractProviderText(result.response.raw);
+  const outputText = await callModelAdapterPrompt(
+    "Return exactly: agentCore-ok",
+    "Return exactly the requested marker and nothing else.",
+    { model, reasoningEffort, maxOutputTokens: 32 },
+  );
   return {
     provider: "openai",
     status: "passed",
-    detail: `chatgpt codex provider path accepted model=${model}; reasoning.effort=${reasoningEffort}; output=${outputText.slice(0, 80)}`,
+    detail: `RaxModelClient provider path accepted model=${model}; reasoning.effort=${reasoningEffort}; output=${outputText.slice(0, 80)}`,
   };
 }
 

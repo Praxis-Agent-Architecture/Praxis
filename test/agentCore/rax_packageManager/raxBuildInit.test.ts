@@ -53,6 +53,14 @@ test("rax build init fullstack prepares the mature agent workspace layout", () =
   assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/interfaces/interfaceSurface.md"), true);
   assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/config/modelFleet.ts"), true);
   assert.equal(plan.files.some((file) => file.path === "agents/mainAgent/state/statePlane.ts"), true);
+  const cmpBridge = plan.files.find((file) => file.path === "context/cmpBridge.ts")?.content ?? "";
+  assert.match(cmpBridge, /cmpBridgeContract/);
+  assert.match(cmpBridge, /context\.fullstack-agent\.cmpBridge\.contract/);
+  assert.match(cmpBridge, /不引入独立后台 context pool/);
+  const mpBridge = plan.files.find((file) => file.path === "memory/mpBridge.ts")?.content ?? "";
+  assert.match(mpBridge, /mpBridgeContract/);
+  assert.match(mpBridge, /memory\.fullstack-agent\.mpBridge\.contract/);
+  assert.match(mpBridge, /不引入独立后台 memory agent/);
   const tsconfig = plan.files.find((file) => file.path === "tsconfig.json")?.content ?? "";
   assert.match(tsconfig, /application\/\*\*\/\*\.ts/);
   assert.match(tsconfig, /agents\/\*\*\/\*\.ts/);
@@ -282,16 +290,22 @@ test("rax inspect reports selected BaseTools through CLI host adapter readiness"
     };
   };
   const readiness = payload.readiness?.toolReadiness;
-  assert.equal(readiness?.ready, 4);
-  assert.deepEqual(readiness?.missing, []);
+  assert.equal(readiness?.ready, 3);
+  assert.deepEqual(readiness?.missing, ["skill.load"]);
   for (const tool of readiness?.tools ?? []) {
-    assert.equal(tool.ready, true, tool.toolId);
-    assert.equal(tool.executorSupport, "hostReady", tool.toolId);
-    assert.deepEqual(tool.missingPorts, [], tool.toolId);
+    if (tool.toolId === "skill.load") {
+      assert.equal(tool.ready, false, tool.toolId);
+      assert.equal(tool.executorSupport, "adapterRequired", tool.toolId);
+      assert.deepEqual(tool.missingPorts, ["skill.load"], tool.toolId);
+    } else {
+      assert.equal(tool.ready, true, tool.toolId);
+      assert.equal(tool.executorSupport, "hostReady", tool.toolId);
+      assert.deepEqual(tool.missingPorts, [], tool.toolId);
+    }
   }
 });
 
-test("rax test --all-testable reports the single-agent core BaseTool readiness matrix", async () => {
+test("rax test --all-testable reports the core BaseTool readiness matrix", async () => {
   const targetDir = path.join(scratchRoot, "all-testable-readiness");
   await rm(targetDir, { recursive: true, force: true });
   await mkdir(targetDir, { recursive: true });
@@ -323,11 +337,28 @@ test("rax test --all-testable reports the single-agent core BaseTool readiness m
       };
     };
   };
-  assert.equal(payload.readiness?.toolReadiness?.total, 16);
-  assert.equal(payload.readiness?.toolReadiness?.ready, 16);
-  assert.deepEqual(payload.readiness?.toolReadiness?.missing, []);
+  assert.equal(payload.readiness?.toolReadiness?.total, 25);
+  assert.equal(payload.readiness?.toolReadiness?.ready, 10);
+  assert.deepEqual(payload.readiness?.toolReadiness?.missing, [
+    "agent.inbox",
+    "agent.inspect",
+    "agent.kill",
+    "agent.list",
+    "agent.message",
+    "agent.spawn",
+    "agent.stop",
+    "agent.wait",
+    "context.load",
+    "mcp.resources",
+    "mcp.use",
+    "media.viewImage",
+    "skill.load",
+    "user.ask",
+    "web.search",
+  ]);
   assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "mcp.use"), true);
   assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "tool.describe"), true);
+  assert.equal(payload.readiness?.toolReadiness?.tools?.some((tool) => tool.toolId === "agent.spawn"), true);
 });
 
 test("rax test can run full dependency preparation for selected core tools", async () => {

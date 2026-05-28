@@ -54,8 +54,6 @@ const agent = useDerivedAgent
       persistence,
       includeShell: process.argv.includes("--shell"),
       includeSkillAuthoring: process.argv.includes("--skill-authoring"),
-      includeOmni: process.argv.includes("--omni"),
-      includeComputerUse: process.argv.includes("--computeruse"),
       includeAllTestable: process.argv.includes("--all-testable"),
     });
 
@@ -117,7 +115,7 @@ if (!compiled.ok) {
         {
           id: "cmp-preview",
           kind: "cmp",
-          text: "CMP will own long-running context summaries once the official module is mounted.",
+          text: "CMP bridge contract declares how the application may request prompt context materials on demand.",
           source: "example.fullstack.cmpBridge",
           trusted: true,
           promptSegmentKind: "sessionSummary",
@@ -125,7 +123,7 @@ if (!compiled.ok) {
         {
           id: "mp-preview",
           kind: "memory",
-          text: "MP will own memory and retrieval projection once the official module is mounted.",
+          text: "MP bridge contract declares how the application may request memory references on demand.",
           source: "example.fullstack.mpBridge",
           trusted: true,
           promptSegmentKind: "memoryContext",
@@ -158,7 +156,7 @@ if (!compiled.ok) {
           role: "primary",
           ready: false,
           required: false,
-          reason: "example 默认使用 dry-run；接 live provider 时再注入 auth/providerCaller。",
+          reason: "example 默认使用 dry-run；接 live provider 时再注入 auth/modelClient。",
         },
       ],
       promptPackPreview: turnPreview.ok

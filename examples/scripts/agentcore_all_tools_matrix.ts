@@ -228,16 +228,16 @@ async function main(): Promise<void> {
       dependencyReady,
       hostAdapterReady,
       liveSmokeReady,
-      officialShape: tool.family === "search"
-        ? "search.fetch/searchEngine/nativeSearch/ground"
-        : tool.family === "mcp"
-          ? "mcp.local+remote/native+custom"
-          : tool.family === "omni"
-            ? "runtime.omni+provider-media-adapter"
-            : tool.family === "computeruse"
-              ? "linux-desktop-host-adapter"
-              : tool.family === "skill"
-                ? "local-context-skill-injection"
+      officialShape: tool.toolId.startsWith("web.")
+        ? "web.search/fetch via network runtime ports"
+        : tool.toolId.startsWith("mcp.")
+          ? "mcp.use/resources via runtime-owned clients"
+          : tool.group === "media"
+            ? "runtime media/provider adapter"
+            : tool.group === "computer"
+              ? "computer host adapter"
+              : tool.toolId.startsWith("skill.")
+                ? "local skill instruction loading"
                 : "BaseToolExecutorPort",
       missingReason,
     };

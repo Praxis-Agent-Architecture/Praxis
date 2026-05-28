@@ -21,15 +21,37 @@ import {
   type RuntimeApprovalResolution,
   type RuntimeApprovalResolver,
   type RuntimeAgentReviewResolver,
+  type RuntimeAuthResolver,
+  type RuntimeAuthResolverRequest,
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
   type BaseToolProfileName,
+  type CompactExecutor,
+  type PreCompactGovernanceExecutor,
+  type PraxisProjectRuntime,
 } from "../agentCore/index.js";
-import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
+import {
+  invokeOpenAIV1Responses,
+  type OpenAIV1ResponsesProviderCaller,
+  type OpenAIV1ResponsesResult,
+} from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
+import type { DeepMindV1BetaModelsGenerateContentTransport } from "../modelAdapter/actualInvocationLayer/deepmind/v1beta_models_generateContent.js";
 import { invokeChatGPTCodexResponses } from "../modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import type { AuthEnvelope } from "../modelAdapter/authProfileLayer/authEnvelope.js";
+import type {
+  AuthEnvelope,
+  ProviderAuthMaterial,
+} from "../modelAdapter/authProfileLayer/authEnvelope.js";
+import {
+  createInMemoryMultiagentRuntime,
+  type MultiagentRuntime,
+  type MultiagentSpawnResult,
+} from "../runtimeImplementation/runtime.multiagentPlane/index.js";
+import type {
+  PromptContextConversationMessage,
+  PromptContextSessionSummary,
+} from "../runtimeImplementation/runtime.execEngine/promptContextAssembly.js";
 import { resolveProviderModelMetadata } from "../modelAdapter/providerAccessLayer/modelMetadataRegistry.js";
 import type {
   PraxisApplicationCommand,
@@ -41,6 +63,7 @@ import type {
   PraxisApplicationInputEnvelope,
   PraxisApplicationManifestView,
   PraxisApplicationModelState,
+  PraxisApplicationAuthState,
   PraxisApplicationPermissionProfile,
   PraxisApplicationReasoningEffort,
   PraxisApplicationRuntime,
@@ -59,11 +82,14 @@ import {
 } from "./applicationProject.js";
 
 export type PraxisApplicationLiveProvider = {
-  auth: AuthEnvelope;
+  auth?: AuthEnvelope;
+  runtimeAuthResolver?: RuntimeAuthResolver;
+  authSelection?: RuntimeAuthResolverRequest;
   providerCaller?: OpenAIV1ResponsesProviderCaller;
   openaiResponsesCaller?: OpenAIV1ResponsesProviderCaller;
   openaiChatCompletionsCaller?: OpenAiV1ChatCompletionsProviderCaller;
   anthropicMessagesCaller?: AnthropicV1MessagesProviderCaller;
+  geminiGenerateContentTransport?: DeepMindV1BetaModelsGenerateContentTransport;
   provider?: string;
   endpointShape?: string;
   baseURL?: string;
@@ -78,6 +104,28 @@ export type PraxisApplicationBaseToolIntegrationOptions = {
   contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
   onToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
+};
+
+export type PraxisApplicationInitialConversationMessage = {
+  role: "user" | "assistant" | "model" | "tool" | "runtime-summary" | (string & {});
+  text: string;
+  turnId: string;
+  createdAt: string;
+  messageId?: string;
+  causedBy?: string;
+  artifactRefs?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
+  status?: "completed" | "failed";
+};
+
+export type PraxisApplicationInitialConversation = {
+  sessionId: string;
+  messages: readonly PraxisApplicationInitialConversationMessage[];
+  summary?: {
+    text: string;
+    compactedMessages: number;
+    updatedAt: string;
+  };
 };
 
 export type PraxisApplicationRuntimeOptions = {
@@ -96,11 +144,20 @@ export type PraxisApplicationRuntimeOptions = {
   maxOutputTokens?: number;
   permissionProfile?: PraxisApplicationPermissionProfile;
   toolProfile?: PraxisApplicationToolProfile;
+  agentOptions?: unknown;
   approvalResolver?: RuntimeApprovalResolver;
   agentReviewResolver?: RuntimeAgentReviewResolver;
   contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
   onApplicationToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
+  initialConversations?: readonly PraxisApplicationInitialConversation[];
+  foundationProject?: PraxisProjectRuntime;
+  openFoundationProject?: boolean;
+  compactExecutor?: CompactExecutor;
+  preCompactGovernanceExecutor?: PreCompactGovernanceExecutor;
+  preCompactGovernanceEnabled?: boolean;
+  compactContextWindowTokens?: number;
+  compactThresholdRatio?: number;
   liveProviderResolver?: (manifest: AgentManifest, context?: {
     sessionId: string;
     runtimeId: string;
@@ -108,6 +165,12 @@ export type PraxisApplicationRuntimeOptions = {
     onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void;
     onProviderStreamEvent?: (event: Readonly<Record<string, unknown>>) => void;
   }) => Promise<PraxisApplicationLiveProvider | undefined>;
+  authStateProvider?: (context: {
+    sessionId: string;
+    runtimeId: string;
+    manifest?: AgentManifest;
+    model: PraxisApplicationModelState;
+  }) => PraxisApplicationAuthState | Promise<PraxisApplicationAuthState | undefined> | undefined;
   now?: () => string;
 };
 
@@ -145,13 +208,22 @@ type RuntimeState = {
   toolContextSelections: Map<string, BaseToolContextSelection>;
   toolContextUsage: Map<string, BaseToolContextUsageRecord[]>;
   alwaysApprovedApprovalKeys: Set<string>;
+  foundationProject?: PraxisProjectRuntime;
+  multiagentRuntime: MultiagentRuntime;
+  multiagentActiveSessions: number;
+  multiagentBackgroundRuns: Set<string>;
+  auth?: PraxisApplicationAuthState;
 };
 
 type ApplicationConversationMessage = {
-  role: "user" | "assistant";
+  role: PraxisApplicationInitialConversationMessage["role"];
   text: string;
   turnId: string;
   createdAt: string;
+  messageId?: string;
+  causedBy?: string;
+  artifactRefs?: readonly string[];
+  metadata?: Readonly<Record<string, unknown>>;
   status?: "completed" | "failed";
 };
 
@@ -163,17 +235,53 @@ type ApplicationConversationSummary = {
 };
 
 type ApplicationInputAttachment = PraxisApplicationAttachment;
+type ApplicationAuthSupplier = () => Promise<AuthEnvelope | undefined>;
+export type OpenAIResponsesApplicationAdapterRoute = {
+  kind: "openai_responses" | "chatgpt_codex_responses";
+  providerCaller: OpenAIV1ResponsesProviderCaller;
+  baseURL?: string;
+};
 
-const APPLICATION_SESSION_HISTORY_MAX_MESSAGES = 24;
 const APPLICATION_SESSION_HISTORY_KEEP_RECENT_MESSAGES = 12;
-const APPLICATION_SESSION_HISTORY_MAX_CHARS = 24_000;
-const APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS = 4_000;
+const APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS = 20_000;
 const APPLICATION_SESSION_SUMMARY_MAX_CHARS = 6_000;
 const APPLICATION_SESSION_PRE_TURN_KEEP_RECENT_MESSAGES = 6;
-const APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD = 0.9;
+const APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD = 0.95;
 
 function defaultNow(): string {
   return new Date().toISOString();
+}
+
+function initialConversationHistoryMap(
+  conversations: readonly PraxisApplicationInitialConversation[] | undefined,
+): Map<string, ApplicationConversationMessage[]> {
+  const map = new Map<string, ApplicationConversationMessage[]>();
+  for (const conversation of conversations ?? []) {
+    const sessionId = conversation.sessionId.trim();
+    if (sessionId.length === 0) continue;
+    map.set(sessionId, conversation.messages.map((message) => ({
+      ...message,
+      text: truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS),
+    })));
+  }
+  return map;
+}
+
+function initialConversationSummaryMap(
+  conversations: readonly PraxisApplicationInitialConversation[] | undefined,
+): Map<string, ApplicationConversationSummary> {
+  const map = new Map<string, ApplicationConversationSummary>();
+  for (const conversation of conversations ?? []) {
+    const sessionId = conversation.sessionId.trim();
+    if (sessionId.length === 0 || conversation.summary === undefined) continue;
+    map.set(sessionId, {
+      text: truncateMiddle(conversation.summary.text, APPLICATION_SESSION_SUMMARY_MAX_CHARS),
+      compactedMessages: Math.max(0, Math.floor(conversation.summary.compactedMessages)),
+      updatedAt: conversation.summary.updatedAt,
+      source: "application.history.autoCompact.v1",
+    });
+  }
+  return map;
 }
 
 function event(input: Omit<PraxisApplicationEvent, "publicSafe">): PraxisApplicationEvent {
@@ -374,7 +482,7 @@ function flattenedToolArguments(argumentsRecord: Record<string, unknown>): Recor
 }
 
 function formatPathList(paths: readonly string[], maxItems = 4): string {
-  const cleanPaths = paths.map((item) => item.trim()).filter((item) => item.length > 0);
+  const cleanPaths = [...new Set(paths.map((item) => item.trim()).filter((item) => item.length > 0))];
   if (cleanPaths.length === 0) return "file";
   const shown = cleanPaths.slice(0, maxItems).join(", ");
   return cleanPaths.length > maxItems ? `${shown}, +${cleanPaths.length - maxItems} more` : shown;
@@ -455,6 +563,65 @@ function codeModifyDiffPreviewLines(input: {
   ];
 }
 
+function patchApplyDiffPreviewLines(input: {
+  patch: string;
+}): string[] {
+  const patchBytes = Buffer.byteLength(input.patch);
+  if (patchBytes > CODE_MODIFY_DIFF_PREVIEW_MAX_BYTES) {
+    return [];
+  }
+
+  const lines = input.patch.replace(/\r\n/gu, "\n").replace(/\r/gu, "\n").split("\n");
+  const preview: string[] = [];
+  let currentPath = "patch";
+  const pushHeader = (path: string): void => {
+    currentPath = path.trim() || currentPath;
+    const header = `@@ ${currentPath} @@`;
+    if (preview[preview.length - 1] !== header) preview.push(header);
+  };
+  const pushDiff = (marker: "+" | "-", content: string): void => {
+    preview.push(`${marker}${"?".padStart(4, " ")} | ${content.length > 0 ? content : " "}`);
+  };
+
+  for (const line of lines) {
+    if (line === "*** End Patch") break;
+    const pathMatch = line.match(/^\*\*\* (?:Add|Create|Create New|Update|Delete) File: (.+)$/u)
+      ?? line.match(/^\*\*\* File: (.+)$/u);
+    if (pathMatch !== null) {
+      pushHeader(pathMatch[1] ?? currentPath);
+      continue;
+    }
+    if (line.startsWith("+++ ")) {
+      const path = line.slice("+++ ".length).replace(/^b\//u, "");
+      if (path !== "/dev/null") pushHeader(path);
+      continue;
+    }
+    if (line.startsWith("--- ")) {
+      const path = line.slice("--- ".length).replace(/^a\//u, "");
+      if (path !== "/dev/null") pushHeader(path);
+      continue;
+    }
+    if (line.startsWith("+") && !line.startsWith("+++")) {
+      pushDiff("+", line.slice(1));
+      continue;
+    }
+    if (line.startsWith("-") && !line.startsWith("---")) {
+      pushDiff("-", line.slice(1));
+    }
+  }
+
+  if (!preview.some((line) => line.startsWith("+") || line.startsWith("-"))) {
+    return [];
+  }
+  if (preview.length <= CODE_MODIFY_DIFF_PREVIEW_MAX_LINES) {
+    return preview;
+  }
+  return [
+    ...preview.slice(0, CODE_MODIFY_DIFF_PREVIEW_MAX_LINES - 1),
+    "... diff preview trimmed",
+  ];
+}
+
 function textLineCount(value: string | undefined): number | undefined {
   if (value === undefined) return undefined;
   if (value.length === 0) return 0;
@@ -471,36 +638,25 @@ function rangeDeletedLineCount(value: unknown): number | undefined {
   return Math.floor(endLine - startLine + 1);
 }
 
-function codeChangeLineStats(toolCall: AgentToolCallRecord): {
+function fileChangeLineStats(toolCall: AgentToolCallRecord): {
   codeAdditions?: number;
   codeDeletions?: number;
 } | undefined {
-  if (!toolCall.toolId.startsWith("code.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const output = objectValue(toolCall.output);
   switch (toolCall.toolId) {
-    case "code.modify": {
-      const replacements = numberValue(output?.replacements);
-      const multiplier = replacements !== undefined && replacements > 0 ? Math.floor(replacements) : 1;
-      const replacementLines = textLineCount(rawStringValue(args.replacementText));
-      const searchLines = textLineCount(rawStringValue(args.searchText));
+    case "patch.apply": {
+      const additions = numberValue(output?.additions)
+        ?? numberValue(output?.addedLines)
+        ?? numberValue(output?.linesAdded);
+      const deletions = numberValue(output?.deletions)
+        ?? numberValue(output?.deletedLines)
+        ?? numberValue(output?.linesDeleted);
       return cleanRecord({
-        codeAdditions: replacementLines === undefined ? undefined : replacementLines * multiplier,
-        codeDeletions: searchLines === undefined ? undefined : searchLines * multiplier,
+        codeAdditions: additions,
+        codeDeletions: deletions,
       }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
     }
-    case "code.overwrite":
-      return cleanRecord({
-        codeAdditions: textLineCount(rawStringValue(args.content)),
-      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
-    case "code.replaceFile":
-      return cleanRecord({
-        codeAdditions: textLineCount(rawStringValue(args.newContent)),
-      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
-    case "code.delete":
-      return cleanRecord({
-        codeDeletions: numberValue(output?.deletedLines) ?? rangeDeletedLineCount(args.range),
-      }) as { codeAdditions?: number; codeDeletions?: number } | undefined;
     default:
       return undefined;
   }
@@ -514,7 +670,8 @@ function summarizeCompactedMessages(messages: readonly ApplicationConversationMe
   return messages
     .map((message) => {
       const status = message.status ? `, ${message.status}` : "";
-      return `- ${message.role} (${message.turnId}${status}): ${truncateMiddle(message.text, 700)}`;
+      const causedBy = message.causedBy ? `, causedBy=${message.causedBy}` : "";
+      return `- ${message.role} (${message.turnId}${status}${causedBy}): ${truncateMiddle(message.text, 700)}`;
     })
     .join("\n");
 }
@@ -536,10 +693,7 @@ function compactConversationHistory(input: {
     ...message,
     text: truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS),
   }));
-  const totalChars = normalizedMessages.reduce((sum, message) => sum + message.text.length + message.role.length + message.turnId.length + 32, 0);
-  const overMessageBudget = normalizedMessages.length > APPLICATION_SESSION_HISTORY_MAX_MESSAGES;
-  const overCharBudget = totalChars > APPLICATION_SESSION_HISTORY_MAX_CHARS;
-  if (!input.force && !overMessageBudget && !overCharBudget) {
+  if (!input.force) {
     return { messages: normalizedMessages, summary: input.previousSummary, compacted: false };
   }
 
@@ -573,6 +727,21 @@ function modelAutoCompactTokenLimit(model: PraxisApplicationModelState): number 
   const baseLimit = model.usableInputTokens ?? model.maxInputTokens ?? model.contextWindowTokens;
   if (baseLimit === undefined || !Number.isFinite(baseLimit) || baseLimit <= 0) return undefined;
   return Math.max(1, Math.floor(baseLimit * APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD));
+}
+
+function applicationCompressionLimitTokens(input: {
+  model: PraxisApplicationModelState;
+  compactContextWindowTokens?: number;
+  compactThresholdRatio?: number;
+}): number | undefined {
+  const compactWindow = input.compactContextWindowTokens;
+  if (typeof compactWindow === "number" && Number.isFinite(compactWindow) && compactWindow > 0) {
+    const ratio = typeof input.compactThresholdRatio === "number" && Number.isFinite(input.compactThresholdRatio)
+      ? Math.min(1, Math.max(0.01, input.compactThresholdRatio))
+      : APPLICATION_SESSION_AUTO_COMPACT_THRESHOLD;
+    return Math.max(1, Math.floor(compactWindow * ratio));
+  }
+  return modelAutoCompactTokenLimit(input.model);
 }
 
 function estimateTaskTextTokens(input: {
@@ -650,17 +819,10 @@ function prepareHistoryForTurn(input: {
 }
 
 function trimConversationHistory(messages: readonly ApplicationConversationMessage[]): ApplicationConversationMessage[] {
-  const recent = messages.slice(-APPLICATION_SESSION_HISTORY_MAX_MESSAGES);
-  const kept: ApplicationConversationMessage[] = [];
-  let totalChars = 0;
-  for (const message of [...recent].reverse()) {
-    const text = truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS);
-    const nextLength = text.length + message.role.length + message.turnId.length + 32;
-    if (kept.length > 0 && totalChars + nextLength > APPLICATION_SESSION_HISTORY_MAX_CHARS) break;
-    kept.push({ ...message, text });
-    totalChars += nextLength;
-  }
-  return kept.reverse();
+  return messages.map((message) => ({
+    ...message,
+    text: truncateMiddle(message.text, APPLICATION_SESSION_HISTORY_MAX_MESSAGE_CHARS),
+  }));
 }
 
 function formatConversationHistory(
@@ -681,7 +843,7 @@ function formatConversationHistory(
         ].join("\n"),
     trimmed.length === 0 ? undefined : "",
     ...trimmed.map((message, index) => [
-      `[${index + 1}] ${message.role} (${message.turnId}${message.status ? `, ${message.status}` : ""}):`,
+      `[${index + 1}] ${message.role} (${message.turnId}${message.status ? `, ${message.status}` : ""}${message.causedBy ? `, causedBy=${message.causedBy}` : ""}):`,
       message.text,
     ].join("\n")),
   ].filter((section): section is string => section !== undefined).join("\n\n");
@@ -691,6 +853,8 @@ function estimateConversationContext(input: {
   messages: readonly ApplicationConversationMessage[];
   summary?: ApplicationConversationSummary;
   usage?: PraxisApplicationUsageTelemetry;
+  model: PraxisApplicationModelState;
+  compressionLimitTokens?: number;
 }): PraxisApplicationContextTelemetry {
   const historyText = formatConversationHistory(input.messages, input.summary) ?? "";
   const summaryTokens = estimateContextTokens(input.summary?.text ?? "");
@@ -706,16 +870,25 @@ function estimateConversationContext(input: {
       ? undefined
       : usageContextTotalTokens(input.usage)
   );
+  const promptPackTokens = input.usage?.lastPromptPackTokens;
   const hasProviderUsage = typeof lastRequestInputTokens === "number" && Number.isFinite(lastRequestInputTokens);
   const activeTokens = hasProviderUsage ? lastRequestInputTokens : historyEstimatedTokens;
+  const sessionContextTokens = Math.max(
+    historyEstimatedTokens,
+    hasProviderUsage ? lastRequestInputTokens : 0,
+    typeof promptPackTokens === "number" && Number.isFinite(promptPackTokens) ? promptPackTokens : 0,
+  );
   return {
     activeTokens,
     promptTokens: activeTokens,
+    sessionContextTokens,
+    compressionLimitTokens: input.compressionLimitTokens ?? modelAutoCompactTokenLimit(input.model),
     transcriptTokens,
     summaryTokens,
     historyMessages: input.messages.length,
     lastRequestInputTokens: hasProviderUsage ? lastRequestInputTokens : undefined,
     lastRequestTotalTokens,
+    promptPackTokens,
     historyEstimatedTokens,
     contextSource: hasProviderUsage ? "provider.model-call.usage" : "application.history.estimate",
     usageSource: input.usage?.source,
@@ -752,8 +925,8 @@ function formatApplicationInputAttachments(attachments: readonly ApplicationInpu
   if (!attachments || attachments.length === 0) return undefined;
   const lines = [
     "Application input attachments for this user request.",
-    "If an image attachment has localPath, inspect it through omni.viewImage before answering image-specific questions.",
-    "If a file attachment has localPath, use the appropriate code/search/file baseTool before claiming its contents.",
+    "If an image attachment has localPath, inspect it through media.viewImage before answering image-specific questions.",
+    "If a file attachment has localPath, use the appropriate file/search baseTool before claiming its contents.",
     "",
     ...attachments.map(formatAttachmentForPrompt),
   ];
@@ -777,8 +950,192 @@ function buildTaskTextWithSessionHistory(input: {
   return sections.join("\n\n---\n\n");
 }
 
-function summarizeCodeToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("code.")) return undefined;
+function buildCurrentTaskText(input: {
+  currentUserText: string;
+  attachments?: PraxisApplicationInputEnvelope["attachments"];
+}): string {
+  const attachmentText = formatApplicationInputAttachments(input.attachments);
+  return [
+    attachmentText,
+    "Current user request:",
+    input.currentUserText,
+  ].filter((section): section is string => section !== undefined && section.trim().length > 0).join("\n\n---\n\n");
+}
+
+function applicationMessageToPromptContextMessage(
+  message: ApplicationConversationMessage,
+  index: number,
+): PromptContextConversationMessage {
+  return {
+    messageId: message.messageId ?? `${message.turnId}:${message.role}:${index + 1}`,
+    role: message.role,
+    text: message.text,
+    createdAt: message.createdAt,
+    artifactRefs: message.artifactRefs,
+    metadata: {
+      source: "application.conversationHistory",
+      turnId: message.turnId,
+      causedBy: message.causedBy,
+      status: message.status ?? "completed",
+      ...(message.metadata ?? {}),
+    },
+  };
+}
+
+function applicationHistoryToConversationWindow(
+  messages: readonly ApplicationConversationMessage[],
+): readonly PromptContextConversationMessage[] {
+  return trimConversationHistory(messages).map(applicationMessageToPromptContextMessage);
+}
+
+function applicationSummaryToPromptContextSummary(
+  sessionId: string,
+  summary: ApplicationConversationSummary | undefined,
+): PromptContextSessionSummary | undefined {
+  if (summary === undefined) return undefined;
+  return {
+    summaryId: `${sessionId}:applicationHistorySummary`,
+    text: summary.text,
+    updatedAt: summary.updatedAt,
+    metadata: {
+      source: summary.source,
+      compactedMessages: summary.compactedMessages,
+    },
+  };
+}
+
+function stringFromMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function stringArrayFromMetadata(metadata: Readonly<Record<string, unknown>> | undefined, key: string): readonly string[] | undefined {
+  const value = metadata?.[key];
+  if (!Array.isArray(value)) return undefined;
+  const strings = value.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  return strings.length > 0 ? strings : undefined;
+}
+
+function artifactRefsFromToolMetadata(metadata: Readonly<Record<string, unknown>> | undefined): readonly string[] | undefined {
+  const refs = new Set<string>(stringArrayFromMetadata(metadata, "artifactRefs") ?? []);
+  const resultMetadata = objectValue(metadata?.resultMetadata);
+  for (const key of [
+    "artifactRef",
+    "artifactId",
+    "stdoutArtifactRef",
+    "stderrArtifactRef",
+    "registryArtifactRef",
+    "diffArtifactRef",
+    "imagePath",
+  ]) {
+    const value = stringValue(resultMetadata?.[key]);
+    if (value !== undefined) refs.add(value);
+  }
+  const artifact = objectValue(resultMetadata?.artifact);
+  const nestedArtifactId = stringValue(artifact?.artifactId) ?? stringValue(artifact?.id) ?? stringValue(artifact?.ref);
+  if (nestedArtifactId !== undefined) refs.add(nestedArtifactId);
+  return refs.size > 0 ? [...refs] : undefined;
+}
+
+function compactEventPreview(value: string | undefined, maxLength = 1_500): string | undefined {
+  if (value === undefined || value.trim().length === 0) return undefined;
+  return truncateMiddle(value.trim(), maxLength);
+}
+
+function applicationLedgerMessagesFromEvents(input: {
+  events: readonly PraxisApplicationEvent[];
+  turnId: string;
+}): ApplicationConversationMessage[] {
+  const messages: ApplicationConversationMessage[] = [];
+  for (const item of input.events) {
+    if (item.turnId !== input.turnId) continue;
+    if (item.kind === "model") {
+      const phase = stringFromMetadata(item.metadata, "modelPhase");
+      if (phase !== "completed" && phase !== "failed") continue;
+      const invocationId = stringFromMetadata(item.metadata, "invocationId") ?? item.eventId;
+      const usagePreview = item.metadata?.usage === undefined ? undefined : compactEventPreview(previewUnknown(item.metadata.usage, 800));
+      messages.push({
+        role: "model",
+        text: [
+          `Model call ${phase}: ${stringFromMetadata(item.metadata, "model") ?? stringFromMetadata(item.metadata, "carrierId") ?? "unknown model"}.`,
+          usagePreview === undefined ? undefined : `usage: ${usagePreview}`,
+          stringFromMetadata(item.metadata, "providerResponseId") === undefined ? undefined : `providerResponseId: ${stringFromMetadata(item.metadata, "providerResponseId")}`,
+          stringFromMetadata(item.metadata, "previousProviderResponseId") === undefined ? undefined : `previousProviderResponseId: ${stringFromMetadata(item.metadata, "previousProviderResponseId")}`,
+        ].filter((line): line is string => line !== undefined).join("\n"),
+        turnId: input.turnId,
+        createdAt: item.createdAt,
+        messageId: item.eventId,
+        causedBy: `${input.turnId}.submitted`,
+        metadata: {
+          source: "application.ledger.model",
+          eventId: item.eventId,
+          invocationId,
+          phase,
+        },
+        status: phase === "failed" ? "failed" : "completed",
+      });
+      continue;
+    }
+    if (item.kind === "tool") {
+      const toolStatus = stringFromMetadata(item.metadata, "toolStatus");
+      if (toolStatus !== "completed" && toolStatus !== "failed") continue;
+      const toolCallId = stringFromMetadata(item.metadata, "toolCallId") ?? item.eventId;
+      const toolId = stringFromMetadata(item.metadata, "toolId") ?? item.message;
+      const inputSummary = compactEventPreview(stringFromMetadata(item.metadata, "inputSummary"), 1_000);
+      const argumentsPreview = compactEventPreview(stringFromMetadata(item.metadata, "argumentsPreview"), 2_000);
+      const outputPreview = compactEventPreview(stringFromMetadata(item.metadata, "outputPreview"), 4_000);
+      const errorPreview = compactEventPreview(stringFromMetadata(item.metadata, "errorPreview"), 2_000);
+      const humanResultSummary = item.metadata?.humanResultSummary === undefined
+        ? undefined
+        : compactEventPreview(previewUnknown(item.metadata.humanResultSummary, 2_000));
+      messages.push({
+        role: "tool",
+        text: [
+          `Tool call ${toolStatus}: ${toolId}.`,
+          inputSummary === undefined ? undefined : `intent: ${inputSummary}`,
+          argumentsPreview === undefined ? undefined : `arguments: ${argumentsPreview}`,
+          outputPreview === undefined ? undefined : `output: ${outputPreview}`,
+          errorPreview === undefined ? undefined : `error: ${errorPreview}`,
+          humanResultSummary === undefined ? undefined : `resultSummary: ${humanResultSummary}`,
+        ].filter((line): line is string => line !== undefined).join("\n"),
+        turnId: input.turnId,
+        createdAt: item.createdAt,
+        messageId: item.eventId,
+        causedBy: `${input.turnId}.model`,
+        artifactRefs: artifactRefsFromToolMetadata(item.metadata),
+        metadata: {
+          source: "application.ledger.tool",
+          eventId: item.eventId,
+          toolCallId,
+          toolId,
+          toolStatus,
+          familyKey: stringFromMetadata(item.metadata, "familyKey"),
+        },
+        status: toolStatus === "failed" ? "failed" : "completed",
+      });
+      continue;
+    }
+    if (item.kind === "error") {
+      messages.push({
+        role: "runtime-summary",
+        text: `Runtime error: ${item.message}`,
+        turnId: input.turnId,
+        createdAt: item.createdAt,
+        messageId: item.eventId,
+        causedBy: `${input.turnId}.runtime`,
+        metadata: {
+          source: "application.ledger.error",
+          eventId: item.eventId,
+        },
+        status: "failed",
+      });
+    }
+  }
+  return messages;
+}
+
+function summarizeFileToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("file.") && !toolCall.toolId.startsWith("patch.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const targetPath = stringValue(args.targetPath) ?? stringValue(args.path) ?? stringValue(args.filePath);
   const targetPaths = [
@@ -794,29 +1151,16 @@ function summarizeCodeToolInput(toolCall: AgentToolCallRecord): string | undefin
   const pathSummary = targetPaths.length > 0 ? formatPathList(targetPaths) : targetPath;
 
   switch (toolCall.toolId) {
-    case "code.scan": {
-      const depth = numberValue(args.depth);
-      const maxEntries = numberValue(args.maxEntries);
-      const detail = [
-        depth !== undefined ? `depth ${depth}` : undefined,
-        maxEntries !== undefined ? `up to ${maxEntries} entries` : undefined,
-      ].filter((item): item is string => item !== undefined).join(", ");
-      return `Scanning ${directoryPath ?? "."}${detail ? ` (${detail})` : ""}`;
-    }
-    case "code.read":
+    case "file.read":
       return `Reading ${pathSummary ?? "file"}`;
-    case "code.search_Ripgrep":
+    case "file.search":
       return `Searching ${directoryPath ?? "."}${query ? ` for ${JSON.stringify(truncateMiddle(query, 80))}` : ""}`;
-    case "code.overwrite":
+    case "file.write":
       return `Writing ${targetPath ?? "file"}${bytesSuffix ? ` (${bytesSuffix})` : ""}`;
-    case "code.modify":
+    case "file.edit":
       return `Editing ${targetPath ?? "file"}`;
-    case "code.replaceFile":
-      return `Replacing ${targetPath ?? "file"}`;
-    case "code.delete":
-      return `Deleting from ${targetPath ?? "file"}`;
-    case "code.format":
-      return `Formatting ${targetPath ?? pathSummary ?? "file"}`;
+    case "patch.apply":
+      return `Applying patch${pathSummary ? ` to ${pathSummary}` : ""}`;
     default:
       if (pathSummary) return `${toolCall.toolId} on ${pathSummary}`;
       if (directoryPath) return `${toolCall.toolId} in ${directoryPath}`;
@@ -858,8 +1202,8 @@ function summarizeShellToolInput(toolCall: AgentToolCallRecord): string | undefi
   return undefined;
 }
 
-function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
-  if (!toolCall.toolId.startsWith("code.")) return undefined;
+function summarizeFileToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("file.") && !toolCall.toolId.startsWith("patch.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const targetPath = stringValue(output?.targetPath) ?? stringValue(args.targetPath) ?? stringValue(args.path);
   const targetPaths = [
@@ -868,15 +1212,16 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
   ];
   const directoryPath = stringValue(output?.directoryPath) ?? stringValue(args.directoryPath);
 
-  if (toolCall.toolId === "code.scan") {
+  if (toolCall.toolId === "file.search") {
     const entries = Array.isArray(output?.entries) ? output.entries : [];
+    const matches = Array.isArray(output?.matches) ? output.matches : [];
     const truncated = booleanValue(output?.truncated);
     return [
-      `Scanned ${directoryPath ?? "."}: ${entries.length} entr${entries.length === 1 ? "y" : "ies"}${truncated ? " (truncated)" : ""}`,
+      `Searched ${directoryPath ?? "."}: ${Math.max(entries.length, matches.length)} result${Math.max(entries.length, matches.length) === 1 ? "" : "s"}${truncated ? " (truncated)" : ""}`,
     ];
   }
 
-  if (toolCall.toolId === "code.read") {
+  if (toolCall.toolId === "file.read") {
     const bytes = numberValue(output?.bytes);
     const files = Array.isArray(output?.files) ? output.files : [];
     const count = files.length > 0 ? files.length : Math.max(targetPaths.length, targetPath ? 1 : 0);
@@ -886,7 +1231,7 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
     ];
   }
 
-  if (toolCall.toolId === "code.overwrite") {
+  if (toolCall.toolId === "file.write") {
     const applied = booleanValue(output?.applied);
     const bytes = numberValue(output?.bytesWritten) ?? numberValue(output?.contentBytes);
     const verb = applied === false ? "Planned write" : "Wrote";
@@ -895,12 +1240,18 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
     ];
   }
 
-  if (toolCall.toolId === "code.modify" || toolCall.toolId === "code.replaceFile" || toolCall.toolId === "code.delete" || toolCall.toolId === "code.format") {
+  if (toolCall.toolId === "file.edit" || toolCall.toolId === "patch.apply") {
     const bytes = numberValue(output?.bytesWritten);
-    const lines = [
-      `${toolCall.toolId} completed${targetPath ? ` for ${targetPath}` : ""}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
+    const changedFiles = [
+      ...stringArrayValue(output?.changedFiles),
+      ...stringArrayValue(output?.changed),
+      ...stringArrayValue(output?.committedFiles),
     ];
-    if (toolCall.toolId === "code.modify") {
+    const changedFileSummary = changedFiles.length > 0 ? ` for ${formatPathList(changedFiles)}` : targetPath ? ` for ${targetPath}` : "";
+    const lines = [
+      `${toolCall.toolId} completed${changedFileSummary}${formatByteCount(bytes) ? ` (${formatByteCount(bytes)})` : ""}`,
+    ];
+    if (toolCall.toolId === "file.edit") {
       const searchText = rawStringValue(args.searchText);
       const replacementText = rawStringValue(args.replacementText);
       if (searchText !== undefined && replacementText !== undefined) {
@@ -912,6 +1263,20 @@ function summarizeCodeToolOutputForHumans(toolCall: AgentToolCallRecord, output:
           replacementText,
         }));
       }
+    } else {
+      const outputPreview = Array.isArray(output?.diffPreview)
+        ? output.diffPreview.flatMap((line) => typeof line === "string" ? [line] : [])
+        : [];
+      if (outputPreview.length > 0) {
+        lines.push(...outputPreview.slice(0, CODE_MODIFY_DIFF_PREVIEW_MAX_LINES));
+      } else {
+        const patch = rawStringValue(args.patch);
+        if (patch !== undefined) {
+        lines.push(...patchApplyDiffPreviewLines({ patch }));
+        }
+      }
+      const contextHint = stringValue(output?.contextHint);
+      if (contextHint !== undefined) lines.push(contextHint);
     }
     return lines;
   }
@@ -1021,29 +1386,29 @@ function summarizeGitToolInput(toolCall: AgentToolCallRecord): string | undefine
   ]);
   const scope = repositoryPath ? ` in ${repositoryPath}` : "";
   switch (toolCall.toolId) {
-    case "git.getRepositoryStatus":
+    case "git.status":
       return `Checking repository status${scope}`;
-    case "git.getWorkingTreeDiff":
+    case "git.diff":
       return `Inspecting working tree diff${pathSummary !== "file" ? ` for ${pathSummary}` : scope}`;
-    case "git.getCommitHistory":
+    case "git.log":
       return `Reading commit history${branch ? ` on ${branch}` : scope}`;
-    case "git.showGitObjectDetails":
+    case "git.show":
       return `Inspecting git object ${ref ?? "ref"}${scope}`;
-    case "git.traceLineOwnership":
+    case "git.blame":
       return `Tracing line ownership${pathSummary !== "file" ? ` for ${pathSummary}` : scope}`;
-    case "git.addToStaging":
+    case "git.add":
       return `Staging ${pathSummary}`;
-    case "git.resetStagingOrCommit":
+    case "git.reset":
       return `Resetting git state${ref ? ` from ${ref}` : scope}`;
-    case "git.restoreWorkingTree":
+    case "git.restore":
       return `Restoring ${pathSummary}`;
-    case "git.stashChanges":
+    case "git.stash":
       return `Stashing working tree changes${scope}`;
-    case "git.fetchRemoteUpdates":
+    case "git.fetch":
       return `Fetching remote updates${scope}`;
-    case "git.pullRemoteChanges":
+    case "git.pull":
       return `Pulling remote changes${branch ? ` for ${branch}` : scope}`;
-    case "git.pushLocalChanges":
+    case "git.push":
       return `Pushing local changes${branch ? ` for ${branch}` : scope}`;
     default:
       return repositoryPath ? `${toolCall.toolId} in ${repositoryPath}` : toolCall.toolId;
@@ -1061,11 +1426,11 @@ function summarizeGitToolOutputForHumans(toolCall: AgentToolCallRecord, output: 
   const behind = numberValue(envelope?.behind) ?? numberValue(output?.behindCount);
   const exitCode = numberValue(output?.exitCode);
   const lines: string[] = [];
-  if (toolCall.toolId === "git.getRepositoryStatus") {
+  if (toolCall.toolId === "git.status") {
     lines.push(`Repository status read${branch ? ` on ${branch}` : ""}`);
-  } else if (toolCall.toolId === "git.getWorkingTreeDiff") {
+  } else if (toolCall.toolId === "git.diff") {
     lines.push("Working tree diff read");
-  } else if (toolCall.toolId === "git.getCommitHistory") {
+  } else if (toolCall.toolId === "git.log") {
     lines.push("Commit history read");
   } else if (commitHash) {
     lines.push(`${toolCall.toolId} completed at ${commitHash.slice(0, 12)}`);
@@ -1077,33 +1442,33 @@ function summarizeGitToolOutputForHumans(toolCall: AgentToolCallRecord, output: 
   return lines.slice(0, 3);
 }
 
-function summarizeSearchToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("search.")) return undefined;
+function summarizeWebToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("web.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const target = objectValue(args.target);
   const query = firstStringValue(target?.query, args.query, args.q);
   const url = firstStringValue(target?.url, args.url);
-  if (toolCall.toolId === "search.fetch") return `Fetching ${url ?? query ?? "page"}`;
+  if (toolCall.toolId === "web.fetch") return `Fetching ${url ?? query ?? "page"}`;
   return `Searching ${query ? truncateMiddle(query, 160) : "the web"}`;
 }
 
-function summarizeComputerUseToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("computeruse.")) return undefined;
+function summarizeComputerToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("computer.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const target = objectValue(args.target);
   const targetHint = firstStringValue(target?.targetHint, args.targetHint, target?.windowTitle, args.windowTitle);
   const suffix = targetHint ? ` on ${targetHint}` : "";
   if (toolCall.toolId.includes("Screenshot")) return `Capturing screenshot${suffix}`;
   if (toolCall.toolId.includes("mouse")) return `Running mouse action${suffix}`;
-  if (toolCall.toolId === "computeruse.keyboardInputEmulation") {
+  if (toolCall.toolId === "computer.keyboardInputEmulation") {
     const text = firstStringValue(target?.text, args.text);
     return text ? `Typing ${JSON.stringify(truncateMiddle(text, 80))}${suffix}` : `Typing text${suffix}`;
   }
-  if (toolCall.toolId === "computeruse.keyboardSubmitInput") {
+  if (toolCall.toolId === "computer.keyboardSubmitInput") {
     const submitKey = firstStringValue(target?.submitKey, args.submitKey) ?? "Enter";
     return `Pressing ${submitKey}${suffix}`;
   }
-  if (toolCall.toolId === "computeruse.keyboardEmulation") {
+  if (toolCall.toolId === "computer.keyboardEmulation") {
     const actions = unknownArrayValue(target?.actions ?? args.actions);
     const firstAction = objectValue(actions[0]);
     const actionKind = firstStringValue(firstAction?.kind);
@@ -1114,8 +1479,8 @@ function summarizeComputerUseToolInput(toolCall: AgentToolCallRecord): string | 
   return targetHint ? `${toolCall.toolId} on ${targetHint}` : toolCall.toolId;
 }
 
-function summarizeComputerUseToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
-  if (!toolCall.toolId.startsWith("computeruse.")) return undefined;
+function summarizeComputerToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("computer.")) return undefined;
   const target = objectValue(output?.target) ?? objectValue(toolCall.arguments.target);
   const artifactId = firstStringValue(output?.artifactId, output?.screenshotArtifactId, objectValue(output?.imageArtifact)?.artifactId, objectValue(output?.artifact)?.artifactId);
   const targetHint = firstStringValue(target?.targetHint, output?.targetHint);
@@ -1145,23 +1510,26 @@ function summarizeMcpToolInput(toolCall: AgentToolCallRecord): string | undefine
   const serverId = firstStringValue(target?.serverId, target?.connectionId, args.serverId, args.connectionId);
   const toolName = firstStringValue(target?.toolName, target?.name, args.toolName, args.name);
   const resourceUri = firstStringValue(target?.resourceUri, target?.uri, args.resourceUri, args.uri);
-  if (toolCall.toolId === "mcp.listTools") return `Listing MCP tools${serverId ? ` from ${serverId}` : ""}`;
-  if (toolCall.toolId === "mcp.call") return `Calling MCP tool ${toolName ?? "tool"}${serverId ? ` on ${serverId}` : ""}`;
-  if (toolCall.toolId === "mcp.listResources") return `Listing MCP resources${serverId ? ` from ${serverId}` : ""}`;
-  if (toolCall.toolId === "mcp.readResource") return `Reading MCP resource ${resourceUri ?? "resource"}${serverId ? ` from ${serverId}` : ""}`;
+  if (toolCall.toolId === "mcp.use") return `Calling MCP tool ${toolName ?? "tool"}${serverId ? ` on ${serverId}` : ""}`;
+  if (toolCall.toolId === "mcp.resources") {
+    return resourceUri
+      ? `Reading MCP resource ${resourceUri}${serverId ? ` from ${serverId}` : ""}`
+      : `Listing MCP resources${serverId ? ` from ${serverId}` : ""}`;
+  }
   return `${toolCall.toolId}${serverId ? ` on ${serverId}` : ""}`;
 }
 
 function summarizeMcpToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
   if (!toolCall.toolId.startsWith("mcp.")) return undefined;
   const envelope = objectValue(output?.resultEnvelope) ?? output;
+  const args = flattenedToolArguments(toolCall.arguments);
   const tools = unknownArrayValue(envelope?.tools ?? output?.tools);
   const resources = unknownArrayValue(envelope?.resources ?? output?.resources);
   const content = unknownArrayValue(envelope?.content ?? output?.content ?? objectValue(output?.resourceEnvelope)?.contents);
-  const target = objectValue(output?.target) ?? objectValue(toolCall.arguments.target);
-  const serverId = firstStringValue(target?.serverId, target?.connectionId, output?.serverId, output?.connectionId);
-  const toolName = firstStringValue(target?.toolName, target?.name, output?.toolName);
-  const resourceUri = firstStringValue(target?.resourceUri, target?.uri, objectValue(output?.resourceEnvelope)?.uri);
+  const target = objectValue(output?.target) ?? objectValue(args.target);
+  const serverId = firstStringValue(target?.serverId, target?.connectionId, output?.serverId, output?.connectionId, args.serverId, args.connectionId);
+  const toolName = firstStringValue(target?.toolName, target?.name, output?.toolName, args.toolName, args.name);
+  const resourceUri = firstStringValue(target?.resourceUri, target?.uri, objectValue(output?.resourceEnvelope)?.uri, args.uri);
   const lines = [`${toolCall.toolId} completed${serverId ? ` on ${serverId}` : ""}`];
   if (tools.length > 0) lines.push(`${tools.length} tool${tools.length === 1 ? "" : "s"}`);
   if (resources.length > 0) lines.push(`${resources.length} resource${resources.length === 1 ? "" : "s"}`);
@@ -1209,22 +1577,22 @@ function summarizeSkillToolOutputForHumans(toolCall: AgentToolCallRecord, output
   return lines.slice(0, 3);
 }
 
-function summarizeOmniToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  if (!toolCall.toolId.startsWith("omni.")) return undefined;
+function summarizeMediaToolInput(toolCall: AgentToolCallRecord): string | undefined {
+  if (!toolCall.toolId.startsWith("media.")) return undefined;
   const args = flattenedToolArguments(toolCall.arguments);
   const target = objectValue(args.target);
   const imagePath = firstStringValue(target?.imagePath, args.imagePath, target?.imageRef, args.imageRef);
   const prompt = firstStringValue(target?.prompt, args.prompt, args.text);
-  if (toolCall.toolId === "omni.viewImage") return `Viewing image ${imagePath ?? "input"}`;
-  if (toolCall.toolId === "omni.generateImage") return `Generating image${prompt ? ` from ${JSON.stringify(truncateMiddle(prompt, 120))}` : ""}`;
+  if (toolCall.toolId === "media.viewImage") return `Viewing image ${imagePath ?? "input"}`;
+  if (toolCall.toolId === "media.generateImage") return `Generating image${prompt ? ` from ${JSON.stringify(truncateMiddle(prompt, 120))}` : ""}`;
   if (toolCall.toolId.includes("Audio")) return `${toolCall.toolId} audio`;
   if (toolCall.toolId.includes("Video")) return `${toolCall.toolId} video`;
   return imagePath ? `${toolCall.toolId} for ${imagePath}` : toolCall.toolId;
 }
 
-function summarizeOmniToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
-  if (!toolCall.toolId.startsWith("omni.")) return undefined;
-  if (toolCall.toolId === "omni.viewImage") {
+function summarizeMediaToolOutputForHumans(toolCall: AgentToolCallRecord, output: Record<string, unknown> | undefined): string[] | undefined {
+  if (!toolCall.toolId.startsWith("media.")) return undefined;
+  if (toolCall.toolId === "media.viewImage") {
     const providerMetadata = objectValue(output?.providerMetadata);
     const analysis = stringValue(providerMetadata?.analysis);
     const backend = stringValue(providerMetadata?.backend);
@@ -1243,22 +1611,22 @@ function summarizeOmniToolOutputForHumans(toolCall: AgentToolCallRecord, output:
 }
 
 function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
-  const codeSummary = summarizeCodeToolInput(toolCall);
-  if (codeSummary !== undefined) return codeSummary;
+  const fileSummary = summarizeFileToolInput(toolCall);
+  if (fileSummary !== undefined) return fileSummary;
   const shellSummary = summarizeShellToolInput(toolCall);
   if (shellSummary !== undefined) return shellSummary;
   const gitSummary = summarizeGitToolInput(toolCall);
   if (gitSummary !== undefined) return gitSummary;
-  const searchSummary = summarizeSearchToolInput(toolCall);
-  if (searchSummary !== undefined) return searchSummary;
-  const computerUseSummary = summarizeComputerUseToolInput(toolCall);
-  if (computerUseSummary !== undefined) return computerUseSummary;
+  const webSummary = summarizeWebToolInput(toolCall);
+  if (webSummary !== undefined) return webSummary;
+  const computerSummary = summarizeComputerToolInput(toolCall);
+  if (computerSummary !== undefined) return computerSummary;
   const mcpSummary = summarizeMcpToolInput(toolCall);
   if (mcpSummary !== undefined) return mcpSummary;
   const skillSummary = summarizeSkillToolInput(toolCall);
   if (skillSummary !== undefined) return skillSummary;
-  const omniSummary = summarizeOmniToolInput(toolCall);
-  if (omniSummary !== undefined) return omniSummary;
+  const mediaSummary = summarizeMediaToolInput(toolCall);
+  if (mediaSummary !== undefined) return mediaSummary;
   const target = toolCall.arguments.target;
   if (target && typeof target === "object" && !Array.isArray(target)) {
     const targetRecord = target as Record<string, unknown>;
@@ -1274,24 +1642,28 @@ function summarizeToolInput(toolCall: AgentToolCallRecord): string | undefined {
 }
 
 function familyForToolId(toolId: string): { familyKey: string; familyTitle: string } {
+  if (toolId === "patch.apply") {
+    return { familyKey: "code", familyTitle: "Code" };
+  }
   const [prefix] = toolId.split(".");
   switch (prefix) {
-    case "search":
+    case "web":
       return { familyKey: "websearch", familyTitle: "WebSearch" };
+    case "file":
+    case "patch":
+      return { familyKey: "file", familyTitle: "File" };
     case "shell":
       return { familyKey: "shell", familyTitle: "Shell" };
     case "git":
       return { familyKey: "git", familyTitle: "Git" };
-    case "code":
-      return { familyKey: "code", familyTitle: "Code" };
-    case "computeruse":
-      return { familyKey: "browser", familyTitle: "Computer Use" };
+    case "computer":
+      return { familyKey: "computer", familyTitle: "Computer" };
     case "mcp":
       return { familyKey: "mcp", familyTitle: "MCP" };
     case "skill":
       return { familyKey: "skill", familyTitle: "Skill" };
-    case "omni":
-      return { familyKey: "docs", familyTitle: "Omni" };
+    case "media":
+      return { familyKey: "media", familyTitle: "Media" };
     default:
       return { familyKey: prefix || "capability", familyTitle: prefix ? `${prefix.slice(0, 1).toUpperCase()}${prefix.slice(1)}` : "Capability" };
   }
@@ -1309,20 +1681,20 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
   }
 
   const output = objectValue(toolCall.output);
-  const codeSummary = summarizeCodeToolOutputForHumans(toolCall, output);
-  if (codeSummary !== undefined) return codeSummary;
+  const fileSummary = summarizeFileToolOutputForHumans(toolCall, output);
+  if (fileSummary !== undefined) return fileSummary;
   const shellSummary = summarizeShellToolOutputForHumans(toolCall, output);
   if (shellSummary !== undefined) return shellSummary;
   const gitSummary = summarizeGitToolOutputForHumans(toolCall, output);
   if (gitSummary !== undefined) return gitSummary;
-  const computerUseSummary = summarizeComputerUseToolOutputForHumans(toolCall, output);
-  if (computerUseSummary !== undefined) return computerUseSummary;
+  const computerSummary = summarizeComputerToolOutputForHumans(toolCall, output);
+  if (computerSummary !== undefined) return computerSummary;
   const mcpSummary = summarizeMcpToolOutputForHumans(toolCall, output);
   if (mcpSummary !== undefined) return mcpSummary;
   const skillSummary = summarizeSkillToolOutputForHumans(toolCall, output);
   if (skillSummary !== undefined) return skillSummary;
-  const omniSummary = summarizeOmniToolOutputForHumans(toolCall, output);
-  if (omniSummary !== undefined) return omniSummary;
+  const mediaSummary = summarizeMediaToolOutputForHumans(toolCall, output);
+  if (mediaSummary !== undefined) return mediaSummary;
   const envelope = objectValue(output?.resultEnvelope);
   const query = stringValue(envelope?.query);
   const answer = stringValue(envelope?.answer);
@@ -1333,19 +1705,11 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
   const finalUrl = stringValue(output?.finalUrl);
   const status = numberValue(output?.status);
 
-  if (toolCall.toolId === "search.searchEngine") {
+  if (toolCall.toolId === "web.search") {
     const firstTitles = results
       .map((item) => objectValue(item))
       .flatMap((item) => stringValue(item?.title) ?? [])
       .slice(0, 2);
-    return [
-      query ? `搜索：${query}` : undefined,
-      `结果：找到 ${results.length} 条网页结果`,
-      ...firstTitles.map((title) => `来源：${title}`),
-    ].filter((line): line is string => line !== undefined).slice(0, 4);
-  }
-
-  if (toolCall.toolId === "search.nativeSearch") {
     const sourceTitles = [...sources, ...citations]
       .map((item) => objectValue(item))
       .flatMap((item) => stringValue(item?.title) ?? [])
@@ -1353,13 +1717,15 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
     const hasRealSources = sources.length + citations.length > 0;
     return [
       query ? `搜索：${query}` : undefined,
+      results.length > 0 ? `结果：找到 ${results.length} 条网页结果` : undefined,
       answer && hasRealSources ? `摘要：${answer}` : undefined,
-      hasRealSources ? `来源：${sources.length + citations.length} 条` : "未返回可引用来源",
+      hasRealSources ? `来源：${sources.length + citations.length} 条` : results.length === 0 ? "未返回可引用来源" : undefined,
+      ...firstTitles.map((title) => `结果：${title}`),
       ...sourceTitles.map((title) => `来源：${title}`),
     ].filter((line): line is string => line !== undefined).slice(0, 4);
   }
 
-  if (toolCall.toolId === "search.fetch") {
+  if (toolCall.toolId === "web.fetch") {
     return [
       finalUrl ? `页面：${finalUrl}` : undefined,
       pageTitle ? `标题：${pageTitle}` : undefined,
@@ -1402,7 +1768,7 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
     ?? (actionCount > 0 ? actionCount : undefined);
   const resultCount = countFromArrays(output?.hits, output?.matches, output?.results);
   const changedFileCount = countFromArrays(envelope?.entries, envelope?.changedFiles, output?.changedFiles, output?.committedFiles);
-  const changeLineStats = codeChangeLineStats(toolCall);
+  const changeLineStats = fileChangeLineStats(toolCall);
   return cleanRecord({
     targetPaths,
     pathCount: targetPaths.length > 0 ? targetPaths.length : undefined,
@@ -1511,6 +1877,10 @@ function createToolProgressEvent(input: {
   };
 }
 
+export const applicationRuntimeTestHooks = {
+  createToolProgressEvent,
+} as const;
+
 function toolProgressKey(progress: AgentToolCallProgressEvent): string {
   const callId = progress.phase === "started" ? progress.callId : progress.record.callId;
   return `${callId}:${progress.phase}`;
@@ -1521,10 +1891,15 @@ function createModelProgressEvent(input: {
   turnId: string;
   status: PraxisApplicationStatus;
   model: PraxisApplicationModelState;
+  conversationContext?: PraxisApplicationContextTelemetry;
+  compressionLimitTokens?: number;
 }): Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> {
   const usage = input.progress.phase === "started" ? undefined : input.progress.usage;
   const contextInputTokens = usage?.inputTokens;
   const contextTotalTokens = usage === undefined ? undefined : usageContextTotalTokens(usage);
+  const promptPackTokens = input.progress.phase === "started"
+    ? undefined
+    : input.progress.cacheDebug?.promptPack.totalEstimatedTokens;
   return {
     eventId: `${input.turnId}.model.${input.progress.invocationId}.${input.progress.phase}`,
     kind: "model",
@@ -1562,13 +1937,23 @@ function createModelProgressEvent(input: {
             usageSource: usage?.source ?? "provider.model-call.usage",
             activeTokens: contextInputTokens,
             promptTokens: contextInputTokens,
+            sessionContextTokens: Math.max(
+              promptPackTokens ?? 0,
+              contextInputTokens,
+              input.conversationContext?.historyEstimatedTokens ?? 0,
+              input.conversationContext?.transcriptTokens ?? 0,
+            ),
+            compressionLimitTokens: input.compressionLimitTokens
+              ?? input.conversationContext?.compressionLimitTokens
+              ?? modelAutoCompactTokenLimit(input.model),
             lastRequestInputTokens: contextInputTokens,
             lastRequestTotalTokens: contextTotalTokens,
-            transcriptTokens: 0,
-            summaryTokens: 0,
-            historyMessages: 0,
+            promptPackTokens,
+            transcriptTokens: input.conversationContext?.transcriptTokens ?? 0,
+            summaryTokens: input.conversationContext?.summaryTokens ?? 0,
+            historyMessages: input.conversationContext?.historyMessages ?? 0,
             estimated: usage?.estimated ?? false,
-            compacted: false,
+            compacted: input.conversationContext?.compacted ?? false,
           },
       errorMessage: input.progress.phase === "failed" ? input.progress.error?.message : undefined,
     },
@@ -1814,18 +2199,198 @@ function readResponseSources(raw: unknown): Array<{ title?: string; url: string;
   return dedupeSources(sources);
 }
 
-function openAIResponsesCallerFor(liveProvider: PraxisApplicationLiveProvider | undefined): OpenAIV1ResponsesProviderCaller | undefined {
+function openAIResponsesRouteFor(liveProvider: PraxisApplicationLiveProvider | undefined): OpenAIResponsesApplicationAdapterRoute | undefined {
   if (liveProvider === undefined) return undefined;
   const provider = liveProvider.provider?.trim();
   const endpointShape = liveProvider.endpointShape?.trim();
   if (provider !== undefined && provider !== "openai") return undefined;
-  if (endpointShape !== undefined && endpointShape !== "responses") return undefined;
-  return liveProvider.openaiResponsesCaller ?? liveProvider.providerCaller;
+  if (endpointShape !== undefined && endpointShape !== "responses" && endpointShape !== "chatgpt_codex_responses") return undefined;
+  const providerCaller = liveProvider.openaiResponsesCaller ?? liveProvider.providerCaller;
+  if (providerCaller === undefined) return undefined;
+  const providerRoute = liveProvider.providerRoute?.trim();
+  const kind = providerRoute === "chatgpt_codex_responses" ||
+    endpointShape === "chatgpt_codex_responses" ||
+    liveProvider.auth?.credentialRef?.credentialType === "chatgpt_codex_oauth"
+    ? "chatgpt_codex_responses"
+    : "openai_responses";
+  return {
+    kind,
+    providerCaller,
+    baseURL: liveProvider.baseURL,
+  };
+}
+
+function responsesBaseRoute(input: {
+  baseURL?: string;
+  defaultEndpointPath: "/v1/responses" | "/responses";
+}): { baseUrl?: string; endpointPath: "/v1/responses" | "/responses" } {
+  const base = input.baseURL?.trim().replace(/\/+$/u, "");
+  if (base === undefined || base.length === 0) {
+    return { endpointPath: input.defaultEndpointPath };
+  }
+  if (base.endsWith("/v1/responses")) {
+    return { baseUrl: base.slice(0, -"/v1/responses".length) || undefined, endpointPath: "/v1/responses" };
+  }
+  if (base.endsWith("/responses")) {
+    return { baseUrl: base.slice(0, -"/responses".length) || undefined, endpointPath: "/responses" };
+  }
+  if (base.endsWith("/v1")) {
+    return { baseUrl: base, endpointPath: "/responses" };
+  }
+  return { baseUrl: base, endpointPath: input.defaultEndpointPath };
+}
+
+function adapterRequiredScopes(
+  route: OpenAIResponsesApplicationAdapterRoute,
+  extraScopes: readonly string[] = [],
+): readonly string[] {
+  const routeScope = route.kind === "chatgpt_codex_responses" ? "chatgpt.codex.responses" : "openai.responses";
+  return ["model.invoke", routeScope, ...extraScopes];
+}
+
+function adapterBackend(route: OpenAIResponsesApplicationAdapterRoute, suffix: string): string {
+  return route.kind === "chatgpt_codex_responses"
+    ? `chatgpt-codex-responses-${suffix}`
+    : `openai-responses-${suffix}`;
+}
+
+function isChatGPTCodexAuth(auth: AuthEnvelope): boolean {
+  return auth.credentialRef?.credentialType === "chatgpt_codex_oauth";
+}
+
+function effectiveOpenAIResponsesApplicationRoute(
+  route: OpenAIResponsesApplicationAdapterRoute,
+  auth: AuthEnvelope,
+): OpenAIResponsesApplicationAdapterRoute {
+  return isChatGPTCodexAuth(auth)
+    ? { ...route, kind: "chatgpt_codex_responses" }
+    : route;
+}
+
+function adapterRouteScopes(
+  route: OpenAIResponsesApplicationAdapterRoute,
+  requestedScopes: readonly string[],
+): readonly string[] {
+  return adapterRequiredScopes(
+    route,
+    requestedScopes.filter((scope) =>
+      scope !== "model.invoke" && scope !== "openai.responses" && scope !== "chatgpt.codex.responses"
+    ),
+  );
+}
+
+export function invokeOpenAIResponsesApplicationAdapter(input: {
+  route: OpenAIResponsesApplicationAdapterRoute;
+  auth: AuthEnvelope;
+  runtimeId: string;
+  invocationId: string;
+  callerId: string;
+  requiredScopes: readonly string[];
+  body: unknown;
+}): Promise<OpenAIV1ResponsesResult> {
+  const effectiveRoute = effectiveOpenAIResponsesApplicationRoute(input.route, input.auth);
+  const requiredScopes = adapterRouteScopes(effectiveRoute, input.requiredScopes);
+  if (effectiveRoute.kind === "chatgpt_codex_responses") {
+    const route = responsesBaseRoute({ baseURL: effectiveRoute.baseURL, defaultEndpointPath: "/responses" });
+    return invokeChatGPTCodexResponses({
+      operation: "create",
+      method: "POST",
+      auth: input.auth,
+      caller: effectiveRoute.providerCaller,
+      runtime: {
+        runtimeId: input.runtimeId,
+        invocationId: input.invocationId,
+        callerId: input.callerId,
+      },
+      requiredScopes,
+      governance: { accepted: true },
+      contract: { accepted: true },
+      dryRun: false,
+      headers: { "content-type": "application/json" },
+      expectResponseObject: false,
+      baseUrl: route.baseUrl,
+      endpointPath: route.endpointPath,
+      body: input.body,
+    });
+  }
+
+  const route = responsesBaseRoute({ baseURL: effectiveRoute.baseURL, defaultEndpointPath: "/v1/responses" });
+  return invokeOpenAIV1Responses({
+    operation: "create",
+    method: "POST",
+    auth: input.auth,
+    caller: effectiveRoute.providerCaller,
+    runtime: {
+      runtimeId: input.runtimeId,
+      invocationId: input.invocationId,
+      callerId: input.callerId,
+    },
+    requiredScopes,
+    governance: { accepted: true },
+    contract: { accepted: true },
+    dryRun: false,
+    headers: { "content-type": "application/json" },
+    expectResponseObject: false,
+    baseUrl: route.baseUrl,
+    endpointPath: route.endpointPath,
+    body: input.body,
+  });
+}
+
+function authEnvelopeWithPrivateMaterial(auth: AuthEnvelope, privateMaterial: ProviderAuthMaterial | undefined): AuthEnvelope {
+  if (privateMaterial?.headers === undefined) return auth;
+  return {
+    ...auth,
+    headerPlan: Object.entries(privateMaterial.headers).map(([name, value]) => ({
+      name: name.trim().toLowerCase(),
+      value,
+      redacted: true,
+    })),
+  };
+}
+
+function liveProviderHasAuthSource(liveProvider: PraxisApplicationLiveProvider | undefined): boolean {
+  return liveProvider?.auth !== undefined ||
+    (liveProvider?.runtimeAuthResolver !== undefined && liveProvider.authSelection !== undefined);
+}
+
+function liveProviderAuthSupplier(liveProvider: PraxisApplicationLiveProvider | undefined): ApplicationAuthSupplier {
+  let cachedResolvedAuth: Promise<AuthEnvelope | undefined> | undefined;
+  return async () => {
+    if (liveProvider?.auth !== undefined) return liveProvider.auth;
+    if (liveProvider?.runtimeAuthResolver === undefined || liveProvider.authSelection === undefined) {
+      return undefined;
+    }
+    cachedResolvedAuth ??= liveProvider.runtimeAuthResolver.resolve(liveProvider.authSelection).then((resolved) => {
+      if (!resolved.ok) return undefined;
+      return authEnvelopeWithPrivateMaterial(resolved.value.auth, resolved.value.resolved.privateMaterial);
+    });
+    return await cachedResolvedAuth;
+  };
+}
+
+async function requireAdapterAuth(
+  authSupplier: ApplicationAuthSupplier,
+  adapterLabel: string,
+): Promise<{ ok: true; auth: AuthEnvelope } | { ok: false; result: BaseToolExecutorResult<never> }> {
+  const auth = await authSupplier();
+  if (auth?.present === true) return { ok: true, auth };
+  return {
+    ok: false,
+    result: {
+      ok: false,
+      error: {
+        code: "AUTH_REQUIRED",
+        message: `${adapterLabel} requires resolved provider auth material`,
+        publicSafe: true,
+      },
+    },
+  };
 }
 
 function createProviderNativeSearchAdapter(input: {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: ApplicationAuthSupplier;
+  route: OpenAIResponsesApplicationAdapterRoute;
   runtimeId: string;
 }): NonNullable<NonNullable<BaseToolExecutorPort["network"]>["nativeWebSearch"]> {
   return async (request): Promise<BaseToolExecutorResult<{
@@ -1845,22 +2410,17 @@ function createProviderNativeSearchAdapter(input: {
         },
       };
     }
-    const result = await invokeChatGPTCodexResponses({
-      operation: "create",
-      method: "POST",
-      auth: input.auth,
-      caller: input.providerCaller,
-      runtime: {
-        runtimeId: input.runtimeId,
-        invocationId: `native-web-search:${Date.now()}`,
-        callerId: "raxode.application.nativeWebSearch",
-      },
-      requiredScopes: ["model.invoke", "chatgpt.codex.responses"],
-      governance: { accepted: true },
-      contract: { accepted: true },
-      dryRun: false,
-      headers: { "content-type": "application/json" },
-      expectResponseObject: false,
+    const resolvedAuth = await requireAdapterAuth(input.auth, "provider-native search adapter");
+    if (!resolvedAuth.ok) return resolvedAuth.result;
+    const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
+
+    const result = await invokeOpenAIResponsesApplicationAdapter({
+      route,
+      auth: resolvedAuth.auth,
+      runtimeId: input.runtimeId,
+      invocationId: `native-web-search:${Date.now()}`,
+      callerId: "raxode.application.nativeWebSearch",
+      requiredScopes: adapterRequiredScopes(route),
       body: {
         model: request.model ?? "gpt-5.5",
         input: request.query,
@@ -1902,7 +2462,7 @@ function createProviderNativeSearchAdapter(input: {
         })),
         providerMetadata: {
           provider: request.provider,
-          backend: "openai-web-search",
+          backend: adapterBackend(route, "web-search"),
           sourceCount: sources.length,
         },
       },
@@ -2025,15 +2585,15 @@ function resolveImageAttachment(input: {
 }
 
 function createOpenAIResponsesImageVisionAdapter(input: {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: ApplicationAuthSupplier;
+  route: OpenAIResponsesApplicationAdapterRoute;
   runtimeId: string;
   model: string;
   attachments?: readonly ApplicationInputAttachment[];
-}): NonNullable<NonNullable<BaseToolExecutorPort["omni"]>["transformMedia"]> {
+}): NonNullable<NonNullable<BaseToolExecutorPort["media"]>["transformMedia"]> {
   return async (request): Promise<BaseToolExecutorResult<{ artifactId: string; mimeType?: string }>> => {
     const parameters = request.parameters ?? {};
-    if (request.operation === "omni.generateImage.generateimage") {
+    if (request.operation === "media.generateImage.generateimage") {
       const prompt = stringValue(parameters.prompt);
       const outputPath = stringValue(parameters.outputPath);
       if (prompt === undefined || outputPath === undefined) {
@@ -2041,7 +2601,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
           ok: false,
           error: {
             code: "PROVIDER_REJECTED",
-            message: "omni.generateImage requires target.prompt and target.outputPath for Responses image_generation",
+            message: "media.generateImage requires target.prompt and target.outputPath for Responses image_generation",
             publicSafe: true,
           },
         };
@@ -2061,22 +2621,17 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       if (quality !== undefined) imageTool.quality = quality;
       if (outputFormat !== undefined) imageTool.output_format = outputFormat;
 
-      const result = await invokeChatGPTCodexResponses({
-        operation: "create",
-        method: "POST",
-        auth: input.auth,
-        caller: input.providerCaller,
-        runtime: {
-          runtimeId: input.runtimeId,
-          invocationId: `omni-generate-image:${Date.now()}`,
-          callerId: "raxode.application.omniGenerateImage",
-        },
-        requiredScopes: ["model.invoke", "chatgpt.codex.responses", "omni.image.generate"],
-        governance: { accepted: true },
-        contract: { accepted: true },
-        dryRun: false,
-        headers: { "content-type": "application/json" },
-        expectResponseObject: false,
+      const resolvedAuth = await requireAdapterAuth(input.auth, "media.generateImage OpenAI Responses adapter");
+      if (!resolvedAuth.ok) return resolvedAuth.result;
+      const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
+
+      const result = await invokeOpenAIResponsesApplicationAdapter({
+        route,
+        auth: resolvedAuth.auth,
+        runtimeId: input.runtimeId,
+        invocationId: `media-generate-image:${Date.now()}`,
+        callerId: "raxode.application.mediaGenerateImage",
+        requiredScopes: adapterRequiredScopes(route, ["media.image.generate"]),
         body: {
           model: input.model,
           input: prompt,
@@ -2105,7 +2660,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
           ok: false,
           error: {
             code: "RESPONSE_FORMAT_DRIFT",
-            message: "omni.generateImage Responses image_generation did not return an image_generation_call result",
+            message: "media.generateImage Responses image_generation did not return an image_generation_call result",
             publicSafe: true,
           },
           events: result.events,
@@ -2124,7 +2679,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         },
         metadata: {
           provider: "openai",
-          backend: "chatgpt-codex-responses-image-generation",
+          backend: adapterBackend(route, "image-generation"),
           model: input.model,
           outputPath,
           mimeType,
@@ -2132,7 +2687,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
           ...(generated.revisedPrompt ? { revisedPrompt: generated.revisedPrompt } : {}),
           ...(generated.imageCallId ? { imageCallId: generated.imageCallId } : {}),
         },
-        events: ["raxode.application.omniGenerateImage.openai.called"],
+        events: ["raxode.application.mediaGenerateImage.openai.called"],
       };
     }
 
@@ -2148,8 +2703,8 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         error: {
           code: "PROVIDER_UNAVAILABLE",
           message: imageRef
-            ? `omni.viewImage OpenAI vision adapter could not resolve imageRef to a local imagePath: ${imageRef}`
-            : "omni.viewImage OpenAI vision adapter requires a local imagePath or an application image attachment reference",
+            ? `media.viewImage OpenAI vision adapter could not resolve imageRef to a local imagePath: ${imageRef}`
+            : "media.viewImage OpenAI vision adapter requires a local imagePath or an application image attachment reference",
           publicSafe: true,
         },
       };
@@ -2164,7 +2719,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         ok: false,
         error: {
           code: "PROVIDER_UNAVAILABLE",
-          message: `omni.viewImage OpenAI vision adapter could not read imagePath: ${imagePath}`,
+          message: `media.viewImage OpenAI vision adapter could not read imagePath: ${imagePath}`,
           publicSafe: true,
         },
       };
@@ -2175,7 +2730,7 @@ function createOpenAIResponsesImageVisionAdapter(input: {
         ok: false,
         error: {
           code: "PROVIDER_REJECTED",
-          message: `omni.viewImage image exceeds maxBytes (${bytes.byteLength} > ${maxBytes})`,
+          message: `media.viewImage image exceeds maxBytes (${bytes.byteLength} > ${maxBytes})`,
           publicSafe: true,
         },
       };
@@ -2183,22 +2738,17 @@ function createOpenAIResponsesImageVisionAdapter(input: {
 
     const mimeType = imageMimeTypeFromPath(imagePath, stringValue(parameters.mediaType) ?? attachment?.mimeType);
     const detail = responsesImageDetail(stringValue(parameters.detail));
-    const result = await invokeChatGPTCodexResponses({
-      operation: "create",
-      method: "POST",
-      auth: input.auth,
-      caller: input.providerCaller,
-      runtime: {
-        runtimeId: input.runtimeId,
-        invocationId: `omni-view-image:${Date.now()}`,
-        callerId: "raxode.application.omniViewImage",
-      },
-      requiredScopes: ["model.invoke", "chatgpt.codex.responses"],
-      governance: { accepted: true },
-      contract: { accepted: true },
-      dryRun: false,
-      headers: { "content-type": "application/json" },
-      expectResponseObject: false,
+    const resolvedAuth = await requireAdapterAuth(input.auth, "media.viewImage OpenAI Responses adapter");
+    if (!resolvedAuth.ok) return resolvedAuth.result;
+    const route = effectiveOpenAIResponsesApplicationRoute(input.route, resolvedAuth.auth);
+
+    const result = await invokeOpenAIResponsesApplicationAdapter({
+      route,
+      auth: resolvedAuth.auth,
+      runtimeId: input.runtimeId,
+      invocationId: `media-view-image:${Date.now()}`,
+      callerId: "raxode.application.mediaViewImage",
+      requiredScopes: adapterRequiredScopes(route),
       body: {
         model: input.model,
         input: [{
@@ -2244,14 +2794,14 @@ function createOpenAIResponsesImageVisionAdapter(input: {
       },
       metadata: {
         provider: "openai",
-        backend: "chatgpt-codex-responses-vision",
+        backend: adapterBackend(route, "vision"),
         model: input.model,
         imagePath,
         mimeType,
         detail,
         ...(analysis ? { analysis } : {}),
       },
-      events: ["raxode.application.omniViewImage.openai.called"],
+      events: ["raxode.application.mediaViewImage.openai.called"],
     };
   };
 }
@@ -2306,8 +2856,8 @@ function approvalFeatureKey(envelope: RuntimeApprovalEnvelope): string {
 }
 
 function approvalFeatureLabel(featureKey: string): string {
-  if (featureKey.startsWith("computeruse.")) return "computer_use";
-  if (featureKey.startsWith("omni.")) return "omni";
+  if (featureKey.startsWith("computer.")) return "computer";
+  if (featureKey.startsWith("media.")) return "media";
   if (featureKey.startsWith("shell.")) return "shell";
   if (featureKey.startsWith("git.")) return "git";
   if (featureKey.startsWith("code.")) return "code";
@@ -2434,6 +2984,12 @@ function summarizeRunUsage(result: Extract<AgentRunResult, { ok: true }>): Praxi
   if (lastTotalTokens !== undefined) {
     summary.lastTotalTokens = lastTotalTokens;
   }
+  const lastPromptPack = [...result.modelCalls].reverse().find((call) =>
+    typeof call.cacheDebug?.promptPack.totalEstimatedTokens === "number" &&
+    Number.isFinite(call.cacheDebug.promptPack.totalEstimatedTokens));
+  if (lastPromptPack?.cacheDebug?.promptPack.totalEstimatedTokens !== undefined) {
+    summary.lastPromptPackTokens = lastPromptPack.cacheDebug.promptPack.totalEstimatedTokens;
+  }
 
   return summary.modelCalls > 0 ? summary : undefined;
 }
@@ -2469,14 +3025,65 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     approvals: new Map(),
     pendingApprovalResolvers: new Map(),
     cancelledAuxiliaryTasks: new Set(),
-    conversationHistory: new Map(),
-    conversationSummaries: new Map(),
+    conversationHistory: initialConversationHistoryMap(options.initialConversations),
+    conversationSummaries: initialConversationSummaryMap(options.initialConversations),
     modelCacheDebugBySession: new Map(),
     lastProviderResponseBySession: new Map(),
     toolContextSelections: new Map(),
     toolContextUsage: new Map(),
     alwaysApprovedApprovalKeys: new Set(),
+    foundationProject: options.foundationProject,
+    multiagentRuntime: createInMemoryMultiagentRuntime({
+      projectId: project.projectId,
+      workspaceRoot: path.resolve(options.cwd ?? project.projectRoot),
+      defaultModel: options.model,
+      initialSessions: [{
+        sessionId: options.sessionId ?? `session.${applicationId}.default`,
+        agentId: project.agentEntries.primary?.agentId ?? `agent.${project.projectId}.primary`,
+        workingDirectory: path.resolve(options.cwd ?? project.projectRoot),
+        status: "idle",
+      }],
+    }),
+    multiagentActiveSessions: 1,
+    multiagentBackgroundRuns: new Set(),
+    auth: undefined,
   };
+
+  async function refreshAuthState(): Promise<void> {
+    const next = await options.authStateProvider?.({
+      sessionId: state.sessionId,
+      runtimeId: state.runtimeId,
+      manifest: state.manifest,
+      model: state.model,
+    });
+    if (next !== undefined) {
+      state.auth = next;
+    }
+  }
+
+  async function safeRefreshAuthState(): Promise<void> {
+    try {
+      await refreshAuthState();
+    } catch (error) {
+      state.auth = {
+        profiles: [],
+        lastAuditEventKind: "application.auth.state.failed",
+        lastAuditAt: now(),
+        publicSafe: true,
+      };
+      publish({
+        eventId: "application.auth.state.failed",
+        kind: "error",
+        status: state.status,
+        message: "Application auth state provider failed",
+        metadata: { code: "AUTH_STATE_PROVIDER_FAILED" },
+      });
+    }
+  }
+
+  function commandSessionId(command: PraxisApplicationCommand): string | undefined {
+    return "sessionId" in command ? command.sessionId : undefined;
+  }
 
   function publish(input: Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> & { createdAt?: string }): PraxisApplicationEvent {
     const output = event({
@@ -2507,6 +3114,30 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       status: state.status,
       lastActiveAt: now(),
       turns: state.turns,
+    });
+    void state.multiagentRuntime.ensureSession({
+      sessionId: state.sessionId,
+      agentId: state.manifest?.identity.id ?? project.agentEntries.primary?.agentId ?? `agent.${project.projectId}.primary`,
+      name: current?.name ?? state.sessionId.split(".").at(-1),
+      workingDirectory: state.cwd,
+      status: state.status === "running" ? "running" : "idle",
+      metadata: {
+        applicationId,
+        runtimeId: state.runtimeId,
+        source: "application.session",
+      },
+      now: now(),
+    }).catch((error: unknown) => {
+      state.events.push(event({
+        eventId: `${state.sessionId}.multiagent.ensure.failed`,
+        kind: "runtime",
+        status: state.status,
+        message: error instanceof Error ? error.message : "multiagent session ensure failed",
+        sessionId: state.sessionId,
+        runtimeId: state.runtimeId,
+        createdAt: now(),
+        metadata: { code: "MULTIAGENT_SESSION_ENSURE_FAILED" },
+      }));
     });
   }
 
@@ -2561,12 +3192,196 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     };
   }
 
+  function multiagentAgentAdapter(): NonNullable<BaseToolExecutorPort["agent"]> {
+    const scheduleSpawnedAgentRun = (spawned: MultiagentSpawnResult): void => {
+      const childSession = spawned.session;
+      const initialMessage = spawned.initialMessage;
+      if (state.multiagentBackgroundRuns.has(childSession.sessionId)) return;
+      state.multiagentBackgroundRuns.add(childSession.sessionId);
+      state.multiagentActiveSessions = Math.max(state.multiagentActiveSessions, state.multiagentBackgroundRuns.size + 1);
+      state.sessions.set(childSession.sessionId, {
+        sessionId: childSession.sessionId,
+        name: childSession.name ?? childSession.sessionId.split(".").at(-1),
+        workspaceRoot: childSession.workingDirectory,
+        status: "running",
+        lastActiveAt: now(),
+        turns: 1,
+      });
+      publish({
+        eventId: `${childSession.sessionId}.multiagent.spawned`,
+        kind: "runtime",
+        status: state.status,
+        message: childSession.name ?? childSession.sessionId,
+        sessionId: state.sessionId,
+        metadata: {
+          childSessionId: childSession.sessionId,
+          childAgentId: childSession.agentId,
+          childName: childSession.name,
+          childDescription: childSession.description,
+          childLifecycle: childSession.lifecycle,
+          initialMessageId: initialMessage.messageId,
+          workingDirectory: childSession.workingDirectory,
+        },
+      });
+      void (async () => {
+        let replyText = "";
+        try {
+          const compiled = await compileManifest("primary", { updateState: false });
+          if (!compiled.ok) {
+            replyText = `Child agent failed to compile: ${compiled.message}`;
+            return;
+          }
+          let liveProvider: PraxisApplicationLiveProvider | undefined;
+          if (state.mode === "live") {
+            liveProvider = await options.liveProviderResolver?.(compiled.manifest, {
+              sessionId: childSession.sessionId,
+              runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+              turnId: initialMessage.messageId,
+            });
+          }
+          const runtime = praxis.runtime.createPraxisRuntimeKernel({
+            runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+          });
+          const result = await runtime.runManifest(compiled.manifest, initialMessage.text, {
+            runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+            sessionId: childSession.sessionId,
+            dryRun: state.mode !== "live",
+            allowProviderCall: state.mode === "live",
+            allowToolExecution: state.mode === "live",
+            auth: liveProvider?.auth,
+            runtimeAuthResolver: liveProvider?.runtimeAuthResolver,
+            authSelection: liveProvider?.authSelection,
+            providerCaller: liveProvider?.providerCaller,
+            openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
+            openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
+            anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+            geminiGenerateContentTransport: liveProvider?.geminiGenerateContentTransport,
+            exposeProviderTools: true,
+            approvalResolver: approvalResolverForRun(),
+            agentReviewResolver: options.agentReviewResolver,
+            storage: {
+              cwd: childSession.workingDirectory,
+              workspaceRoot: path.join(project.projectRoot, ".raxode"),
+              initMode: "on-run",
+            },
+            sandbox: { cwd: childSession.workingDirectory },
+            baseToolAdapters: {
+              agent: multiagentAgentAdapter(),
+              ...(options.contextArtifactAdapters ?? {}),
+              ...(options.baseToolAdapters ?? {}),
+            },
+            now,
+          });
+          if (result.ok) {
+            replyText = result.finalOutput || "Child agent completed without a final message.";
+          } else {
+            replyText = `Child agent failed: ${result.error.message}`;
+          }
+        } catch (error) {
+          replyText = `Child agent failed: ${error instanceof Error ? error.message : String(error)}`;
+        } finally {
+          state.multiagentBackgroundRuns.delete(childSession.sessionId);
+          state.multiagentActiveSessions = Math.max(1, state.multiagentBackgroundRuns.size + 1);
+          const existingChildSession = state.sessions.get(childSession.sessionId);
+          state.sessions.set(childSession.sessionId, {
+            sessionId: childSession.sessionId,
+            name: existingChildSession?.name ?? childSession.name ?? childSession.sessionId.split(".").at(-1),
+            workspaceRoot: childSession.workingDirectory,
+            status: "idle",
+            lastActiveAt: now(),
+            turns: existingChildSession?.turns ?? 1,
+          });
+          if (replyText.trim().length > 0) {
+            await state.multiagentRuntime.message({
+              fromSessionId: childSession.sessionId,
+              toSessionId: initialMessage.fromSessionId,
+              text: replyText,
+              replyToMessageId: initialMessage.messageId,
+              now: now(),
+              metadata: {
+                source: "application.multiagent.backgroundRun",
+                childSessionId: childSession.sessionId,
+              },
+            });
+          }
+          publish({
+            eventId: `${childSession.sessionId}.multiagent.completed`,
+            kind: "runtime",
+            status: state.status,
+            message: childSession.name ?? childSession.sessionId,
+            sessionId: state.sessionId,
+            metadata: {
+              childSessionId: childSession.sessionId,
+              childAgentId: childSession.agentId,
+              childName: childSession.name,
+              childDescription: childSession.description,
+              childLifecycle: childSession.lifecycle,
+              initialMessageId: initialMessage.messageId,
+            },
+          });
+        }
+      })();
+    };
+    const wrap = async <T>(operation: () => Promise<T>): Promise<BaseToolExecutorResult> => {
+      try {
+        await state.multiagentRuntime.ensureSession({
+          sessionId: state.sessionId,
+          agentId: state.manifest?.identity.id ?? project.agentEntries.primary?.agentId ?? `agent.${project.projectId}.primary`,
+          workingDirectory: state.cwd,
+          status: state.status === "running" ? "running" : "idle",
+          metadata: {
+            applicationId,
+            runtimeId: state.runtimeId,
+            source: "application.basetool",
+          },
+          now: now(),
+        });
+        const output = await operation();
+        const maybeSessionStatus = objectValue((output as { session?: unknown } | undefined)?.session)?.status;
+        if (maybeSessionStatus === "idle" || maybeSessionStatus === "running") {
+          state.multiagentActiveSessions = Math.max(state.multiagentActiveSessions, 2);
+        }
+        return { ok: true, output, value: output };
+      } catch (error) {
+        return {
+          ok: false,
+          error: {
+            code: "MULTIAGENT_RUNTIME_FAILED",
+            message: error instanceof Error ? error.message : "multiagent runtime failed",
+            publicSafe: true,
+          },
+        };
+      }
+    };
+    return {
+      spawn: (request) => wrap(async () => {
+        const spawned = await state.multiagentRuntime.spawn(request);
+        scheduleSpawnedAgentRun(spawned);
+        return spawned;
+      }),
+      message: (request) => wrap(() => state.multiagentRuntime.message(request)),
+      inbox: (request) => wrap(() => state.multiagentRuntime.inbox(request)),
+      list: (request) => wrap(() => state.multiagentRuntime.list(request)),
+      inspect: (request) => wrap(() => state.multiagentRuntime.inspect(request)),
+      wait: (request) => wrap(() => state.multiagentRuntime.wait(request)),
+      stop: (request) => wrap(() => state.multiagentRuntime.stop(request)),
+      kill: (request) => wrap(() => state.multiagentRuntime.kill(request)),
+    };
+  }
+
   function view(): PraxisApplicationViewModel {
     const agentId = state.manifest?.identity.id ?? project.descriptor.agent?.id ?? "agent.unknown";
+    const compressionLimitTokens = applicationCompressionLimitTokens({
+      model: state.model,
+      compactContextWindowTokens: options.compactContextWindowTokens,
+      compactThresholdRatio: options.compactThresholdRatio,
+    });
     const context = estimateConversationContext({
       messages: state.conversationHistory.get(state.sessionId) ?? [],
       summary: state.conversationSummaries.get(state.sessionId),
       usage: state.usage,
+      model: state.model,
+      compressionLimitTokens,
     });
     const lines = [
       `application: ${applicationId}`,
@@ -2589,12 +3404,21 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       sessionId: state.sessionId,
       agentId,
       agentEntries: summarizeAgentEntries(project),
+      agents: { active: state.multiagentActiveSessions },
       status: state.status,
       workspaceRoot: state.cwd,
       mode: state.mode,
       model: state.model,
+      auth: state.auth,
       permissionProfile: state.permissionProfile,
       toolProfile: state.toolProfile,
+      foundationProject: state.foundationProject === undefined ? undefined : {
+        projectId: state.foundationProject.project.projectId,
+        kind: state.foundationProject.project.kind,
+        workspaceRoot: state.foundationProject.project.mainWorkspaceRoot,
+        sessionSqlitePath: state.foundationProject.paths.sessionSqlitePath,
+        locked: state.foundationProject.lease !== undefined,
+      },
       sessions: [...state.sessions.values()].sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt)),
       approvals: [...state.approvals.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       manifest: summarizeManifest(state.manifest),
@@ -2617,7 +3441,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
 
   async function compileManifest(
     agentKey = "primary",
-    options: { updateState?: boolean; agentOptions?: unknown } = {},
+    compileOptions: { updateState?: boolean; agentOptions?: unknown } = {},
   ): Promise<{ ok: true; manifest: AgentManifest } | { ok: false; code: string; message: string }> {
     try {
       const entry = project.agentEntries[agentKey];
@@ -2639,9 +3463,15 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         reasoningEffort: state.model.reasoningEffort,
         maxOutputTokens: state.model.maxOutputTokens,
       };
-      const agentOptions = typeof options.agentOptions === "object" && options.agentOptions !== null
-        ? { ...defaultAgentOptions, ...options.agentOptions }
-        : defaultAgentOptions;
+      const runtimeAgentOptions = typeof options.agentOptions === "object" && options.agentOptions !== null
+        ? options.agentOptions as Record<string, unknown>
+        : {};
+      const commandAgentOptions = typeof compileOptions.agentOptions === "object" && compileOptions.agentOptions !== null
+        ? compileOptions.agentOptions as Record<string, unknown>
+        : {};
+      const agentOptions = Object.keys(commandAgentOptions).length > 0
+        ? { ...defaultAgentOptions, ...runtimeAgentOptions, ...commandAgentOptions }
+        : { ...defaultAgentOptions, ...runtimeAgentOptions };
       const source = typeof loadedSource === "function"
         ? new (loadedSource as new (agentOptions: unknown) => unknown)(agentOptions)
         : loadedSource;
@@ -2653,7 +3483,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       if (!validation.ok) {
         return { ok: false, code: "AGENT_MANIFEST_INVALID", message: validation.error.message };
       }
-      if (options.updateState ?? agentKey === "primary") {
+      if (compileOptions.updateState ?? agentKey === "primary") {
         state.manifest = validation.manifest;
       }
       return { ok: true, manifest: validation.manifest };
@@ -2773,14 +3603,18 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           allowProviderCall: (command.mode ?? state.mode) === "live",
           allowToolExecution: false,
           auth: liveProvider?.auth,
+          runtimeAuthResolver: liveProvider?.runtimeAuthResolver,
+          authSelection: liveProvider?.authSelection,
           providerCaller: liveProvider?.providerCaller,
           openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
           openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
           anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+          geminiGenerateContentTransport: liveProvider?.geminiGenerateContentTransport,
           exposeProviderTools: false,
           approvalResolver: approvalResolverForRun(),
           agentReviewResolver: options.agentReviewResolver,
           baseToolAdapters: {
+            agent: multiagentAgentAdapter(),
             ...(options.contextArtifactAdapters ?? {}),
             ...(options.baseToolAdapters ?? {}),
           },
@@ -2894,12 +3728,13 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         },
       });
     }
-    const taskText = buildTaskTextWithSessionHistory({
+    const taskText = buildCurrentTaskText({
       currentUserText: command.input.text,
-      history: preparedHistory.history,
-      summary: preparedHistory.summary,
       attachments: command.input.attachments,
     });
+    const conversationWindow = applicationHistoryToConversationWindow(preparedHistory.history);
+    const sessionSummary = applicationSummaryToPromptContextSummary(state.sessionId, preparedHistory.summary);
+    const turnEventStartIndex = state.events.length;
     publish({
       eventId: `${turnId}.submitted`,
       kind: "conversation",
@@ -2928,6 +3763,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       });
       return { ok: false, view: view(), events: [failed], error: state.error };
     }
+    await safeRefreshAuthState();
 
     publish({
       eventId: `${turnId}.manifest.ready`,
@@ -3019,6 +3855,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
 
     const runtime = praxis.runtime.createPraxisRuntimeKernel({ runtimeId: state.runtimeId });
     const emittedToolProgress = new Set<string>();
+    const openAIResponsesRoute = openAIResponsesRouteFor(liveProvider);
+    const nativeAdapterAuth = liveProviderAuthSupplier(liveProvider);
+    const mountOpenAIResponsesNativeAdapters = openAIResponsesRoute !== undefined && liveProviderHasAuthSource(liveProvider);
     const result = await runtime.runManifest(compiled.manifest, taskText, {
       runtimeId: state.runtimeId,
       sessionId: state.sessionId,
@@ -3026,14 +3865,25 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       allowProviderCall: state.mode === "live",
       allowToolExecution: state.mode === "live",
       auth: liveProvider?.auth,
+      runtimeAuthResolver: liveProvider?.runtimeAuthResolver,
+      authSelection: liveProvider?.authSelection,
       providerCaller: liveProvider?.providerCaller,
       openaiResponsesCaller: liveProvider?.openaiResponsesCaller,
       openaiChatCompletionsCaller: liveProvider?.openaiChatCompletionsCaller,
       anthropicMessagesCaller: liveProvider?.anthropicMessagesCaller,
+      geminiGenerateContentTransport: liveProvider?.geminiGenerateContentTransport,
+      allowPreviousResponseId: false,
       previousProviderResponse: state.lastProviderResponseBySession.get(state.sessionId),
       exposeProviderTools: true,
       toolContextSelection: state.toolContextSelections.get(state.sessionId),
       toolContextUsage: state.toolContextUsage.get(state.sessionId),
+      conversationWindow,
+      sessionSummary,
+      compactExecutor: options.compactExecutor,
+      preCompactGovernanceExecutor: options.preCompactGovernanceExecutor,
+      preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
+      compactContextWindowTokens: options.compactContextWindowTokens,
+      compactThresholdRatio: options.compactThresholdRatio,
       approvalResolver: approvalResolverForRun(),
       agentReviewResolver: options.agentReviewResolver,
       storage: {
@@ -3043,23 +3893,24 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       },
       sandbox: { cwd: state.cwd },
       baseToolAdapters: {
+        agent: multiagentAgentAdapter(),
         ...(options.contextArtifactAdapters ?? {}),
         ...(options.baseToolAdapters ?? {}),
-        ...(openAIResponsesCallerFor(liveProvider)
+        ...(mountOpenAIResponsesNativeAdapters
         ? {
           network: {
             ...(options.baseToolAdapters?.network ?? {}),
             nativeWebSearch: createProviderNativeSearchAdapter({
-              auth: liveProvider!.auth,
-              providerCaller: openAIResponsesCallerFor(liveProvider)!,
+              auth: nativeAdapterAuth,
+              route: openAIResponsesRoute!,
               runtimeId: state.runtimeId,
             }),
           },
-          omni: {
-            ...(options.baseToolAdapters?.omni ?? {}),
+          media: {
+            ...(options.baseToolAdapters?.media ?? {}),
             transformMedia: createOpenAIResponsesImageVisionAdapter({
-              auth: liveProvider!.auth,
-              providerCaller: openAIResponsesCallerFor(liveProvider)!,
+              auth: nativeAdapterAuth,
+              route: openAIResponsesRoute!,
               runtimeId: state.runtimeId,
               model: state.model.model,
               attachments: command.input.attachments,
@@ -3076,6 +3927,21 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           turnId,
           status: "running",
           model: state.model,
+          compressionLimitTokens: applicationCompressionLimitTokens({
+            model: state.model,
+            compactContextWindowTokens: options.compactContextWindowTokens,
+            compactThresholdRatio: options.compactThresholdRatio,
+          }),
+          conversationContext: estimateConversationContext({
+            messages: state.conversationHistory.get(state.sessionId) ?? preparedHistory.history,
+            summary: state.conversationSummaries.get(state.sessionId) ?? preparedHistory.summary,
+            model: state.model,
+            compressionLimitTokens: applicationCompressionLimitTokens({
+              model: state.model,
+              compactContextWindowTokens: options.compactContextWindowTokens,
+              compactThresholdRatio: options.compactThresholdRatio,
+            }),
+          }),
         }));
       },
       onToolCallProgress: (progress) => {
@@ -3092,32 +3958,6 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     });
     applyRunResult(state, result);
     rememberToolContextFromRun(state, result);
-    const compactedHistory = compactConversationHistory({
-      messages: [
-      ...preparedHistory.history,
-      {
-        role: "user",
-        text: command.input.text,
-        turnId,
-        createdAt: now(),
-      },
-      {
-        role: "assistant",
-        text: result.ok ? result.finalOutput : result.error.message,
-        turnId,
-        createdAt: now(),
-        status: result.ok ? "completed" : "failed",
-      },
-      ],
-      previousSummary: preparedHistory.summary,
-      now: now(),
-    });
-    state.conversationHistory.set(state.sessionId, compactedHistory.messages);
-    if (compactedHistory.summary !== undefined) {
-      state.conversationSummaries.set(state.sessionId, compactedHistory.summary);
-    } else {
-      state.conversationSummaries.delete(state.sessionId);
-    }
     if (result.ok && result.toolCalls.length > 0) {
       for (const toolCall of result.toolCalls) {
         const phase = toolCall.ok ? "completed" : "failed";
@@ -3129,6 +3969,46 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           status: state.status,
         }));
       }
+    }
+    const turnLedgerMessages = applicationLedgerMessagesFromEvents({
+      events: state.events.slice(turnEventStartIndex),
+      turnId,
+    });
+    const compactedHistory = compactConversationHistory({
+      messages: [
+      ...preparedHistory.history,
+      {
+        role: "user",
+        text: command.input.text,
+        turnId,
+        createdAt: now(),
+        messageId: `${turnId}.user`,
+        metadata: {
+          source: "application.ledger.user",
+        },
+      },
+      ...turnLedgerMessages,
+      {
+        role: "assistant",
+        text: result.ok ? result.finalOutput : result.error.message,
+        turnId,
+        createdAt: now(),
+        messageId: `${turnId}.assistant.final`,
+        causedBy: turnLedgerMessages.length > 0 ? turnLedgerMessages.at(-1)?.messageId : `${turnId}.submitted`,
+        metadata: {
+          source: "application.ledger.assistantFinal",
+        },
+        status: result.ok ? "completed" : "failed",
+      },
+      ],
+      previousSummary: preparedHistory.summary,
+      now: now(),
+    });
+    state.conversationHistory.set(state.sessionId, compactedHistory.messages);
+    if (compactedHistory.summary !== undefined) {
+      state.conversationSummaries.set(state.sessionId, compactedHistory.summary);
+    } else {
+      state.conversationSummaries.delete(state.sessionId);
     }
     const done = publish({
       eventId: `${turnId}.${result.ok ? "completed" : "failed"}`,
@@ -3143,8 +4023,14 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       },
     });
     return result.ok
-      ? { ok: true, view: view(), events: [done] }
-      : { ok: false, view: view(), events: [done], error: state.error ?? { code: "RUNTIME_FAILED", message: "runtime failed" } };
+      ? { ok: true, view: view(), events: [done], output: { text: result.finalOutput } }
+      : {
+        ok: false,
+        view: view(),
+        events: [done],
+        output: { text: result.error.message },
+        error: state.error ?? { code: "RUNTIME_FAILED", message: "runtime failed" },
+      };
   }
 
   return {
@@ -3156,6 +4042,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       return () => listeners.delete(listener);
     },
     async dispatch(command): Promise<PraxisApplicationCommandResult> {
+      if (command.type !== "application.createSession") {
+        applyCommandSession(commandSessionId(command));
+      }
+      await safeRefreshAuthState();
       switch (command.type) {
         case "application.start": {
           applyCommandSession(command.sessionId);
@@ -3175,6 +4065,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             return { ok: false, view: view(), events: [failed], error: state.error };
           }
           state.status = "ready";
+          await safeRefreshAuthState();
           const ready = publish({
             eventId: "application.ready",
             kind: "lifecycle",
@@ -3230,6 +4121,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
               maxOutputTokens: command.maxOutputTokens ?? state.model.maxOutputTokens,
             }),
           };
+          await safeRefreshAuthState();
           const changed = publish({
             eventId: "application.model.changed",
             kind: "model",
@@ -3296,6 +4188,15 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             lastActiveAt: now(),
             turns: state.turns,
           });
+          if (state.foundationProject !== undefined) {
+            await praxis.runtime.session.createPraxisSessionManager(state.foundationProject).create({
+              sessionId: state.sessionId,
+              title: command.name,
+              now: now(),
+              metadata: { source: "application.createSession" },
+            });
+          }
+          await safeRefreshAuthState();
           const created = publish({
             eventId: "application.session.created",
             kind: "lifecycle",
@@ -3399,6 +4300,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         case "application.close": {
           applyCommandSession(command.sessionId);
           state.status = "closed";
+          await state.foundationProject?.release();
           const closed = publish({
             eventId: "application.closed",
             kind: "lifecycle",
@@ -3421,11 +4323,36 @@ export async function createApplicationProjectRuntime(
 > {
   const loaded = await loadApplicationProject(projectRoot);
   if (!loaded.ok) return loaded;
+  const foundationProject = options.foundationProject ?? (
+    options.openFoundationProject === true
+      ? (await praxis.runtime.project.open({
+        cwd: loaded.project.projectRoot,
+        kind: "chat",
+        mode: "open-or-create",
+        runtimeId: options.runtimeId,
+        ownerId: options.applicationId ?? loaded.project.applicationId,
+      }))
+      : undefined
+  );
+  if (foundationProject !== undefined && !("kind" in foundationProject)) {
+    if (!foundationProject.ok) {
+      return {
+        ok: false,
+        error: foundationProject.error,
+      };
+    }
+  }
   return {
     ok: true,
     runtime: createPraxisApplicationRuntime({
       ...options,
       project: loaded.project,
+      cwd: options.cwd ?? loaded.project.projectRoot,
+      foundationProject: foundationProject === undefined
+        ? undefined
+        : "kind" in foundationProject
+          ? foundationProject
+          : foundationProject.runtime,
     }),
   };
 }

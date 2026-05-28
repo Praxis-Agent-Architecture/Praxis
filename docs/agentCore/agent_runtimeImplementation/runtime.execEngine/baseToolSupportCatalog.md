@@ -7,20 +7,20 @@
 - 所属顶层模块：运行时承托层（`agent_runtimeImplementation`）。
 - 所属路径：`agent_runtimeImplementation/runtime.execEngine`。
 - 当前文件：`baseToolSupportCatalog.ts`。
-- 角色概括：按 storage-owned baseTool 的 family/group/toolId 和 dependency 合同生成 runtime 支持目录。
+- 角色概括：按 semantic basetool catalog 的 family/group/toolId 和 runtime port 契约生成 runtime 支持目录。
 
 ## 2. 文件职责
 
-这个文件负责把已经进入 `builtinBaseToolHandlers` 的 176 个 baseTool handler 汇总成 runtime 可检查的支持目录。
+这个文件负责把 `src/basetool/catalog.ts` 中的 compact semantic basetool catalog 汇总成 runtime 可检查的支持目录。
 
-它不重新分类工具，不按 `BaseToolExecutorPort` namespace 建第二套工具层，而是读取每个 handler definition 中来自 `dependencies.ts` 的合同，形成 `family/group/toolId -> required support -> readiness` 的稳定视图。
+它不重新分类工具，不按 `BaseToolExecutorPort` namespace 建第二套工具层，而是读取每个 semantic definition 中的 `runtimePorts` / `dependencies` 契约，形成 `family/group/toolId -> required support -> readiness` 的稳定视图。
 
 ## 2.1 文件名语义拆解
 
 - 原始文件名：`baseToolSupportCatalog.ts`。
 - 命名片段：`base` / `Tool` / `Support` / `Catalog`。
 - 工程含义：这是 runtime 中 `runtime.execEngine` 表面下的 baseTool 支持目录，服务运行时检查、调试、治理和挂载解释。
-- 第一实现重点：先证明 176 个 handler 都能被目录收纳，且 `officeBase` 不混入本轮 baseTool 口径。
+- 第一实现重点：证明 24 个 semantic tools 都能被目录收纳，且 `workBase` 插件能力不混入核心 basetool 口径。
 - 边界提醒：runtime 是承托面，不应吞并 executionEngine、modelAdapter、interfaceAdapter 的内部实现。
 
 ## 3. 目录语义
@@ -30,29 +30,29 @@
 
 ## 4. 源码头部能力注释
 
-- 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / baseTool 支持目录。
-- 核心目的：按 storage-owned baseTool 的 family/group/toolId 和 dependencies.ts 合同生成 runtime 支持视图。
-- 能力要求1：需要覆盖已经进入 builtinBaseToolHandlers 的 176 个 baseTool handler。
-- 能力要求2：需要把 BaseToolExecutorPort 视为底层宿主能力插座，而不是新的 baseTool 分类法。
-- 边界：承托和治理运行态，不吞并执行引擎、模型适配器或官方模块内部实现。
-- 对接：需要服务 applicationSurface、officialModuleSurface、governancePlane、invocationMethod 和 inspection/debug 等运行面。
-- 实现提示：先补稳定类型契约、最小可测行为和清晰错误边界，再接入真实执行逻辑。
+- 文件定位：Agent 运行态实现层 / 执行引擎运行态绑定面 / semantic basetool 支持目录。
+- 核心目的：把 src/basetool 的单一事实源投影为 runtime 可检查的支持、readiness 和挂载契约目录。
+- 边界：这里只做 runtime 支持状态投影，不重新定义工具语义。
+- 对接：服务 BaseTool 挂载前置检查、reality ledger、inspection 和 application 调试面。
+- 实现提示：以 src/basetool/supportCatalog.ts 为唯一实现源，runtime.execEngine 这里只保留兼容导出。
 
 ## 5. 需要提供的能力
 
-- 生成 176 个 builtin baseTool handler 的 runtime support catalog。
+- 生成 semantic basetool runtime support catalog。
 - 按 storage family、group、toolId 暴露分类，不把 executor port 当分类主轴。
 - 从 handler definition dependencies 中提取 runtime support、permission、provider carrier、host dependency。
 - 给每个支持项标记 `available`、`unavailable`、`disabled`、`requiresApproval` 或 `notImplemented`。
 - 提供 runtime preflight：调用前判断某个 toolId 是否缺真实 executor support，区分“有函数形状”和“有真实 runtime/backend 实现”。
+- 对单个语义工具覆盖多个 runtime port 的场景支持输入敏感 preflight，例如 `mcp.resources` 的 `list` 只要求 `mcp.listResources`，`read` 才要求 `mcp.readResource`。
 - 输出总数、family 分布和 readiness 分布，供 runtime inspection/debug 使用。
 
 ## 6. 输入边界
 
 - 可选的 `BaseToolExecutorPort`，只用于判断某些 port method 是否已经挂载。
 - 可选的 `implementedPortPaths`，用于声明哪些 port 不是单纯占位/委托壳，而是当前 runtime 已真实实现或已注入 backend。
+- 可选的 `toolInput`，用于判断本次调用实际需要哪一组 runtime port。
 - 可选的 disabled / approval / status override，用于 runtime 治理和检查场景。
-- 输入不应包含 TAP office 包、用户 agent 配置或执行结果。
+- 输入不应包含 TAP work 包、用户 agent 配置或执行结果。
 
 输入边界必须窄：目录只解释当前 baseTool 支持合同，不启动工具、不访问文件系统、不读 package 源。
 
@@ -72,7 +72,8 @@
 
 ## 9. 依赖对象
 
-- `builtinBaseToolHandlers`
+- `semanticBaseToolCatalog`
+- `BaseToolDefinition.runtimePorts`
 - `BaseToolDefinition.dependencies`
 - `BaseToolExecutorPort`
 - runtime.contractSurface
@@ -92,25 +93,25 @@
 ## 11. 不应该做什么
 
 - 不要直接执行工具。
-- 不要生成 176 个手写 wrapper。
-- 不要把 `officeBase` TAP 能力混入本轮 176 baseTool catalog。
+- 不要生成大量手写 wrapper。
+- 不要把 `workBase` TAP 能力混入核心 semantic basetool catalog。
 - 不要让 port namespace 替代 `family/group/toolId` 的 storage 分类。
 
 ## 12. 最小实现建议
 
-- 以 `builtinBaseToolHandlers` 为唯一工具集合来源。
-- 从 definition 的 `toolSkill.docPath` 或 `sourcePath` 推导 storage family/group。
-- 从 dependencyId 和 description 中提取 `BaseToolExecutorPort.*` 支持项。
+- 以 `semanticBaseToolCatalog` 为唯一工具集合来源。
+- 从 semantic definition 读取 family/group/storageFamily。
+- 从 runtimePorts 和 dependencyId 中提取 `BaseToolExecutorPort.*` 支持项。
 - 对非 port 依赖保留原合同，并给出 runtime 可解释状态。
 - 在 mount 调用前使用 `evaluateBaseToolRuntimeReadiness(...)` 拦截缺真实 executor support 的工具，避免 handler 才发现 provider 不存在。
 
 ## 13. 最小测试建议
 
-- 验证 catalog 总数为 176。
-- 验证没有 `office` family。
-- 验证每个 builtin handler 都有 catalog entry。
-- 验证 `shell.commandExecution`、`git.getRepositoryStatus`、`code.read`、`search.fetch` 等典型工具能提取正确 support。
-- 验证 `mcp.connect` 这类 delegated port 在没有 declared backend 时被 preflight 判定为 blocked。
+- 验证 catalog 总数为 24。
+- 验证没有 `work` family。
+- 验证每个 semantic tool 都有 catalog entry。
+- 验证 `shell.run`、`file.read`、`file.search`、`web.fetch` 等典型工具能提取正确 support。
+- 验证 `agent.spawn` 这类 application/runtime adapter port 在没有 backend 时被 preflight 判定为 blocked。
 
 ## 14. 与系统链路的关系
 

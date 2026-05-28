@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import readline from "node:readline/promises";
@@ -6,14 +5,13 @@ import { stdin as input, stdout as output } from "node:process";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import type { OpenAIV1ResponsesProviderCaller } from "../../src/modelAdapter/actualInvocationLayer/openai/v1_responses.js";
-import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
-import type { AuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authEnvelope.js";
-import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
-import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
-import { createProviderCaller } from "../../src/modelAdapter/providerAccessLayer/providerCaller.js";
-import { createChatGPTCodexResponsesCarrier } from "../../src/modelAdapter/providerAccessLayer/providerCarrier.js";
-import { fetchProviderTransport } from "../../src/modelAdapter/providerAccessLayer/transportCaller.js";
+import {
+  createRaxModelClient,
+  openAIProvider,
+  type RaxAuthRef,
+  type RaxModelClient,
+} from "../../src/modelAdapter/index.js";
+import { callModelAdapterPrompt } from "./modelAdapterPromptClient.js";
 import {
   createFullShellExecutor,
   invokeShellToolThroughRuntimeChain,
@@ -66,9 +64,6 @@ const autoApprovePublicSafe = args.has("--auto-approve-public-safe");
 const oneShot = args.has("--one-shot");
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
-const codexAuthPath = process.env.AGENTCORE_CODEX_AUTH_FILE
-  ?? path.join(process.env.CODEX_HOME ?? path.join(process.env.HOME ?? "", ".codex"), "auth.json");
-const chatgptCodexClientVersion = process.env.AGENTCORE_CODEX_CLIENT_VERSION ?? "0.118.0";
 const model = process.env.AGENTCORE_CODEX_MODEL ?? process.env.OPENAI_SMOKE_MODEL ?? "gpt-5.5";
 const maxOutputTokens = Number(process.env.OPENAI_AGENTCORE_MAX_OUTPUT_TOKENS ?? "768");
 const reasoningEffort =
@@ -92,8 +87,8 @@ type CompiledChatAgent = {
 };
 
 type ExampleLiveProvider = {
-  auth: AuthEnvelope;
-  providerCaller: OpenAIV1ResponsesProviderCaller;
+  auth: RaxAuthRef;
+  modelClient: RaxModelClient;
   authSource: string;
 };
 
@@ -124,8 +119,6 @@ function exampleAgentOptions(): Readonly<Record<string, unknown>> {
     persistence: args.has("--sqlite") ? "sqlite" : "memory",
     includeShell: args.has("--shell") || args.has("--all-testable"),
     includeSkillAuthoring: args.has("--skill-authoring") || args.has("--all-testable"),
-    includeOmni: args.has("--omni") || args.has("--all-testable"),
-    includeComputerUse: args.has("--computeruse") || args.has("--all-testable"),
     includeAllTestable: args.has("--all-testable"),
   };
 }
@@ -186,44 +179,19 @@ async function compileExampleAgent(target: string): Promise<CompiledChatAgent> {
 }
 
 function createExampleLiveProvider(manifest: AgentManifest): ExampleLiveProvider {
-  const credentialRef = createCredentialRef({
-    id: `agentcore-chat:${manifest.identity.id}:chatgpt-codex`,
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) {
-    throw new Error(`credentialRef failed: ${JSON.stringify(credentialRef.error)}`);
+  const baseRoute = openAIProvider.routes[0];
+  if (baseRoute === undefined) {
+    throw new Error("openAIProvider has no routes");
   }
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) {
-    throw new Error(`auth failed: ${JSON.stringify(auth.error)}`);
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: manifest.model.carrierId,
-    model: manifest.model.model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: manifest.model.clientName ?? "praxis-agentcore-example-chat",
-    clientVersion: manifest.model.clientVersion ?? chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) {
-    throw new Error(`carrier failed: ${JSON.stringify(carrier.error)}`);
-  }
+  const modelClient = createRaxModelClient([
+    { ...baseRoute, id: manifest.model.carrierId, providerId: manifest.model.provider },
+    baseRoute,
+  ]);
 
   return {
-    auth: auth.resolved.envelope,
-    providerCaller: createProviderCaller({
-      transport: fetchProviderTransport,
-      authMaterial: auth.resolved.privateMaterial,
-      timeoutMs: 60_000,
-    }),
-    authSource: codexAuthPath,
+    auth: { type: "api_key", env: process.env.AGENTCORE_MODEL_API_KEY_ENV ?? "OPENAI_API_KEY" },
+    modelClient,
+    authSource: process.env.AGENTCORE_MODEL_API_KEY_ENV ?? "OPENAI_API_KEY",
   };
 }
 
@@ -233,106 +201,6 @@ function assertOk<T extends { ok: boolean }>(label: string, result: T): Extract<
   }
 
   throw new Error(`${label} failed: ${JSON.stringify(result)}`);
-}
-
-function extractSseText(text: string): string {
-  const deltas: string[] = [];
-  const completed: string[] = [];
-
-  for (const line of text.split(/\r?\n/u)) {
-    if (!line.startsWith("data:")) {
-      continue;
-    }
-
-    const payload = line.slice("data:".length).trim();
-    if (payload.length === 0 || payload === "[DONE]") {
-      continue;
-    }
-
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(payload) as unknown;
-    } catch {
-      continue;
-    }
-
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-      continue;
-    }
-
-    const record = parsed as Record<string, unknown>;
-    if (typeof record.delta === "string") {
-      deltas.push(record.delta);
-    }
-
-    if (record.type === "response.completed" && record.response !== undefined) {
-      const responseText = extractResponseText(record.response);
-      if (responseText.trim().length > 0) {
-        completed.push(responseText);
-      }
-    }
-  }
-
-  return deltas.join("").trim() || completed.join("\n").trim();
-}
-
-function extractResponseText(response: unknown): string {
-  if (typeof response === "string") {
-    return extractSseText(response) || response;
-  }
-
-  if (typeof response !== "object" || response === null) {
-    return String(response);
-  }
-
-  const record = response as Record<string, unknown>;
-  if (typeof record.output_text === "string" && record.output_text.trim().length > 0) {
-    return record.output_text.trim();
-  }
-
-  const outputValue = record.output;
-  if (Array.isArray(outputValue)) {
-    const parts: string[] = [];
-    for (const item of outputValue) {
-      if (typeof item !== "object" || item === null) {
-        continue;
-      }
-
-      const itemRecord = item as Record<string, unknown>;
-      const contentValue = itemRecord.content;
-      if (!Array.isArray(contentValue)) {
-        continue;
-      }
-
-      for (const content of contentValue) {
-        if (typeof content !== "object" || content === null) {
-          continue;
-        }
-
-        const contentRecord = content as Record<string, unknown>;
-        const text = contentRecord.text ?? contentRecord.output_text;
-        if (typeof text === "string" && text.trim().length > 0) {
-          parts.push(text.trim());
-        }
-      }
-    }
-
-    if (parts.length > 0) {
-      return parts.join("\n");
-    }
-  }
-
-  const choicesValue = record.choices;
-  if (Array.isArray(choicesValue)) {
-    const first = choicesValue[0] as Record<string, unknown> | undefined;
-    const message = first?.message as Record<string, unknown> | undefined;
-    const content = message?.content ?? first?.text;
-    if (typeof content === "string" && content.trim().length > 0) {
-      return content.trim();
-    }
-  }
-
-  return JSON.stringify(response, null, 2);
 }
 
 function parseJsonObject(text: string): unknown {
@@ -409,25 +277,21 @@ function normalizeFallbackToolArguments(toolId: string, argsValue: unknown, user
   context.guard = { allowed: true, accepted: true, reason: "agentCore example chat text fallback" };
   context.grantedPermissions = ["filesystem:read", "git:read", "tool.execute"];
   argsRecord.context = context;
-  if (toolId === "code.read") {
-    const targetPath = firstNonBlankString(argsRecord.targetPath, argsRecord.path, argsRecord.file, inferPathFromText(userText));
-    if (targetPath !== undefined) {
-      argsRecord.targetPath = targetPath;
+  if (toolId === "file.read") {
+    const path = firstNonBlankString(argsRecord.path, argsRecord.targetPath, argsRecord.file, inferPathFromText(userText));
+    if (path !== undefined) {
+      argsRecord.path = path;
     }
   }
-  if (toolId === "code.scan") {
-    const directoryPath = firstNonBlankString(argsRecord.directoryPath, argsRecord.path, inferPathFromText(userText)?.split("/").slice(0, -1).join("/"));
-    if (directoryPath !== undefined) {
-      argsRecord.directoryPath = directoryPath;
+  if (toolId === "file.search") {
+    const query = firstNonBlankString(argsRecord.query, argsRecord.pattern, argsRecord.q);
+    if (query !== undefined) {
+      argsRecord.query = query;
     }
-  }
-  if (toolId === "git.getRepositoryStatus") {
-    const target = isRecord(argsRecord.target) ? { ...argsRecord.target } : {};
-    target.repositoryPath ??= architectureRoot;
-    argsRecord.target = target;
-    const context = isRecord(argsRecord.context) ? { ...argsRecord.context } : {};
-    context.grantedPermissions ??= ["git:read", "filesystem:read"];
-    argsRecord.context = context;
+    const cwd = firstNonBlankString(argsRecord.cwd, argsRecord.directoryPath, argsRecord.path, inferPathFromText(userText)?.split("/").slice(0, -1).join("/"));
+    if (cwd !== undefined) {
+      argsRecord.cwd = cwd;
+    }
   }
   return argsRecord;
 }
@@ -515,10 +379,10 @@ function parseFallbackToolCalls(text: string, mountedToolIds: readonly string[],
 function inferFallbackToolCallsFromUserText(userText: string, mountedToolIds: readonly string[]): readonly FallbackToolCall[] {
   const mounted = new Set(mountedToolIds);
   const inferredPath = inferPathFromText(userText);
-  if (inferredPath !== undefined && mounted.has("code.read")) {
+  if (inferredPath !== undefined && mounted.has("file.read")) {
     return [{
-      toolId: "code.read",
-      arguments: normalizeFallbackToolArguments("code.read", { targetPath: inferredPath }, userText),
+      toolId: "file.read",
+      arguments: normalizeFallbackToolArguments("file.read", { path: inferredPath }, userText),
     }];
   }
   return [];
@@ -566,7 +430,7 @@ async function invokeFallbackTool(
       "tool.execute",
       `tool.${toolCall.toolId}`,
       toolCall.toolId,
-      "code.read",
+      "file.read",
       "git:read",
       "filesystem:read",
     ],
@@ -705,7 +569,7 @@ async function summarizeManagedTerminalFollowup(
     allowProviderCall: true,
     allowToolExecution: false,
     auth: provider.auth,
-    providerCaller: provider.providerCaller,
+    modelClient: provider.modelClient,
     storage: { cwd: architectureRoot, initMode: "on-run" },
     sandbox: { cwd: architectureRoot, failOnUnavailable: false },
     exposeProviderTools: false,
@@ -735,7 +599,7 @@ async function summarizeNativeToolNoTextOutput(
     allowProviderCall: true,
     allowToolExecution: false,
     auth: provider.auth,
-    providerCaller: provider.providerCaller,
+    modelClient: provider.modelClient,
     storage: { cwd: architectureRoot, initMode: "on-run" },
     sandbox: { cwd: architectureRoot, failOnUnavailable: false },
     exposeProviderTools: false,
@@ -764,7 +628,7 @@ function renderPrompt(history: readonly ChatMessage[], userText: string): string
     `可用工具：${shellLiveToolIds.join(", ")}`,
     "用户问你可以使用什么工具时，直接列出这些工具和用途，不要调用工具。",
     "需要调用工具时，必须只返回 JSON，不要解释：",
-    "{\"tool_calls\":[{\"tool\":\"shell.commandExecution\",\"arguments\":{\"command\":\"pwd\",\"args\":[],\"cwd\":\"/workspace/project\",\"timeoutMs\":10000}}]}",
+    "{\"tool_calls\":[{\"tool\":\"shell.run\",\"arguments\":{\"command\":\"pwd\",\"cwd\":\"/workspace/project\",\"timeoutMs\":10000}}]}",
     "如果用户指定某个 shell.* 工具但没有给完整参数，可以按内置测试样例生成无害参数。",
     "安全规则：真实本机命令只允许无害读取类命令；process/session/resource/background/detached/interactive 类能力由 runtime-owned fake executor 模拟，不直接操作真实危险资源。",
     "如果不需要工具，就正常回答。",
@@ -777,72 +641,7 @@ function renderPrompt(history: readonly ChatMessage[], userText: string): string
 }
 
 async function callResponsesApi(prompt: string, instructions = "你是 Praxis agentCore 的交互测试对话体。请用简体中文回答，保持简洁、清楚、可执行。"): Promise<string> {
-  const credentialRef = createCredentialRef({
-    id: "agentcore-chat-chatgpt-codex",
-    provider: "openai",
-    credentialType: "chatgpt_codex_oauth",
-    source: { kind: "codex-auth-file", filePath: codexAuthPath },
-  });
-  if (!credentialRef.ok) {
-    throw new Error(JSON.stringify(credentialRef.error));
-  }
-
-  const auth = resolveAuthEnvelope({
-    credentialRef: credentialRef.credentialRef,
-    readFile: (filePath) => readFileSync(filePath, "utf8"),
-  });
-  if (!auth.ok) {
-    throw new Error(JSON.stringify(auth.error));
-  }
-
-  const carrier = createChatGPTCodexResponsesCarrier({
-    carrierId: "chatgpt-codex.responses.agentcore-chat",
-    model,
-    reasoning: { effort: reasoningEffort },
-    credentialRef: credentialRef.credentialRef,
-    clientName: "praxis-agentcore-chat",
-    clientVersion: chatgptCodexClientVersion,
-  });
-  if (!carrier.ok) {
-    throw new Error(JSON.stringify(carrier.error));
-  }
-
-  const caller = createProviderCaller({
-    transport: fetchProviderTransport,
-    authMaterial: auth.resolved.privateMaterial,
-    timeoutMs: 60_000,
-  });
-
-  const result = await invokeChatGPTCodexResponses({
-    operation: "create",
-    baseUrl: carrier.carrier.baseURL,
-    auth: auth.resolved.envelope,
-    runtime: {
-      runtimeId: "agentcore-chat-runtime",
-      invocationId: `agentcore-chat-${Date.now()}`,
-      callerId: "agentcore-chat",
-    },
-    governance: { accepted: true },
-    dryRun: false,
-    caller,
-    headers: { "content-type": "application/json" },
-    clientName: "praxis-agentcore-chat",
-    clientVersion: chatgptCodexClientVersion,
-    expectResponseObject: false,
-    body: {
-      model,
-      instructions,
-      input: prompt,
-      reasoning: { effort: reasoningEffort },
-      max_output_tokens: maxOutputTokens,
-    },
-  });
-
-  if (!result.ok) {
-    throw new Error(JSON.stringify(result.error));
-  }
-
-  return extractResponseText(result.response.raw);
+  return await callModelAdapterPrompt(prompt, instructions, { model, reasoningEffort, maxOutputTokens });
 }
 
 async function invokeRegistryShellTool(context: RuntimeContext, toolCall: LiveToolCall) {
@@ -1094,11 +893,10 @@ async function runChat(): Promise<void> {
           model,
           reasoningEffort,
           modelProfile,
-        auth: "codex-cli-chatgpt",
-        codexAuthPath,
-        tools: shellLiveToolIds,
-        samplePrompts: shellLiveToolCases.slice(0, 5).map((testCase) => testCase.userPrompt),
-        workspaceRoot: architectureRoot,
+          auth: process.env.AGENTCORE_MODEL_API_KEY_ENV ?? "OPENAI_API_KEY",
+          tools: shellLiveToolIds,
+          samplePrompts: shellLiveToolCases.slice(0, 5).map((testCase) => testCase.userPrompt),
+          workspaceRoot: architectureRoot,
           turns: history.length / 2,
         }, null, 2));
         output.write("you> ");
@@ -1137,19 +935,19 @@ function renderExampleTask(history: readonly ChatMessage[], userText: string): s
     "如果需要工具，只能通过当前 AgentManifest 声明的 runtime/baseTool 链路。",
     "当前 agent 若处于 bapr/yolo policy，用户已经把开发实测授权给 runtime；遇到可执行工具时直接调用工具，不要先用 praxis_request_approval 自我阻塞。",
     "重要边界：AgentManifest 中的工具表示“已声明/已挂载”，不等于当前宿主已经具备真实 provider 或依赖。",
-    "当用户询问“可以正常使用的工具”时，必须区分 mounted/catalog tools 与 verified executable tools；不能把未验证的 computeruse、omni、mcp、GUI 自动化能力说成已经正常可用。",
+    "当用户询问“可以正常使用的工具”时，必须区分 mounted/catalog tools 与 verified executable tools；不能把未验证的 computer、media、mcp、GUI 自动化能力说成已经正常可用。",
     "只有工具观察结果明确 ok 且没有 providerUnavailable、approvalRequired、executed:false、dry-run、prepared-only 等语义时，才可以说动作已经完成。",
     "对于打开 GUI 应用、向窗口输入、鼠标键盘模拟、摄像头/麦克风/屏幕录制等桌面动作，必须先调用对应工具并根据工具结果报告；没有真实 provider 时要报告缺口，不得声称已打开或已输入。",
     "当用户要求“可视化终端/工作焦点/输入命令”时，启动动作必须获得或记录一个可寻址的 runtime 终端目标；如果只有 GUI 终端窗口但没有 session/pty/terminal id，后续不能当作稳定输入目标。",
-    "在当前 Linux runtime 中，如果还没有专门的 terminal.openManagedSession 工具，但 shell.commandExecution 和 computeruse.keyboard* 可用，可用 shell 创建唯一 tmux session 并启动 GUI 终端 attach 到该 session；后续用同一个 targetHint（如 tmux:<session>）输入，并用 tmux capture-pane 观察终端输出。",
+    "在当前 Linux runtime 中，如果还没有专门的 terminal.openManagedSession 工具，但 shell.run 和 computer.keyboard* 可用，可用 shell 创建唯一 tmux session 并启动 GUI 终端 attach 到该 session；后续用同一个 targetHint（如 tmux:<session>）输入，并用 tmux capture-pane 观察终端输出。",
     "创建受控可视化终端时只允许启动一个空 shell/交互 shell 会话，不要在创建命令里直接运行 codex、编辑器或用户后续命令；创建后必须先 capture-pane 验证该 tmux session 存在且仍在 shell prompt，再继续输入。",
     "执行用户给出的终端步骤必须严格按顺序：先确认 shell prompt，再输入 cd/目录命令并提交，再 capture 验证目录已切换，再输入 codex --yolo 并提交，再处理 Codex UI 提示，最后才向 Codex 输入问题。任何一步 capture 失败或 target 不存在，都要停下报错，不要继续向不确定目标输入。",
-    "用户要求“键入/输入/Enter/提交”时，shell 只可负责创建/观察受控会话；实际文字输入和 Enter 必须优先调用 computeruse.keyboardInputEmulation / computeruse.keyboardSubmitInput，不要用 `tmux send-keys` 替代 keyboard BaseTool。",
+    "用户要求“键入/输入/Enter/提交”时，shell 只可负责创建/观察受控会话；实际文字输入和 Enter 必须优先调用 computer.keyboardInputEmulation / computer.keyboardSubmitInput，不要用 `tmux send-keys` 替代 keyboard BaseTool。",
     "如果终端里出现数字菜单或升级提示，优先用 keyboardInputEmulation 输入菜单数字，再用 keyboardSubmitInput 提交；只有需要方向键等快捷键时才使用 keyboardEmulation，并且 actions 必须是对象数组。",
     "受控终端输入必须带同一个显式 targetHint（例如 runtime 返回的 tmux:<session>、pty:<session> 或 terminal:<session>）；输入应保持原文、绕过输入法和焦点漂移，具体 provider、session、终端应用和平台命令由 runtime 工具发现/返回结果决定，不要在 prompt 中臆造固定实现。",
     "如果你在受控终端里启动了 Codex、Claude、编辑器、测试进程或任何长任务，看到 capture-pane 尾部仍有 Working、Searching、Running、esc to interrupt 等进行中标记时，本轮还没有完成；必须继续观察或明确报告仍在运行，禁止输出空结果或说已完成。",
     "对子 Codex 的问答/比对任务，最终答复必须包含从受控终端抓到的子 Codex 完整答案或明确说明仍未完成；不能只说命令已发送。",
-    "实时行情、新闻、价格等必须有真实来源证据；search.nativeSearch/search.searchEngine 如果只返回 prepared、sources 为空或 liveRankedResults:false，不算完成。此时应改用 search.fetch 抓取明确 URL，或用 shell.commandExecution 调用公开 HTTPS API 并引用返回字段。",
+    "实时行情、新闻、价格等必须有真实来源证据；web.search 如果只返回 prepared、sources 为空或 liveRankedResults:false，不算完成。此时应改用 web.fetch 抓取明确 URL，或用 shell.run 调用公开 HTTPS API 并引用返回字段。",
     "如果只能使用桌面键鼠模拟，必须明确说明它依赖当前焦点和系统输入法；如果需要稳定工作终端但 runtime 没有受控 PTY/terminal provider，应报告缺口。",
     transcript.length > 0 ? `已有对话：\n${transcript}` : "",
     `当前用户输入：\n${userText}`,
@@ -1244,7 +1042,7 @@ async function runExampleChat(target: string): Promise<void> {
         allowProviderCall: true,
         allowToolExecution: true,
         auth: provider.auth,
-        providerCaller: provider.providerCaller,
+        modelClient: provider.modelClient,
         storage: { cwd: architectureRoot, initMode: "on-run" },
         sandbox: { cwd: architectureRoot, failOnUnavailable: false },
         exposeProviderTools,
@@ -1297,7 +1095,7 @@ async function runExampleChat(target: string): Promise<void> {
             allowProviderCall: true,
             allowToolExecution: false,
             auth: provider.auth,
-            providerCaller: provider.providerCaller,
+            modelClient: provider.modelClient,
             storage: { cwd: architectureRoot, initMode: "on-run" },
             sandbox: { cwd: architectureRoot, failOnUnavailable: false },
             exposeProviderTools: false,

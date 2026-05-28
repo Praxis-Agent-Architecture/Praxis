@@ -39,13 +39,15 @@
 - 调用 `runtime.modelAdapter.modelInvocationRuntime` 的 codex responses live path。
 - 通过 `invokeMountedBaseTool` 进入 registry/handler/executor 链。
 - 把 model/tool/io/state/event 写入 session store。
+- 在 context compact threshold 触发后，可先运行 `preCompactGovernanceExecutor`，对 `projectContext` 与 `sessionSummary` 做 compact 前一次性治理，再把治理结果交给 `CompactExecutor` 和重建后的 PromptPack。
 
 ## 6. 输入边界
 
 - 输入是 `AgentManifest` 或 `PraxisAgent` 加 text task。
-- live model 必须显式传入 auth、providerCaller、`allowProviderCall` 和 `dryRun:false`。
+- live model 必须显式传入 auth、modelClient、`allowProviderCall` 和 `dryRun:false`。
 - 工具执行走 manifest policy 与 runtime executor，不能绕过 BaseTool mount。
 - promptPack 当前只是 runtime shim，等待用户单独设计。
+- `preCompactGovernanceExecutor` 是可注入应用能力；未配置或治理失败时不能阻断 compact。
 
 ## 7. 输出边界
 
@@ -80,12 +82,13 @@
 - 不重做 `basic_toolLayer`。
 - 不把 promptPack 终局策略写死。
 - 不加厚 mainLoop/coreLogic 动作原语。
-- 不把 MCP/computeruse/omni 高级策略放进 kernel。
+- 不把 MCP/computer/media 高级策略放进 kernel。
+- 不把 preCompactGovernance 扩展成常驻 CMP、RAG 或 memory agent。
 
 ## 12. 最小实现建议
 
 - 第一版只支持 text input/output、codex responses、一次工具调用回填。
-- 保持 providerCaller 和 executor 可注入，方便测试和未来应用宿主接管。
+- 保持 modelClient 和 executor 可注入，方便测试和未来应用宿主接管。
 - 等 promptPack 和 mainLoop 审计完成后，把 shim 替换为正式 surface。
 
 ## 13. 最小测试建议

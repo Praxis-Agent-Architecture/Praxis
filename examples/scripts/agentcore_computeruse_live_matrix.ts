@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import type { BaseToolExecutorPort } from "../../src/basetool/types.js";
+import { createBaseToolRegistry } from "../../src/basetool/registry.js";
+import { adaptRuntimeToolInvocation } from "../../src/basetool/invocationAdapter.js";
 import { invokeChatGPTCodexResponses } from "../../src/modelAdapter/actualInvocationLayer/openai/chatgpt_codex_responses.js";
 import { resolveAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authResolver.js";
 import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";

@@ -7,6 +7,8 @@ export type {
   PraxisApplicationAttachment,
   PraxisApplicationAgentEntryView,
   PraxisApplicationAuxiliaryTaskInput,
+  PraxisApplicationAuthProfileView,
+  PraxisApplicationAuthState,
   PraxisApplicationCommand,
   PraxisApplicationCommandResult,
   PraxisApplicationContextTelemetry,
@@ -38,6 +40,8 @@ export {
   createPraxisApplicationRuntime,
   type PraxisApplicationBaseToolIntegrationOptions,
   type CreateApplicationProjectRuntimeOptions,
+  type PraxisApplicationInitialConversation,
+  type PraxisApplicationInitialConversationMessage,
   type PraxisApplicationLiveProvider,
   type PraxisApplicationRuntimeOptions,
 } from "./applicationRuntime.js";

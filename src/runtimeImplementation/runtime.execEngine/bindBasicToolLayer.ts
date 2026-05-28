@@ -27,15 +27,18 @@ export const DEFAULT_BASIC_TOOL_LAYER_BINDING_CAPABILITIES = [
 ] as const;
 
 export const DEFAULT_BASIC_TOOL_LAYER_KINDS = [
-  "code",
+  "file",
+  "patch",
   "shell",
-  "git",
-  "mcp",
-  "computeruse",
-  "office",
-  "omni",
-  "search",
+  "process",
+  "web",
+  "plan",
+  "user",
   "skill",
+  "context",
+  "mcp",
+  "agent",
+  "tool",
 ] as const;
 
 function cleanList(values: readonly string[] | undefined): readonly string[] {

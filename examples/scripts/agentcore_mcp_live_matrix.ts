@@ -1,6 +1,6 @@
-import type { BaseToolExecutorPort, BaseToolExecutorResult } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import type { BaseToolExecutorPort, BaseToolExecutorResult } from "../../src/basetool/types.js";
+import { createBaseToolRegistry } from "../../src/basetool/registry.js";
+import { adaptRuntimeToolInvocation } from "../../src/basetool/invocationAdapter.js";
 import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
 
 const args = process.argv.slice(2);

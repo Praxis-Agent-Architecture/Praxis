@@ -6,9 +6,10 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { providePromptPackInput } from "../../src/executionEngine/promptPack/promptProvider.js";
-import type { BaseToolExecutorPort } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolExecutorPort.js";
-import { createBaseToolRegistry } from "../../src/executionEngine/basic_toolLayer/baseTools/baseToolRegistry.js";
-import { adaptRuntimeToolInvocation } from "../../src/executionEngine/basic_toolLayer/invocationAdapter.js";
+import { semanticBaseToolCatalog } from "../../src/basetool/catalog.js";
+import type { BaseToolExecutorPort } from "../../src/basetool/types.js";
+import { createBaseToolRegistry } from "../../src/basetool/registry.js";
+import { adaptRuntimeToolInvocation } from "../../src/basetool/invocationAdapter.js";
 import { mountAgentApplication } from "../../src/runtimeImplementation/runtime.applicationSurface/agentApplicationMount.js";
 import { createAgentApplicationRuntime } from "../../src/runtimeImplementation/runtime.applicationSurface/agentApplicationRuntime.js";
 import { createAgentRuntimeClient } from "../../src/runtimeImplementation/runtime.applicationSurface/agentRuntimeClient.js";
@@ -72,10 +73,6 @@ type AgentCoreRuntimeAssembly = {
 const scriptPath = fileURLToPath(import.meta.url);
 const architectureRoot = path.resolve(path.dirname(scriptPath), "../..");
 const repoRoot = path.resolve(architectureRoot, "..");
-const baseToolsRoot = path.join(
-  architectureRoot,
-  "src/executionEngine/basic_toolLayer/baseTools",
-);
 const localEnvPath = path.join(architectureRoot, ".env.agentcore.local");
 
 function loadLocalEnvFile(): void {
@@ -257,36 +254,13 @@ function assertOk<T extends { ok: boolean }>(label: string, result: T): Extract<
 }
 
 function discoverToolCatalog(): ToolDefinition[] {
-  const tools: ToolDefinition[] = [];
-
-  function walk(directory: string): void {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolutePath = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        walk(absolutePath);
-        continue;
-      }
-
-      if (!entry.isFile() || !entry.name.endsWith(".ts")) {
-        continue;
-      }
-
-      const relativeToBase = path.relative(baseToolsRoot, absolutePath).split(path.sep).join("/");
-      const family = relativeToBase.split("/")[0] ?? "unknown";
-      const basename = entry.name.slice(0, -".ts".length);
-      tools.push({
-        toolId: basename,
-        sourcePath: path.relative(repoRoot, absolutePath).split(path.sep).join("/"),
-        family,
-      });
-    }
-  }
-
-  if (existsSync(baseToolsRoot)) {
-    walk(baseToolsRoot);
-  }
-
-  return tools.sort((left, right) => left.toolId.localeCompare(right.toolId));
+  return semanticBaseToolCatalog
+    .map((definition) => ({
+      toolId: definition.toolId,
+      sourcePath: definition.sourcePath ?? `src/basetool/catalog.ts#${definition.toolId}`,
+      family: definition.storageFamily,
+    }))
+    .sort((left, right) => left.toolId.localeCompare(right.toolId));
 }
 
 function toCapabilityDescriptor(tool: ToolDefinition): RuntimeCapabilityDescriptor {

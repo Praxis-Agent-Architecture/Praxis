@@ -1,3 +1,8 @@
+/*
+ * Legacy compatibility shim.
+ * Current semantic basetool registry lives in src/basetool.
+ */
+
 export {
   baseToolRegistryDescriptor,
   builtinBaseToolHandlers,

@@ -64,6 +64,18 @@ test("rax devdoctor runs a local applicationLayer backend and records artifacts"
   ]);
   assert.equal(cacheXray.exitCode, 0);
   assert.match(cacheXray.output, /Cache xray:/);
+
+  const monitor = await runRaxCli([
+    "devdoctor",
+    "monitor",
+    "--run",
+    "latest",
+    "--devdoctor-dir",
+    devdoctorDir,
+  ]);
+  assert.equal(monitor.exitCode, 0);
+  assert.match(monitor.output, /Execution monitor:/);
+  assert.match(monitor.output, /Weighted cache hit:/);
 });
 
 test("rax devdoctor can attach to an existing REST applicationLayer backend", async () => {
