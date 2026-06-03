@@ -143,6 +143,18 @@ export const officialDependencySources = [
     versionCommand: { command: "rg", args: ["--version"] },
   }),
   source({
+    dependencyId: "dependency.binary.raxcell",
+    sourceId: "official:detect:raxcell",
+    displayName: "Raxcell sandbox provider",
+    kind: "binary",
+    safety: "trusted-detect-only",
+    packageManager: "detect-only",
+    executableName: "raxcell",
+    versionCommand: { command: "raxcell", args: ["--version"] },
+    supportedPlatforms: ["linux"],
+    installInstructions: "Install or build Raxcell, then set RAXCELL_BIN to the provider binary path when Praxis should use the CLI provider.",
+  }),
+  source({
     dependencyId: "dependency.binary.bwrap",
     sourceId: "official:detect:bwrap",
     displayName: "bubblewrap",

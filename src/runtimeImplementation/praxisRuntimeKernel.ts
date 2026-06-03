@@ -184,6 +184,10 @@ import {
   type SandboxRuntimePrepareResult,
 } from "./runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import type { SandboxRemoteWorkerAdapter } from "./runtime.sandboxPlane/sandboxCommandRunner.js";
+import type {
+  SandboxExecutionProviderPort,
+  SandboxPolicyMiddlewareAuditEvent,
+} from "./runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import {
   buildMcpServerProfilesFromManifest,
   mcp,
@@ -272,6 +276,7 @@ export type PraxisRuntimeKernelOptions = {
     cwd?: string;
     runSmoke?: boolean;
     failOnUnavailable?: boolean;
+    provider?: SandboxExecutionProviderPort;
     remoteWorker?: SandboxRemoteWorkerAdapter;
   };
   onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void | Promise<void>;
@@ -3138,6 +3143,7 @@ async function prepareKernelSandbox(input: {
   const sandbox = await prepareSandboxRuntime(input.manifest.sandbox, {
     cwd: input.options.sandbox?.cwd ?? input.storageRuntime.layout.workspace.root,
     runSmoke: input.options.sandbox?.runSmoke ?? false,
+    providerReady: input.options.sandbox?.provider !== undefined,
   });
   input.events.push(...sandbox.events);
   await input.store.appendEvent(event(
@@ -4654,6 +4660,16 @@ export class PraxisRuntimeKernel {
       sandboxSpec: manifest.sandbox,
       preparedSandbox: sandboxPrepared.sandbox,
       policyProfile: manifest.toolPolicy.profile,
+      sandboxProvider: options.sandbox?.provider,
+      sandboxAudit: async (sandboxEvent: SandboxPolicyMiddlewareAuditEvent) => {
+        await store.appendEvent(event(
+          sessionId,
+          `event:sandbox:${sandboxEvent.actionId}:${sandboxEvent.type}`,
+          sandboxEvent.type,
+          now(),
+          { sandbox: sandboxEvent },
+        ));
+      },
       remoteSandboxWorker: options.sandbox?.remoteWorker,
       mcpServers: [
         ...buildMcpServerProfilesFromManifest(manifest),

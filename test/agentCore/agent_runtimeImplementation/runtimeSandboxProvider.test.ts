@@ -27,7 +27,7 @@ test("sandbox helpers compile into provider-aware manifest fields", () => {
   assert.equal(result.manifest.sandbox.profile, "linux-bubblewrap");
   assert.equal(result.manifest.sandbox.providerFamily, "linux-bubblewrap");
   assert.equal(result.manifest.sandbox.isolationLevel, "process-namespace");
-  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["dependency.binary.bwrap"]);
+  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["dependency.binary.raxcell"]);
   assert.equal(result.manifest.sandbox.resourceLimits.maxProcesses, 4);
   assert.equal(result.manifest.sandbox.resourceLimits.memoryWarningPercent, 85);
   assert.equal(result.manifest.sandbox.metadata?.providerVersion, "v2");
@@ -80,32 +80,48 @@ test("sandbox runtime provider probes and smoke-tests linux bubblewrap when avai
 
   if (prepared.probe.status === "missingDependency") {
     assert.equal(prepared.ready, false);
-    assert.deepEqual(prepared.probe.missingDependencies, ["dependency.binary.bwrap"]);
-    assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "dependency.binary.bwrap"), true);
-    assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "installDependency"), true);
+    assert.deepEqual(prepared.probe.missingDependencies, ["dependency.binary.raxcell"]);
+    assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "dependency.binary.raxcell"), true);
+    assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "manualProviderSetup"), true);
     assert.equal(prepared.probe.dependencyInstallEnvelopes.some((envelope) =>
-      envelope.dependencyId === "dependency.binary.bwrap" &&
+      envelope.dependencyId === "dependency.binary.raxcell" &&
       envelope.requiresApproval &&
       envelope.approvalSurface === "interface/application"
     ), true);
-    assert.equal(prepared.probe.nextAction, "installDependency");
-    return;
-  }
-
-  if (prepared.smoke?.status === "failed") {
-    assert.equal(prepared.ready, false);
-    assert.match(prepared.smoke.publicSafeMessage, /bubblewrap/);
+    assert.equal(prepared.probe.nextAction, "manualProviderSetup");
     return;
   }
 
   assert.equal(prepared.ready, true);
-  assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "dependency.binary.bwrap" && check.status === "available"), true);
+  assert.equal(prepared.probe.dependencyChecks.some((check) => check.dependencyId === "dependency.binary.raxcell" && check.status === "available"), true);
   assert.equal(prepared.probe.selfRepairHints.some((hint) => hint.action === "none"), true);
-  assert.equal(prepared.smoke?.status, "passed");
-  assert.equal(prepared.smoke?.checks?.every((check) => check.status === "passed"), true);
-  assert.equal(prepared.smoke?.metadata.networkMode, "denied");
-  assert.equal(prepared.smoke?.metadata.deviceExposure, "minimal");
-  assert.equal(typeof prepared.smoke?.metadata.sandboxRoot, "string");
+  assert.equal(prepared.smoke?.status, "skipped");
+  assert.match(prepared.smoke?.publicSafeMessage ?? "", /Raxcell/);
+});
+
+test("sandbox runtime provider accepts an injected Raxcell provider as linux readiness", async () => {
+  const spec = sandbox.linuxBubblewrap({ resourceLimits: { timeoutMs: 5_000 } });
+  const prepared = await praxis.sandboxPlane.prepareSandboxRuntime(spec, {
+    cwd: process.cwd(),
+    providerReady: true,
+    runSmoke: true,
+  });
+
+  if (process.platform !== "linux") {
+    assert.equal(prepared.ready, false);
+    assert.equal(prepared.probe.status, "unsupportedPlatform");
+    return;
+  }
+
+  assert.equal(prepared.ready, true);
+  assert.equal(prepared.probe.status, "available");
+  assert.equal(prepared.probe.metadata.injectedProvider, true);
+  assert.deepEqual(prepared.probe.missingDependencies, []);
+  assert.equal(prepared.probe.dependencyChecks.some((check) =>
+    check.dependencyId === "dependency.binary.raxcell" &&
+    check.status === "available" &&
+    check.publicSafeMessage.includes("injected")
+  ), true);
 });
 
 test("contract-only sandbox providers explain readiness instead of pretending to run", async () => {

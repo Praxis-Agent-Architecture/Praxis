@@ -45,6 +45,15 @@ import {
   sandboxCommandRunnerDescriptor,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxCommandRunner.js";
 import {
+  createRaxcellSandboxProvider,
+  mapSandboxProviderRequestToRaxcell,
+  raxcellSandboxProviderDescriptor,
+} from "../runtimeImplementation/runtime.sandboxPlane/raxcellSandboxProvider.js";
+import {
+  runSandboxPolicyMiddleware,
+  sandboxPolicyMiddlewareDescriptor,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
+import {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
   eventInterfaceEnvelope,
@@ -674,6 +683,24 @@ export {
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 
 export {
+  createRaxcellSandboxProvider,
+  mapSandboxProviderRequestToRaxcell,
+  raxcellSandboxProviderDescriptor,
+  type RaxcellClientLike,
+  type RaxcellSandboxProviderOptions,
+} from "../runtimeImplementation/runtime.sandboxPlane/raxcellSandboxProvider.js";
+
+export {
+  runSandboxPolicyMiddleware,
+  sandboxPolicyMiddlewareDescriptor,
+  type SandboxExecutionProviderPort,
+  type SandboxPolicyMiddlewareAuditEvent,
+  type SandboxPolicyMiddlewareEnvironmentGapDecision,
+  type SandboxPolicyMiddlewareResult,
+  type SandboxProviderRunRequest,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
+
+export {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
   eventInterfaceEnvelope,
@@ -1159,12 +1186,17 @@ export const dependencyPlane = Object.freeze({
 });
 
 export const sandboxPlane = Object.freeze({
+  createRaxcellSandboxProvider,
   createSandboxCommandPlan,
   createLocalSandboxRemoteWorkerAdapter,
   createSandboxRuntimeProvider,
+  mapSandboxProviderRequestToRaxcell,
   prepareSandboxRuntime,
+  runSandboxPolicyMiddleware,
   runSandboxCommand,
+  raxcellSandboxProviderDescriptor,
   sandboxCommandRunnerDescriptor,
+  sandboxPolicyMiddlewareDescriptor,
   sandboxRuntimeProviderDescriptor,
 });
 

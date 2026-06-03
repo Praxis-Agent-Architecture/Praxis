@@ -1148,7 +1148,7 @@ export const sandbox = {
       profile: "linux-bubblewrap",
       providerFamily: "linux-bubblewrap",
       isolationLevel: "process-namespace",
-      dependencyRefs: input.dependencyRefs ?? ["binary:bwrap"],
+      dependencyRefs: input.dependencyRefs ?? ["dependency.binary.raxcell"],
       mountPolicy: input.mountPolicy ?? {
         workspaceRootRef: "rax.workspace",
         allowedReadRoots: ["workspace", ".rax_workspace"],
@@ -1163,7 +1163,7 @@ export const sandbox = {
         windows: "unsupported",
       },
       metadata: {
-        provider: "bubblewrap",
+        provider: "raxcell",
         providerVersion: "v2",
         flatpakCompatible: true,
         fallback: "explicit-only",

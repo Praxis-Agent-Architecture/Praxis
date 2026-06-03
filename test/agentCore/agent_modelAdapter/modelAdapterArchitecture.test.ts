@@ -58,11 +58,17 @@ test("modelAdapter rewrite exposes the new schema route protocol provider regist
 
 test("modelAdapter package exports point upper layers at the new public surface", () => {
   const packageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8")) as {
-    exports?: Record<string, string>;
+    exports?: Record<string, string | { types: string; import: string }>;
   };
 
-  assert.equal(packageJson.exports?.["./modelAdapter"], "./src/modelAdapter/index.ts");
-  assert.equal(packageJson.exports?.["./model-adapter"], "./src/modelAdapter/index.ts");
+  assert.deepEqual(packageJson.exports?.["./modelAdapter"], {
+    types: "./dist/modelAdapter/index.d.ts",
+    import: "./dist/modelAdapter/index.js",
+  });
+  assert.deepEqual(packageJson.exports?.["./model-adapter"], {
+    types: "./dist/modelAdapter/index.d.ts",
+    import: "./dist/modelAdapter/index.js",
+  });
 
   const publicIndex = readFileSync(path.join(repoRoot, "src/modelAdapter/index.ts"), "utf8");
   for (const exportedSurface of ["schema", "route", "protocols", "registry", "providers", "toolBridge"]) {

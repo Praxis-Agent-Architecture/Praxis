@@ -63,7 +63,7 @@ test("compileAgent preserves capability and dependency declarations as manifest 
   assert.ok(result.manifest.capabilities.some((capability) => capability.metadata?.source === "legacy-sandbox-field"));
 
   const dependencyIds = result.manifest.dependencies.map((dependency) => dependency.dependencyId);
-  assert.ok(dependencyIds.includes("dependency.binary.bwrap"));
+  assert.ok(dependencyIds.includes("dependency.binary.raxcell"));
   assert.ok(dependencyIds.includes("dependency.binary.rg"));
   assert.deepEqual(result.manifest.harness.capabilities, result.manifest.capabilities);
   assert.deepEqual(result.manifest.harness.dependencies, result.manifest.dependencies);
@@ -97,7 +97,7 @@ test("createProvisionPlan expands profiles into official components and deduplic
   assert.ok(plan.components.some((component) => component.componentId === "component.lsp.typescript"));
   assert.ok(plan.dependencies.some((dependency) => dependency.dependencyId === "dependency.lsp.typescriptLanguageServer"));
   assert.equal(
-    plan.dependencies.filter((dependency) => dependency.dependencyId === "dependency.binary.bwrap").length,
+    plan.dependencies.filter((dependency) => dependency.dependencyId === "dependency.binary.raxcell").length,
     1,
   );
   assert.deepEqual(plan.missingComponents, []);
@@ -163,7 +163,7 @@ test("strong sandbox capability stays platform-neutral until provision planning"
     platform: "linux",
   });
   assert.deepEqual(linuxPlan.components.map((component) => component.componentId), ["component.sandbox.bubblewrap"]);
-  assert.equal(linuxPlan.dependencies.some((dependency) => dependency.dependencyId === "dependency.binary.bwrap"), true);
+  assert.equal(linuxPlan.dependencies.some((dependency) => dependency.dependencyId === "dependency.binary.raxcell"), true);
   assert.equal(linuxPlan.dependencies.some((dependency) => dependency.dependencyId === "dependency.macos.containerization"), false);
 });
 

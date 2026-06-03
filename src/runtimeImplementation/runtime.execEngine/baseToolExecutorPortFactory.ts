@@ -23,6 +23,10 @@ import {
   runSandboxCommand,
   type SandboxRemoteWorkerAdapter,
 } from "../runtime.sandboxPlane/sandboxCommandRunner.js";
+import type {
+  SandboxExecutionProviderPort,
+  SandboxPolicyMiddlewareAuditEvent,
+} from "../runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import {
   createMcpRuntimeAdapter,
   type McpRuntimeServerProfile,
@@ -90,6 +94,8 @@ export type RuntimeBaseToolExecutorContext = {
   sandboxSpec?: SandboxSpec;
   preparedSandbox?: SandboxRuntimePrepareResult;
   policyProfile?: BaseToolPolicyProfile;
+  sandboxProvider?: SandboxExecutionProviderPort;
+  sandboxAudit?: (event: SandboxPolicyMiddlewareAuditEvent) => Promise<void> | void;
   remoteSandboxWorker?: SandboxRemoteWorkerAdapter;
   mcpServers?: readonly McpRuntimeServerProfile[];
   environment?: Readonly<Record<string, string | undefined>>;
@@ -442,6 +448,8 @@ async function runCommand(
       network: input.network,
     }, {
       remoteWorker: context.remoteSandboxWorker,
+      sandboxProvider: context.sandboxProvider,
+      audit: context.sandboxAudit,
     });
     if (!result.ok) {
       return fail(result.error.code, result.error.message, {

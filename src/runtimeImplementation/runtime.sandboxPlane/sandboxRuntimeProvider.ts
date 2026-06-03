@@ -5,8 +5,7 @@
  */
 
 import { execFile } from "node:child_process";
-import { mkdir, readFile } from "node:fs/promises";
-import path from "node:path";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 
 import type {
@@ -108,7 +107,7 @@ export type SandboxRuntimePrepareResult = {
 export type SandboxRuntimeProvider = {
   providerFamily: SandboxProviderFamily;
   probe(spec: SandboxSpec): Promise<SandboxRuntimeProviderProbe>;
-  prepare(spec: SandboxSpec, input?: { cwd?: string; runSmoke?: boolean }): Promise<SandboxRuntimePrepareResult>;
+  prepare(spec: SandboxSpec, input?: { cwd?: string; runSmoke?: boolean; providerReady?: boolean }): Promise<SandboxRuntimePrepareResult>;
   runSmoke(spec: SandboxSpec, input?: { cwd?: string }): Promise<SandboxRuntimeSmokeResult>;
   explainUnavailable(probe: SandboxRuntimeProviderProbe): string;
 };
@@ -131,13 +130,14 @@ function providerFamilyFor(spec: SandboxSpec): SandboxProviderFamily {
 function dependencyRefsFor(spec: SandboxSpec): readonly string[] {
   const refs = spec.dependencyRefs ?? [];
   if (providerFamilyFor(spec) === "linux-bubblewrap" && refs.length === 0) {
-    return ["dependency.binary.bwrap"];
+    return ["dependency.binary.raxcell"];
   }
   return refs.map(canonicalDependencyId);
 }
 
 function dependencyBinary(ref: string): string | undefined {
   const canonical = canonicalDependencyId(ref);
+  if (canonical === "dependency.binary.raxcell") return process.env.RAXCELL_BIN?.trim() || "raxcell";
   if (canonical === "dependency.binary.bwrap") return "bwrap";
   if (canonical === "dependency.binary.rg") return "rg";
   if (canonical === "dependency.binary.ffmpeg") return "ffmpeg";
@@ -261,14 +261,14 @@ function repairHints(input: {
       requiresApproval: false,
     }];
   }
-  if (input.missingDependencies.includes("dependency.binary.bwrap")) {
+  if (input.missingDependencies.includes("dependency.binary.raxcell")) {
     return [{
-      hintId: "linux-bubblewrap:install-bwrap",
+      hintId: "linux-bubblewrap:configure-raxcell",
       severity: "warning",
-      action: "installDependency",
-      message: "Install bubblewrap through the system package manager, then rerun rax test.",
-      commandPreview: ["apt install bubblewrap", "dnf install bubblewrap", "pacman -S bubblewrap"],
-      requiresApproval: true,
+      action: "manualProviderSetup",
+      message: "Configure the Raxcell CLI binary path through RAXCELL_BIN or inject RaxcellSandboxProvider at runtime.",
+      commandPreview: ["export RAXCELL_BIN=/absolute/path/to/raxcell"],
+      requiresApproval: false,
     }];
   }
   return [{
@@ -289,9 +289,9 @@ function dependencyInstallEnvelopes(input: {
     dependencyId,
     providerFamily: input.providerFamily,
     action: "installDependency",
-    installTarget: dependencyId === "dependency.binary.bwrap" ? "system-global" : "manual",
-    commandPreview: dependencyId === "dependency.binary.bwrap"
-      ? ["apt install bubblewrap", "dnf install bubblewrap", "pacman -S bubblewrap"]
+    installTarget: "manual",
+    commandPreview: dependencyId === "dependency.binary.raxcell"
+      ? ["export RAXCELL_BIN=/absolute/path/to/raxcell"]
       : [],
     requiresApproval: true,
     approvalSurface: "interface/application",
@@ -422,13 +422,47 @@ async function probeContractOnly(spec: SandboxSpec): Promise<SandboxRuntimeProvi
   };
 }
 
-async function probeLinuxBubblewrap(spec: SandboxSpec): Promise<SandboxRuntimeProviderProbe> {
+async function probeLinuxBubblewrap(spec: SandboxSpec, input: { providerReady?: boolean } = {}): Promise<SandboxRuntimeProviderProbe> {
   const providerFamily = providerFamilyFor(spec);
   if (process.platform !== "linux") {
     return unsupported(providerFamily, spec, "linux-bubblewrap sandbox only runs on Linux");
   }
 
-  const dependencyRefs = dependencyRefsFor(spec);
+  const dependencyRefs = ["dependency.binary.raxcell"];
+  if (input.providerReady === true) {
+    const dependencyChecks = [
+      {
+        dependencyId: "dependency.binary.raxcell",
+        required: true,
+        status: "available",
+        source: "custom",
+        installTarget: "manual",
+        publicSafeMessage: "RaxcellSandboxProvider is injected by the Praxis runtime",
+      } satisfies SandboxRuntimeDependencyCheck,
+      ...(await linuxOptionalChecks()),
+    ];
+    return {
+      providerFamily,
+      profile: spec.profile,
+      status: "available",
+      platform: process.platform,
+      dependencyRefs,
+      availableDependencies: dependencyRefs,
+      missingDependencies: [],
+      dependencyChecks,
+      dependencyInstallEnvelopes: [],
+      selfRepairHints: repairHints({ providerFamily, missingDependencies: [], status: "available" }),
+      nextAction: "none",
+      publicSafeMessage: "Injected Raxcell linux-bubblewrap sandbox provider is available",
+      metadata: {
+        sandboxId: spec.sandboxId,
+        isolationLevel: spec.isolationLevel ?? "process-namespace",
+        provider: "raxcell",
+        injectedProvider: true,
+      },
+    };
+  }
+
   const dependencies = await dependencyAvailability(dependencyRefs);
   const dependencyChecks = [
     ...(await Promise.all(dependencyRefs.map((ref) => binaryCheck(ref, true)))),
@@ -450,11 +484,12 @@ async function probeLinuxBubblewrap(spec: SandboxSpec): Promise<SandboxRuntimePr
         missingDependencies: dependencies.missing,
         status: "missingDependency",
       }),
-      nextAction: "installDependency",
-      publicSafeMessage: "linux-bubblewrap sandbox requires the bwrap binary before it can run",
+      nextAction: "manualProviderSetup",
+      publicSafeMessage: "linux-bubblewrap sandbox requires a configured Raxcell provider before it can run",
       metadata: {
-        installHint: "Install bubblewrap through the system package manager, then rerun rax test.",
+        installHint: "Set RAXCELL_BIN or inject RaxcellSandboxProvider through runtime sandbox options.",
         sandboxId: spec.sandboxId,
+        requiredProvider: "raxcell",
       },
     };
   }
@@ -471,10 +506,12 @@ async function probeLinuxBubblewrap(spec: SandboxSpec): Promise<SandboxRuntimePr
     dependencyInstallEnvelopes: [],
     selfRepairHints: repairHints({ providerFamily, missingDependencies: [], status: "available" }),
     nextAction: "none",
-    publicSafeMessage: "linux-bubblewrap sandbox dependencies are available",
+    publicSafeMessage: "Raxcell linux-bubblewrap sandbox provider is available",
     metadata: {
       sandboxId: spec.sandboxId,
       isolationLevel: spec.isolationLevel ?? "process-namespace",
+      provider: "raxcell",
+      binaryPath: process.env.RAXCELL_BIN?.trim() || "raxcell",
     },
   };
 }
@@ -569,207 +606,23 @@ async function probeWindowsRestricted(spec: SandboxSpec): Promise<SandboxRuntime
   };
 }
 
-type LinuxBubblewrapSandboxPaths = {
-  workspace: string;
-  raxWorkspace: string;
-  sandboxRoot: string;
-  home: string;
-  tmp: string;
-  artifacts: string;
-};
-
-async function ensureLinuxBubblewrapPaths(cwd: string): Promise<LinuxBubblewrapSandboxPaths> {
-  const workspace = path.resolve(cwd);
-  const raxWorkspace = path.join(workspace, ".rax_workspace");
-  const sandboxRoot = path.join(raxWorkspace, "sandbox");
-  const home = path.join(sandboxRoot, "home");
-  const tmp = path.join(sandboxRoot, "tmp");
-  const artifacts = path.join(sandboxRoot, "artifacts");
-  await Promise.all([
-    mkdir(home, { recursive: true }),
-    mkdir(tmp, { recursive: true }),
-    mkdir(artifacts, { recursive: true }),
-  ]);
-  return { workspace, raxWorkspace, sandboxRoot, home, tmp, artifacts };
-}
-
-function linuxBubblewrapSystemMounts(): readonly string[] {
-  const args: string[] = [];
-  for (const dir of ["/usr", "/bin", "/lib", "/lib64", "/etc", "/opt", "/nix"]) {
-    args.push("--ro-bind-try", dir, dir);
-  }
-  return args;
-}
-
-function minimalDeviceMounts(): readonly string[] {
-  return [
-    "--dir",
-    "/dev",
-    "--dev-bind",
-    "/dev/null",
-    "/dev/null",
-    "--dev-bind",
-    "/dev/zero",
-    "/dev/zero",
-    "--dev-bind",
-    "/dev/random",
-    "/dev/random",
-    "--dev-bind",
-    "/dev/urandom",
-    "/dev/urandom",
-  ];
-}
-
-function smokeScript(): string {
-  return [
-    "test \"$(pwd)\" = /workspace",
-    "test \"$HOME\" = /sandbox-home",
-    "test -d /workspace",
-    "test -r /workspace",
-    "test -w /workspace/.rax_workspace/sandbox",
-    "test -w /tmp",
-    "test -w /artifacts",
-    "echo praxis-smoke >/workspace/.rax_workspace/sandbox/tmp/praxis-bwrap-smoke.txt",
-    "test ! -e /home/proview/.ssh",
-    "test ! -e /host-home",
-    "test -d /proc",
-    "echo check:cwd",
-    "echo check:home",
-    "echo check:workspace",
-    "echo check:scratch",
-    "echo check:tmp",
-    "echo check:artifacts",
-    "echo check:host-home-hidden",
-    "echo check:proc",
-  ].join(" && ");
-}
-
-function smokeCommand(paths: LinuxBubblewrapSandboxPaths): readonly string[] {
-  return [
-    "bwrap",
-    "--unshare-pid",
-    "--unshare-ipc",
-    "--unshare-uts",
-    "--unshare-net",
-    "--die-with-parent",
-    ...linuxBubblewrapSystemMounts(),
-    "--proc",
-    "/proc",
-    ...minimalDeviceMounts(),
-    "--ro-bind",
-    paths.workspace,
-    "/workspace",
-    "--bind",
-    paths.raxWorkspace,
-    "/workspace/.rax_workspace",
-    "--bind",
-    paths.home,
-    "/sandbox-home",
-    "--bind",
-    paths.tmp,
-    "/tmp",
-    "--bind",
-    paths.artifacts,
-    "/artifacts",
-    "--setenv",
-    "HOME",
-    "/sandbox-home",
-    "--setenv",
-    "TMPDIR",
-    "/tmp",
-    "--setenv",
-    "PRAXIS_SANDBOX",
-    "linux-bubblewrap",
-    "--chdir",
-    "/workspace",
-    "/usr/bin/env",
-    "sh",
-    "-lc",
-    smokeScript(),
-  ];
-}
-
-async function runLinuxBubblewrapSmoke(spec: SandboxSpec, input: { cwd?: string } = {}): Promise<SandboxRuntimeSmokeResult> {
-  const cwd = input.cwd ?? process.cwd();
-  const paths = await ensureLinuxBubblewrapPaths(cwd);
-  const command = smokeCommand(paths);
-  if (process.platform !== "linux") {
-    return {
-      providerFamily: providerFamilyFor(spec),
-      profile: spec.profile,
+function runLinuxBubblewrapSmoke(spec: SandboxSpec, input: { cwd?: string } = {}): Promise<SandboxRuntimeSmokeResult> {
+  return Promise.resolve({
+    providerFamily: providerFamilyFor(spec),
+    profile: spec.profile,
+    status: "skipped",
+    commandPreview: [],
+    checks: [{
+      checkId: "raxcell-provider",
       status: "skipped",
-      commandPreview: command,
-      checks: [{ checkId: "platform", status: "skipped", publicSafeMessage: "linux-bubblewrap smoke only runs on Linux" }],
-      publicSafeMessage: "linux-bubblewrap smoke is skipped outside Linux",
-      metadata: { cwd, sandboxRoot: paths.sandboxRoot },
-    };
-  }
-
-  try {
-    const result = await execFileAsync(command[0] ?? "bwrap", [...command.slice(1)], {
-      cwd,
-      timeout: spec.resourceLimits.timeoutMs ?? 5_000,
-      maxBuffer: spec.resourceLimits.maxOutputBytes ?? 64_000,
-      env: {
-        ...process.env,
-        HOME: paths.home,
-        TMPDIR: paths.tmp,
-      },
-    });
-    const stdout = result.stdout ?? "";
-    const passedChecks: SandboxRuntimeSmokeCheck[] = [
-      "cwd",
-      "home",
-      "workspace",
-      "scratch",
-      "tmp",
-      "artifacts",
-      "host-home-hidden",
-      "proc",
-    ].map((checkId) => ({
-      checkId,
-      status: stdout.includes(`check:${checkId}`) ? "passed" : "failed",
-      publicSafeMessage: stdout.includes(`check:${checkId}`)
-        ? `${checkId} boundary check passed`
-        : `${checkId} boundary check did not report success`,
-    }));
-    return {
-      providerFamily: providerFamilyFor(spec),
-      profile: spec.profile,
-      status: "passed",
-      commandPreview: command,
-      stdout: result.stdout,
-      stderr: result.stderr,
-      checks: passedChecks,
-      publicSafeMessage: "linux-bubblewrap workspace-only smoke passed",
-      metadata: {
-        cwd,
-        sandboxRoot: paths.sandboxRoot,
-        home: paths.home,
-        tmp: paths.tmp,
-        artifacts: paths.artifacts,
-        networkMode: "denied",
-        deviceExposure: "minimal",
-      },
-    };
-  } catch (error) {
-    const err = error as { stdout?: string; stderr?: string; message?: string };
-    return {
-      providerFamily: providerFamilyFor(spec),
-      profile: spec.profile,
-      status: "failed",
-      commandPreview: command,
-      stdout: err.stdout,
-      stderr: err.stderr,
-      checks: [{ checkId: "linux-bubblewrap", status: "failed", publicSafeMessage: "bubblewrap command did not complete all boundary checks" }],
-      publicSafeMessage: "linux-bubblewrap smoke failed; user namespaces or bwrap policy may be unavailable",
-      metadata: {
-        cwd,
-        sandboxRoot: paths.sandboxRoot,
-        error: err.message ?? "unknown bwrap failure",
-      },
-    };
-  }
+      publicSafeMessage: "Raxcell owns Linux backend execution checks; Praxis runtime provider only verifies provider availability.",
+    }],
+    publicSafeMessage: "Raxcell linux-bubblewrap smoke is provider-owned and skipped by Praxis runtime.",
+    metadata: {
+      cwd: input.cwd ?? process.cwd(),
+      provider: "raxcell",
+    },
+  });
 }
 
 export function createSandboxRuntimeProvider(providerFamily: SandboxProviderFamily): SandboxRuntimeProvider {
@@ -783,13 +636,15 @@ export function createSandboxRuntimeProvider(providerFamily: SandboxProviderFami
       if (family === "windows-sandbox") return probeWindowsRestricted(spec);
       return probeContractOnly(spec);
     },
-    async prepare(spec: SandboxSpec, input: { cwd?: string; runSmoke?: boolean } = {}): Promise<SandboxRuntimePrepareResult> {
-      const probe = await this.probe(spec);
+    async prepare(spec: SandboxSpec, input: { cwd?: string; runSmoke?: boolean; providerReady?: boolean } = {}): Promise<SandboxRuntimePrepareResult> {
+      const probe = providerFamilyFor(spec) === "linux-bubblewrap" && input.providerReady === true
+        ? await probeLinuxBubblewrap(spec, { providerReady: true })
+        : await this.probe(spec);
       const shouldSmoke = input.runSmoke === true && probe.status === "available" && providerFamilyFor(spec) === "linux-bubblewrap";
       const smoke = shouldSmoke
         ? await this.runSmoke(spec, { cwd: input.cwd })
         : undefined;
-      const ready = probe.status === "available" && (smoke === undefined || smoke.status === "passed");
+      const ready = probe.status === "available" && smoke?.status !== "failed";
       return {
         providerFamily: providerFamilyFor(spec),
         profile: spec.profile,
@@ -827,7 +682,7 @@ export function createSandboxRuntimeProvider(providerFamily: SandboxProviderFami
 
 export async function prepareSandboxRuntime(
   spec: SandboxSpec,
-  input: { cwd?: string; runSmoke?: boolean } = {},
+  input: { cwd?: string; runSmoke?: boolean; providerReady?: boolean } = {},
 ): Promise<SandboxRuntimePrepareResult> {
   return createSandboxRuntimeProvider(providerFamilyFor(spec)).prepare(spec, input);
 }

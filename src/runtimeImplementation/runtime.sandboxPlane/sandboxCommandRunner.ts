@@ -5,12 +5,19 @@
  */
 
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 
 import type { BaseToolPolicyProfile, SandboxSpec } from "../runtimeAgentManifest.js";
+import { createRaxcellSandboxProvider } from "./raxcellSandboxProvider.js";
 import type { SandboxRuntimePrepareResult } from "./sandboxRuntimeProvider.js";
+import {
+  runSandboxPolicyMiddleware,
+  type SandboxExecutionProviderPort,
+  type SandboxPolicyMiddlewareAuditEvent,
+  type SandboxPolicyMiddlewareEnvironmentGapDecision,
+  type SandboxProviderEnvironmentGap,
+  type SandboxProviderRunRequest,
+} from "./sandboxPolicyMiddleware.js";
 import {
   createWorkspaceRollbackSandboxPlan,
   createWorkspaceRollbackSnapshot,
@@ -129,6 +136,12 @@ export type SandboxRemoteWorkerAdapter = (request: SandboxCommandRequest, plan: 
 
 export type SandboxCommandRunnerOptions = {
   remoteWorker?: SandboxRemoteWorkerAdapter;
+  sandboxProvider?: SandboxExecutionProviderPort;
+  decideEnvironmentGap?: (context: {
+    request: SandboxProviderRunRequest;
+    environmentGap: SandboxProviderEnvironmentGap;
+  }) => Promise<SandboxPolicyMiddlewareEnvironmentGapDecision> | SandboxPolicyMiddlewareEnvironmentGapDecision;
+  audit?: (event: SandboxPolicyMiddlewareAuditEvent) => Promise<void> | void;
 };
 
 export const sandboxCommandRunnerDescriptor = {
@@ -202,178 +215,9 @@ function sandboxProviderUnavailable(input: SandboxCommandRequest, providerFamily
   return new Error(`${providerFamily} sandbox is not ready for isolated execution (${preparedStatus})`);
 }
 
-function secretMaskScript(filesystem: SandboxCommandFilesystemPolicy): string {
-  if (!filesystem.protectSecrets) return "";
-  const patterns = filesystem.secretGlobs.map((glob) => `-name '${glob.replaceAll("'", "'\\''")}'`).join(" -o ");
-  return `find /workspace -maxdepth 3 -type f \\( ${patterns} \\) -print0 2>/dev/null | while IFS= read -r -d '' file; do :; done`;
-}
-
-function secretPatternMatches(name: string): boolean {
-  return name === ".env" || name.startsWith(".env.");
-}
-
-async function collectSecretFiles(root: string, current = root, depth = 0, out: string[] = []): Promise<string[]> {
-  if (depth > 4) return out;
-  let entries;
-  try {
-    entries = await readdir(current, { withFileTypes: true });
-  } catch {
-    return out;
-  }
-  for (const entry of entries) {
-    const absolute = path.join(current, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === ".git" || entry.name === "node_modules" || entry.name === ".rax_workspace") continue;
-      await collectSecretFiles(root, absolute, depth + 1, out);
-      continue;
-    }
-    if (!entry.isFile() || !secretPatternMatches(entry.name)) continue;
-    try {
-      const info = await stat(absolute);
-      if (info.isFile()) out.push(path.relative(root, absolute).split(path.sep).join("/"));
-    } catch {
-      // Ignore files that disappeared between directory scan and stat.
-    }
-  }
-  return out;
-}
-
 function isInsidePath(root: string, candidate: string): boolean {
   const relative = path.relative(root, candidate);
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
-}
-
-function sandboxPathForRoot(root: string, workspaceRoot: string): string {
-  if (root === workspaceRoot) return "/workspace";
-  if (isInsidePath(workspaceRoot, root)) {
-    return path.posix.join("/workspace", path.relative(workspaceRoot, root).split(path.sep).join("/"));
-  }
-  return root;
-}
-
-function sandboxCwdForHost(hostCwd: string, filesystem: SandboxCommandFilesystemPolicy): string {
-  const roots = [...new Set([
-    filesystem.workspaceRoot,
-    ...filesystem.allowedReadRoots,
-    ...filesystem.allowedWriteRoots,
-  ])].sort((left, right) => right.length - left.length);
-  for (const root of roots) {
-    if (!isInsidePath(root, hostCwd)) continue;
-    const rootDest = sandboxPathForRoot(root, filesystem.workspaceRoot);
-    const relative = path.relative(root, hostCwd);
-    if (relative === "") return rootDest;
-    return path.posix.join(rootDest, relative.split(path.sep).join("/"));
-  }
-  throw new Error(`sandbox cwd ${hostCwd} is outside sandbox filesystem roots`);
-}
-
-function sandboxPathParentDirs(target: string): readonly string[] {
-  const normalized = path.posix.resolve(target.split(path.sep).join(path.posix.sep));
-  if (normalized === "/workspace" || normalized.startsWith("/workspace/")) return [];
-  const segments = normalized.split("/").filter(Boolean);
-  const dirs: string[] = [];
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    const dir = `/${segments.slice(0, index + 1).join("/")}`;
-    if (dir === "/tmp" || dir === "/dev" || dir === "/proc" || dir === "/usr" || dir === "/bin" || dir === "/lib" || dir === "/lib64" || dir === "/etc") continue;
-    dirs.push(dir);
-  }
-  return dirs;
-}
-
-async function linuxBubblewrapPlan(input: SandboxCommandRequest, base: Omit<SandboxCommandPlan, "program" | "args" | "cleanup">): Promise<Pick<SandboxCommandPlan, "program" | "args" | "cleanup" | "metadata">> {
-  if (process.platform !== "linux") {
-    return {
-      program: input.command,
-      args: input.args ?? [],
-      metadata: { ...base.metadata, providerUnavailable: "linux-bubblewrap is only executable on Linux" },
-    };
-  }
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "praxis-bwrap-"));
-  const home = path.join(tempDir, "home");
-  const tmp = path.join(tempDir, "tmp");
-  await Promise.all([mkdir(home, { recursive: true }), mkdir(tmp, { recursive: true })]);
-  const command = [input.command, ...(input.args ?? [])];
-  const networkArgs = base.network === "allow" ? ["--share-net"] : ["--unshare-net"];
-  const sandboxCwd = sandboxCwdForHost(base.cwd, base.filesystem);
-  const mountArgs: string[] = [
-    "--unshare-pid",
-    "--unshare-ipc",
-    "--unshare-uts",
-    ...networkArgs,
-    "--die-with-parent",
-    "--new-session",
-    "--ro-bind-try",
-    "/usr",
-    "/usr",
-    "--ro-bind-try",
-    "/bin",
-    "/bin",
-    "--ro-bind-try",
-    "/lib",
-    "/lib",
-    "--ro-bind-try",
-    "/lib64",
-    "/lib64",
-    "--ro-bind-try",
-    "/etc",
-    "/etc",
-    "--dev",
-    "/dev",
-    "--proc",
-    "/proc",
-    "--tmpfs",
-    "/tmp",
-    "--bind",
-    home,
-    "/sandbox-home",
-    "--setenv",
-    "HOME",
-    "/sandbox-home",
-    "--setenv",
-    "TMPDIR",
-    "/tmp",
-    "--setenv",
-    "PRAXIS_SANDBOX",
-    "linux-bubblewrap",
-    "--chdir",
-    sandboxCwd,
-  ];
-  const workspaceMountFlag = base.filesystem.readonlyRoot ? "--ro-bind" : "--bind";
-  mountArgs.push(workspaceMountFlag, base.filesystem.workspaceRoot, "/workspace");
-  const mountedReadTargets = new Set(["/workspace"]);
-  const mountedWriteTargets = new Set<string>();
-  const writableDestinations = new Set(base.filesystem.allowedWriteRoots.map((root) => sandboxPathForRoot(root, base.filesystem.workspaceRoot)));
-  for (const readRoot of base.filesystem.allowedReadRoots) {
-    const dest = sandboxPathForRoot(readRoot, base.filesystem.workspaceRoot);
-    if (writableDestinations.has(dest)) continue;
-    if (mountedReadTargets.has(dest) || mountedWriteTargets.has(dest)) continue;
-    if (dest !== "/workspace") {
-      for (const parent of sandboxPathParentDirs(dest)) mountArgs.push("--dir", parent);
-      mountArgs.push("--ro-bind-try", readRoot, dest);
-    }
-    mountedReadTargets.add(dest);
-  }
-  for (const writeRoot of base.filesystem.allowedWriteRoots) {
-    if (writeRoot === base.filesystem.workspaceRoot) continue;
-    const dest = sandboxPathForRoot(writeRoot, base.filesystem.workspaceRoot);
-    if (mountedWriteTargets.has(dest)) continue;
-    for (const parent of sandboxPathParentDirs(dest)) mountArgs.push("--dir", parent);
-    mountArgs.push("--bind-try", writeRoot, dest);
-    mountedWriteTargets.add(dest);
-  }
-  if (base.filesystem.protectSecrets) {
-    const mask = path.join(tempDir, "secret-mask");
-    await writeFile(mask, "", { mode: 0o000 });
-    const secretFiles = await collectSecretFiles(base.filesystem.workspaceRoot);
-    for (const name of secretFiles) mountArgs.push("--ro-bind-try", mask, path.posix.join("/workspace", name));
-  }
-  mountArgs.push("/usr/bin/env", ...command);
-  return {
-    program: "bwrap",
-    args: mountArgs,
-    cleanup: async () => { await rm(tempDir, { recursive: true, force: true }); },
-    metadata: { ...base.metadata, tempDir, secretMaskScript: secretMaskScript(base.filesystem) },
-  };
 }
 
 function seatbeltString(value: string): string {
@@ -466,7 +310,7 @@ export async function createSandboxCommandPlan(input: SandboxCommandRequest): Pr
   let plan: SandboxCommandPlan;
   if (providerFamily === "linux-bubblewrap") {
     if (input.preparedSandbox?.ready !== true) throw sandboxProviderUnavailable(input, providerFamily);
-    plan = { ...base, ...(await linuxBubblewrapPlan(input, base)) };
+    plan = { ...base, program: input.command, args: input.args ?? [] };
   } else if (providerFamily === "macos-containerization") {
     if (input.preparedSandbox !== undefined && input.preparedSandbox.ready !== true) throw sandboxProviderUnavailable(input, providerFamily);
     plan = { ...base, ...macosSeatbeltPlan(input, base) };
@@ -521,6 +365,170 @@ function parseSandboxDenial(plan: SandboxCommandPlan, stderr: string, exitCode: 
     };
   }
   return undefined;
+}
+
+function providerFromOptions(options: SandboxCommandRunnerOptions): SandboxExecutionProviderPort | undefined {
+  if (options.sandboxProvider !== undefined) return options.sandboxProvider;
+  const binaryPath = process.env.RAXCELL_BIN?.trim();
+  return binaryPath === undefined || binaryPath.length === 0
+    ? undefined
+    : createRaxcellSandboxProvider({ binaryPath });
+}
+
+function toProviderRunRequest(input: SandboxCommandRequest, plan: SandboxCommandPlan): SandboxProviderRunRequest {
+  return {
+    kind: "runtime.sandboxPlane.provider.runRequest",
+    action: {
+      actionId: input.invocationId,
+      runtimeId: input.runtimeId,
+      sessionId: input.sessionId,
+      toolId: input.toolId,
+      ownerRuntime: "praxis",
+      intentLabel: `${input.toolId} command`,
+      metadata: input.metadata ?? {},
+    },
+    command: {
+      argv: [input.command, ...(input.args ?? [])],
+      cwd: plan.cwd,
+      env: plan.env,
+      stdin: null,
+    },
+    policy: {
+      profile: input.policyProfile,
+      sandboxId: input.sandbox.sandboxId,
+      sandboxMode: plan.mode,
+      network: plan.network,
+      process: { spawn: true },
+      resources: {
+        timeoutMs: input.timeoutMs ?? input.sandbox.resourceLimits.timeoutMs,
+        maxOutputBytes: input.maxOutputBytes ?? input.sandbox.resourceLimits.maxOutputBytes,
+        maxProcesses: input.sandbox.resourceLimits.maxProcesses,
+      },
+    },
+    filesystem: {
+      workspaceRoot: plan.filesystem.workspaceRoot,
+      read: plan.filesystem.allowedReadRoots,
+      write: plan.filesystem.allowedWriteRoots,
+      readonlyRoot: plan.filesystem.readonlyRoot,
+      protectSecrets: plan.filesystem.protectSecrets,
+    },
+    policyGrants: [],
+    fallback: { mode: "none" },
+    metadata: {
+      providerFamily: plan.providerFamily,
+      requestedProviderFamily: plan.requestedProviderFamily ?? "",
+      policyProfile: plan.policyProfile,
+      secretGlobs: plan.filesystem.secretGlobs,
+      protectSecrets: plan.filesystem.protectSecrets,
+    },
+  };
+}
+
+function defaultEnvironmentGapDecision(context: {
+  request: SandboxProviderRunRequest;
+  environmentGap: SandboxProviderEnvironmentGap;
+}): SandboxPolicyMiddlewareEnvironmentGapDecision {
+  const gap = context.environmentGap;
+  if (gap.reason !== "cwd-outside-declared-roots") {
+    return { type: "deny", reason: gap.publicSafeMessage };
+  }
+  const cwd = path.resolve(gap.path);
+  const writeRoot = context.request.filesystem.write.find((root) => isInsidePath(root, cwd));
+  if (writeRoot !== undefined) {
+    return {
+      type: "grant",
+      grants: [{ reason: gap.reason, path: gap.path, access: ["write"], grantedBy: "praxis-policy" }],
+    };
+  }
+  const readRoot = context.request.filesystem.read.find((root) => isInsidePath(root, cwd));
+  if (readRoot !== undefined) {
+    return {
+      type: "grant",
+      grants: [{ reason: gap.reason, path: gap.path, access: ["read"], grantedBy: "praxis-policy" }],
+    };
+  }
+  return { type: "deny", reason: gap.publicSafeMessage };
+}
+
+async function runProviderSandboxCommand(
+  input: SandboxCommandRequest,
+  plan: SandboxCommandPlan,
+  options: SandboxCommandRunnerOptions,
+): Promise<SandboxCommandRunResult> {
+  const provider = providerFromOptions(options);
+  if (provider === undefined) {
+    return {
+      ok: false,
+      plan,
+      error: {
+        code: "SANDBOX_DENIED",
+        message: "Raxcell sandbox provider is not configured",
+        publicSafe: true,
+        denial: {
+          kind: "runtime.sandboxPlane.command.denial",
+          code: "SANDBOX_PROVIDER_UNAVAILABLE",
+          message: "Raxcell sandbox provider is not configured",
+          needsApproval: false,
+          publicSafe: true,
+        },
+      },
+      events: [...plan.events, "runtime.sandboxPlane.command.denied"],
+      metadata: { providerFamily: plan.providerFamily, providerUnavailable: "raxcell provider is not configured" },
+    };
+  }
+  const middlewareResult = await runSandboxPolicyMiddleware({
+    provider,
+    request: toProviderRunRequest(input, plan),
+    decideEnvironmentGap: async ({ request, environmentGap }) =>
+      options.decideEnvironmentGap?.({ request, environmentGap }) ?? defaultEnvironmentGapDecision({ request, environmentGap }),
+    audit: options.audit,
+  });
+  if (!middlewareResult.ok) {
+    return {
+      ok: false,
+      plan,
+      error: {
+        code: "SANDBOX_DENIED",
+        message: middlewareResult.error.message,
+        publicSafe: true,
+        denial: {
+          kind: "runtime.sandboxPlane.command.denial",
+          code: middlewareResult.error.code === "SANDBOX_PREPARE_FAILED" ? "SANDBOX_PROVIDER_UNAVAILABLE" : "SANDBOX_PERMISSION_DENIED",
+          message: middlewareResult.error.message,
+          needsApproval: false,
+          publicSafe: true,
+        },
+      },
+      stdout: "",
+      stderr: "",
+      events: [...plan.events, ...middlewareResult.events, "runtime.sandboxPlane.command.denied"],
+      metadata: { providerFamily: plan.providerFamily, middlewareError: middlewareResult.error.code },
+    };
+  }
+  return {
+    ok: true,
+    plan: {
+      ...plan,
+      metadata: {
+        ...plan.metadata,
+        providerPrepare: middlewareResult.prepared,
+        providerRequest: middlewareResult.request,
+      },
+    },
+    exitCode: middlewareResult.result.exitCode ?? 0,
+    stdout: middlewareResult.result.stdout,
+    stderr: middlewareResult.result.stderr,
+    events: [...plan.events, ...middlewareResult.events, "runtime.sandboxPlane.command.completed"],
+    metadata: {
+      providerFamily: plan.providerFamily,
+      providerId: provider.providerId,
+      ...(middlewareResult.result.timedOut ? { timedOut: true } : {}),
+      providerRun: {
+        denial: middlewareResult.result.denial ?? null,
+        filesystemLowering: middlewareResult.result.filesystemLowering ?? null,
+      },
+    },
+  };
 }
 
 function spawnPlan(plan: SandboxCommandPlan, input: SandboxCommandRequest): Promise<{ exitCode: number; stdout: string; stderr: string; timedOut?: boolean }> {
@@ -614,6 +622,11 @@ export async function runSandboxCommand(
         events: [...plan.events, "runtime.sandboxPlane.command.denied"],
         metadata: { providerFamily: plan.providerFamily, providerUnavailable: "remote-worker adapter is not configured" },
       };
+    }
+    if (plan.providerFamily === "linux-bubblewrap") {
+      const result = await runProviderSandboxCommand(input, plan, options);
+      await plan.cleanup?.();
+      return result;
     }
     const remote = plan.providerFamily === "remote-worker"
       ? await options.remoteWorker?.(input, plan)
