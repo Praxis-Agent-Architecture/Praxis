@@ -154,6 +154,7 @@
     "@lancedb/lancedb": "^0.27.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/agents": "^0.7.2",
+    "@praxis-ai/mcp-plus": "^1.0.0",
     "@types/react": "^18.3.28",
     "apache-arrow": "^18.1.0",
     "effect": "^3.21.2",

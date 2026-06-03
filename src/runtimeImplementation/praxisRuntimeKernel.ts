@@ -154,6 +154,7 @@ import {
   type BaseToolPolicyProfile,
   type PraxisAgent,
   type PraxisAgentInput,
+  type ToolSpec,
 } from "./runtimeAgentManifest.js";
 import {
   approvalInterfaceEnvelope,
@@ -183,6 +184,13 @@ import {
   type SandboxRuntimePrepareResult,
 } from "./runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import type { SandboxRemoteWorkerAdapter } from "./runtime.sandboxPlane/sandboxCommandRunner.js";
+import {
+  buildMcpServerProfilesFromManifest,
+  mcp,
+  type McpHarnessModuleSpec,
+  planMcpHarnessExposure,
+} from "./runtime.mcpPlane/index.js";
+import type { McpRuntimeServerProfile } from "./runtime.execEngine/mcpRuntimeAdapter.js";
 
 export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
@@ -224,6 +232,8 @@ export type PraxisRuntimeKernelOptions = {
   };
   executor?: BaseToolExecutorPort;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
+  mcpServers?: readonly McpRuntimeServerProfile[];
+  mcpModule?: McpHarnessModuleSpec;
   baseToolPolicy?: RuntimeBaseToolExecutorPolicy;
   baseToolResourceLimits?: RuntimeBaseToolExecutorResourceLimits;
   store?: RuntimeSessionStateEventStore;
@@ -795,6 +805,78 @@ function withApprovedRuntimePermissions(
 function defaultMcpServerId(toolId: string, args: Readonly<Record<string, unknown>>): string | undefined {
   if (!toolId.startsWith("mcp.")) return undefined;
   return readString(args.serverId) ?? "local-mcp";
+}
+
+function withRuntimeHarnessTools(manifest: AgentManifest, dynamicTools: readonly ToolSpec[]): AgentManifest {
+  if (dynamicTools.length === 0) return manifest;
+  const byId = new Map<string, ToolSpec>();
+  for (const tool of [...manifest.harness.tools, ...dynamicTools]) {
+    byId.set(tool.toolId, tool);
+  }
+  return {
+    ...manifest,
+    harness: {
+      ...manifest.harness,
+      tools: [...byId.values()],
+      metadata: {
+        ...manifest.harness.metadata,
+        runtimeMcpDynamicToolCount: dynamicTools.length,
+      },
+    },
+  };
+}
+
+function withRuntimeMcpModule(manifest: AgentManifest, module: McpHarnessModuleSpec | undefined): AgentManifest {
+  if (module === undefined || manifest.harness.modules.mcp !== undefined) return manifest;
+  const byId = new Map<string, ToolSpec>();
+  for (const tool of [...manifest.harness.tools, ...mcp.recommendedTools()]) {
+    byId.set(tool.toolId, tool);
+  }
+  return {
+    ...manifest,
+    harness: {
+      ...manifest.harness,
+      modules: {
+        ...manifest.harness.modules,
+        mcp: module,
+      },
+      tools: [...byId.values()],
+      runtimeRequirements: manifest.harness.runtimeRequirements.includes("runtime.mcp")
+        ? manifest.harness.runtimeRequirements
+        : [...manifest.harness.runtimeRequirements, "runtime.mcp"],
+      metadata: {
+        ...manifest.harness.metadata,
+        runtimeMcpModuleSource: "runtime.options.mcpModule",
+      },
+    },
+  };
+}
+
+function normalizeMcpNativeToolDeclaration(tool: unknown): { name: string; description: string; inputSchema: Record<string, unknown> } | undefined {
+  if (!isRecord(tool)) return undefined;
+  const name = readString(tool.name);
+  if (name === undefined) return undefined;
+  const description = readString(tool.description) ?? readString(tool.title) ?? name;
+  const schema = isRecord(tool.inputSchema) ? tool.inputSchema : isRecord(tool.input_schema) ? tool.input_schema : {};
+  return { name, description, inputSchema: schema };
+}
+
+async function discoverRuntimeMcpDynamicTools(
+  manifest: AgentManifest,
+  executor: BaseToolExecutorPort,
+): Promise<readonly ToolSpec[]> {
+  const profiles = buildMcpServerProfilesFromManifest(manifest);
+  if (profiles.length === 0 || executor.mcp?.listTools === undefined) return [];
+  const inventory: Record<string, { name: string; description: string; inputSchema: Record<string, unknown> }[]> = {};
+  for (const profile of profiles) {
+    const listed = await executor.mcp.listTools({ serverId: profile.serverId });
+    if (listed?.ok !== true) continue;
+    const rawTools: readonly unknown[] = Array.isArray(listed.output?.tools) ? listed.output.tools : [];
+    inventory[profile.serverId] = rawTools
+      .map(normalizeMcpNativeToolDeclaration)
+      .filter((tool): tool is { name: string; description: string; inputSchema: Record<string, unknown> } => tool !== undefined);
+  }
+  return planMcpHarnessExposure(manifest, inventory).servers.flatMap((server) => [...server.dynamicToolSpecs]);
 }
 
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
@@ -3520,6 +3602,48 @@ async function executeBaseToolDecision(input: {
   policyAdjudication?: BaseToolPolicyAdjudication;
   sandboxPlan?: BaseToolSandboxPlan;
 }> {
+  const dynamicToolSpec = input.manifest.harness.tools.find((tool) => tool.toolId === input.toolId);
+  const dynamicRuntimeToolId = typeof dynamicToolSpec?.metadata?.runtimeToolId === "string"
+    ? dynamicToolSpec.metadata.runtimeToolId
+    : undefined;
+  const dynamicRuntimeArguments = isRecord(dynamicToolSpec?.metadata?.runtimeArguments)
+    ? dynamicToolSpec.metadata.runtimeArguments
+    : undefined;
+  if (dynamicRuntimeToolId !== undefined && dynamicRuntimeToolId !== input.toolId) {
+    const delegatedArgs = dynamicRuntimeToolId === "mcp.use"
+      ? {
+        ...(dynamicRuntimeArguments ?? {}),
+        arguments: input.args,
+      }
+      : {
+        ...(dynamicRuntimeArguments ?? {}),
+        ...input.args,
+      };
+    const delegated = await executeBaseToolDecision({
+      ...input,
+      toolId: dynamicRuntimeToolId,
+      args: delegatedArgs,
+    });
+    return {
+      ...delegated,
+      record: {
+        ...delegated.record,
+        toolId: input.toolId,
+        arguments: input.args,
+      },
+      observation: {
+        ...delegated.observation,
+        material: {
+          ...delegated.observation.material,
+          metadata: {
+            ...(delegated.observation.material.metadata ?? {}),
+            dynamicRuntimeToolId,
+            dynamicMcpToolId: input.toolId,
+          },
+        },
+      },
+    };
+  }
   let toolArguments = enrichToolArguments(input.manifest, input.toolId, input.args, {
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
@@ -4499,6 +4623,7 @@ export class PraxisRuntimeKernel {
     });
 
     const dryRun = options.dryRun !== false;
+    manifest = withRuntimeMcpModule(manifest, options.mcpModule);
     const defaultBaseToolPolicy: RuntimeBaseToolExecutorPolicy = {
       workspaceRoot: toolWorkspaceRoot,
       allowedRoots: toolAllowedRoots,
@@ -4530,6 +4655,10 @@ export class PraxisRuntimeKernel {
       preparedSandbox: sandboxPrepared.sandbox,
       policyProfile: manifest.toolPolicy.profile,
       remoteSandboxWorker: options.sandbox?.remoteWorker,
+      mcpServers: [
+        ...buildMcpServerProfilesFromManifest(manifest),
+        ...(options.mcpServers ?? []),
+      ],
       emitEvent: (runtimeEvent) => {
         events.push(runtimeEvent.type);
       },
@@ -4540,6 +4669,8 @@ export class PraxisRuntimeKernel {
       id: "praxis-runtime-kernel",
       sessionId,
     };
+
+    manifest = withRuntimeHarnessTools(manifest, await discoverRuntimeMcpDynamicTools(manifest, executor));
 
     const maxModelTurns = manifest.harness.loop.maxModelTurns ?? 2;
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;

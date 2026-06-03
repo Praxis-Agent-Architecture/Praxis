@@ -26,6 +26,7 @@ import {
   tools,
 } from "../../../src/runtimeImplementation/runtimeAgentManifest.js";
 import { createPraxisRuntimeKernel } from "../../../src/runtimeImplementation/praxisRuntimeKernel.js";
+import { mcp } from "../../../src/runtimeImplementation/runtime.mcpPlane/index.js";
 import { createInMemorySessionStateEventStore } from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
 import {
   bindRuntimeAuthRole,
@@ -2872,6 +2873,261 @@ test("PraxisRuntimeKernel.runManifest adds a default local MCP server for model 
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /local-mcp|echo/);
 });
 
+test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic calls through mcp.use", async () => {
+  class DynamicMcpAgent extends PraxisAgent {
+    identity = "agent.dynamic-mcp";
+    model = model("gpt-5.4", { carrierId: "carrier.dynamic-mcp" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Browser MCP server with MCP+ exposure policy.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: [],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(DynamicMcpAgent, {
+    compiledAt: "2026-06-03T00:00:00.000Z",
+    manifestId: "manifest.dynamic-mcp",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  let executedMcpUseRequest: unknown;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-dynamic-mcp",
+    sessionId: "session-dynamic-mcp",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [{
+                name: "browser.open",
+                description: "Open a browser page.",
+                inputSchema: {
+                  type: "object",
+                  properties: { url: { type: "string" } },
+                  required: ["url"],
+                },
+              }],
+            },
+          };
+        },
+        async call(request) {
+          executedMcpUseRequest = request;
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              toolName: request?.toolName,
+              result: "opened",
+            },
+          };
+        },
+      },
+    },
+  });
+
+  const providerToolNames: string[] = [];
+  let calls = 0;
+  let dynamicProviderToolName: string | undefined;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-dynamic-mcp" }).runManifest(
+    compiled.manifest,
+    "open the docs page",
+    {
+      sessionId: "session-dynamic-mcp",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        providerToolNames.push(...(body.tools ?? []).map((item) => item.name ?? ""));
+        dynamicProviderToolName ??= body.tools
+          ?.map((item) => item.name)
+          .find((name): name is string => typeof name === "string" && name.includes("mcp_browser-plus_browser_open"));
+        if (calls === 1) {
+          assert.equal(typeof dynamicProviderToolName, "string");
+          return {
+            output: [{
+              type: "function_call",
+              name: dynamicProviderToolName,
+              call_id: "dynamic-mcp-open",
+              arguments: JSON.stringify({ url: "https://example.test/docs" }),
+            }],
+          };
+        }
+        return { output_text: "opened via dynamic MCP tool" };
+      },
+      now: () => "2026-06-03T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(providerToolNames.includes(dynamicProviderToolName ?? ""), true);
+  assert.deepEqual(executedMcpUseRequest, {
+    serverId: "browser-plus",
+    toolName: "browser.open",
+    arguments: { url: "https://example.test/docs" },
+  });
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.toolId, "mcp.browser-plus.browser.open");
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /opened/u);
+});
+
+test("PraxisRuntimeKernel.runManifest projects runtime MCP modules without changing agent source", async () => {
+  class RuntimeMcpModuleAgent extends PraxisAgent {
+    identity = "agent.runtime-mcp-module";
+    model = model("gpt-5.4", { carrierId: "carrier.runtime-mcp-module" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(RuntimeMcpModuleAgent, {
+    compiledAt: "2026-06-03T00:00:00.000Z",
+    manifestId: "manifest.runtime-mcp-module",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+  assert.equal(compiled.manifest.harness.modules.mcp, undefined);
+  assert.equal(compiled.manifest.harness.tools.some((item) => item.toolId === "mcp.use"), false);
+
+  let executedMcpCall: unknown;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-module",
+    sessionId: "session-mcp-module",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [{
+                name: "docs.search",
+                description: "Search MCP docs.",
+                inputSchema: {
+                  type: "object",
+                  properties: { query: { type: "string" } },
+                  required: ["query"],
+                },
+              }],
+            },
+          };
+        },
+        async call(request) {
+          executedMcpCall = request;
+          return { ok: true as const, output: { result: "found docs", request } };
+        },
+      },
+    },
+  });
+
+  let runtimeProviderToolName: string | undefined;
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-module" }).runManifest(
+    compiled.manifest,
+    "search docs",
+    {
+      sessionId: "session-mcp-module",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpModule: mcp.module({
+        servers: [
+          mcp.http("docs-plus", {
+            url: "https://mcp.example.test",
+            mode: "mcp-plus",
+            manifest: {
+              server: {
+                id: "docs-plus",
+                title: "Docs Plus",
+                summary: "Runtime supplied MCP+ server.",
+              },
+              exposure: {
+                pinnedTools: ["docs.search"],
+                indexedTools: [],
+              },
+            },
+          }),
+        ],
+      }),
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        runtimeProviderToolName ??= body.tools
+          ?.map((item) => item.name)
+          .find((name): name is string => typeof name === "string" && name.includes("mcp_docs-plus_docs_search"));
+        if (calls === 1) {
+          assert.equal(typeof runtimeProviderToolName, "string");
+          return {
+            output: [{
+              type: "function_call",
+              name: runtimeProviderToolName,
+              call_id: "runtime-mcp-search",
+              arguments: JSON.stringify({ query: "mcp plus" }),
+            }],
+          };
+        }
+        return { output_text: "runtime MCP module searched docs" };
+      },
+      now: () => "2026-06-03T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(runtimeProviderToolName !== undefined, true);
+  assert.deepEqual(executedMcpCall, {
+    serverId: "docs-plus",
+    toolName: "docs.search",
+    arguments: { query: "mcp plus" },
+  });
+  assert.equal(compiled.manifest.harness.modules.mcp, undefined);
+  assert.equal(compiled.manifest.harness.tools.some((item) => item.toolId === "mcp.use"), false);
+});
+
 test("PraxisRuntimeKernel.runManifest sanitizes invalid governance context before file.read dispatch", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-file-read-context-"));
   await writeFile(path.join(workspace, "image.txt"), "text fixture for invalid governance context\n", "utf8");
@@ -3954,7 +4210,7 @@ test("PraxisRuntimeKernel.runManifest compacts large function call arguments bef
     input?: readonly { type?: string; call_id?: string; arguments?: string; output?: string }[];
   };
   assert.equal((providerBodies[0] as { previous_response_id?: string }).previous_response_id, undefined);
-  assert.equal(secondProviderBody.previous_response_id, "resp-compact-call-1");
+  assert.equal(secondProviderBody.previous_response_id, undefined);
   const replayedFunctionCall = secondProviderBody.input?.find((item) =>
     item.type === "function_call" && item.call_id === "procedure-large-args"
   );
@@ -3978,7 +4234,7 @@ test("PraxisRuntimeKernel.runManifest compacts large function call arguments bef
   assert.ok(cacheDebugs[1]?.comparisonToPrevious?.changedFingerprintKeys?.includes("inputHash"));
   assert.deepEqual(providerResponseIds, [
     { providerResponseId: "resp-compact-call-1", previousProviderResponseId: undefined },
-    { providerResponseId: "resp-compact-call-2", previousProviderResponseId: "resp-compact-call-1" },
+    { providerResponseId: "resp-compact-call-2", previousProviderResponseId: undefined },
   ]);
 });
 

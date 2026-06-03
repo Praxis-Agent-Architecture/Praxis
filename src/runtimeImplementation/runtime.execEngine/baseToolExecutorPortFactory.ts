@@ -722,7 +722,22 @@ function createMcpExecutor(context: RuntimeBaseToolExecutorContext): BaseToolExe
   const configured = context.mcpServers !== undefined && context.mcpServers.length > 0
     ? createMcpRuntimeAdapter({ servers: context.mcpServers })
     : undefined;
-  const base = configured ?? createUnavailableNamespace("mcp", ["connect", "ping", "listTools", "call", "stream", "listResources", "readResource"]);
+  const base = configured ?? createUnavailableNamespace("mcp", [
+    "connect",
+    "ping",
+    "listTools",
+    "call",
+    "stream",
+    "listResources",
+    "readResource",
+    "listPrompts",
+    "getPrompt",
+    "setRoots",
+    "reportProgress",
+    "createSamplingMessage",
+    "elicit",
+    "setLoggingLevel",
+  ]);
   const callTool = base.callTool ?? base.call;
   const streamTool = base.streamTool ?? base.stream;
   return {
@@ -738,7 +753,21 @@ export function listRuntimeBaseToolImplementedPortPaths(
 ): readonly string[] {
   const ports = new Set<string>(baseToolExecutorPortFactoryDescriptor.implementedAdapters);
   if (context.mcpServers !== undefined && context.mcpServers.length > 0) {
-    for (const portPath of ["mcp.connect", "mcp.call", "mcp.callTool", "mcp.listTools", "mcp.listResources", "mcp.readResource"]) {
+    for (const portPath of [
+      "mcp.connect",
+      "mcp.call",
+      "mcp.callTool",
+      "mcp.listTools",
+      "mcp.listResources",
+      "mcp.readResource",
+      "mcp.listPrompts",
+      "mcp.getPrompt",
+      "mcp.setRoots",
+      "mcp.reportProgress",
+      "mcp.createSamplingMessage",
+      "mcp.elicit",
+      "mcp.setLoggingLevel",
+    ]) {
       ports.add(portPath);
     }
   }

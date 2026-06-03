@@ -46,6 +46,11 @@ export {
   type PraxisApplicationRuntimeOptions,
 } from "./applicationRuntime.js";
 
+export type {
+  McpApplicationServerInput,
+  McpPlusApplicationServerInput,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
+
 export {
   createApplicationRestServer,
   createApplicationWebSocketServer,

@@ -196,6 +196,12 @@ import {
   ExecutionMonitor,
   analyzeExecutionMonitor,
 } from "../runtimeImplementation/runtime.executionMonitor/index.js";
+import {
+  buildMcpServerProfilesFromManifest,
+  createMcpApplicationStateView,
+  mcp,
+  planMcpHarnessExposure,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export {
   PromptPack,
@@ -263,6 +269,25 @@ export {
   type ToolSpec,
   type ToolPolicyCustomInput,
 } from "../runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  buildMcpServerProfilesFromManifest,
+  createMcpApplicationStateView,
+  mcp,
+  planMcpHarnessExposure,
+};
+
+export type {
+  McpApplicationServerView,
+  McpApplicationServerInput,
+  McpApplicationStateView,
+  McpHarnessExposurePlan,
+  McpHarnessModuleSpec,
+  McpHarnessServerMode,
+  McpHarnessServerSpec,
+  McpPlusApplicationServerInput,
+  McpTransportSpec,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export {
   createMemoryPlane,
