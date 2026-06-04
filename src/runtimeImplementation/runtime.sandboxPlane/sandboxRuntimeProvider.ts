@@ -428,7 +428,7 @@ async function probeLinuxBubblewrap(spec: SandboxSpec, input: { providerReady?: 
     return unsupported(providerFamily, spec, "linux-bubblewrap sandbox only runs on Linux");
   }
 
-  const dependencyRefs = ["dependency.binary.raxcell"];
+  const dependencyRefs = dependencyRefsFor(spec);
   if (input.providerReady === true) {
     const dependencyChecks = [
       {
