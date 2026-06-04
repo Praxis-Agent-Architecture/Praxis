@@ -38,8 +38,10 @@ type RuntimeToolFlowSummary = {
   mode: "native" | "mcp-plus";
   ok: boolean;
   providerToolName?: string;
+  toolId?: string;
   toolCallCount: number;
   toolCallOkCount: number;
+  toolOutputPreview?: string;
   outputPreview?: string;
 };
 
@@ -426,16 +428,22 @@ async function runRuntimeToolFlow(mode: "native" | "mcp-plus", discovered: reado
     },
   );
   if (!result.ok) throw new Error(`${mode} runtime tool-flow failed: ${JSON.stringify(result.error)}`);
+  const toolCall = result.toolCalls[0];
   const summary: RuntimeToolFlowSummary = {
     mode,
     ok: result.ok,
     providerToolName,
+    toolId: toolCall?.toolId,
     toolCallCount: result.toolCalls.length,
     toolCallOkCount: result.toolCalls.filter((toolCall) => toolCall.ok).length,
+    toolOutputPreview: outputPreview(toolCall?.output),
     outputPreview: outputPreview(result.outputText),
   };
   if (summary.toolCallCount !== 1 || summary.toolCallOkCount !== 1) {
     throw new Error(`${mode} runtime tool-flow expected one successful MCP tool call, got ${JSON.stringify(summary)}`);
+  }
+  if (!summary.toolOutputPreview?.includes(`praxis ${mode} runtime tool flow`)) {
+    throw new Error(`${mode} runtime tool-flow did not capture the expected MCP echo output: ${summary.toolOutputPreview ?? "empty"}`);
   }
   console.log(`[tool-flow] ${mode}: ${JSON.stringify(summary)}`);
   return summary;
