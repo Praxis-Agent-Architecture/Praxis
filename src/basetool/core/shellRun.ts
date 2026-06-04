@@ -17,7 +17,12 @@ export async function invokeShellRunCore(
   const run = namespaceMethod(definition, request, "shell", "run");
   if (!run.ok) return run.result;
 
-  return callRuntimePort(definition, run.value(compactRecord({ command: command.value, cwd: cwd.value, timeoutMs: timeoutMs.value })), {
+  return callRuntimePort(definition, run.value(compactRecord({
+    command: command.value,
+    cwd: cwd.value,
+    timeoutMs: timeoutMs.value,
+    context: input.value.context,
+  })), {
     portPath: "shell.run",
     metadata: { command: command.value, cwd: cwd.value },
   });
