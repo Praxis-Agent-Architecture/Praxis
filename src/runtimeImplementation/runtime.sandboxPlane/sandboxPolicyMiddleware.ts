@@ -35,6 +35,16 @@ export type SandboxProviderFilesystemLoweringReport = {
   runtimeRoots: readonly SandboxProviderFilesystemLoweredRoot[];
   policyGrants: readonly SandboxProviderPolicyGrant[];
   warnings: readonly { code: string; message: string }[];
+  effects?: readonly {
+    path?: string;
+    pattern?: string;
+    rawToken: string;
+    access: "read" | "write" | "readwrite";
+    command: string;
+    reason: string;
+    confidence: "high" | "medium" | "low";
+    warning?: string;
+  }[];
 };
 
 export type SandboxProviderBackendArtifact = {

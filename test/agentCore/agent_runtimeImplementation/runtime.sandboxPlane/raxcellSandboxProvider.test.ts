@@ -113,3 +113,59 @@ test("Raxcell provider normalizes prepareRun policyDecision into an environment 
   assert.equal(prepared.environmentGap?.reason, "cwd-outside-declared-roots");
   assert.equal(prepared.denial?.code, "POLICY_DECISION_REQUIRED");
 });
+
+test("Raxcell provider forwards native environmentGap and filesystem effects", async () => {
+  const provider = createRaxcellSandboxProvider({
+    client: {
+      async prepareRun() {
+        return {
+          kind: "raxcell.prepareRunResult.v1",
+          ok: false,
+          backend: "linux-bubblewrap",
+          denial: null,
+          policyDecision: null,
+          environmentGap: {
+            reason: "shell-dynamic-path-unresolved",
+            path: "$HOME/a.txt",
+            required: ["write"],
+            publicSafeMessage: "shell dynamic path requires upper runtime handling",
+          },
+          filesystemLowering: {
+            declaredRoots: [],
+            runtimeRoots: [],
+            policyGrants: [],
+            warnings: [{ code: "SHELL_DYNAMIC_PATH_UNRESOLVED", message: "cannot statically resolve $HOME/a.txt" }],
+            effects: [{
+              rawToken: "$HOME/a.txt",
+              access: "write",
+              command: "redirection",
+              reason: "shell-redirection-output",
+              confidence: "low",
+              warning: "dynamic path unresolved",
+            }],
+          },
+          backendArtifacts: [],
+          capabilityReport: null,
+        };
+      },
+      async run() {
+        throw new Error("run should not be called");
+      },
+    },
+  });
+
+  const prepared = await provider.prepareRun(request());
+
+  assert.equal(prepared.ok, false);
+  assert.equal(prepared.environmentGap?.reason, "shell-dynamic-path-unresolved");
+  assert.equal(prepared.environmentGap?.path, "$HOME/a.txt");
+  assert.deepEqual(prepared.environmentGap?.required, ["write"]);
+  assert.deepEqual(prepared.filesystemLowering?.effects, [{
+    rawToken: "$HOME/a.txt",
+    access: "write",
+    command: "redirection",
+    reason: "shell-redirection-output",
+    confidence: "low",
+    warning: "dynamic path unresolved",
+  }]);
+});

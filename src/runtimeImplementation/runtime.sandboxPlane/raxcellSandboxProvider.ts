@@ -122,11 +122,17 @@ function denial(value: PrepareRunResponse["denial"] | RunResponse["denial"]): Sa
   };
 }
 
-function environmentGap(value: PrepareRunResponse["policyDecision"] | RunResponse["policyDecision"]): SandboxProviderEnvironmentGap | null {
+function environmentGap(
+  value:
+    | PrepareRunResponse["environmentGap"]
+    | PrepareRunResponse["policyDecision"]
+    | RunResponse["environmentGap"]
+    | RunResponse["policyDecision"],
+): SandboxProviderEnvironmentGap | null {
   if (value === null || value === undefined) return null;
   return {
     reason: value.reason,
-    path: value.path,
+    path: value.path ?? "",
     required: value.required,
     publicSafeMessage: value.publicSafeMessage,
   };
@@ -139,6 +145,7 @@ function filesystemLowering(value: FileSystemLoweringReport | null | undefined):
     runtimeRoots: value.runtimeRoots,
     policyGrants: value.policyGrants,
     warnings: value.warnings,
+    effects: value.effects,
   };
 }
 
@@ -158,7 +165,7 @@ function prepareResult(value: PrepareRunResponse): SandboxProviderPrepareRunResu
     ok: value.ok,
     providerFamily: providerFamily(value.backend),
     denial: denial(value.denial),
-    environmentGap: environmentGap(value.policyDecision),
+    environmentGap: environmentGap(value.environmentGap ?? value.policyDecision),
     filesystemLowering: filesystemLowering(value.filesystemLowering),
     backendArtifacts: backendArtifacts(value.backendArtifacts),
     metadata: {
@@ -178,7 +185,7 @@ function runResult(value: RunResponse): SandboxProviderRunResult {
     stderr: value.stderr,
     timedOut: value.timedOut,
     denial: denial(value.denial),
-    environmentGap: environmentGap(value.policyDecision),
+    environmentGap: environmentGap(value.environmentGap ?? value.policyDecision),
     filesystemLowering: filesystemLowering(value.filesystemLowering),
     metadata: {
       raxcellKind: value.kind,

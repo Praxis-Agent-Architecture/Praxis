@@ -56,7 +56,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/agents": "^0.11.4",
     "@praxis-ai/praxis": "0.1.1",
-    "@praxis-ai/raxcell": "^0.1.4",
+    "@praxis-ai/raxcell": "^0.1.5",
     "apache-arrow": "^18.1.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
