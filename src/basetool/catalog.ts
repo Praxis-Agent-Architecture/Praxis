@@ -501,6 +501,27 @@ export const semanticBaseToolCatalog = [
     }),
   }),
   define({
+    toolId: "mcp.prompts",
+    layer: "agent",
+    title: "Read MCP Prompts",
+    description: "List or get MCP prompts through runtime-owned MCP clients.",
+    risk: "read",
+    runtimePorts: ["mcp.listPrompts", "mcp.getPrompt"],
+    permissionHints: ["mcp:prompt:list", "mcp:prompt:get"],
+    inputSchema: schema({
+      type: "object",
+      properties: {
+        operation: { type: "string", enum: ["list", "get"] },
+        serverId: { type: "string" },
+        cursor: { type: "string" },
+        name: { type: "string" },
+        arguments: { type: "object" },
+      },
+      required: ["operation"],
+      additionalProperties: false,
+    }),
+  }),
+  define({
     toolId: "media.viewImage",
     layer: "optional",
     title: "View Image",

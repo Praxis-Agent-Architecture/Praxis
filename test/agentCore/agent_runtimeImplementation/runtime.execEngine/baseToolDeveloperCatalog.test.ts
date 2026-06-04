@@ -14,7 +14,7 @@ test("baseToolDeveloperCatalog exposes all registered tools without requiring ha
   const catalog = listBaseToolDeveloperCatalog();
   const registry = createBaseToolRegistry();
 
-  assert.equal(catalog.length, 25);
+  assert.equal(catalog.length, 26);
   for (const entry of catalog) {
     assert.equal(registry.lookup(entry.toolId).ok, true, entry.toolId);
     assert.notEqual(entry.storageFamily, "workBase");
@@ -27,6 +27,11 @@ test("baseToolDeveloperCatalog exposes all registered tools without requiring ha
   assert.equal(codeRead.metadata?.basetoolLayer, "core");
   assert.equal(codeRead.metadata?.policyRisk, "safe");
   assert.equal(codeRead.metadata?.profileName, "codingCore");
+
+  const mcpPrompts = basetool.extension.mcpPrompts();
+  assert.equal(mcpPrompts.toolId, "mcp.prompts");
+  assert.equal(mcpPrompts.group, "mcp");
+  assert.deepEqual(mcpPrompts.metadata?.runtimePorts, ["mcp.listPrompts", "mcp.getPrompt"]);
 
   const lookup = tryBaseToolById("file.search");
   assert.equal(lookup.ok, true);
@@ -57,6 +62,7 @@ test("basetool profiles expose the six framework profile names and profile-aware
   assert.match(codingShell.description ?? "", /tests, build commands, diagnostics/u);
   assert.match(workShell.description ?? "", /documents, spreadsheets, reports/u);
   assert.equal(basetool.profile("agentCore").some((entry) => entry.toolId === "mcp.use"), true);
+  assert.equal(basetool.profile("agentCore").some((entry) => entry.toolId === "mcp.prompts"), true);
   assert.equal(basetool.profile("fullCore").some((entry) => entry.toolId === "context.load"), true);
 });
 

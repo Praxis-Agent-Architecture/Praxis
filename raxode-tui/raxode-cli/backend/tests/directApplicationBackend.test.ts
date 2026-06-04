@@ -223,7 +223,7 @@ test("direct application backend forwards Raxode agent options into readiness", 
   assert.equal(readiness.sandboxProfile, "workspace-only");
   assert.equal(readiness.sessionPersistence, "memory");
   assert.equal(readiness.sandbox?.defaultExecution, "workspace-rollback");
-  assert.equal(readiness.tools?.expectedCoreToolIds?.length, 25);
+  assert.equal(readiness.tools?.expectedCoreToolIds?.length, 26);
   assert.deepEqual(readiness.tools?.mountedToolIds, [
     "file.read",
     "file.search",

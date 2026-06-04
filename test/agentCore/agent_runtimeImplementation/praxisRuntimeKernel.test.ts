@@ -3049,7 +3049,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
     });
@@ -3172,7 +3172,7 @@ test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes 
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 4, maxToolCalls: 1 }),
     });
@@ -3336,7 +3336,7 @@ test("PraxisRuntimeKernel.runManifest expands developer manifest indexed MCP+ to
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 3, maxToolCalls: 1 }),
     });
@@ -3445,7 +3445,7 @@ test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecu
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 8, maxToolCalls: 1 }),
     });
@@ -3582,7 +3582,7 @@ test("PraxisRuntimeKernel.runManifest does not schedule MCP+ reprofile for inter
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 8, maxToolCalls: 1 }),
     });
@@ -3748,7 +3748,7 @@ test("PraxisRuntimeKernel.runManifest lets MCP+ skill_write persist a server pro
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
     });
@@ -3888,7 +3888,7 @@ test("PraxisRuntimeKernel.runManifest injects MCP+ sidecar after built-in tool d
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 1 }),
     });

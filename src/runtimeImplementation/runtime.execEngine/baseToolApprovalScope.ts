@@ -149,6 +149,10 @@ export function createBaseToolApprovalScope(input: {
     const key = `${normalize(text(args.serverId)) || "default"}:${normalize(text(args.operation)) || "unknown-operation"}:${normalize(text(args.uri)) || "*"}`;
     return scope(toolId, "mcp", key);
   }
+  if (toolId === "mcp.prompts") {
+    const key = `${normalize(text(args.serverId)) || "default"}:${normalize(text(args.operation)) || "unknown-operation"}:${normalize(text(args.name)) || "*"}`;
+    return scope(toolId, "mcp", key);
+  }
   if (toolId === "skill.load") {
     const key = normalize(text(args.name)) || normalize(text(args.path)) || "unknown-skill";
     return scope(toolId, "registered-source", key);

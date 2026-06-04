@@ -112,6 +112,7 @@ export const basetool = {
     contextLoad: (input?: BaseToolSpecInput) => knownTool("context.load", input),
     mcpUse: (input?: BaseToolSpecInput) => knownTool("mcp.use", input),
     mcpResources: (input?: BaseToolSpecInput) => knownTool("mcp.resources", input),
+    mcpPrompts: (input?: BaseToolSpecInput) => knownTool("mcp.prompts", input),
   },
   runtime: {
     processWait: (input?: BaseToolSpecInput) => knownTool("process.wait", input),

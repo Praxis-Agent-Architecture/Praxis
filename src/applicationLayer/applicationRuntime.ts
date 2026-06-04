@@ -1535,11 +1535,17 @@ function summarizeMcpToolInput(toolCall: AgentToolCallRecord): string | undefine
   const serverId = firstStringValue(target?.serverId, target?.connectionId, args.serverId, args.connectionId);
   const toolName = firstStringValue(target?.toolName, target?.name, args.toolName, args.name);
   const resourceUri = firstStringValue(target?.resourceUri, target?.uri, args.resourceUri, args.uri);
+  const promptName = firstStringValue(target?.promptName, target?.name, args.promptName, args.name);
   if (toolCall.toolId === "mcp.use") return `Calling MCP tool ${toolName ?? "tool"}${serverId ? ` on ${serverId}` : ""}`;
   if (toolCall.toolId === "mcp.resources") {
     return resourceUri
       ? `Reading MCP resource ${resourceUri}${serverId ? ` from ${serverId}` : ""}`
       : `Listing MCP resources${serverId ? ` from ${serverId}` : ""}`;
+  }
+  if (toolCall.toolId === "mcp.prompts") {
+    return promptName
+      ? `Reading MCP prompt ${promptName}${serverId ? ` from ${serverId}` : ""}`
+      : `Listing MCP prompts${serverId ? ` from ${serverId}` : ""}`;
   }
   return `${toolCall.toolId}${serverId ? ` on ${serverId}` : ""}`;
 }

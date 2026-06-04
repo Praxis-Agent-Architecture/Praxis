@@ -35,6 +35,7 @@ const researchCoreTools = [
   "file.search",
   "context.load",
   "mcp.resources",
+  "mcp.prompts",
   "plan.update",
   "user.ask",
 ] as const;
@@ -64,7 +65,7 @@ const runtimeCoreTools = [
   "user.ask",
 ] as const;
 
-const agentExtensionTools = ["skill.load", "context.load", "mcp.use", "mcp.resources"] as const;
+const agentExtensionTools = ["skill.load", "context.load", "mcp.use", "mcp.resources", "mcp.prompts"] as const;
 
 const multiagentMeshTools = [
   "agent.spawn",
@@ -126,6 +127,9 @@ const researchDescribeOverlays = {
   "mcp.resources": overlay({
     summary: "Read external MCP resources without invoking arbitrary MCP tool actions.",
   }),
+  "mcp.prompts": overlay({
+    summary: "List or get reusable prompts exposed by mounted MCP servers.",
+  }),
 } satisfies Readonly<Record<string, BaseToolProfileDescribeOverlay>>;
 
 const workDescribeOverlays = {
@@ -183,6 +187,9 @@ const agentDescribeOverlays = {
   }),
   "mcp.resources": overlay({
     summary: "List or read mounted MCP resources through runtime-owned clients.",
+  }),
+  "mcp.prompts": overlay({
+    summary: "List or get mounted MCP prompts through runtime-owned clients.",
   }),
   "skill.load": overlay({
     summary: "Load local skill instructions through the governed skill port.",

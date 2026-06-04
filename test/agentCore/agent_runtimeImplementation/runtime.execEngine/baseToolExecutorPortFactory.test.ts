@@ -61,8 +61,8 @@ test("baseToolSupportCatalog covers the semantic basetool catalog without work T
   const snapshot = snapshotBaseToolSupportCatalog();
 
   assert.equal(baseToolSupportCatalogDescriptor.semanticCatalog, true);
-  assert.equal(catalog.length, 25);
-  assert.equal(snapshot.total, 25);
+  assert.equal(catalog.length, 26);
+  assert.equal(snapshot.total, 26);
   assert.equal(snapshot.byFamily.work ?? 0, 0);
   assert.equal(catalog.some((entry) => entry.storageFamily === "workBase"), false);
 
@@ -71,6 +71,10 @@ test("baseToolSupportCatalog covers the semantic basetool catalog without work T
   assert.equal(shell.family, "core");
   assert.equal(shell.group, "shell");
   assert.equal(shell.requiredSupports.some((support) => support.portPath === "shell.run"), true);
+
+  const prompts = catalog.find((entry) => entry.toolId === "mcp.prompts");
+  assert.ok(prompts);
+  assert.deepEqual(prompts.requiredSupports.map((support) => support.portPath), ["mcp.listPrompts", "mcp.getPrompt"]);
 
   const file = catalog.find((entry) => entry.toolId === "file.read");
   assert.ok(file);

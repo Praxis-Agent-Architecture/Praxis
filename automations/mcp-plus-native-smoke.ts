@@ -34,6 +34,15 @@ type LiveCallProbeResult = LiveCallProbe & {
   error?: string;
 };
 
+type LivePromptProbeResult = {
+  serverId: string;
+  operation: "list" | "get";
+  name?: string;
+  ok: boolean;
+  outputPreview?: string;
+  error?: string;
+};
+
 type RuntimeToolFlowSummary = {
   mode: "native" | "mcp-plus";
   ok: boolean;
@@ -197,7 +206,7 @@ class McpSmokeAgent extends PraxisAgent {
     policy: policy({
       allowProviderCall: true,
       allowToolExecution: true,
-      scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+      scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
     }),
     loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 0 }),
   });
@@ -212,7 +221,7 @@ class McpSmokeToolFlowAgent extends PraxisAgent {
     policy: policy({
       allowProviderCall: true,
       allowToolExecution: true,
-      scopes: ["agent.invoke", "tool.execute", "mcp:call"],
+      scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:prompt:list", "mcp:prompt:get"],
     }),
     loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
   });
@@ -378,6 +387,55 @@ async function runLiveCallProbes(discovered: readonly DiscoveredServer[]): Promi
     }
   } finally {
     await adapter.callTool?.({ serverId: "playwright", toolName: "browser_close", arguments: {} });
+    await adapter.shutdown?.({});
+  }
+  return results;
+}
+
+async function runLivePromptProbes(): Promise<LivePromptProbeResult[]> {
+  const adapter = createMcpRuntimeAdapter({ servers: SERVER_PROFILES.map((server) => server.profile) });
+  const results: LivePromptProbeResult[] = [];
+  try {
+    const listed = await adapter.listPrompts?.({ serverId: "everything" });
+    const listResult: LivePromptProbeResult = listed?.ok === true
+      ? {
+          serverId: "everything",
+          operation: "list",
+          ok: true,
+          outputPreview: outputPreview(listed.output),
+        }
+      : {
+          serverId: "everything",
+          operation: "list",
+          ok: false,
+          error: listed?.ok === false ? listed.error.message : "missing listPrompts result",
+        };
+    results.push(listResult);
+    console.log(`[prompt-probe] everything.prompts/list: ${listResult.ok ? "ok" : `failed: ${listResult.error}`}`);
+    if (!listResult.ok) throw new Error(`Live MCP prompt list probe failed: ${listResult.error}`);
+    const promptName = listed.output.prompts.find((prompt) => prompt.name === "simple-prompt")?.name ?? listed.output.prompts[0]?.name;
+    if (promptName === undefined) throw new Error("Live MCP prompt list probe returned no prompt names.");
+
+    const prompt = await adapter.getPrompt?.({ serverId: "everything", name: promptName, arguments: {} });
+    const getResult: LivePromptProbeResult = prompt?.ok === true
+      ? {
+          serverId: "everything",
+          operation: "get",
+          name: promptName,
+          ok: true,
+          outputPreview: outputPreview(prompt.output),
+        }
+      : {
+          serverId: "everything",
+          operation: "get",
+          name: promptName,
+          ok: false,
+          error: prompt?.ok === false ? prompt.error.message : "missing getPrompt result",
+        };
+    results.push(getResult);
+    console.log(`[prompt-probe] everything.prompts/get:${promptName}: ${getResult.ok ? "ok" : `failed: ${getResult.error}`}`);
+    if (!getResult.ok) throw new Error(`Live MCP prompt get probe failed for ${promptName}: ${getResult.error}`);
+  } finally {
     await adapter.shutdown?.({});
   }
   return results;
@@ -585,6 +643,7 @@ async function runMode(mode: "native" | "mcp-plus", discovered: readonly Discove
 await mkdir(runRoot, { recursive: true });
 const discovered = await discover();
 const liveCallProbes = await runLiveCallProbes(discovered);
+const livePromptProbes = await runLivePromptProbes();
 const nativeToolFlow = await runRuntimeToolFlow("native", discovered);
 const mcpPlusToolFlow = await runRuntimeToolFlow("mcp-plus", discovered);
 await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discovered.map((server) => ({
@@ -593,6 +652,7 @@ await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discover
   toolNames: server.tools.map((tool) => tool.name),
 })), null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-call-probes.json"), `${JSON.stringify(liveCallProbes, null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "live-prompt-probes.json"), `${JSON.stringify(livePromptProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-tool-flow.json"), `${JSON.stringify([nativeToolFlow, mcpPlusToolFlow], null, 2)}\n`, "utf8");
 const native = await runMode("native", discovered);
 const mcpPlus = await runMode("mcp-plus", discovered);
@@ -602,6 +662,8 @@ const comparison = {
   totalNativeToolsDiscovered: discovered.reduce((sum, server) => sum + server.tools.length, 0),
   liveCallProbeCount: liveCallProbes.length,
   liveCallProbeServers: [...new Set(liveCallProbes.map((probe) => probe.serverId))],
+  livePromptProbeCount: livePromptProbes.length,
+  livePromptProbeServers: [...new Set(livePromptProbes.map((probe) => probe.serverId))],
   runtimeToolFlows: [nativeToolFlow, mcpPlusToolFlow],
   native,
   mcpPlus,

@@ -478,6 +478,18 @@ test("applicationLayer tool progress summaries use semantic basetool ids", () =>
   });
   assert.equal(mcpResourceStarted.metadata?.inputSummary, "Reading MCP resource file://README.md from local");
 
+  const mcpPromptStarted = applicationRuntimeTestHooks.createToolProgressEvent({
+    turnId: "turn.semantic",
+    status: "running",
+    progress: {
+      phase: "started",
+      callId: "call.mcp.prompts",
+      toolId: "mcp.prompts",
+      arguments: { serverId: "local", name: "triage" },
+    },
+  });
+  assert.equal(mcpPromptStarted.metadata?.inputSummary, "Reading MCP prompt triage from local");
+
   const patchCompleted = applicationRuntimeTestHooks.createToolProgressEvent({
     turnId: "turn.semantic",
     status: "completed",

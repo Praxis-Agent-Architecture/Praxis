@@ -256,6 +256,10 @@ export const mcp = {
         toolId: "mcp.resources",
         metadata: { source: "praxis.mcp.recommendedTools", toolProviderKind: "mcp-static" },
       },
+      {
+        toolId: "mcp.prompts",
+        metadata: { source: "praxis.mcp.recommendedTools", toolProviderKind: "mcp-static" },
+      },
     ];
   },
 } as const;

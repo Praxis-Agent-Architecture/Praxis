@@ -120,7 +120,7 @@ test("raxode backend runs through applicationLayer with codingCore defaults", as
     assert.equal(result.view.agentId, "agent.raxode.coding");
     assert.equal(result.view.permissionProfile, "permissive");
     assert.equal(result.view.toolProfile, "agentCore");
-    assert.equal(result.view.tools.mounted, 25);
+    assert.equal(result.view.tools.mounted, 26);
     assert.equal(result.view.model.contextWindowTokens, 400_000);
     assert.equal(result.view.model.maxInputTokens, 272_000);
     assert.equal(result.view.model.inputBudgetThreshold, 0.95);

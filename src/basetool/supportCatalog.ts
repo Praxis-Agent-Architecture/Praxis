@@ -146,13 +146,23 @@ function activeSupportsFor(
   entry: BaseToolSupportCatalogEntry,
   toolInput: unknown,
 ): readonly BaseToolRuntimeSupportRequirement[] {
-  if (entry.toolId !== "mcp.resources") return entry.requiredSupports;
   const operation = toolInputRecord(toolInput).operation;
-  if (operation === "list") {
-    return entry.requiredSupports.filter((support) => support.portPath !== "mcp.readResource");
+  if (entry.toolId === "mcp.resources") {
+    if (operation === "list") {
+      return entry.requiredSupports.filter((support) => support.portPath !== "mcp.readResource");
+    }
+    if (operation === "read") {
+      return entry.requiredSupports.filter((support) => support.portPath !== "mcp.listResources");
+    }
+    return entry.requiredSupports;
   }
-  if (operation === "read") {
-    return entry.requiredSupports.filter((support) => support.portPath !== "mcp.listResources");
+  if (entry.toolId === "mcp.prompts") {
+    if (operation === "list") {
+      return entry.requiredSupports.filter((support) => support.portPath !== "mcp.getPrompt");
+    }
+    if (operation === "get") {
+      return entry.requiredSupports.filter((support) => support.portPath !== "mcp.listPrompts");
+    }
   }
   return entry.requiredSupports;
 }

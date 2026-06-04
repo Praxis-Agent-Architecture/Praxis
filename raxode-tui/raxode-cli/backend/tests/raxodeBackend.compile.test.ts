@@ -25,7 +25,7 @@ test("raxode coding agent compiles as an agentCore application agent", () => {
   assert.equal(compiled.manifest.modelFleet.endpoints.primary?.metadata?.contextWindowTokens, 400_000);
   assert.equal(compiled.manifest.toolPolicy.profile, "permissive");
   assert.equal(compiled.manifest.harness.metadata?.toolProfile, "agentCore");
-  assert.equal(compiled.manifest.harness.tools.length, 25);
+  assert.equal(compiled.manifest.harness.tools.length, 26);
   assert.deepEqual(compiled.manifest.dependencies.map((dependency) => dependency.dependencyId), [
     "dependency.binary.node",
     "dependency.npm.tsx",
