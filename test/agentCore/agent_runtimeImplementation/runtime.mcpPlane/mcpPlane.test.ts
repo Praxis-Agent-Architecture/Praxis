@@ -189,6 +189,54 @@ test("MCP+ native planning exposes init control tool when no manifest or learned
   assert.equal(plus?.dynamicToolSpecs.find((tool) => tool.toolId.endsWith("mcp_plus.init"))?.metadata?.toolProviderKind, "mcp-plus-control");
 });
 
+test("MCP+ native planning omits empty expand control unless frozen wake-up is needed", () => {
+  const manifest = {
+    harness: {
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("single-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "single-plus",
+                  title: "Single Plus",
+                  summary: "Small MCP+ server with no folded tools.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: [],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+    },
+  };
+
+  const expanded = planMcpHarnessExposure(manifest, {
+    "single-plus": [nativeTools[0]!],
+  });
+  assert.deepEqual(expanded.servers[0]?.surface.tools.map((tool) => tool.name), [
+    "browser.open",
+    "mcp_plus.skill_read",
+    "mcp_plus.skill_write",
+    "mcp_plus.finish",
+  ]);
+
+  const frozen = planMcpHarnessExposure(manifest, {
+    "single-plus": [nativeTools[0]!],
+  }, {
+    "single-plus": { mode: "frozen" },
+  });
+  assert.deepEqual(frozen.servers[0]?.surface.tools.map((tool) => tool.name), [
+    "mcp_plus.expand",
+  ]);
+});
+
 test("MCP+ learned profile keeps schema version and rejects invalid proposals", () => {
   const accepted = learnedProfileFromProposal({
     projectId: "project.raxode",

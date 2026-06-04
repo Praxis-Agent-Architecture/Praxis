@@ -803,10 +803,11 @@ export function planMcpHarnessExposure(
     };
     const plan = planExposure(graph, state);
     const surface = lowerExposurePlanToMcpSurface(plan);
+    const shouldExposeExpandControl = state.mode === "frozen" || surface.sidecar.toolIndex.length > 0;
     const withNativeControls: McpCompatibleSurface = {
       tools: [
         ...surface.tools.filter((tool) => tool.name !== "mcp_plus.expand"),
-        createExpandToolDeclaration(),
+        ...(shouldExposeExpandControl ? [createExpandToolDeclaration()] : []),
         ...(stateByServerId[server.serverId]?.mode === "frozen" ? [] : [
           createMcpPlusSkillReadToolDeclaration(),
           createMcpPlusSkillWriteToolDeclaration(),
