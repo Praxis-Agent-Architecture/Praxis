@@ -1,6 +1,6 @@
 {
   "name": "@praxis-ai/praxis",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "private": false,
   "type": "module",
   "description": "Praxis agentCore architecture scaffold, tests, and engineering contracts.",
@@ -154,7 +154,7 @@
     "@lancedb/lancedb": "^0.27.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@openai/agents": "^0.7.2",
-    "@praxis-ai/mcp-plus": "^1.0.0",
+    "@praxis-ai/mcp-plus": "1.0.1",
     "@praxis-ai/raxcell": "^0.1.5",
     "@types/react": "^18.3.28",
     "apache-arrow": "^18.1.0",
