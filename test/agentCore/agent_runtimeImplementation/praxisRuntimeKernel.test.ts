@@ -3834,6 +3834,145 @@ test("PraxisRuntimeKernel.runManifest injects MCP+ sidecar after built-in tool d
   assert.ok(baseProtocolIndex > mcpPlusSidecarIndex);
 });
 
+test("PraxisRuntimeKernel.runManifest expands MCP+ skill bodies only through skill_read tool results", async () => {
+  class SkillReadMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-skill-read";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-skill-read" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Browser MCP+ server.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: [],
+                },
+                skills: {
+                  chapters: [{
+                    id: "browser-debug",
+                    title: "Browser debug",
+                    summary: "Use snapshots before diagnostics.",
+                  }],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(SkillReadMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-skill-read",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const skillStore = createInMemoryMcpPlusSkillStore([{
+    id: "skill.full-body",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    chapter: "browser-debug",
+    title: "Read full skill on demand",
+    summary: "Compact skill card only.",
+    do: ["UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT"],
+    pitfalls: ["UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT"],
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  }]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-skill-read",
+    sessionId: "session-mcp-plus-skill-read",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [{
+                name: "browser.open",
+                description: "Open a browser page.",
+                inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+              }],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "called", request } };
+        },
+      },
+    },
+  });
+
+  let calls = 0;
+  let firstProviderBodyText = "";
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-skill-read" }).runManifest(
+    compiled.manifest,
+    "read the full browser debugging skill",
+    {
+      sessionId: "session-mcp-plus-skill-read",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        skillStore,
+      },
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        if (calls === 1) {
+          firstProviderBodyText = JSON.stringify(envelope.body);
+          const skillReadToolName = (body.tools ?? [])
+            .map((item) => item.name ?? "")
+            .find((name) => name.includes("mcp_plus_skill_read"));
+          assert.equal(typeof skillReadToolName, "string");
+          return {
+            output: [{
+              type: "function_call",
+              name: skillReadToolName,
+              call_id: "skill-read",
+              arguments: JSON.stringify({ serverId: "browser-plus", id: "skill.full-body" }),
+            }],
+          };
+        }
+        return { output_text: "skill body read" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.doesNotMatch(firstProviderBodyText, /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.doesNotMatch(firstProviderBodyText, /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
+});
+
 test("PraxisRuntimeKernel.runManifest projects runtime MCP modules without changing agent source", async () => {
   class RuntimeMcpModuleAgent extends PraxisAgent {
     identity = "agent.runtime-mcp-module";
