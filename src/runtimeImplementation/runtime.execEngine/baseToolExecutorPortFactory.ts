@@ -451,6 +451,7 @@ async function runCommand(
         ...(input.approved === true ? { readonlyRoot: false } : {}),
       },
       network: input.network,
+      approval: input.approved === true ? { accepted: true, grantedBy: "praxis-human-approval" } : undefined,
     }, {
       remoteWorker: context.remoteSandboxWorker,
       sandboxProvider: context.sandboxProvider,
@@ -833,6 +834,7 @@ export function createRuntimeBaseToolExecutorPort(
           toolId: typeof request?.toolId === "string" ? request.toolId : "sandbox.run",
           invocationId: typeof request?.invocationId === "string" ? request.invocationId : undefined,
           network: request?.network === "allow" ? "allow" : undefined,
+          approved: approvedByRuntimeContext(request?.context),
         });
       }),
     },

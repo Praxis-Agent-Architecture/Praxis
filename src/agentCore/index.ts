@@ -36,6 +36,7 @@ import {
 import {
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
+  resolveRaxcellBinaryPath,
   sandboxRuntimeProviderDescriptor,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
@@ -671,6 +672,7 @@ export {
 export {
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
+  resolveRaxcellBinaryPath,
   sandboxRuntimeProviderDescriptor,
   type SandboxRuntimePrepareResult,
   type SandboxRuntimeDependencyCheck,
@@ -1192,6 +1194,7 @@ export const sandboxPlane = Object.freeze({
   createSandboxRuntimeProvider,
   mapSandboxProviderRequestToRaxcell,
   prepareSandboxRuntime,
+  resolveRaxcellBinaryPath,
   runSandboxPolicyMiddleware,
   runSandboxCommand,
   raxcellSandboxProviderDescriptor,

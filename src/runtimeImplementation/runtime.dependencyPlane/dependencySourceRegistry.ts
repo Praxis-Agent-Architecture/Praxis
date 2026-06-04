@@ -152,7 +152,7 @@ export const officialDependencySources = [
     executableName: "raxcell",
     versionCommand: { command: "raxcell", args: ["--version"] },
     supportedPlatforms: ["linux"],
-    installInstructions: "Install or build Raxcell, then set RAXCELL_BIN to the provider binary path when Praxis should use the CLI provider.",
+    installInstructions: "Install @praxis-ai/raxcell with Praxis/Raxode, or set RAXCELL_BIN to an explicit provider binary path.",
   }),
   source({
     dependencyId: "dependency.binary.bwrap",

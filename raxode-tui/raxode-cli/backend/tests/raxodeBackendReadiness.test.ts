@@ -206,6 +206,25 @@ test("local readiness probe treats Raxcell as the linux strong sandbox provider"
   assert.equal(readyRaxcell?.resolvedPath, "/opt/raxcell/bin/raxcell");
   assert.equal(readyProbe.sandbox.status, "ready");
   assert.equal(readyProbe.sandbox.executable, "/opt/raxcell/bin/raxcell");
+
+  const packageReadyProbe = probeLocalRaxodeReadiness({
+    manifest,
+    now: () => "2026-05-10T00:00:00.000Z",
+    nodeVersion: "v22.22.3",
+    pathEnv: "/empty",
+    fileExists: (filePath) => filePath === "/repo/node_modules/@praxis-ai/raxcell/dist/cli.js",
+    resolvePackage: (packageName) => {
+      if (packageName === "tsx") return "/repo/node_modules/tsx/dist/cli.mjs";
+      if (packageName === "@praxis-ai/raxcell/package.json") return "/repo/node_modules/@praxis-ai/raxcell/package.json";
+      return undefined;
+    },
+  });
+
+  const packageRaxcell = packageReadyProbe.dependencies.find((dependency) => dependency.dependencyId === "dependency.binary.raxcell");
+  assert.equal(packageRaxcell?.status, "ready");
+  assert.equal(packageRaxcell?.resolvedPath, "/repo/node_modules/@praxis-ai/raxcell/dist/cli.js");
+  assert.equal(packageReadyProbe.sandbox.status, "ready");
+  assert.equal(packageReadyProbe.sandbox.executable, "/repo/node_modules/@praxis-ai/raxcell/dist/cli.js");
 });
 
 test("Raxode Raxcell provider bridge resolves the same binary surface as readiness", () => {
@@ -224,6 +243,14 @@ test("Raxode Raxcell provider bridge resolves the same binary surface as readine
     pathEnv: "/opt/raxcell/bin",
     fileExists: (filePath) => filePath === "/custom/raxcell",
   }), "/custom/raxcell");
+  assert.equal(resolveRaxodeRaxcellBinaryPath({
+    env: {},
+    pathEnv: "/empty",
+    fileExists: (filePath) => filePath === "/repo/node_modules/@praxis-ai/raxcell/dist/cli.js",
+    resolvePackage: (packageName) => packageName === "@praxis-ai/raxcell/package.json"
+      ? "/repo/node_modules/@praxis-ai/raxcell/package.json"
+      : undefined,
+  }), "/repo/node_modules/@praxis-ai/raxcell/dist/cli.js");
 });
 
 test("readiness can carry local probe degradation facts", () => {

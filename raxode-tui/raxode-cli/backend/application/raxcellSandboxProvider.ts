@@ -5,6 +5,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 import { praxis } from "@praxis-ai/praxis";
@@ -18,7 +19,10 @@ export type RaxodeRaxcellSandboxProviderOptions = Pick<RaxodeOptions, "sandboxPr
   pathEnv?: string;
   platform?: NodeJS.Platform;
   fileExists?: (filePath: string) => boolean;
+  resolvePackage?: (packageName: string) => string | undefined;
 };
+
+const requireFromHere = createRequire(import.meta.url);
 
 function executableNames(name: string, platform: NodeJS.Platform): readonly string[] {
   if (platform !== "win32") return [name];
@@ -29,7 +33,7 @@ function executableNames(name: string, platform: NodeJS.Platform): readonly stri
 }
 
 export function resolveRaxodeRaxcellBinaryPath(
-  options: Pick<RaxodeRaxcellSandboxProviderOptions, "env" | "pathEnv" | "platform" | "fileExists"> = {},
+  options: Pick<RaxodeRaxcellSandboxProviderOptions, "env" | "pathEnv" | "platform" | "fileExists" | "resolvePackage"> = {},
 ): string | undefined {
   const explicitBinary = (options.env?.RAXCELL_BIN ?? process.env.RAXCELL_BIN)?.trim();
   const fileExists = options.fileExists ?? existsSync;
@@ -43,6 +47,17 @@ export function resolveRaxodeRaxcellBinaryPath(
       const candidate = path.join(entry, name);
       if (fileExists(candidate)) return candidate;
     }
+  }
+  const resolvedPackage = options.resolvePackage?.("@praxis-ai/raxcell/package.json") ?? (() => {
+    try {
+      return requireFromHere.resolve("@praxis-ai/raxcell/package.json");
+    } catch {
+      return undefined;
+    }
+  })();
+  if (resolvedPackage !== undefined) {
+    const packageBinary = path.resolve(path.dirname(resolvedPackage), "dist/cli.js");
+    if (fileExists(packageBinary)) return packageBinary;
   }
   return undefined;
 }

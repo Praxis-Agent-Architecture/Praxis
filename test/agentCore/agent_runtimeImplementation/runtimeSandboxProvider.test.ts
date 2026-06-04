@@ -99,6 +99,19 @@ test("sandbox runtime provider probes and smoke-tests linux bubblewrap when avai
   assert.match(prepared.smoke?.publicSafeMessage ?? "", /Raxcell/);
 });
 
+test("sandbox runtime provider resolves bundled Raxcell binary after package installation", () => {
+  const resolved = praxis.sandboxPlane.resolveRaxcellBinaryPath({
+    env: {},
+    pathEnv: "/empty",
+    fileExists: (filePath) => filePath === "/repo/node_modules/@praxis-ai/raxcell/dist/cli.js",
+    resolvePackage: (packageName) => packageName === "@praxis-ai/raxcell/package.json"
+      ? "/repo/node_modules/@praxis-ai/raxcell/package.json"
+      : undefined,
+  });
+
+  assert.equal(resolved, "/repo/node_modules/@praxis-ai/raxcell/dist/cli.js");
+});
+
 test("sandbox runtime provider accepts an injected Raxcell provider as linux readiness", async () => {
   const spec = sandbox.linuxBubblewrap({ resourceLimits: { timeoutMs: 5_000 } });
   const prepared = await praxis.sandboxPlane.prepareSandboxRuntime(spec, {

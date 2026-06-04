@@ -15,6 +15,7 @@ import {
 } from "../../../../src/runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import type {
   SandboxExecutionProviderPort,
+  SandboxProviderEnvironmentGap,
   SandboxProviderRunRequest,
 } from "../../../../src/runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import { sandbox } from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
@@ -26,12 +27,25 @@ async function tempWorkspace(): Promise<string> {
 function fakeLinuxSandboxProvider(input: {
   seen?: SandboxProviderRunRequest[];
   stdout?: string;
+  environmentGap?: SandboxProviderEnvironmentGap;
 } = {}): SandboxExecutionProviderPort {
   return {
     providerId: "test-raxcell",
     providerFamily: "linux-bubblewrap",
     async prepareRun(request) {
       input.seen?.push(request);
+      if (input.environmentGap !== undefined && request.policyGrants.length === 0) {
+        return {
+          kind: "runtime.sandboxPlane.provider.prepareRunResult",
+          ok: false,
+          providerFamily: "linux-bubblewrap",
+          environmentGap: input.environmentGap,
+          denial: null,
+          filesystemLowering: null,
+          backendArtifacts: [],
+          metadata: {},
+        };
+      }
       return {
         kind: "runtime.sandboxPlane.provider.prepareRunResult",
         ok: true,
@@ -366,6 +380,71 @@ test("executor passes approved shell workspace writes to linux sandbox provider"
   assert.equal(result?.ok, true);
   assert.equal(seen[0]?.filesystem.write.includes(workspace), true);
   assert.equal(seen[0]?.filesystem.readonlyRoot, false);
+});
+
+test("executor turns approved external read sandbox gap into provider policy grant", async () => {
+  const workspace = await tempWorkspace();
+  const seen: SandboxProviderRunRequest[] = [];
+  const externalRoot = path.join(os.tmpdir(), "praxis-approved-outside");
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace], allowShellExecution: true },
+    sandboxSpec: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    sandboxProvider: fakeLinuxSandboxProvider({
+      seen,
+      stdout: "approved\n",
+      environmentGap: {
+        reason: "path-outside-declared-roots",
+        path: externalRoot,
+        required: ["read"],
+        publicSafeMessage: "The command references a path outside declared filesystem roots.",
+      },
+    }),
+  });
+
+  const result = await executor.shell?.run?.({
+    command: `ls -la ${externalRoot}`,
+    cwd: workspace,
+    context: {
+      approval: {
+        accepted: true,
+        runtimeApproved: true,
+        approvalId: "approval-outside-read",
+      },
+    },
+  });
+
+  assert.equal(result?.ok, true);
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[1]?.policyGrants, [{
+    reason: "path-outside-declared-roots",
+    path: externalRoot,
+    access: ["read"],
+    grantedBy: "praxis-human-approval",
+  }]);
 });
 
 test("executor degrades unready strong sandbox to workspace rollback", async () => {

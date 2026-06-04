@@ -125,18 +125,24 @@ function resolveRaxcellExecutable(input: {
   env?: Readonly<Record<string, string | undefined>>;
   platform?: NodeJS.Platform;
   fileExists?: (filePath: string) => boolean;
+  resolvePackage?: (packageName: string) => string | undefined;
 }): string | undefined {
   const explicitBinary = (input.env?.RAXCELL_BIN ?? process.env.RAXCELL_BIN)?.trim();
   const fileExists = input.fileExists ?? existsSync;
   if (explicitBinary !== undefined && explicitBinary.length > 0) {
     return fileExists(explicitBinary) ? explicitBinary : undefined;
   }
-  return findExecutableOnPath({
+  const fromPath = findExecutableOnPath({
     name: "raxcell",
     pathEnv: input.pathEnv,
     platform: input.platform,
     fileExists,
   });
+  if (fromPath !== undefined) return fromPath;
+  const resolvedPackage = input.resolvePackage?.("@praxis-ai/raxcell/package.json");
+  if (resolvedPackage === undefined) return undefined;
+  const packageBinary = path.resolve(path.dirname(resolvedPackage), "dist/cli.js");
+  return fileExists(packageBinary) ? packageBinary : undefined;
 }
 
 function probeDependency(input: {
@@ -184,6 +190,7 @@ function probeDependency(input: {
       env: input.env,
       platform: input.platform,
       fileExists: input.fileExists,
+      resolvePackage: input.resolvePackage,
     });
     return {
       dependencyId: input.dependencyId,
@@ -193,7 +200,7 @@ function probeDependency(input: {
       source: "process",
       degrade,
       message: resolvedPath === undefined
-        ? "Raxcell is not configured through RAXCELL_BIN or PATH; linux-bubblewrap will degrade to workspace-rollback."
+        ? "Raxcell is not configured through RAXCELL_BIN, PATH, or the installed @praxis-ai/raxcell package; linux-bubblewrap will degrade to workspace-rollback."
         : "Raxcell is available for linux-bubblewrap sandbox execution.",
     };
   }
@@ -242,6 +249,7 @@ function probeSandbox(input: {
   env?: Readonly<Record<string, string | undefined>>;
   platform?: NodeJS.Platform;
   fileExists?: (filePath: string) => boolean;
+  resolvePackage?: (packageName: string) => string | undefined;
 }): RaxodeSandboxProbe {
   const profile = input.manifest.sandbox.profile;
   const providerFamily = input.manifest.sandbox.providerFamily ?? profile;
@@ -269,6 +277,7 @@ function probeSandbox(input: {
       env: input.env,
       platform: input.platform,
       fileExists: input.fileExists,
+      resolvePackage: input.resolvePackage,
     });
     return {
       profile,
@@ -277,7 +286,7 @@ function probeSandbox(input: {
       fallback: "workspace-rollback",
       executable,
       message: executable === undefined
-        ? "Raxcell was not found through RAXCELL_BIN or PATH; runtime should degrade to workspace-rollback."
+        ? "Raxcell was not found through RAXCELL_BIN, PATH, or the installed @praxis-ai/raxcell package; runtime should degrade to workspace-rollback."
         : "Raxcell was found for linux-bubblewrap sandbox execution.",
     };
   }
@@ -313,6 +322,7 @@ export function probeLocalRaxodeReadiness(input: RaxodeLocalReadinessProbeInput)
       env: input.env,
       platform: input.platform,
       fileExists: input.fileExists,
+      resolvePackage,
     }),
   };
 }

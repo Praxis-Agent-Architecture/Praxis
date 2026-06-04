@@ -9,13 +9,14 @@ import path from "node:path";
 
 import type { BaseToolPolicyProfile, SandboxSpec } from "../runtimeAgentManifest.js";
 import { createRaxcellSandboxProvider } from "./raxcellSandboxProvider.js";
-import type { SandboxRuntimePrepareResult } from "./sandboxRuntimeProvider.js";
+import { resolveRaxcellBinaryPath, type SandboxRuntimePrepareResult } from "./sandboxRuntimeProvider.js";
 import {
   runSandboxPolicyMiddleware,
   type SandboxExecutionProviderPort,
   type SandboxPolicyMiddlewareAuditEvent,
   type SandboxPolicyMiddlewareEnvironmentGapDecision,
   type SandboxProviderEnvironmentGap,
+  type SandboxProviderPolicyGrant,
   type SandboxProviderRunRequest,
 } from "./sandboxPolicyMiddleware.js";
 import {
@@ -64,6 +65,11 @@ export type SandboxCommandRequest = {
   sandboxMode?: "none" | "workspace-rollback" | "isolated";
   filesystem?: Partial<SandboxCommandFilesystemPolicy>;
   network?: SandboxCommandNetworkPolicy;
+  policyGrants?: readonly SandboxProviderPolicyGrant[];
+  approval?: {
+    accepted: boolean;
+    grantedBy?: string;
+  };
   metadata?: Readonly<Record<string, unknown>>;
 };
 
@@ -368,8 +374,8 @@ function parseSandboxDenial(plan: SandboxCommandPlan, stderr: string, exitCode: 
 
 function providerFromOptions(options: SandboxCommandRunnerOptions): SandboxExecutionProviderPort | undefined {
   if (options.sandboxProvider !== undefined) return options.sandboxProvider;
-  const binaryPath = process.env.RAXCELL_BIN?.trim();
-  return binaryPath === undefined || binaryPath.length === 0
+  const binaryPath = resolveRaxcellBinaryPath();
+  return binaryPath === undefined
     ? undefined
     : createRaxcellSandboxProvider({ binaryPath });
 }
@@ -411,7 +417,7 @@ function toProviderRunRequest(input: SandboxCommandRequest, plan: SandboxCommand
       readonlyRoot: plan.filesystem.readonlyRoot,
       protectSecrets: plan.filesystem.protectSecrets,
     },
-    policyGrants: [],
+    policyGrants: input.policyGrants ?? [],
     fallback: { mode: "none" },
     metadata: {
       providerFamily: plan.providerFamily,
@@ -419,8 +425,17 @@ function toProviderRunRequest(input: SandboxCommandRequest, plan: SandboxCommand
       policyProfile: plan.policyProfile,
       secretGlobs: plan.filesystem.secretGlobs,
       protectSecrets: plan.filesystem.protectSecrets,
+      approvalAccepted: input.approval?.accepted === true,
+      approvalGrantedBy: input.approval?.grantedBy ?? null,
     },
   };
+}
+
+function grantAccessForGap(gap: SandboxProviderEnvironmentGap): readonly string[] {
+  const access = [...new Set((gap.required ?? [])
+    .map((value) => value.toLowerCase())
+    .filter((value) => value === "read" || value === "write"))];
+  return access.length > 0 ? access : ["read"];
 }
 
 function defaultEnvironmentGapDecision(context: {
@@ -428,6 +443,19 @@ function defaultEnvironmentGapDecision(context: {
   environmentGap: SandboxProviderEnvironmentGap;
 }): SandboxPolicyMiddlewareEnvironmentGapDecision {
   const gap = context.environmentGap;
+  if (context.request.metadata.approvalAccepted === true && gap.reason === "path-outside-declared-roots") {
+    return {
+      type: "grant",
+      grants: [{
+        reason: gap.reason,
+        path: gap.path,
+        access: grantAccessForGap(gap),
+        grantedBy: typeof context.request.metadata.approvalGrantedBy === "string"
+          ? context.request.metadata.approvalGrantedBy
+          : "praxis-human-approval",
+      }],
+    };
+  }
   if (gap.reason !== "cwd-outside-declared-roots") {
     return { type: "deny", reason: gap.publicSafeMessage };
   }

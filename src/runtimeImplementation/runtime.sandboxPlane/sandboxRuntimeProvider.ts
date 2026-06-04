@@ -5,7 +5,10 @@
  */
 
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
@@ -15,6 +18,7 @@ import type {
 import { canonicalDependencyId } from "../runtime.dependencyPlane/index.js";
 
 const execFileAsync = promisify(execFile);
+const requireFromHere = createRequire(import.meta.url);
 
 export type SandboxRuntimeProviderStatus =
   | "available"
@@ -135,9 +139,51 @@ function dependencyRefsFor(spec: SandboxSpec): readonly string[] {
   return refs.map(canonicalDependencyId);
 }
 
+function executableNames(name: string, platform: NodeJS.Platform): readonly string[] {
+  if (platform !== "win32") return [name];
+  const extensions = (process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM")
+    .split(";")
+    .filter(Boolean);
+  return [name, ...extensions.map((extension) => `${name}${extension.toLowerCase()}`), ...extensions.map((extension) => `${name}${extension.toUpperCase()}`)];
+}
+
+function defaultResolvePackage(packageName: string): string | undefined {
+  try {
+    return requireFromHere.resolve(packageName);
+  } catch {
+    return undefined;
+  }
+}
+
+export function resolveRaxcellBinaryPath(input: {
+  env?: Readonly<Record<string, string | undefined>>;
+  pathEnv?: string;
+  platform?: NodeJS.Platform;
+  fileExists?: (filePath: string) => boolean;
+  resolvePackage?: (packageName: string) => string | undefined;
+} = {}): string | undefined {
+  const explicitBinary = (input.env?.RAXCELL_BIN ?? process.env.RAXCELL_BIN)?.trim();
+  const fileExists = input.fileExists ?? existsSync;
+  if (explicitBinary !== undefined && explicitBinary.length > 0) {
+    return fileExists(explicitBinary) ? explicitBinary : undefined;
+  }
+  const platform = input.platform ?? process.platform;
+  const entries = (input.pathEnv ?? process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  for (const entry of entries) {
+    for (const name of executableNames("raxcell", platform)) {
+      const candidate = path.join(entry, name);
+      if (fileExists(candidate)) return candidate;
+    }
+  }
+  const resolvedPackage = (input.resolvePackage ?? defaultResolvePackage)("@praxis-ai/raxcell/package.json");
+  if (resolvedPackage === undefined) return undefined;
+  const packageBinary = path.resolve(path.dirname(resolvedPackage), "dist/cli.js");
+  return fileExists(packageBinary) ? packageBinary : undefined;
+}
+
 function dependencyBinary(ref: string): string | undefined {
   const canonical = canonicalDependencyId(ref);
-  if (canonical === "dependency.binary.raxcell") return process.env.RAXCELL_BIN?.trim() || "raxcell";
+  if (canonical === "dependency.binary.raxcell") return resolveRaxcellBinaryPath();
   if (canonical === "dependency.binary.bwrap") return "bwrap";
   if (canonical === "dependency.binary.rg") return "rg";
   if (canonical === "dependency.binary.ffmpeg") return "ffmpeg";
@@ -511,7 +557,7 @@ async function probeLinuxBubblewrap(spec: SandboxSpec, input: { providerReady?: 
       sandboxId: spec.sandboxId,
       isolationLevel: spec.isolationLevel ?? "process-namespace",
       provider: "raxcell",
-      binaryPath: process.env.RAXCELL_BIN?.trim() || "raxcell",
+      binaryPath: resolveRaxcellBinaryPath() ?? "raxcell",
     },
   };
 }
