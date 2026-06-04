@@ -558,6 +558,127 @@ test("linux bubblewrap grants approved outside-path write gaps to the sandbox pr
   assert.equal(result.stdout, "provider:write");
 });
 
+test("linux bubblewrap rewrites approved HOME shell dynamic path gaps before provider lowering", async () => {
+  const workspace = await tempWorkspace();
+  const home = path.join(workspace, "home");
+  const expectedPath = path.join(home, "raxcell_dynamic_test.txt");
+  const seen: SandboxProviderRunRequest[] = [];
+  const sandboxProvider: SandboxExecutionProviderPort = {
+    providerId: "test-raxcell",
+    providerFamily: "linux-bubblewrap",
+    async prepareRun(request) {
+      seen.push(request);
+      if (request.policyGrants.length === 0) {
+        return {
+          kind: "runtime.sandboxPlane.provider.prepareRunResult",
+          ok: false,
+          providerFamily: "linux-bubblewrap",
+          environmentGap: {
+            reason: "shell-dynamic-path-unresolved",
+            path: "$HOME/raxcell_dynamic_test.txt",
+            required: ["write"],
+            publicSafeMessage: "dynamic shell path requires upper runtime handling",
+          },
+          denial: null,
+          filesystemLowering: {
+            declaredRoots: [],
+            runtimeRoots: [],
+            policyGrants: [],
+            warnings: [{ code: "SHELL_DYNAMIC_PATH_UNRESOLVED", message: "cannot statically resolve $HOME/raxcell_dynamic_test.txt" }],
+            effects: [{
+              rawToken: "$HOME/raxcell_dynamic_test.txt",
+              access: "write",
+              command: "printf",
+              reason: "shell-redirection",
+              confidence: "medium",
+              warning: "shell-dynamic-path-unresolved",
+            }],
+          },
+          backendArtifacts: [],
+          metadata: {},
+        };
+      }
+      return {
+        kind: "runtime.sandboxPlane.provider.prepareRunResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        filesystemLowering: {
+          declaredRoots: [],
+          runtimeRoots: [],
+          policyGrants: request.policyGrants,
+          warnings: [],
+        },
+        backendArtifacts: [],
+        metadata: {},
+      };
+    },
+    async run(request) {
+      return {
+        kind: "runtime.sandboxPlane.provider.runResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        exitCode: 0,
+        stdout: request.command.argv.join(" "),
+        stderr: "",
+        timedOut: false,
+        filesystemLowering: null,
+        metadata: {},
+      };
+    },
+  };
+
+  const result = await runSandboxCommand({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    invocationId: "call-provider-dynamic-home",
+    toolId: "shell.run",
+    command: "sh",
+    args: ["-lc", "printf ok > $HOME/raxcell_dynamic_test.txt"],
+    cwd: workspace,
+    env: { HOME: home },
+    sandbox: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    filesystem: { workspaceRoot: workspace },
+    approval: {
+      accepted: true,
+      grantedBy: "praxis-human-approval",
+    },
+  }, { sandboxProvider });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1]?.command.argv[2], `printf ok > ${expectedPath}`);
+  assert.deepEqual(seen[1]?.policyGrants, [{
+    reason: "shell-dynamic-path-unresolved",
+    path: expectedPath,
+    access: ["write"],
+    grantedBy: "praxis-human-approval",
+  }]);
+  assert.equal(result.stdout, `sh -lc printf ok > ${expectedPath}`);
+});
+
 test("remote-worker sandbox fails closed when no adapter is configured", async () => {
   const workspace = await tempWorkspace();
   const result = await runSandboxCommand({

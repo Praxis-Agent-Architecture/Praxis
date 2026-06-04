@@ -438,6 +438,48 @@ function grantAccessForGap(gap: SandboxProviderEnvironmentGap): readonly string[
   return access.length > 0 ? access : ["read"];
 }
 
+function resolvePraxisDynamicShellPath(request: SandboxProviderRunRequest, rawPath: string): string | undefined {
+  const home = request.command.env.HOME ?? process.env.HOME;
+  if (home === undefined || home.trim().length === 0) return undefined;
+  if (rawPath === "$HOME" || rawPath === "${HOME}" || rawPath === "~") return path.resolve(home);
+  for (const prefix of ["$HOME/", "${HOME}/", "~/"]) {
+    if (rawPath.startsWith(prefix)) return path.resolve(home, rawPath.slice(prefix.length));
+  }
+  return undefined;
+}
+
+function replaceShellPathToken(value: string, rawPath: string, resolvedPath: string): string {
+  return value.split(rawPath).join(resolvedPath);
+}
+
+function rewriteDynamicShellPathRequest(context: {
+  request: SandboxProviderRunRequest;
+  gap: SandboxProviderEnvironmentGap;
+}): SandboxProviderRunRequest | undefined {
+  const rawPath = context.gap.path;
+  if (rawPath.trim().length === 0) return undefined;
+  const resolvedPath = resolvePraxisDynamicShellPath(context.request, rawPath);
+  if (resolvedPath === undefined) return undefined;
+  return {
+    ...context.request,
+    command: {
+      ...context.request.command,
+      argv: context.request.command.argv.map((value) => replaceShellPathToken(value, rawPath, resolvedPath)),
+    },
+    policyGrants: [
+      ...context.request.policyGrants,
+      {
+        reason: context.gap.reason,
+        path: resolvedPath,
+        access: grantAccessForGap(context.gap),
+        grantedBy: typeof context.request.metadata.approvalGrantedBy === "string"
+          ? context.request.metadata.approvalGrantedBy
+          : "praxis-human-approval",
+      },
+    ],
+  };
+}
+
 function defaultEnvironmentGapDecision(context: {
   request: SandboxProviderRunRequest;
   environmentGap: SandboxProviderEnvironmentGap;
@@ -455,6 +497,12 @@ function defaultEnvironmentGapDecision(context: {
           : "praxis-human-approval",
       }],
     };
+  }
+  if (context.request.metadata.approvalAccepted === true && gap.reason === "shell-dynamic-path-unresolved") {
+    const request = rewriteDynamicShellPathRequest({ request: context.request, gap });
+    if (request !== undefined) {
+      return { type: "rewrite", request, reason: "Praxis resolved approved dynamic shell path before sandbox lowering" };
+    }
   }
   if (gap.reason !== "cwd-outside-declared-roots") {
     return { type: "deny", reason: gap.publicSafeMessage };
