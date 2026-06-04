@@ -452,6 +452,112 @@ test("linux bubblewrap isolated command executes through configured sandbox prov
   assert.equal(result.metadata.providerId, "test-raxcell");
 });
 
+test("linux bubblewrap grants approved outside-path write gaps to the sandbox provider", async () => {
+  const workspace = await tempWorkspace();
+  const seen: SandboxProviderRunRequest[] = [];
+  const sandboxProvider: SandboxExecutionProviderPort = {
+    providerId: "test-raxcell",
+    providerFamily: "linux-bubblewrap",
+    async prepareRun(request) {
+      seen.push(request);
+      if (request.policyGrants.length === 0) {
+        return {
+          kind: "runtime.sandboxPlane.provider.prepareRunResult",
+          ok: false,
+          providerFamily: "linux-bubblewrap",
+          environmentGap: {
+            reason: "path-outside-declared-roots",
+            path: "/home/proview/helloRax.txt",
+            required: ["write"],
+            publicSafeMessage: "outside path write requires upper runtime grant",
+          },
+          denial: null,
+          filesystemLowering: null,
+          backendArtifacts: [],
+          metadata: {},
+        };
+      }
+      return {
+        kind: "runtime.sandboxPlane.provider.prepareRunResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        filesystemLowering: {
+          declaredRoots: [],
+          runtimeRoots: [],
+          policyGrants: request.policyGrants,
+          warnings: [],
+        },
+        backendArtifacts: [],
+        metadata: {},
+      };
+    },
+    async run(request) {
+      const firstGrant = request.policyGrants[0];
+      const grantedAccess = firstGrant?.access?.join(",") ?? "none";
+      return {
+        kind: "runtime.sandboxPlane.provider.runResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        exitCode: 0,
+        stdout: `provider:${grantedAccess}`,
+        stderr: "",
+        timedOut: false,
+        filesystemLowering: null,
+        metadata: {},
+      };
+    },
+  };
+
+  const result = await runSandboxCommand({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    invocationId: "call-provider-write-gap",
+    toolId: "shell.run",
+    command: "sh",
+    args: ["-lc", "printf ok > /home/proview/helloRax.txt"],
+    cwd: workspace,
+    sandbox: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    filesystem: { workspaceRoot: workspace },
+    approval: {
+      accepted: true,
+      grantedBy: "praxis-human-approval",
+    },
+  }, { sandboxProvider });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[1]?.policyGrants, [{
+    reason: "path-outside-declared-roots",
+    path: "/home/proview/helloRax.txt",
+    access: ["write"],
+    grantedBy: "praxis-human-approval",
+  }]);
+  assert.equal(result.stdout, "provider:write");
+});
+
 test("remote-worker sandbox fails closed when no adapter is configured", async () => {
   const workspace = await tempWorkspace();
   const result = await runSandboxCommand({

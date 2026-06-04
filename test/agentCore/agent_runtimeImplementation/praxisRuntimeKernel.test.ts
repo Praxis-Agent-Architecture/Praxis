@@ -2660,6 +2660,63 @@ test("PraxisRuntimeKernel.runManifest allows shell commands with URLs and /dev/n
   assert.equal(result.toolCalls[0]?.ok, true);
 });
 
+test("PraxisRuntimeKernel.runManifest classifies shell external writes as dangerous approval", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-shell-outside-write-policy-"));
+
+  class ShellOutsideWritePolicyAgent extends PraxisAgent {
+    identity = "agent.shell-outside-write-policy";
+    model = model("gpt-5.4", { carrierId: "carrier.shell-outside-write-policy" });
+    toolPolicy = toolPolicies.standard();
+    harness = harness({
+      tools: tools([tool("shell.run")]),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        workspaceRoot: workspace,
+        allowedRoots: [workspace],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 1 }),
+    });
+  }
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-shell-outside-write-policy" }).run(
+    new ShellOutsideWritePolicyAgent(),
+    "write outside workspace",
+    {
+      sessionId: "session-shell-outside-write-policy",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      providerCaller: async () => ({
+        output: [{
+          type: "function_call",
+          name: "shell.run",
+          call_id: "shell-outside-write-policy-call",
+          arguments: JSON.stringify({
+            command: "printf '%s\\n' 'helloRax!I love raxode!' > /home/proview/helloRax.txt",
+            cwd: workspace,
+            dryRun: false,
+          }),
+        }],
+      }),
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  await rm(workspace, { recursive: true, force: true });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.error.code, "APPROVAL_REQUIRED");
+  assert.equal(result.state?.approvals[0]?.riskLevel, "dangerous");
+  const metadata = result.state?.approvals[0]?.metadata as {
+    policyAdjudication?: { humanApprovalMode?: string; risk?: string };
+  } | undefined;
+  assert.equal(metadata?.policyAdjudication?.risk, "dangerous");
+  assert.equal(metadata?.policyAdjudication?.humanApprovalMode, "always");
+});
+
 test("PraxisRuntimeKernel.runManifest gives EphemeralProcedure steps the runtime workspace root", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-kernel-procedure-cwd-"));
   await writeFile(path.join(workspace, "procedure-only.txt"), "needle from procedure runtime cwd\n", "utf8");

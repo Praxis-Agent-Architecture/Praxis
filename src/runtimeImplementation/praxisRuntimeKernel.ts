@@ -1179,11 +1179,31 @@ function isShellCommandAllowedSystemPath(token: string): boolean {
   return token === "/dev/null";
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
 function shellCommandAbsolutePathTokens(command: string): readonly string[] {
   const matches = shellCommandPathScanSource(command).matchAll(/(^|[\s"'`=({[,;|&<>])\/(?!\/)[^\s"'`$;&|<>()[\]{}]*/gu);
   return [...matches]
     .map((match) => stripShellPathToken((match[0] ?? "").slice(match[1]?.length ?? 0)))
     .filter((token) => token.length > 1 && !token.includes("\0") && !isShellCommandAllowedSystemPath(token));
+}
+
+function shellCommandPathAccess(command: string, token: string): "read" | "write" {
+  const source = shellCommandPathScanSource(command);
+  const escaped = escapeRegExp(token);
+  const quotedToken = `["']?${escaped}["']?`;
+  if (new RegExp(`(?:^|[\\s;|&])(?:\\d?>|\\d?>>|>|>>|<>)\\s*${quotedToken}(?:\\s|$|[;&|])`, "u").test(source)) {
+    return "write";
+  }
+  if (new RegExp(`\\btee\\b[^\\n;&|]*${quotedToken}`, "u").test(source)) return "write";
+  if (new RegExp(`\\bsed\\b[^\\n;&|]*\\s-i\\b[^\\n;&|]*${quotedToken}`, "u").test(source)) return "write";
+  if (new RegExp(`\\b(?:touch|mkdir|rm|rmdir|chmod|chown)\\b[^\\n;&|]*${quotedToken}`, "u").test(source)) return "write";
+  if (new RegExp(`Path\\(\\s*["']${escaped}["']\\s*\\)[\\s\\S]*\\b(?:write_text|append_text)\\s*\\(`, "u").test(source)) {
+    return "write";
+  }
+  return "read";
 }
 
 function shellCommandOutsideAllowedRootsMetadata(input: {
@@ -1195,18 +1215,21 @@ function shellCommandOutsideAllowedRootsMetadata(input: {
   for (const token of shellCommandAbsolutePathTokens(input.command)) {
     const normalizedPath = path.resolve(token);
     if (isInsideAllowedRoots(normalizedPath, input.allowedRoots)) continue;
-    output.push(workspacePathMetadata({
-      ok: false,
-      reason: "OUTSIDE_ALLOWED_ROOTS",
-      message: "shell command references an absolute path outside runtime allowed roots",
-      requestedPath: token,
-      normalizedPath,
-      workspaceRoot: input.workspaceRoot,
-      allowedRoots: input.allowedRoots,
-      pathWasMapped: false,
-      mappingSource: "absolute",
-      suggestedCwd: input.workspaceRoot,
-    }, "path"));
+    output.push({
+      ...workspacePathMetadata({
+        ok: false,
+        reason: "OUTSIDE_ALLOWED_ROOTS",
+        message: "shell command references an absolute path outside runtime allowed roots",
+        requestedPath: token,
+        normalizedPath,
+        workspaceRoot: input.workspaceRoot,
+        allowedRoots: input.allowedRoots,
+        pathWasMapped: false,
+        mappingSource: "absolute",
+        suggestedCwd: input.workspaceRoot,
+      }, "path"),
+      workspacePathAccess: shellCommandPathAccess(input.command, token),
+    });
   }
   return output;
 }
@@ -1223,7 +1246,6 @@ function normalizeWorkspacePathContract(input: {
   const allowedRoots = normalizeAllowedRoots({ workspaceRoot, allowedRoots: input.allowedRoots });
   const nextArgs: Record<string, unknown> = { ...input.args };
   const normalizations: Readonly<Record<string, unknown>>[] = [];
-  const pathAccess = input.toolId === "patch.apply" ? "write" : "read";
   const allowOutsideAllowedRoots = input.profile !== undefined;
 
   if (input.toolId === "file.read" || input.toolId === "skill.load" || input.toolId === "media.viewImage") {
@@ -1263,13 +1285,16 @@ function normalizeWorkspacePathContract(input: {
     }
   }
   const workspaceOutsideAllowedRoots = normalizations.some((item) => item.workspaceOutsideAllowedRoots === true || item.reason === "OUTSIDE_ALLOWED_ROOTS");
+  const workspacePathAccess = input.toolId === "patch.apply" || normalizations.some((item) => item.workspacePathAccess === "write")
+    ? "write"
+    : "read";
 
   return {
     ok: true,
     args: withWorkspaceNormalizationMetadata(nextArgs, normalizations, workspaceOutsideAllowedRoots
       ? {
         workspaceOutsideAllowedRoots: true,
-        workspacePathAccess: pathAccess,
+        workspacePathAccess,
       }
       : {}),
     metadata: normalizations[0] === undefined
