@@ -209,6 +209,11 @@ import {
 import {
   buildMcpServerProfilesFromManifest,
   createMcpApplicationStateView,
+  createFileMcpPlusProfileStore,
+  createFileMcpPlusSkillStore,
+  createInMemoryMcpPlusOverlayStore,
+  createInMemoryMcpPlusProfileStore,
+  createInMemoryMcpPlusSkillStore,
   mcp,
   planMcpHarnessExposure,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
@@ -283,6 +288,11 @@ export {
 export {
   buildMcpServerProfilesFromManifest,
   createMcpApplicationStateView,
+  createFileMcpPlusProfileStore,
+  createFileMcpPlusSkillStore,
+  createInMemoryMcpPlusOverlayStore,
+  createInMemoryMcpPlusProfileStore,
+  createInMemoryMcpPlusSkillStore,
   mcp,
   planMcpHarnessExposure,
 };
@@ -295,7 +305,16 @@ export type {
   McpHarnessModuleSpec,
   McpHarnessServerMode,
   McpHarnessServerSpec,
+  McpPlusLearnedProfile,
   McpPlusApplicationServerInput,
+  McpPlusOverlayStore,
+  McpPlusOverlayStoreKey,
+  McpPlusProfileProposal,
+  McpPlusProfileStore,
+  McpPlusProfileStoreKey,
+  McpPlusRuntimeOverlay,
+  McpPlusSkillNote,
+  McpPlusSkillStore,
   McpTransportSpec,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
 

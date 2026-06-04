@@ -39,6 +39,9 @@ import {
   type McpHarnessModuleSpec,
   type McpHarnessServerSpec,
   type McpPlusApplicationServerInput,
+  type McpPlusOverlayStore,
+  type McpPlusProfileStore,
+  type McpPlusSkillStore,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
 import {
   invokeOpenAIV1Responses,
@@ -163,6 +166,13 @@ export type PraxisApplicationRuntimeOptions = {
   mcpServers?: readonly McpApplicationServerInput[];
   mcpPlusServers?: readonly McpPlusApplicationServerInput[];
   mcpModule?: McpHarnessModuleSpec;
+  mcpPlus?: {
+    projectId?: string;
+    profileStore?: McpPlusProfileStore;
+    overlayStore?: McpPlusOverlayStore;
+    skillStore?: McpPlusSkillStore;
+    reprofileConsecutiveIndexedCalls?: number;
+  };
   onApplicationToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
   initialConversations?: readonly PraxisApplicationInitialConversation[];
   foundationProject?: PraxisProjectRuntime;
@@ -3307,6 +3317,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             agentReviewResolver: options.agentReviewResolver,
             mcpServers: applicationMcpServerProfiles(applicationMcpModule),
             mcpModule: applicationMcpModule,
+            mcpPlus: options.mcpPlus,
             storage: {
               cwd: childSession.workingDirectory,
               workspaceRoot: path.join(project.projectRoot, ".raxode"),
@@ -3938,6 +3949,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       agentReviewResolver: options.agentReviewResolver,
       mcpServers: applicationMcpServerProfiles(applicationMcpModule),
       mcpModule: applicationMcpModule,
+      mcpPlus: options.mcpPlus,
       storage: {
         cwd: state.cwd,
         workspaceRoot: path.join(project.projectRoot, ".raxode"),

@@ -48,7 +48,22 @@ export {
 
 export type {
   McpApplicationServerInput,
+  McpPlusLearnedProfile,
   McpPlusApplicationServerInput,
+  McpPlusOverlayStore,
+  McpPlusProfileProposal,
+  McpPlusProfileStore,
+  McpPlusRuntimeOverlay,
+  McpPlusSkillNote,
+  McpPlusSkillStore,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
+
+export {
+  createFileMcpPlusProfileStore,
+  createFileMcpPlusSkillStore,
+  createInMemoryMcpPlusOverlayStore,
+  createInMemoryMcpPlusProfileStore,
+  createInMemoryMcpPlusSkillStore,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export {
