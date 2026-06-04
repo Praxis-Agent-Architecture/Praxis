@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -90,7 +90,7 @@ test("buildBackendReadinessStatusLines reports sandbox fallback actions", () => 
   assert.ok(lines.some((line) => line === "Praxis backend readiness: attention"));
   assert.ok(lines.some((line) => line === "Praxis backend sandbox probe: degraded fallback=workspace-rollback"));
   assert.ok(lines.some((line) =>
-    line === "Praxis backend sandbox actions: profile=linux-bubblewrap, install=bwrap, fallback=workspace-rollback"));
+    line === "Praxis backend sandbox actions: profile=linux-bubblewrap, install=raxcell, fallback=workspace-rollback"));
 });
 
 test("raxodeBackendOptionsFromResolvedRole maps OpenAI chat completions config", () => {
@@ -234,6 +234,47 @@ test("resolveRaxodeLaunchPlan uses tsx and source entrypoints in dev/source mode
     } else {
       process.env.INIT_CWD = previousInitCwd;
     }
+  }
+});
+
+test("resolveRaxodeLaunchPlan forwards sandbox profile to direct TUI backend env", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxode-cli-sandbox-"));
+  const moduleDir = path.join(rootDir, "raxode-cli", "frontend", "tui", "cli");
+  const workspaceDir = path.join(rootDir, "workspace");
+  await mkdir(path.join(rootDir, "raxode-cli", "frontend", "tui", "app"), { recursive: true });
+  await mkdir(path.join(rootDir, "node_modules", ".bin"), { recursive: true });
+  await mkdir(workspaceDir, { recursive: true });
+  await writeFile(path.join(rootDir, "package.json"), "{\"name\":\"@praxis-ai/praxis\"}\n", "utf8");
+  await writeFile(path.join(rootDir, "node_modules", ".bin", "tsx"), "", "utf8");
+  await writeFile(path.join(rootDir, "raxode-cli", "frontend", "tui", "app", "direct-tui.tsx"), "", "utf8");
+
+  const previousWorkspaceRoot = process.env.PRAXIS_WORKSPACE_ROOT;
+  const previousInitCwd = process.env.INIT_CWD;
+  delete process.env.PRAXIS_WORKSPACE_ROOT;
+  delete process.env.INIT_CWD;
+  try {
+    const plan = resolveRaxodeLaunchPlan("tui", ["--sandbox=linuxBubblewrap"], {
+      cwd: workspaceDir,
+      moduleDir,
+    });
+
+    assert.deepEqual(plan.args, [
+      path.join(rootDir, "raxode-cli", "frontend", "tui", "app", "direct-tui.tsx"),
+      "--sandbox=linuxBubblewrap",
+    ]);
+    assert.equal(plan.env.RAXODE_APPLICATION_SANDBOX_PROFILE, "linuxBubblewrap");
+  } finally {
+    if (previousWorkspaceRoot === undefined) {
+      delete process.env.PRAXIS_WORKSPACE_ROOT;
+    } else {
+      process.env.PRAXIS_WORKSPACE_ROOT = previousWorkspaceRoot;
+    }
+    if (previousInitCwd === undefined) {
+      delete process.env.INIT_CWD;
+    } else {
+      process.env.INIT_CWD = previousInitCwd;
+    }
+    await rm(rootDir, { recursive: true, force: true });
   }
 });
 

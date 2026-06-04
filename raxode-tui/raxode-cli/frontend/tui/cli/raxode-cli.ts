@@ -112,7 +112,7 @@ export function buildBackendReadinessStatusLines(input: {
     const sandboxActionLine = readiness.sandbox.probe?.status === "degraded"
       ? [
         `profile=${readiness.sandbox.profile}`,
-        readiness.sandbox.probe.executable === undefined ? "install=bwrap" : `executable=${readiness.sandbox.probe.executable}`,
+        readiness.sandbox.probe.executable === undefined ? "install=raxcell" : `executable=${readiness.sandbox.probe.executable}`,
         `fallback=${readiness.sandbox.probe.fallback}`,
       ].join(", ")
       : "none";
@@ -159,6 +159,24 @@ export function resolveRaxodeCliCommand(argv: string[]): {
     command: rawCommand as RaxodeUiCommand | "login" | "logout" | "status" | "resume",
     rest,
   };
+}
+
+function optionValue(arg: string, prefix: string): string | undefined {
+  return arg.startsWith(prefix) ? arg.slice(prefix.length).trim() || undefined : undefined;
+}
+
+function resolveForwardedSandboxProfile(args: readonly string[]): string | undefined {
+  for (const arg of args) {
+    const sandbox = optionValue(arg, "--sandbox=");
+    if (
+      sandbox === "hostObserved"
+      || sandbox === "workspaceOnly"
+      || sandbox === "linuxBubblewrap"
+    ) {
+      return sandbox;
+    }
+  }
+  return undefined;
 }
 
 function printUsage(): void {
@@ -244,12 +262,16 @@ export function resolveRaxodeLaunchPlan(
 ): RaxodeLaunchPlan {
   const cwd = resolveConfiguredWorkspaceRoot(options.cwd ?? process.cwd());
   const moduleDir = options.moduleDir ?? MODULE_DIR;
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...options.env,
     PRAXIS_APP_ROOT: resolveCliAppRoot(moduleDir),
     PRAXIS_WORKSPACE_ROOT: cwd,
   };
+  const sandboxProfile = resolveForwardedSandboxProfile(forwardedArgs);
+  if (sandboxProfile !== undefined) {
+    env.RAXODE_APPLICATION_SANDBOX_PROFILE = sandboxProfile;
+  }
   const entrypoint = resolveUiEntrypoint(command, moduleDir);
   return {
     command: entrypoint.command,

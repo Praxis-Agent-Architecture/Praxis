@@ -108,6 +108,17 @@ function normalizePermissionProfile(value: string | undefined): PraxisApplicatio
   }
 }
 
+function normalizeSandboxProfile(value: string | undefined): RaxodeOptions["sandboxProfile"] | undefined {
+  switch (value) {
+    case "hostObserved":
+    case "workspaceOnly":
+    case "linuxBubblewrap":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 function normalizeInitialTurnIndex(value: unknown): number {
   const parsed = typeof value === "number"
     ? value
@@ -910,6 +921,11 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
       ?? process.env.RAXODE_APPLICATION_PERMISSION_PROFILE
       ?? process.env.PRAXIS_PERMISSION_PROFILE,
   );
+  const sandboxProfile = options.sandboxProfile
+    ?? normalizeSandboxProfile(
+      process.env.RAXODE_APPLICATION_SANDBOX_PROFILE
+        ?? process.env.PRAXIS_SANDBOX_PROFILE,
+    );
   const reportsDir = path.resolve(options.stateRoot ?? stateRoot, "live-reports");
   await mkdir(reportsDir, { recursive: true });
   const logPath = path.join(reportsDir, `direct-application-${sessionId.replace(/[^\w.-]+/gu, "_")}-${Date.now()}.jsonl`);
@@ -1064,7 +1080,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
   });
   const agentOptions: RaxodeOptions = {
     policyProfile: permissionProfile,
-    sandboxProfile: options.sandboxProfile,
+    sandboxProfile,
     persistence: options.persistence,
     includeAllCatalogTools: options.includeAllCatalogTools,
     provider,
@@ -1078,7 +1094,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     memoryPromptGuide: memoryBridge.promptGuide,
   };
   const sandboxProvider = resolveRaxodeRaxcellSandboxProvider({
-    sandboxProfile: options.sandboxProfile,
+    sandboxProfile,
     sandboxProvider: options.sandboxProvider,
   });
 

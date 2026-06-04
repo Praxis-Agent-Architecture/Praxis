@@ -216,6 +216,66 @@ test("direct application backend forwards Raxode agent options into readiness", 
   await rm(stateRoot, { recursive: true, force: true });
 });
 
+test("direct application backend reads sandbox profile from TUI environment", async () => {
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-sandbox-env-"));
+  const previousSandboxProfile = process.env.RAXODE_APPLICATION_SANDBOX_PROFILE;
+  process.env.RAXODE_APPLICATION_SANDBOX_PROFILE = "linuxBubblewrap";
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const errorOutput = new PassThrough();
+  let stdout = "";
+  let stderr = "";
+  output.on("data", (chunk: Buffer | string) => {
+    stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  errorOutput.on("data", (chunk: Buffer | string) => {
+    stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+
+  try {
+    const done = startDirectApplicationBackend({
+      input,
+      output,
+      errorOutput,
+      cwd: process.cwd(),
+      sessionId: "direct-sandbox-env-test",
+      stateRoot,
+      mode: "dry-run",
+      localReadinessProbe: {
+        ...readyLocalReadinessProbe,
+        pathEnv: "/empty",
+        fileExists: () => false,
+      },
+      now: () => "2026-05-10T00:00:00.000Z",
+    });
+
+    input.write("/exit\u0000");
+    input.end();
+    await done;
+  } finally {
+    if (previousSandboxProfile === undefined) {
+      delete process.env.RAXODE_APPLICATION_SANDBOX_PROFILE;
+    } else {
+      process.env.RAXODE_APPLICATION_SANDBOX_PROFILE = previousSandboxProfile;
+    }
+  }
+
+  assert.equal(stderr, "");
+  const readinessLine = stdout
+    .split(/\r?\n/u)
+    .find((line) => line.startsWith("backend readiness: "));
+  assert.ok(readinessLine);
+  const readiness = JSON.parse(readinessLine.slice("backend readiness: ".length)) as {
+    sandboxProfile?: string;
+    sandbox?: { defaultExecution?: string; probe?: { status?: string } };
+  };
+  assert.equal(readiness.sandboxProfile, "linux-bubblewrap");
+  assert.equal(readiness.sandbox?.defaultExecution, "strong-isolation");
+  assert.equal(readiness.sandbox?.probe?.status, "degraded");
+
+  await rm(stateRoot, { recursive: true, force: true });
+});
+
 test("direct application backend resumes turn indexes from the restored session offset", async () => {
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-resume-"));
   const previousStreamFps = process.env.RAXODE_STREAM_FPS;
