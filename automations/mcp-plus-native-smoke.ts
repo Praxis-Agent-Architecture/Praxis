@@ -7,7 +7,8 @@ import { createChatGPTCodexAuthEnvelope } from "../src/modelAdapter/authProfileL
 import { compileAgent, harness, loop, model, policy, PraxisAgent, toolPolicies } from "../src/runtimeImplementation/runtimeAgentManifest.js";
 import { createPraxisRuntimeKernel, type AgentModelCacheDebugRecord, type AgentModelCallProgressEvent } from "../src/runtimeImplementation/praxisRuntimeKernel.js";
 import { createMcpRuntimeAdapter, type McpRuntimeServerProfile } from "../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
-import { analyzeExecutionMonitor } from "../src/runtimeImplementation/runtime.executionMonitor/index.js";
+import { runDevDoctor } from "../src/devdoctor/index.js";
+import type { ExecutionMonitorReport } from "../src/runtimeImplementation/runtime.executionMonitor/index.js";
 import { mcp, type McpHarnessModuleSpec, type McpHarnessServerSpec } from "../src/runtimeImplementation/runtime.mcpPlane/index.js";
 
 type DiscoveredServer = {
@@ -52,6 +53,16 @@ type RuntimeToolFlowSummary = {
   toolCallOkCount: number;
   toolOutputPreview?: string;
   outputPreview?: string;
+};
+
+type DevdoctorCacheXraySummary = {
+  status: "ok" | "warning" | "error" | "no-model-calls";
+  cache?: {
+    weightedCacheHitRate?: number;
+    cacheTelemetryCoverage?: number;
+    providerCacheMissCalls?: number;
+    previousResponseReuseCalls?: number;
+  };
 };
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
@@ -565,6 +576,22 @@ function eventFromProgress(mode: string, progress: AgentModelCallProgressEvent &
   };
 }
 
+async function runDevdoctorCacheDiagnostics(runDir: string): Promise<{
+  report: ExecutionMonitorReport;
+  cacheXray: DevdoctorCacheXraySummary;
+}> {
+  const monitor = await runDevDoctor(["monitor", "--run", runDir, "--project", repoRoot, "--json"]);
+  if (monitor.exitCode !== 0) {
+    throw new Error(`devdoctor monitor failed for ${runDir}: ${monitor.output}`);
+  }
+  const report = JSON.parse(monitor.output) as ExecutionMonitorReport;
+  const cacheXray = await runDevDoctor(["cache-xray", "--run", runDir, "--project", repoRoot, "--json"]);
+  if (cacheXray.exitCode !== 0) {
+    throw new Error(`devdoctor cache-xray failed for ${runDir}: ${cacheXray.output}`);
+  }
+  return { report, cacheXray: JSON.parse(cacheXray.output) as DevdoctorCacheXraySummary };
+}
+
 async function runMode(mode: "native" | "mcp-plus", discovered: readonly DiscoveredServer[]) {
   const runDir = path.join(runRoot, mode);
   await mkdir(runDir, { recursive: true });
@@ -607,15 +634,7 @@ async function runMode(mode: "native" | "mcp-plus", discovered: readonly Discove
   await writeFile(path.join(runDir, "views.jsonl"), "", "utf8");
   await writeFile(path.join(runDir, "config.json"), `${JSON.stringify({ mode, serverIds: discovered.map((server) => server.serverId) }, null, 2)}\n`, "utf8");
 
-  const report = analyzeExecutionMonitor({
-    events: events as never,
-    views: [],
-    runDir,
-    profileName: `mcp-smoke-${mode}`,
-    project: repoRoot,
-    generatedAt: "2026-06-05T00:00:00.000Z",
-  });
-  await writeFile(path.join(runDir, "execution-monitor.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  const { report, cacheXray } = await runDevdoctorCacheDiagnostics(runDir);
 
   const cache = cacheDebugs[0];
   const toolRefs = cache.promptPack.segments.find((segment) => segment.segmentKind === "toolDeclarations")?.materialRefs ?? [];
@@ -629,6 +648,10 @@ async function runMode(mode: "native" | "mcp-plus", discovered: readonly Discove
     promptPackTotalEstimatedTokens: cache.promptPack.totalEstimatedTokens,
     cacheablePrefixEstimatedTokens: cache.promptPack.cacheablePrefixEstimatedTokens,
     sidecarPresent: toolRefs.includes("runtime:mcp-plus-native-exposure"),
+    devdoctorCacheStatus: cacheXray.status,
+    devdoctorWeightedCacheHitRate: cacheXray.cache?.weightedCacheHitRate,
+    devdoctorCacheTelemetryCoverage: cacheXray.cache?.cacheTelemetryCoverage,
+    devdoctorProviderCacheMissCalls: cacheXray.cache?.providerCacheMissCalls,
     mcpGroups: toolRefs
       .filter((ref) => ref.startsWith("baseTool:context:group:mcp:"))
       .map((ref) => ref.slice("baseTool:context:group:mcp:".length)),
