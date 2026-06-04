@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { SkillIndexEntry } from "@praxis-ai/mcp-plus";
 import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
@@ -890,6 +891,7 @@ type RuntimeMcpPlusController = {
   setNativeInventory(inventory: Readonly<Record<string, readonly { name: string; description: string; inputSchema: Record<string, unknown> }[]>>): Promise<void>;
   learnedProfilesByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, McpPlusLearnedProfile | undefined>>>;
   exposureStateByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] }>>>;
+  skillIndexByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, readonly SkillIndexEntry[]>>>;
   callControlTool(input: {
     manifest: AgentManifest;
     serverId: string;
@@ -1008,6 +1010,24 @@ function createRuntimeMcpPlusController(input: {
         states[server.serverId] = mcpPlusOverlayToExposureState(await input.overlayStore.load({ sessionId: input.sessionId, serverId: server.serverId }));
       }
       return states;
+    },
+    async skillIndexByServerId(manifest) {
+      const module = mcpHarnessModuleFrom(manifest.harness);
+      const indexes: Record<string, SkillIndexEntry[]> = {};
+      for (const server of module?.servers ?? []) {
+        if (server.mode !== "mcp-plus") continue;
+        const notes = await input.skillStore.list({ projectId: input.projectId, serverId: server.serverId });
+        indexes[server.serverId] = notes.map((note) => ({
+          id: note.id,
+          title: note.title,
+          summary: note.summary,
+          serverId: server.serverId,
+          whenToUse: note.whenToUse,
+          why: note.why,
+          pitfallsPreview: note.pitfalls?.slice(0, 3),
+        }));
+      }
+      return indexes;
     },
     async callControlTool(control) {
       if (control.controlName === "mcp_plus.init" || control.controlName === "mcp_plus.reprofile") {
@@ -1220,6 +1240,34 @@ function renderMcpPlusNativePrelude(plan: McpHarnessExposurePlan): readonly Prom
   }];
 }
 
+function mergeStoredSkillIndexIntoMcpPlusPlan(
+  plan: McpHarnessExposurePlan,
+  skillIndexByServerId: Readonly<Record<string, readonly SkillIndexEntry[]>>,
+): McpHarnessExposurePlan {
+  return {
+    servers: plan.servers.map((server) => {
+      if (server.mode !== "mcp-plus") return server;
+      const storedSkillIndex = skillIndexByServerId[server.serverId] ?? [];
+      if (storedSkillIndex.length === 0) return server;
+      const existingSkillIds = new Set(server.surface.sidecar.skillIndex.map((skill) => skill.id));
+      const mergedSkillIndex = [
+        ...server.surface.sidecar.skillIndex,
+        ...storedSkillIndex.filter((skill) => !existingSkillIds.has(skill.id)),
+      ];
+      return {
+        ...server,
+        surface: {
+          ...server.surface,
+          sidecar: {
+            ...server.surface.sidecar,
+            skillIndex: mergedSkillIndex,
+          },
+        },
+      };
+    }),
+  };
+}
+
 async function discoverRuntimeMcpDynamicSurface(
   manifest: AgentManifest,
   executor: BaseToolExecutorPort,
@@ -1245,9 +1293,13 @@ async function discoverRuntimeMcpDynamicSurface(
     await mcpPlusRuntime?.exposureStateByServerId(manifest) ?? {},
     await mcpPlusRuntime?.learnedProfilesByServerId(manifest) ?? {},
   );
+  const promptPlan = mergeStoredSkillIndexIntoMcpPlusPlan(
+    plan,
+    await mcpPlusRuntime?.skillIndexByServerId(manifest) ?? {},
+  );
   return {
     tools: plan.servers.flatMap((server) => [...server.dynamicToolSpecs]),
-    toolDeclarationPreludeMaterials: renderMcpPlusNativePrelude(plan),
+    toolDeclarationPreludeMaterials: renderMcpPlusNativePrelude(promptPlan),
   };
 }
 

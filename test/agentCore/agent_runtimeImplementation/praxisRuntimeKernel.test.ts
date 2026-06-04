@@ -3824,6 +3824,8 @@ test("PraxisRuntimeKernel.runManifest injects MCP+ sidecar after built-in tool d
   assert.match(providerBodyText, /MCP\+ Native Exposure/u);
   assert.match(providerBodyText, /Network status/u);
   assert.match(providerBodyText, /browser-debug/u);
+  assert.match(providerBodyText, /Full body should stay out of the prefix/u);
+  assert.match(providerBodyText, /Compact card may be indexed, but body expansion is on demand/u);
   assert.doesNotMatch(providerBodyText, /UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE/u);
 
   const builtInToolDeclarationsIndex = providerBodyText.indexOf("# Tool Declarations");
