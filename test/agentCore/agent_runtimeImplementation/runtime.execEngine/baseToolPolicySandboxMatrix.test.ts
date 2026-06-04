@@ -219,15 +219,16 @@ test("baseTool approval scope is session-backed and target-specific", async () =
   assert.equal(await hasApprovedBaseToolScope({ store, sessionId: "session-1", approvalScopeKey: scope.scopeKey }), true);
 });
 
-test("baseTool sandbox planner maps profiles to none, workspace rollback, and isolated fallback", () => {
+test("baseTool sandbox planner maps profiles to isolated fallback and workspace rollback", () => {
   const hostObserved = sandbox.hostObserved();
   const bapr = planBaseToolSandbox({
     toolId: "shell.run",
     profile: "bapr",
     sandbox: hostObserved,
   });
-  assert.equal(bapr.effectiveMode, "none");
-  assert.equal(bapr.status, "not-required");
+  assert.equal(bapr.requestedMode, "isolated");
+  assert.equal(bapr.effectiveMode, "workspace-rollback");
+  assert.equal(bapr.status, "degraded");
 
   const yolo = planBaseToolSandbox({
     toolId: "shell.run",

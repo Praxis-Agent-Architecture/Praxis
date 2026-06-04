@@ -98,6 +98,7 @@ export type RaxodeBackendReadiness = {
     agentReviewResolver: "configured" | "not-configured";
     contextArtifactAdapters: "configured" | "not-configured";
     baseToolAdapters: "configured" | "not-configured";
+    sandboxProvider: "configured" | "not-configured";
     authStateProvider: "configured" | "not-configured";
     foundationProject: "configured" | "not-configured";
     liveProviderResolver: "configured" | "raxode-default";
@@ -169,7 +170,7 @@ function dependencySummary(
     ? "block-backend-start"
     : dependency.dependencyId === "dependency.npm.tsx"
       ? "use-built-dist-or-install"
-      : dependency.dependencyId === "dependency.binary.bwrap"
+      : dependency.dependencyId === "dependency.binary.raxcell" || dependency.dependencyId === "dependency.binary.bwrap"
         ? "degrade-to-workspace-rollback"
         : dependency.dependencyId === "dependency.secret.provider.core.main"
           ? "dry-run-or-auth-required-for-live"
@@ -509,6 +510,7 @@ export function inspectRaxodeBackendReadiness(input: {
       agentReviewResolver: input.ports?.agentReviewResolver ?? "not-configured",
       contextArtifactAdapters: input.ports?.contextArtifactAdapters ?? "not-configured",
       baseToolAdapters: input.ports?.baseToolAdapters ?? "not-configured",
+      sandboxProvider: input.ports?.sandboxProvider ?? "not-configured",
       authStateProvider: input.ports?.authStateProvider ?? (view?.auth ? "configured" : "not-configured"),
       foundationProject: input.ports?.foundationProject ?? (view?.foundationProject ? "configured" : "not-configured"),
       liveProviderResolver: input.ports?.liveProviderResolver ?? "raxode-default",
@@ -540,6 +542,7 @@ export function inspectRaxodeBackendReadinessWithLocalProbe(input: {
     now: input.localProbe?.now ?? input.now,
     nodeVersion: input.localProbe?.nodeVersion,
     pathEnv: input.localProbe?.pathEnv,
+    env: input.localProbe?.env,
     platform: input.localProbe?.platform,
     fileExists: input.localProbe?.fileExists,
     resolvePackage: input.localProbe?.resolvePackage,

@@ -42,7 +42,6 @@ export type BaseToolSandboxPlan = {
 };
 
 function requestedModeFor(profile: BaseToolPolicyProfile): BaseToolSandboxMode {
-  if (profile === "bapr") return "none";
   if (profile === "yolo") return "workspace-rollback";
   return "isolated";
 }

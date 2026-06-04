@@ -168,7 +168,6 @@ function truncate(value: string, maxBytes: number): string {
 }
 
 function defaultModeFor(profile: BaseToolPolicyProfile): SandboxCommandPlan["mode"] {
-  if (profile === "bapr") return "none";
   if (profile === "yolo") return "workspace-rollback";
   return "isolated";
 }

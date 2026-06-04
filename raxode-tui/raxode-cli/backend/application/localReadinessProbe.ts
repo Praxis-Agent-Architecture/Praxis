@@ -45,6 +45,7 @@ export type RaxodeLocalReadinessProbeInput = {
   now?: () => string;
   nodeVersion?: string;
   pathEnv?: string;
+  env?: Readonly<Record<string, string | undefined>>;
   platform?: NodeJS.Platform;
   fileExists?: (filePath: string) => boolean;
   resolvePackage?: (packageName: string) => string | undefined;
@@ -113,9 +114,29 @@ function findExecutableOnPath(input: {
 function dependencyDegrade(dependencyId: string): string {
   if (dependencyId === "dependency.binary.node") return "block-backend-start";
   if (dependencyId === "dependency.npm.tsx") return "use-built-dist-or-install";
+  if (dependencyId === "dependency.binary.raxcell") return "degrade-to-workspace-rollback";
   if (dependencyId === "dependency.binary.bwrap") return "degrade-to-workspace-rollback";
   if (dependencyId === "dependency.secret.provider.core.main") return "dry-run-or-auth-required-for-live";
   return "record-and-continue";
+}
+
+function resolveRaxcellExecutable(input: {
+  pathEnv?: string;
+  env?: Readonly<Record<string, string | undefined>>;
+  platform?: NodeJS.Platform;
+  fileExists?: (filePath: string) => boolean;
+}): string | undefined {
+  const explicitBinary = (input.env?.RAXCELL_BIN ?? process.env.RAXCELL_BIN)?.trim();
+  const fileExists = input.fileExists ?? existsSync;
+  if (explicitBinary !== undefined && explicitBinary.length > 0) {
+    return fileExists(explicitBinary) ? explicitBinary : undefined;
+  }
+  return findExecutableOnPath({
+    name: "raxcell",
+    pathEnv: input.pathEnv,
+    platform: input.platform,
+    fileExists,
+  });
 }
 
 function probeDependency(input: {
@@ -123,6 +144,7 @@ function probeDependency(input: {
   required: boolean;
   nodeVersion: string;
   pathEnv?: string;
+  env?: Readonly<Record<string, string | undefined>>;
   platform?: NodeJS.Platform;
   fileExists?: (filePath: string) => boolean;
   resolvePackage: (packageName: string) => string | undefined;
@@ -154,6 +176,25 @@ function probeDependency(input: {
       message: resolvedPath === undefined
         ? "tsx is not resolvable from the Raxode backend package."
         : "tsx is resolvable from the Raxode backend package.",
+    };
+  }
+  if (input.dependencyId === "dependency.binary.raxcell") {
+    const resolvedPath = resolveRaxcellExecutable({
+      pathEnv: input.pathEnv,
+      env: input.env,
+      platform: input.platform,
+      fileExists: input.fileExists,
+    });
+    return {
+      dependencyId: input.dependencyId,
+      status: resolvedPath === undefined ? "missing" : "ready",
+      required: input.required,
+      resolvedPath,
+      source: "process",
+      degrade,
+      message: resolvedPath === undefined
+        ? "Raxcell is not configured through RAXCELL_BIN or PATH; linux-bubblewrap will degrade to workspace-rollback."
+        : "Raxcell is available for linux-bubblewrap sandbox execution.",
     };
   }
   if (input.dependencyId === "dependency.binary.bwrap") {
@@ -198,6 +239,7 @@ function probeDependency(input: {
 function probeSandbox(input: {
   manifest: AgentManifest;
   pathEnv?: string;
+  env?: Readonly<Record<string, string | undefined>>;
   platform?: NodeJS.Platform;
   fileExists?: (filePath: string) => boolean;
 }): RaxodeSandboxProbe {
@@ -222,9 +264,9 @@ function probeSandbox(input: {
     };
   }
   if (profile === "linux-bubblewrap" || profile === "linuxBubblewrap") {
-    const executable = findExecutableOnPath({
-      name: "bwrap",
+    const executable = resolveRaxcellExecutable({
       pathEnv: input.pathEnv,
+      env: input.env,
       platform: input.platform,
       fileExists: input.fileExists,
     });
@@ -235,8 +277,8 @@ function probeSandbox(input: {
       fallback: "workspace-rollback",
       executable,
       message: executable === undefined
-        ? "bwrap was not found on PATH; runtime should degrade to workspace-rollback."
-        : "bwrap was found on PATH.",
+        ? "Raxcell was not found through RAXCELL_BIN or PATH; runtime should degrade to workspace-rollback."
+        : "Raxcell was found for linux-bubblewrap sandbox execution.",
     };
   }
   return {
@@ -260,6 +302,7 @@ export function probeLocalRaxodeReadiness(input: RaxodeLocalReadinessProbeInput)
       required: dependency.required ?? true,
       nodeVersion,
       pathEnv: input.pathEnv,
+      env: input.env,
       platform: input.platform,
       fileExists: input.fileExists,
       resolvePackage,
@@ -267,6 +310,7 @@ export function probeLocalRaxodeReadiness(input: RaxodeLocalReadinessProbeInput)
     sandbox: probeSandbox({
       manifest: input.manifest,
       pathEnv: input.pathEnv,
+      env: input.env,
       platform: input.platform,
       fileExists: input.fileExists,
     }),

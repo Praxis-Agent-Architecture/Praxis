@@ -261,7 +261,6 @@ function legacyPreparedSandbox(value: RuntimeBaseToolExecutorSandbox | undefined
 
 function sandboxModeForContext(context: RuntimeBaseToolExecutorContext): "none" | "workspace-rollback" | "isolated" {
   const profile = policyProfileForContext(context);
-  if (profile === "bapr") return "none";
   const explicitProviderFamily = context.sandboxSpec?.providerFamily ?? context.sandbox?.providerFamily;
   const prepared = context.preparedSandbox ?? legacyPreparedSandbox(context.sandbox);
   if (strongSandboxFamily(explicitProviderFamily)) {

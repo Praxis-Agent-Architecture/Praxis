@@ -25,7 +25,7 @@ async function tempWorkspace(): Promise<string> {
   return await mkdtemp(path.join(os.tmpdir(), "praxis-sandbox-test-"));
 }
 
-test("sandbox command plan keeps bapr on host-observed and yolo on workspace rollback", async () => {
+test("sandbox command plan routes bapr through fallback sandbox and yolo on workspace rollback", async () => {
   const workspace = await tempWorkspace();
   const bapr = await createSandboxCommandPlan({
     runtimeId: "runtime-1",
@@ -37,9 +37,10 @@ test("sandbox command plan keeps bapr on host-observed and yolo on workspace rol
     sandbox: sandbox.hostObserved(),
     policyProfile: "bapr",
   });
-  assert.equal(bapr.mode, "none");
-  assert.equal(bapr.providerFamily, "host-observed");
+  assert.equal(bapr.mode, "isolated");
+  assert.equal(bapr.providerFamily, "workspace-rollback");
   assert.equal(bapr.filesystem.protectSecrets, false);
+  assert.ok(bapr.workspaceRollback);
 
   const yolo = await createSandboxCommandPlan({
     runtimeId: "runtime-1",

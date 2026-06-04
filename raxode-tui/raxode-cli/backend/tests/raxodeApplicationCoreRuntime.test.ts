@@ -8,6 +8,10 @@ import {
   createApplicationProjectRuntime,
   createLocalApplicationTransport,
 } from "@praxis-ai/praxis/application-layer";
+import type {
+  SandboxExecutionProviderPort,
+  SandboxProviderRunRequest,
+} from "@praxis-ai/praxis/agent-core";
 import type { AnthropicV1MessagesRequestEnvelope } from "@praxis-ai/praxis/provider/actualInvocationLayer/anthropic/v1_messages";
 import type { OpenAIV1ResponsesRequestEnvelope } from "@praxis-ai/praxis/provider/actualInvocationLayer/openai/v1_responses";
 import type { AuthEnvelope } from "@praxis-ai/praxis/provider/authProfileLayer/authEnvelope";
@@ -31,8 +35,40 @@ const readyLocalReadinessProbe = {
     packageName === "tsx" ? "/repo/node_modules/tsx/dist/cli.mjs" : undefined,
 } as const;
 
+function fakeRaxcellSandboxProvider(seen: SandboxProviderRunRequest[]): SandboxExecutionProviderPort {
+  return {
+    providerId: "test.raxcell",
+    providerFamily: "linux-bubblewrap",
+    async prepareRun(request) {
+      seen.push(request);
+      return {
+        kind: "runtime.sandboxPlane.provider.prepareRunResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        filesystemLowering: null,
+        backendArtifacts: [],
+        metadata: { preparedBy: "test.raxcell" },
+      };
+    },
+    async run(request) {
+      return {
+        kind: "runtime.sandboxPlane.provider.runResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        exitCode: 0,
+        stdout: `sandbox-provider:${request.command.argv.join(" ")}\n`,
+        stderr: "",
+        timedOut: false,
+        filesystemLowering: null,
+        metadata: { ranBy: "test.raxcell" },
+      };
+    },
+  };
+}
+
 function createIsolatedBackendRoot(): { backendRoot: string; cleanup: () => void } {
   const root = mkdtempSync(path.join(tmpdir(), "raxode-backend-project-"));
+  writeFileSync(path.join(root, "package.json"), JSON.stringify({ type: "module" }));
   const isolatedBackendRoot = path.join(root, "backend");
   cpSync(backendRoot, isolatedBackendRoot, {
     recursive: true,
@@ -328,7 +364,7 @@ test("raxode application runtime preserves same-session turns in the next provid
       cwd: isolated.backendRoot,
       mode: "live",
     });
-    assert.equal(start.ok, true);
+    assert.equal(start.ok, true, start.ok ? undefined : JSON.stringify(start.error));
     const first = await transport.dispatch({
       type: "application.submitTurn",
       sessionId,
@@ -539,7 +575,7 @@ test("raxode application runtime mounts multiagent tools for application session
       cwd: isolated.backendRoot,
       mode: "live",
     });
-    assert.equal(start.ok, true);
+    assert.equal(start.ok, true, start.ok ? undefined : JSON.stringify(start.error));
     const turn = await transport.dispatch({
       type: "application.submitTurn",
       sessionId,
@@ -572,6 +608,94 @@ test("raxode application runtime mounts multiagent tools for application session
     const followupBody = JSON.stringify(providerBodies.at(-1));
     assert.match(followupBody, /Tool call completed: agent\.spawn/u);
     assert.match(followupBody, /agent-spawn-call-1/u);
+  } finally {
+    isolated.cleanup();
+  }
+});
+
+test("raxode application runtime routes linux sandbox shell calls through injected Raxcell provider", async () => {
+  const isolated = createIsolatedBackendRoot();
+  const sandboxRequests: SandboxProviderRunRequest[] = [];
+  let providerCalls = 0;
+  const created = await createApplicationProjectRuntime(isolated.backendRoot, {
+    applicationId: "application.raxode.coding",
+    mode: "live",
+    provider: "openai",
+    endpointShape: "responses",
+    providerRoute: "openai_responses",
+    model: "gpt-5.5",
+    reasoningEffort: "low",
+    permissionProfile: "bapr",
+    toolProfile: "agentCore",
+    agentOptions: { sandboxProfile: "linuxBubblewrap", policyProfile: "bapr" },
+    sandboxProvider: fakeRaxcellSandboxProvider(sandboxRequests),
+    now: () => "2026-05-10T00:00:00.000Z",
+    liveProviderResolver: async () => ({
+      auth: fakeAuth,
+      provider: "openai",
+      endpointShape: "responses",
+      providerRoute: "openai_responses",
+      providerCaller: async () => {
+        providerCalls += 1;
+        if (providerCalls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: "shell.run",
+              call_id: "raxcell-shell-call-1",
+              arguments: JSON.stringify({
+                command: "printf 'raxcell tui'",
+                cwd: isolated.backendRoot,
+                timeoutMs: 1000,
+                context: {
+                  dryRun: false,
+                  workspaceRoot: isolated.backendRoot,
+                  allowedRoots: [isolated.backendRoot],
+                },
+              }),
+            }],
+          };
+        }
+        return { output_text: "shell completed in injected raxcell provider" };
+      },
+    }),
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) {
+    isolated.cleanup();
+    return;
+  }
+
+  const transport = createLocalApplicationTransport(created.runtime);
+  const sessionId = "direct-application-raxcell-sandbox-test";
+  try {
+    const start = await transport.dispatch({
+      type: "application.start",
+      sessionId,
+      cwd: isolated.backendRoot,
+      mode: "live",
+    });
+    assert.equal(start.ok, true, start.ok ? undefined : JSON.stringify(start.error));
+    const turn = await transport.dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "Run printf through the linux sandbox.",
+        cwd: isolated.backendRoot,
+      },
+    });
+
+    assert.equal(turn.ok, true);
+    assert.equal(providerCalls, 2);
+    assert.equal(sandboxRequests.length, 1);
+    assert.deepEqual(sandboxRequests[0]?.command.argv, ["sh", "-lc", "printf 'raxcell tui'"]);
+    assert.equal(sandboxRequests[0]?.policy.profile, "bapr");
+    assert.equal(sandboxRequests[0]?.policy.sandboxMode, "isolated");
+    assert.equal(sandboxRequests[0]?.metadata.policyProfile, "bapr");
+    assert.equal(turn.view.counters.toolCalls, 1);
+    assert.equal(turn.view.finalOutput, "shell completed in injected raxcell provider");
   } finally {
     isolated.cleanup();
   }

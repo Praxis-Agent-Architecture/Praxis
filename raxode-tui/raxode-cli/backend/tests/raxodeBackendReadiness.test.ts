@@ -6,6 +6,7 @@ import { praxis } from "@praxis-ai/praxis";
 import RaxodeCodingAgent from "../agents/codingAgent/agent.js";
 import { createRaxodeBackendModuleInventory } from "../application/backendModuleInventory.js";
 import { probeLocalRaxodeReadiness } from "../application/localReadinessProbe.js";
+import { resolveRaxodeRaxcellBinaryPath } from "../application/raxcellSandboxProvider.js";
 import {
   createRaxodeReadinessEvent,
   inspectRaxodeBackendReadiness,
@@ -64,7 +65,7 @@ test("raxode backend readiness summarizes new Praxis module surfaces", () => {
   assert.deepEqual(readiness.dependencies.map((dependency) => dependency.dependencyId), [
     "dependency.binary.node",
     "dependency.npm.tsx",
-    "dependency.binary.bwrap",
+    "dependency.binary.raxcell",
     "dependency.secret.provider.core.main",
   ]);
   assert.deepEqual(readiness.dependencies.map((dependency) => dependency.degrade), [
@@ -112,6 +113,12 @@ test("raxode readiness event is public-safe application metadata", () => {
       toolProfile: "codingCore",
       sessions: [],
       approvals: [],
+      mcp: {
+        servers: [],
+        recommendedMode: "mcp-plus",
+        nativeCompatible: true,
+        publicSafe: true,
+      },
       tools: {
         profile: "codingCore",
         availableProfiles: [],
@@ -167,6 +174,58 @@ test("local readiness probe checks dependencies without reading secrets", () => 
   assert.equal(currentProbe.dependencies.find((dependency) => dependency.dependencyId === "dependency.binary.node")?.status, "ready");
 });
 
+test("local readiness probe treats Raxcell as the linux strong sandbox provider", () => {
+  const manifest = compileManifest({ sandboxProfile: "linuxBubblewrap" });
+  const missingProbe = probeLocalRaxodeReadiness({
+    manifest,
+    now: () => "2026-05-10T00:00:00.000Z",
+    nodeVersion: "v22.22.3",
+    pathEnv: "/empty",
+    fileExists: () => false,
+    resolvePackage: (packageName) => packageName === "tsx" ? "/repo/node_modules/tsx/dist/cli.mjs" : undefined,
+  });
+
+  const missingRaxcell = missingProbe.dependencies.find((dependency) => dependency.dependencyId === "dependency.binary.raxcell");
+  assert.equal(missingRaxcell?.status, "missing");
+  assert.equal(missingRaxcell?.degrade, "degrade-to-workspace-rollback");
+  assert.match(missingRaxcell?.message ?? "", /Raxcell/u);
+  assert.equal(missingProbe.sandbox.status, "degraded");
+  assert.match(missingProbe.sandbox.message ?? "", /Raxcell/u);
+
+  const readyProbe = probeLocalRaxodeReadiness({
+    manifest,
+    now: () => "2026-05-10T00:00:00.000Z",
+    nodeVersion: "v22.22.3",
+    pathEnv: "/opt/raxcell/bin",
+    fileExists: (filePath) => filePath === "/opt/raxcell/bin/raxcell",
+    resolvePackage: (packageName) => packageName === "tsx" ? "/repo/node_modules/tsx/dist/cli.mjs" : undefined,
+  });
+
+  const readyRaxcell = readyProbe.dependencies.find((dependency) => dependency.dependencyId === "dependency.binary.raxcell");
+  assert.equal(readyRaxcell?.status, "ready");
+  assert.equal(readyRaxcell?.resolvedPath, "/opt/raxcell/bin/raxcell");
+  assert.equal(readyProbe.sandbox.status, "ready");
+  assert.equal(readyProbe.sandbox.executable, "/opt/raxcell/bin/raxcell");
+});
+
+test("Raxode Raxcell provider bridge resolves the same binary surface as readiness", () => {
+  assert.equal(resolveRaxodeRaxcellBinaryPath({
+    env: {},
+    pathEnv: "/empty",
+    fileExists: () => false,
+  }), undefined);
+  assert.equal(resolveRaxodeRaxcellBinaryPath({
+    env: {},
+    pathEnv: "/opt/raxcell/bin",
+    fileExists: (filePath) => filePath === "/opt/raxcell/bin/raxcell",
+  }), "/opt/raxcell/bin/raxcell");
+  assert.equal(resolveRaxodeRaxcellBinaryPath({
+    env: { RAXCELL_BIN: "/custom/raxcell" },
+    pathEnv: "/opt/raxcell/bin",
+    fileExists: (filePath) => filePath === "/custom/raxcell",
+  }), "/custom/raxcell");
+});
+
 test("readiness can carry local probe degradation facts", () => {
   const manifest = compileManifest({ sandboxProfile: "linuxBubblewrap" });
   const probe = probeLocalRaxodeReadiness({
@@ -188,7 +247,7 @@ test("readiness can carry local probe degradation facts", () => {
   assert.equal(dependency?.status, "degraded");
   assert.equal(dependency?.severity, "warning");
   assert.deepEqual(dependency?.facts.blockingProbeGaps, [
-    "dependency.binary.bwrap",
+    "dependency.binary.raxcell",
     "dependency.binary.node",
     "dependency.npm.tsx",
   ]);

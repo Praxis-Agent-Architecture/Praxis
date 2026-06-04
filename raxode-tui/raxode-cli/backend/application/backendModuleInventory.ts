@@ -163,7 +163,7 @@ export function createRaxodeBackendModuleInventory(input: {
           hasModuleMode(manifest, "dependencyPlane"),
           dependencyIds.has("dependency.binary.node"),
           dependencyIds.has("dependency.npm.tsx"),
-          dependencyIds.has("dependency.binary.bwrap"),
+          dependencyIds.has("dependency.binary.raxcell"),
         ],
       }),
       surface: "manifest.dependencies",
@@ -236,7 +236,7 @@ export function createRaxodeBackendModuleInventory(input: {
           hasRequirement(manifest, "praxis.sandboxPlane.declaredCapabilities"),
           capabilityIds.has("capability.raxode.sandbox"),
           typeof manifest.sandbox.profile === "string",
-          dependencyIds.has("dependency.binary.bwrap"),
+          dependencyIds.has("dependency.binary.raxcell"),
         ],
       }),
       surface: "manifest.sandbox",
@@ -245,7 +245,7 @@ export function createRaxodeBackendModuleInventory(input: {
       evidence: [
         `profile=${manifest.sandbox.profile}`,
         `providerFamily=${manifest.sandbox.providerFamily ?? "auto"}`,
-        `hasBwrapDependency=${dependencyIds.has("dependency.binary.bwrap")}`,
+        `hasRaxcellDependency=${dependencyIds.has("dependency.binary.raxcell")}`,
       ],
     },
     {

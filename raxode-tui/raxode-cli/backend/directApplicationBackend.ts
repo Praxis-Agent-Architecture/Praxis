@@ -11,6 +11,7 @@ import type {
   RuntimeApprovalEnvelope,
   RuntimeApprovalResolution,
   RuntimeApprovalResolver,
+  SandboxExecutionProviderPort,
 } from "@praxis-ai/praxis/agent-core";
 import type {
   PraxisApplicationAttachment,
@@ -27,6 +28,7 @@ import type {
 import type { RaxodeOptions } from "./agents/codingAgent/config/raxodeOptions.js";
 import { inspectRaxodeMemoryBridge } from "./memory/memoryBridge.js";
 import type { RaxodeLocalReadinessProbeInput } from "./application/localReadinessProbe.js";
+import { resolveRaxodeRaxcellSandboxProvider } from "./application/raxcellSandboxProvider.js";
 import {
   loadDirectTuiSessionSnapshot,
   listDirectTuiAgents,
@@ -53,6 +55,7 @@ type DirectApplicationBackendOptions = RaxodeOptions & {
   preCompactGovernanceEnabled?: CreateApplicationProjectRuntimeOptions["preCompactGovernanceEnabled"];
   compactContextWindowTokens?: CreateApplicationProjectRuntimeOptions["compactContextWindowTokens"];
   compactThresholdRatio?: CreateApplicationProjectRuntimeOptions["compactThresholdRatio"];
+  sandboxProvider?: SandboxExecutionProviderPort;
   localReadinessProbe?: Omit<RaxodeLocalReadinessProbeInput, "manifest">;
 };
 
@@ -1074,6 +1077,10 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     memoryProfile: memoryBridge.profile,
     memoryPromptGuide: memoryBridge.promptGuide,
   };
+  const sandboxProvider = resolveRaxodeRaxcellSandboxProvider({
+    sandboxProfile: options.sandboxProfile,
+    sandboxProvider: options.sandboxProvider,
+  });
 
   const created = await applicationLayer.createApplicationProjectRuntime(projectRoot, {
     applicationId: applicationModule.raxodeApplication.id,
@@ -1088,6 +1095,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     maxOutputTokens,
     permissionProfile,
     agentOptions,
+    sandboxProvider,
     initialConversations: restoredInitialConversation === undefined ? [] : [restoredInitialConversation],
     now: options.now,
     compactExecutor: options.compactExecutor,
@@ -1216,6 +1224,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     localProbe: options.localReadinessProbe,
     ports: {
       approvalResolver: "configured",
+      sandboxProvider: sandboxProvider ? "configured" : "not-configured",
       liveProviderResolver: options.liveProviderResolver ? "configured" : "raxode-default",
     },
   });

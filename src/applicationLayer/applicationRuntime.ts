@@ -23,6 +23,7 @@ import {
   type RuntimeAgentReviewResolver,
   type RuntimeAuthResolver,
   type RuntimeAuthResolverRequest,
+  type SandboxExecutionProviderPort,
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
   type BaseToolProfileName,
@@ -154,6 +155,7 @@ export type PraxisApplicationRuntimeOptions = {
   permissionProfile?: PraxisApplicationPermissionProfile;
   toolProfile?: PraxisApplicationToolProfile;
   agentOptions?: unknown;
+  sandboxProvider?: SandboxExecutionProviderPort;
   approvalResolver?: RuntimeApprovalResolver;
   agentReviewResolver?: RuntimeAgentReviewResolver;
   contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
@@ -3310,7 +3312,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
               workspaceRoot: path.join(project.projectRoot, ".raxode"),
               initMode: "on-run",
             },
-            sandbox: { cwd: childSession.workingDirectory },
+            sandbox: { cwd: childSession.workingDirectory, provider: options.sandboxProvider },
             baseToolAdapters: {
               agent: multiagentAgentAdapter(),
               ...(options.contextArtifactAdapters ?? {}),
@@ -3671,7 +3673,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             workspaceRoot: path.join(project.projectRoot, ".raxode"),
             initMode: "on-run",
           },
-          sandbox: { cwd: state.cwd },
+          sandbox: { cwd: state.cwd, provider: options.sandboxProvider },
           now,
         }),
         timeoutMs,
@@ -3941,7 +3943,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         workspaceRoot: path.join(project.projectRoot, ".raxode"),
         initMode: "on-run",
       },
-      sandbox: { cwd: state.cwd },
+      sandbox: { cwd: state.cwd, provider: options.sandboxProvider },
       baseToolAdapters: {
         agent: multiagentAgentAdapter(),
         ...(options.contextArtifactAdapters ?? {}),
