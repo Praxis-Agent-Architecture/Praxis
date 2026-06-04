@@ -318,6 +318,56 @@ test("executor emits sandbox middleware audit events for provider-backed executi
   ]);
 });
 
+test("executor passes approved shell workspace writes to linux sandbox provider", async () => {
+  const workspace = await tempWorkspace();
+  const seen: SandboxProviderRunRequest[] = [];
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace], allowShellExecution: true },
+    sandboxSpec: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    sandboxProvider: fakeLinuxSandboxProvider({ seen, stdout: "ok\n" }),
+  });
+
+  const result = await executor.shell?.run?.({
+    command: "printf ok > raxcell_live_probe.txt",
+    cwd: workspace,
+    context: {
+      approval: {
+        accepted: true,
+        runtimeApproved: true,
+        approvalId: "approval-1",
+      },
+    },
+  });
+
+  assert.equal(result?.ok, true);
+  assert.equal(seen[0]?.filesystem.write.includes(workspace), true);
+  assert.equal(seen[0]?.filesystem.readonlyRoot, false);
+});
+
 test("executor degrades unready strong sandbox to workspace rollback", async () => {
   const workspace = await tempWorkspace();
   await writeFile(path.join(workspace, "state.txt"), "before\n", "utf8");

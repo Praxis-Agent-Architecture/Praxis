@@ -414,6 +414,7 @@ async function runCommand(
     shellScript?: boolean;
     timeoutMs?: number;
     network?: "allow" | "deny" | "approval" | "provider-policy";
+    approved?: boolean;
   } = {},
 ): Promise<BaseToolExecutorResult> {
   const profile = policyProfileForContext(context);
@@ -423,6 +424,10 @@ async function runCommand(
   const resolvedCwd = resolveCommandCwd(context, cwd);
   if (!resolvedCwd.ok) return resolvedCwd;
   const commandCwd = String(resolvedCwd.output);
+  const root = workspaceRoot(context);
+  const approvedWriteRoots = input.approved === true
+    ? context.policy?.allowedWriteRoots ?? [root]
+    : context.policy?.allowedWriteRoots;
   if (spec !== undefined) {
     const result = await runSandboxCommand({
       runtimeId: context.runtimeId,
@@ -440,9 +445,10 @@ async function runCommand(
       policyProfile: profile,
       sandboxMode: sandboxModeForContext(context),
       filesystem: {
-        workspaceRoot: workspaceRoot(context),
-        allowedReadRoots: context.policy?.allowedRoots ?? [workspaceRoot(context)],
-        ...(context.policy?.allowedWriteRoots === undefined ? {} : { allowedWriteRoots: context.policy.allowedWriteRoots }),
+        workspaceRoot: root,
+        allowedReadRoots: context.policy?.allowedRoots ?? [root],
+        ...(approvedWriteRoots === undefined ? {} : { allowedWriteRoots: approvedWriteRoots }),
+        ...(input.approved === true ? { readonlyRoot: false } : {}),
       },
       network: input.network,
     }, {
@@ -527,6 +533,7 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): BaseToolE
         invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
         shellScript: true,
         timeoutMs: typeof request?.timeoutMs === "number" ? request.timeoutMs : undefined,
+        approved: approvedByRuntimeContext(request?.context),
       });
     }),
   };
@@ -540,6 +547,7 @@ function createProcessExecutor(context: RuntimeBaseToolExecutorContext): BaseToo
         toolId: "process.run",
         invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
         timeoutMs: typeof request?.timeoutMs === "number" ? request.timeoutMs : undefined,
+        approved: approvedByRuntimeContext(request?.context),
       });
     }),
     wait: withAdapter(context, "process", "wait", async (request) => {
