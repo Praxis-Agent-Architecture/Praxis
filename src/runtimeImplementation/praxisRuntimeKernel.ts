@@ -1148,6 +1148,11 @@ function createRuntimeMcpPlusController(input: {
       const consecutiveIndexedToolCalls = { ...overlay.counters.consecutiveIndexedToolCalls };
       let pendingReprofile = overlay.pendingReprofile;
       if (indexedTools.has(nativeToolName)) {
+        for (const toolName of Object.keys(consecutiveIndexedToolCalls)) {
+          if (toolName !== nativeToolName) {
+            consecutiveIndexedToolCalls[toolName] = 0;
+          }
+        }
         consecutiveIndexedToolCalls[nativeToolName] = (consecutiveIndexedToolCalls[nativeToolName] ?? 0) + 1;
         if (consecutiveIndexedToolCalls[nativeToolName] >= input.reprofileConsecutiveIndexedCalls) {
           pendingReprofile = true;

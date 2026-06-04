@@ -3561,6 +3561,154 @@ test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecu
   assert.equal(overlay?.counters.consecutiveIndexedToolCalls["network.status"], 6);
 });
 
+test("PraxisRuntimeKernel.runManifest does not schedule MCP+ reprofile for interleaved indexed tool calls", async () => {
+  class ReprofileInterleavedMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-reprofile-interleaved";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-reprofile-interleaved" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 8, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(ReprofileInterleavedMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-reprofile-interleaved",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const profile: McpPlusLearnedProfile = {
+    schemaVersion: "mcp-plus.profile.v1",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    exposure: {
+      pinnedTools: ["browser.open"],
+      indexedTools: ["network.status", "console.logs"],
+    },
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  };
+  const profileStore = createInMemoryMcpPlusProfileStore([profile]);
+  const overlayStore = createInMemoryMcpPlusOverlayStore([{
+    serverId: "browser-plus",
+    sessionId: "session-mcp-plus-reprofile-interleaved",
+    mode: "expanded",
+    activeTools: ["network.status", "console.logs"],
+    counters: { consecutiveIndexedToolCalls: {} },
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  }]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-reprofile-interleaved",
+    sessionId: "session-mcp-plus-reprofile-interleaved",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [
+                {
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+                },
+                {
+                  name: "network.status",
+                  description: "Inspect network requests.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+                {
+                  name: "console.logs",
+                  description: "Inspect browser console logs.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+              ],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "indexed", request } };
+        },
+      },
+    },
+  });
+
+  let calls = 0;
+  let sawReprofileTool = false;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-reprofile-interleaved" }).runManifest(
+    compiled.manifest,
+    "inspect indexed tools alternately",
+    {
+      sessionId: "session-mcp-plus-reprofile-interleaved",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        profileStore,
+        overlayStore,
+        reprofileConsecutiveIndexedCalls: 6,
+      },
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        const toolNames = (body.tools ?? []).map((item) => item.name ?? "");
+        sawReprofileTool ||= toolNames.some((name) => name.includes("mcp_plus_reprofile"));
+        const networkToolName = toolNames.find((name) => name.includes("mcp_browser-plus_network_status"));
+        const consoleToolName = toolNames.find((name) => name.includes("mcp_browser-plus_console_logs"));
+        if (calls <= 6) {
+          const toolName = calls % 2 === 1 ? networkToolName : consoleToolName;
+          assert.equal(typeof networkToolName, "string");
+          assert.equal(typeof consoleToolName, "string");
+          assert.equal(typeof toolName, "string");
+          return {
+            output: [{
+              type: "function_call",
+              name: toolName,
+              call_id: `indexed-${calls}`,
+              arguments: JSON.stringify({}),
+            }],
+          };
+        }
+        assert.equal(sawReprofileTool, false);
+        return { output_text: "reprofile is not available for interleaved calls" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.filter((record) => record.toolId.endsWith("network.status")).length, 3);
+  assert.equal(result.toolCalls.filter((record) => record.toolId.endsWith("console.logs")).length, 3);
+  assert.equal(sawReprofileTool, false);
+  const overlay = await overlayStore.load({ sessionId: "session-mcp-plus-reprofile-interleaved", serverId: "browser-plus" });
+  assert.equal(overlay?.pendingReprofile, undefined);
+  assert.equal(overlay?.counters.consecutiveIndexedToolCalls["network.status"], 0);
+  assert.equal(overlay?.counters.consecutiveIndexedToolCalls["console.logs"], 1);
+});
+
 test("PraxisRuntimeKernel.runManifest lets MCP+ skill_write persist a server project skill note", async () => {
   class SkillMcpPlusAgent extends PraxisAgent {
     identity = "agent.mcp-plus-skill";
