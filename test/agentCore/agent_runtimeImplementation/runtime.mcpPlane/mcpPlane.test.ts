@@ -332,16 +332,18 @@ test("MCP+ profile and overlay stores are keyed by server/project and server/ses
   }, {
     serverId: "browser-plus",
     sessionId: "session-a",
-    mode: "expanded",
-    activeTools: ["network.status"],
-    pendingReprofile: true,
-    counters: { consecutiveIndexedToolCalls: { "network.status": 6 } },
+    state: {
+      mode: "expanded",
+      activeTools: ["network.status"],
+      pendingReprofile: true,
+      counters: { consecutiveIndexedToolCalls: { "network.status": 6 } },
+    },
     updatedAt: "2026-06-04T00:00:00.000Z",
   });
 
   assert.equal((await profileStore.load({ projectId: "project.raxode", serverId: "browser-plus" }))?.projectId, "project.raxode");
   assert.equal(await profileStore.load({ projectId: "project.docs", serverId: "browser-plus" }), undefined);
-  assert.equal((await overlayStore.load({ sessionId: "session-a", serverId: "browser-plus" }))?.pendingReprofile, true);
+  assert.equal((await overlayStore.load({ sessionId: "session-a", serverId: "browser-plus" }))?.state.pendingReprofile, true);
   assert.equal(await overlayStore.load({ sessionId: "session-b", serverId: "browser-plus" }), undefined);
 });
 

@@ -914,14 +914,52 @@ function runtimeMcpPlusProjectId(input: { explicit?: string; workspaceRoot: stri
   return `project.${createHash("sha256").update(path.resolve(input.workspaceRoot)).digest("hex").slice(0, 16)}`;
 }
 
-function mcpPlusOverlayToExposureState(overlay: McpPlusRuntimeOverlay | undefined): { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] } {
-  if (overlay === undefined) return {};
+type McpPlusOverlayRuntimeState = McpPlusRuntimeOverlay["state"];
+
+function readMcpPlusOverlayState(overlay: McpPlusRuntimeOverlay | undefined): McpPlusOverlayRuntimeState | undefined {
+  if (overlay === undefined) return undefined;
   return {
-    mode: overlay.mode,
+    mode: overlay.state?.mode ?? overlay.mode ?? "expanded",
+    activeTools: [...(overlay.state?.activeTools ?? overlay.activeTools ?? [])],
+    pendingReprofile: overlay.state?.pendingReprofile ?? overlay.pendingReprofile,
+    counters: {
+      consecutiveIndexedToolCalls: {
+        ...(overlay.counters?.consecutiveIndexedToolCalls ?? {}),
+        ...(overlay.state?.counters.consecutiveIndexedToolCalls ?? {}),
+      },
+    },
+  };
+}
+
+function mcpPlusOverlayToExposureState(overlay: McpPlusRuntimeOverlay | undefined): { mode?: McpPlusRuntimeOverlay["state"]["mode"]; activeTools?: string[] } {
+  const state = readMcpPlusOverlayState(overlay);
+  if (state === undefined) return {};
+  return {
+    mode: state.mode,
     activeTools: [
-      ...overlay.activeTools,
-      ...(overlay.pendingReprofile ? ["mcp_plus.reprofile"] : []),
+      ...state.activeTools,
+      ...(state.pendingReprofile ? ["mcp_plus.reprofile"] : []),
     ],
+  };
+}
+
+function withMcpPlusOverlayState(
+  overlay: McpPlusRuntimeOverlay,
+  state: McpPlusOverlayRuntimeState,
+  input: { updatedAt: string; metadata?: Readonly<Record<string, unknown>> },
+): McpPlusRuntimeOverlay {
+  const {
+    mode: _legacyMode,
+    activeTools: _legacyActiveTools,
+    pendingReprofile: _legacyPendingReprofile,
+    counters: _legacyCounters,
+    ...base
+  } = overlay;
+  return {
+    ...base,
+    state,
+    updatedAt: input.updatedAt,
+    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
   };
 }
 
@@ -984,9 +1022,11 @@ function createRuntimeMcpPlusController(input: {
     return await input.overlayStore.load({ sessionId: input.sessionId, serverId }) ?? {
       serverId,
       sessionId: input.sessionId,
-      mode: "expanded",
-      activeTools: [],
-      counters: { consecutiveIndexedToolCalls: {} },
+      state: {
+        mode: "expanded",
+        activeTools: [],
+        counters: { consecutiveIndexedToolCalls: {} },
+      },
       updatedAt: now,
     };
   }
@@ -1006,7 +1046,7 @@ function createRuntimeMcpPlusController(input: {
     },
     async exposureStateByServerId(manifest) {
       const module = mcpHarnessModuleFrom(manifest.harness);
-      const states: Record<string, { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] }> = {};
+      const states: Record<string, { mode?: McpPlusRuntimeOverlay["state"]["mode"]; activeTools?: string[] }> = {};
       for (const server of module?.servers ?? []) {
         if (server.mode !== "mcp-plus") continue;
         states[server.serverId] = mcpPlusOverlayToExposureState(await input.overlayStore.load({ sessionId: input.sessionId, serverId: server.serverId }));
@@ -1046,18 +1086,22 @@ function createRuntimeMcpPlusController(input: {
         if (!learned.ok) return { ok: false, error: learned.error };
         await input.profileStore.save({ projectId: input.projectId, serverId: proposal.serverId }, learned.profile);
         const overlay = await loadOverlay(proposal.serverId, control.now);
-        await input.overlayStore.save({ sessionId: input.sessionId, serverId: proposal.serverId }, {
-          ...overlay,
-          mode: "expanded",
-          activeTools: [],
-          pendingReprofile: false,
-          counters: { consecutiveIndexedToolCalls: {} },
-          updatedAt: control.now,
-          metadata: {
-            ...(overlay.metadata ?? {}),
-            lastProfileControl: control.controlName,
+        await input.overlayStore.save({ sessionId: input.sessionId, serverId: proposal.serverId }, withMcpPlusOverlayState(
+          overlay,
+          {
+            mode: "expanded",
+            activeTools: [],
+            pendingReprofile: false,
+            counters: { consecutiveIndexedToolCalls: {} },
           },
-        });
+          {
+            updatedAt: control.now,
+            metadata: {
+              ...(overlay.metadata ?? {}),
+              lastProfileControl: control.controlName,
+            },
+          },
+        ));
         return {
           ok: true,
           output: {
@@ -1122,12 +1166,20 @@ function createRuntimeMcpPlusController(input: {
           ? indexedTools
           : indexedTools.filter((toolName) => toolName.toLowerCase().includes(request));
         const overlay = await loadOverlay(serverId, control.now);
-        await input.overlayStore.save({ sessionId: input.sessionId, serverId }, {
-          ...overlay,
-          mode: "expanded",
-          activeTools: [...new Set([...overlay.activeTools, ...activatedTools])],
-          updatedAt: control.now,
-        });
+        const overlayState = readMcpPlusOverlayState(overlay) ?? {
+          mode: "expanded" as const,
+          activeTools: [],
+          counters: { consecutiveIndexedToolCalls: {} },
+        };
+        await input.overlayStore.save({ sessionId: input.sessionId, serverId }, withMcpPlusOverlayState(
+          overlay,
+          {
+            ...overlayState,
+            mode: "expanded",
+            activeTools: [...new Set([...overlayState.activeTools, ...activatedTools])],
+          },
+          { updatedAt: control.now },
+        ));
         return { ok: true, output: { serverId, activatedTools, mode: "expanded" } };
       }
 
@@ -1147,8 +1199,13 @@ function createRuntimeMcpPlusController(input: {
         : undefined;
       const indexedTools = new Set(server.manifest?.exposure?.indexedTools ?? profile?.exposure.indexedTools ?? []);
       const overlay = await loadOverlay(serverId, record.now);
-      const consecutiveIndexedToolCalls = { ...overlay.counters.consecutiveIndexedToolCalls };
-      let pendingReprofile = overlay.pendingReprofile;
+      const overlayState = readMcpPlusOverlayState(overlay) ?? {
+        mode: "expanded" as const,
+        activeTools: [],
+        counters: { consecutiveIndexedToolCalls: {} },
+      };
+      const consecutiveIndexedToolCalls = { ...overlayState.counters.consecutiveIndexedToolCalls };
+      let pendingReprofile = overlayState.pendingReprofile;
       if (indexedTools.has(nativeToolName)) {
         for (const toolName of Object.keys(consecutiveIndexedToolCalls)) {
           if (toolName !== nativeToolName) {
@@ -1164,14 +1221,16 @@ function createRuntimeMcpPlusController(input: {
           consecutiveIndexedToolCalls[toolName] = 0;
         }
       }
-      await input.overlayStore.save({ sessionId: input.sessionId, serverId }, {
-        ...overlay,
-        mode: "expanded",
-        activeTools: [...new Set([...overlay.activeTools, nativeToolName])],
-        pendingReprofile,
-        counters: { consecutiveIndexedToolCalls },
-        updatedAt: record.now,
-      });
+      await input.overlayStore.save({ sessionId: input.sessionId, serverId }, withMcpPlusOverlayState(
+        overlay,
+        {
+          mode: "expanded",
+          activeTools: [...new Set([...overlayState.activeTools, nativeToolName])],
+          pendingReprofile,
+          counters: { consecutiveIndexedToolCalls },
+        },
+        { updatedAt: record.now },
+      ));
       return true;
     },
   };

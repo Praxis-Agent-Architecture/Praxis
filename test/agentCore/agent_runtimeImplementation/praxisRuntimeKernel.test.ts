@@ -33,6 +33,7 @@ import {
   createInMemoryMcpPlusSkillStore,
   mcp,
   type McpPlusLearnedProfile,
+  type McpPlusRuntimeOverlay,
 } from "../../../src/runtimeImplementation/runtime.mcpPlane/index.js";
 import { createInMemorySessionStateEventStore } from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
 import type {
@@ -3477,7 +3478,7 @@ test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecu
     activeTools: ["network.status"],
     counters: { consecutiveIndexedToolCalls: {} },
     updatedAt: "2026-06-04T00:00:00.000Z",
-  }]);
+  } as unknown as McpPlusRuntimeOverlay]);
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-mcp-plus-reprofile",
     sessionId: "session-mcp-plus-reprofile",
@@ -3557,8 +3558,12 @@ test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecu
   assert.equal(result.toolCalls.filter((record) => record.toolId.endsWith("network.status")).length, 6);
   assert.equal(sawReprofileTool, true);
   const overlay = await overlayStore.load({ sessionId: "session-mcp-plus-reprofile", serverId: "browser-plus" });
-  assert.equal(overlay?.pendingReprofile, true);
-  assert.equal(overlay?.counters.consecutiveIndexedToolCalls["network.status"], 6);
+  assert.equal(overlay?.state.pendingReprofile, true);
+  assert.equal(overlay?.state.counters.consecutiveIndexedToolCalls["network.status"], 6);
+  assert.equal(overlay?.mode, undefined);
+  assert.equal(overlay?.activeTools, undefined);
+  assert.equal(overlay?.pendingReprofile, undefined);
+  assert.equal(overlay?.counters, undefined);
 });
 
 test("PraxisRuntimeKernel.runManifest does not schedule MCP+ reprofile for interleaved indexed tool calls", async () => {
@@ -3610,9 +3615,11 @@ test("PraxisRuntimeKernel.runManifest does not schedule MCP+ reprofile for inter
   const overlayStore = createInMemoryMcpPlusOverlayStore([{
     serverId: "browser-plus",
     sessionId: "session-mcp-plus-reprofile-interleaved",
-    mode: "expanded",
-    activeTools: ["network.status", "console.logs"],
-    counters: { consecutiveIndexedToolCalls: {} },
+    state: {
+      mode: "expanded",
+      activeTools: ["network.status", "console.logs"],
+      counters: { consecutiveIndexedToolCalls: {} },
+    },
     updatedAt: "2026-06-04T00:00:00.000Z",
   }]);
   const executor = createRuntimeBaseToolExecutorPort({
@@ -3704,9 +3711,9 @@ test("PraxisRuntimeKernel.runManifest does not schedule MCP+ reprofile for inter
   assert.equal(result.toolCalls.filter((record) => record.toolId.endsWith("console.logs")).length, 3);
   assert.equal(sawReprofileTool, false);
   const overlay = await overlayStore.load({ sessionId: "session-mcp-plus-reprofile-interleaved", serverId: "browser-plus" });
-  assert.equal(overlay?.pendingReprofile, undefined);
-  assert.equal(overlay?.counters.consecutiveIndexedToolCalls["network.status"], 0);
-  assert.equal(overlay?.counters.consecutiveIndexedToolCalls["console.logs"], 1);
+  assert.equal(overlay?.state.pendingReprofile, undefined);
+  assert.equal(overlay?.state.counters.consecutiveIndexedToolCalls["network.status"], 0);
+  assert.equal(overlay?.state.counters.consecutiveIndexedToolCalls["console.logs"], 1);
 });
 
 test("PraxisRuntimeKernel.runManifest lets MCP+ skill_write persist a server project skill note", async () => {

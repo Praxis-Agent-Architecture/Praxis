@@ -142,14 +142,26 @@ export type McpPlusLearnedProfile = {
 export type McpPlusRuntimeOverlay = {
   serverId: string;
   sessionId: string;
-  mode: ExposureMode;
-  activeTools: readonly string[];
-  pendingReprofile?: boolean;
-  counters: {
-    consecutiveIndexedToolCalls: Readonly<Record<string, number>>;
+  state: {
+    mode: ExposureMode;
+    activeTools: readonly string[];
+    pendingReprofile?: boolean;
+    counters: {
+      consecutiveIndexedToolCalls: Readonly<Record<string, number>>;
+    };
   };
   updatedAt: string;
   metadata?: Readonly<Record<string, unknown>>;
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  mode?: ExposureMode;
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  activeTools?: readonly string[];
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  pendingReprofile?: boolean;
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  counters?: {
+    consecutiveIndexedToolCalls: Readonly<Record<string, number>>;
+  };
 };
 
 export type McpPlusProfileStoreKey = {
