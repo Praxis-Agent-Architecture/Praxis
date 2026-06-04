@@ -79,6 +79,69 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
   }
 });
 
+test("MCP runtime HTTP adapter preserves streamable HTTP session ids", async () => {
+  const sessionId = "session-http-1";
+  const seen: Array<{ method?: string; sessionId?: string; protocolVersion?: string }> = [];
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/rpc") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const payload = JSON.parse(body) as { id?: string | number; method?: string };
+      const currentSessionId = request.headers["mcp-session-id"];
+      seen.push({
+        method: payload.method,
+        sessionId: typeof currentSessionId === "string" ? currentSessionId : undefined,
+        protocolVersion: typeof request.headers["mcp-protocol-version"] === "string"
+          ? request.headers["mcp-protocol-version"]
+          : undefined,
+      });
+      if (payload.method !== "initialize" && currentSessionId !== sessionId) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, error: { code: -32000, message: "Mcp-Session-Id header is required" } }));
+        return;
+      }
+      const result = payload.method === "tools/list"
+        ? { tools: [{ name: "session_echo", description: "Echo", inputSchema: { type: "object" } }] }
+        : { ok: true };
+      response.writeHead(200, {
+        "content-type": "application/json",
+        ...(payload.method === "initialize" ? { "Mcp-Session-Id": sessionId } : {}),
+      });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result }));
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as AddressInfo;
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "session-http",
+        transport: "http",
+        url: `http://127.0.0.1:${address.port}/rpc`,
+      }],
+    });
+
+    const listed = await mcp.listTools?.({ serverId: "session-http" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "session_echo");
+    assert.deepEqual(seen, [
+      { method: "initialize", sessionId: undefined, protocolVersion: "2025-06-18" },
+      { method: "notifications/initialized", sessionId, protocolVersion: "2025-06-18" },
+      { method: "tools/list", sessionId, protocolVersion: "2025-06-18" },
+    ]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("MCP runtime stdio adapter sends initialized notification before tools/list", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-stdio-"));
   const serverPath = path.join(workspace, "stdio-mcp-server.mjs");

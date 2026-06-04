@@ -44,10 +44,14 @@ type McpConnection = {
   profile: McpRuntimeServerProfile;
   connectionId: string;
   child?: ChildProcessWithoutNullStreams;
+  sessionId?: string;
   nextId: number;
   pending: Map<string | number, { resolve: (value: JsonRpcResponse) => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }>;
   buffer: string;
 };
+
+const MCP_PROTOCOL_VERSION = "2025-06-18";
+const MCP_SESSION_ID_HEADER = "mcp-session-id";
 
 function success<Output>(
   output: Output,
@@ -160,7 +164,11 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     if (connection.profile.transport === "stdio") {
       return requestStdio(connection, method, params);
     }
-    return requestHttp(connection.profile, method, params);
+    const requested = await requestHttp(connection.profile, method, params, connection.sessionId);
+    if (requested.ok && typeof requested.metadata?.mcpSessionId === "string") {
+      connection.sessionId = requested.metadata.mcpSessionId;
+    }
+    return requested;
   };
 
   const closeConnection = (connection: McpConnection): void => {
@@ -231,7 +239,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), profile.timeoutMs ?? 2_000);
       try {
-        const response = await fetch(profile.sseUrl, { headers: profile.headers, signal: controller.signal });
+        const response = await fetch(profile.sseUrl, { headers: httpHeaders(profile), signal: controller.signal });
         if (!response.ok) return failure("MCP_SSE_CONNECT_FAILED", `MCP SSE endpoint returned HTTP ${response.status}.`);
       } catch (error) {
         return failure("MCP_SSE_CONNECT_FAILED", textFromUnknown((error as Error).message ?? error));
@@ -247,9 +255,11 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       clientInfo: { name: "praxis-agentcore", version: "0.1.0" },
     });
     if (!initialized.ok) return initialized;
-    const notified = await notifyHttp(profile, "notifications/initialized", {});
+    const sessionId = typeof initialized.metadata?.mcpSessionId === "string" ? initialized.metadata.mcpSessionId : undefined;
+    const notified = await notifyHttp(profile, "notifications/initialized", {}, sessionId);
     if (!notified.ok) return notified;
-    return success(connection, metadata(profile, { connectionId, initialized: true }));
+    connection.sessionId = sessionId;
+    return success(connection, metadata(profile, { connectionId, initialized: true, sessionId }));
   };
 
   return {
@@ -492,20 +502,41 @@ async function requestStdio(connection: McpConnection, method: string, params: J
   }
 }
 
-async function requestHttp(profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>, method: string, params: JsonObject): Promise<BaseToolExecutorResult<unknown>> {
+function httpHeaders(
+  profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>,
+  sessionId?: string,
+): Record<string, string> {
+  return {
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    "mcp-protocol-version": MCP_PROTOCOL_VERSION,
+    ...(profile.headers ?? {}),
+    ...(sessionId === undefined ? {} : { [MCP_SESSION_ID_HEADER]: sessionId }),
+  };
+}
+
+async function requestHttp(
+  profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>,
+  method: string,
+  params: JsonObject,
+  sessionId?: string,
+): Promise<BaseToolExecutorResult<unknown>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), profile.timeoutMs ?? 5_000);
   try {
     const response = await fetch(profile.url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(profile.headers ?? {}) },
+      headers: httpHeaders(profile, sessionId),
       body: JSON.stringify({ jsonrpc: "2.0", id: `${Date.now()}:${Math.random()}`, method, params }),
       signal: controller.signal,
     });
     if (!response.ok) return failure("MCP_HTTP_REQUEST_FAILED", `MCP HTTP endpoint returned HTTP ${response.status}.`);
     const json = await response.json() as unknown;
     if (!isObject(json)) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response was not a JSON object.");
-    return normalizeJsonRpcResponse(json as JsonRpcResponse);
+    const normalized = normalizeJsonRpcResponse(json as JsonRpcResponse);
+    const responseSessionId = response.headers.get(MCP_SESSION_ID_HEADER) ?? undefined;
+    if (!normalized.ok || responseSessionId === undefined) return normalized;
+    return success(normalized.output, { ...(normalized.metadata ?? {}), mcpSessionId: responseSessionId });
   } catch (error) {
     return failure("MCP_HTTP_REQUEST_FAILED", textFromUnknown((error as Error).message ?? error));
   } finally {
@@ -513,13 +544,18 @@ async function requestHttp(profile: Extract<McpRuntimeServerProfile, { transport
   }
 }
 
-async function notifyHttp(profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>, method: string, params: JsonObject): Promise<BaseToolExecutorResult<{ status: "notified" }>> {
+async function notifyHttp(
+  profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>,
+  method: string,
+  params: JsonObject,
+  sessionId?: string,
+): Promise<BaseToolExecutorResult<{ status: "notified" }>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), profile.timeoutMs ?? 5_000);
   try {
     const response = await fetch(profile.url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...(profile.headers ?? {}) },
+      headers: httpHeaders(profile, sessionId),
       body: JSON.stringify({ jsonrpc: "2.0", method, params }),
       signal: controller.signal,
     });

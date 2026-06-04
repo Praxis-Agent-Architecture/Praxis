@@ -162,8 +162,15 @@ test("baseToolSupportCatalog preflight blocks adapter-required semantic tools un
 
 test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provider through semantic aliases", async () => {
   const seenMethods: string[] = [];
+  const seenSseHeaders: Array<{ protocolVersion?: string; accept?: string }> = [];
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/sse") {
+      seenSseHeaders.push({
+        protocolVersion: typeof request.headers["mcp-protocol-version"] === "string"
+          ? request.headers["mcp-protocol-version"]
+          : undefined,
+        accept: typeof request.headers.accept === "string" ? request.headers.accept : undefined,
+      });
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -239,6 +246,9 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
     const resources = await executor.mcp?.listResources?.({ serverId: "http-sse-mcp" });
     assert.equal(resources?.ok, true);
     if (resources?.ok) assert.equal(resources.output.resources[0]?.uri, "memory://hello");
+    assert.deepEqual(seenSseHeaders, [
+      { protocolVersion: "2025-06-18", accept: "application/json, text/event-stream" },
+    ]);
 
     assert.deepEqual(seenMethods, [
       "initialize",

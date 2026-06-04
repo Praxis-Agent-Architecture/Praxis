@@ -1,4 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -40,6 +42,16 @@ type LivePromptProbeResult = {
   operation: "list" | "get";
   name?: string;
   ok: boolean;
+  outputPreview?: string;
+  error?: string;
+};
+
+type LiveTransportProbeResult = {
+  transport: "http";
+  serverId: string;
+  ok: boolean;
+  sessionIdObserved: boolean;
+  protocolVersionObserved: boolean;
   outputPreview?: string;
   error?: string;
 };
@@ -543,6 +555,83 @@ async function discover(): Promise<DiscoveredServer[]> {
   }
 }
 
+async function runLiveTransportProbes(): Promise<LiveTransportProbeResult[]> {
+  const sessionId = "smoke-http-session";
+  let sessionIdObserved = false;
+  let protocolVersionObserved = false;
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/rpc") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const payload = JSON.parse(body) as { id?: string | number; method?: string };
+      const protocolVersion = request.headers["mcp-protocol-version"];
+      protocolVersionObserved ||= protocolVersion === "2025-06-18";
+      const currentSessionId = request.headers["mcp-session-id"];
+      if (payload.method !== "initialize") {
+        sessionIdObserved ||= currentSessionId === sessionId;
+      }
+      if (payload.method !== "initialize" && currentSessionId !== sessionId) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, error: { code: -32000, message: "Mcp-Session-Id header is required" } }));
+        return;
+      }
+      response.writeHead(200, {
+        "content-type": "application/json",
+        ...(payload.method === "initialize" ? { "Mcp-Session-Id": sessionId } : {}),
+      });
+      response.end(JSON.stringify({
+        jsonrpc: "2.0",
+        id: payload.id,
+        result: payload.method === "tools/list"
+          ? { tools: [{ name: "http_session_echo", description: "HTTP session echo", inputSchema: { type: "object" } }] }
+          : { ok: true },
+      }));
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as AddressInfo;
+    const adapter = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "strict-http-session",
+        transport: "http",
+        url: `http://127.0.0.1:${address.port}/rpc`,
+        timeoutMs: 3_000,
+      }],
+    });
+    try {
+      const listed = await adapter.listTools?.({ serverId: "strict-http-session" });
+      const ok = listed?.ok === true
+        && listed.output.tools[0]?.name === "http_session_echo"
+        && sessionIdObserved
+        && protocolVersionObserved;
+      const result: LiveTransportProbeResult = {
+        transport: "http",
+        serverId: "strict-http-session",
+        ok,
+        sessionIdObserved,
+        protocolVersionObserved,
+        outputPreview: listed?.ok === true ? JSON.stringify(listed.output.tools[0]) : undefined,
+        error: listed?.ok === false ? listed.error.message : ok ? undefined : "missing HTTP MCP session/protocol evidence",
+      };
+      console.log(`[transport-probe] ${result.serverId}.streamable-http-session: ${result.ok ? "ok" : "failed"}`);
+      return [result];
+    } finally {
+      await adapter.shutdown?.({});
+    }
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 function eventFromProgress(mode: string, progress: AgentModelCallProgressEvent & { cacheDebug?: AgentModelCacheDebugRecord }) {
   const cacheDebug = progress.cacheDebug;
   const estimatedInput = cacheDebug?.providerBody.cacheShape.providerStablePrefixEstimatedTokens ?? 0;
@@ -667,6 +756,7 @@ await mkdir(runRoot, { recursive: true });
 const discovered = await discover();
 const liveCallProbes = await runLiveCallProbes(discovered);
 const livePromptProbes = await runLivePromptProbes();
+const liveTransportProbes = await runLiveTransportProbes();
 const nativeToolFlow = await runRuntimeToolFlow("native", discovered);
 const mcpPlusToolFlow = await runRuntimeToolFlow("mcp-plus", discovered);
 await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discovered.map((server) => ({
@@ -676,6 +766,7 @@ await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discover
 })), null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-call-probes.json"), `${JSON.stringify(liveCallProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-prompt-probes.json"), `${JSON.stringify(livePromptProbes, null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "live-transport-probes.json"), `${JSON.stringify(liveTransportProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-tool-flow.json"), `${JSON.stringify([nativeToolFlow, mcpPlusToolFlow], null, 2)}\n`, "utf8");
 const native = await runMode("native", discovered);
 const mcpPlus = await runMode("mcp-plus", discovered);
@@ -687,6 +778,8 @@ const comparison = {
   liveCallProbeServers: [...new Set(liveCallProbes.map((probe) => probe.serverId))],
   livePromptProbeCount: livePromptProbes.length,
   livePromptProbeServers: [...new Set(livePromptProbes.map((probe) => probe.serverId))],
+  liveTransportProbeCount: liveTransportProbes.length,
+  liveTransportProbeTransports: [...new Set(liveTransportProbes.map((probe) => probe.transport))],
   runtimeToolFlows: [nativeToolFlow, mcpPlusToolFlow],
   native,
   mcpPlus,
