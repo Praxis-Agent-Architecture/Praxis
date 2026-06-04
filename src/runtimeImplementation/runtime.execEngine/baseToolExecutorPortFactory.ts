@@ -756,12 +756,16 @@ function createMcpExecutor(context: RuntimeBaseToolExecutorContext): BaseToolExe
   ]);
   const callTool = base.callTool ?? base.call;
   const streamTool = base.streamTool ?? base.stream;
-  return {
+  const namespace: BaseToolExecutorNamespace = {
     ...base,
     ...(callTool === undefined ? {} : { call: callTool, callTool }),
     ...(streamTool === undefined ? {} : { stream: streamTool, streamTool }),
     ...(context.adapters?.mcp ?? {}),
   };
+  if (configured?.shutdown !== undefined && namespace.__praxisRuntimeOwnedShutdown === undefined) {
+    namespace.__praxisRuntimeOwnedShutdown = configured.shutdown;
+  }
+  return namespace;
 }
 
 export function listRuntimeBaseToolImplementedPortPaths(

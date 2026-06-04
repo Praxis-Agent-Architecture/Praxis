@@ -236,10 +236,43 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
     assert.equal(resources?.ok, true);
     if (resources?.ok) assert.equal(resources.output.resources[0]?.uri, "memory://hello");
 
-    assert.deepEqual(seenMethods, ["initialize", "tools/call", "resources/list"]);
+    assert.deepEqual(seenMethods, [
+      "initialize",
+      "notifications/initialized",
+      "tools/call",
+      "resources/list",
+    ]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("runtime factory preserves externally supplied MCP shutdown ownership", async () => {
+  let externalShutdownCalled = false;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-mcp-external-shutdown",
+    sessionId: "session-factory-mcp-external-shutdown",
+    mcpServers: [{
+      serverId: "configured-mcp",
+      transport: "stdio",
+      command: process.execPath,
+      args: ["-e", "process.stdin.resume()"],
+      timeoutMs: 1_000,
+    }],
+    adapters: {
+      mcp: {
+        async __praxisRuntimeOwnedShutdown() {
+          externalShutdownCalled = true;
+          return { ok: true as const, output: { status: "external-shutdown" } };
+        },
+      },
+    },
+  });
+
+  const shutdown = await executor.mcp?.__praxisRuntimeOwnedShutdown?.({});
+  assert.equal(externalShutdownCalled, true);
+  assert.equal(shutdown?.ok, true);
+  if (shutdown?.ok) assert.equal(shutdown.output.status, "external-shutdown");
 });
 
 test("runtime factory executor can drive semantic core tools through mounted baseTools", async () => {

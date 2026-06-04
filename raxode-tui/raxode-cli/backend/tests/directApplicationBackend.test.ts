@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { PassThrough } from "node:stream";
 import nodeTest from "node:test";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { startDirectApplicationBackend } from "../directApplicationBackend.js";
@@ -12,6 +13,8 @@ import { saveDirectTuiSessionSnapshot } from "../../frontend/tui/input/direct-se
 
 const execFileAsync = promisify(execFile);
 const test = nodeTest;
+const testFileDir = path.dirname(fileURLToPath(import.meta.url));
+const cacheXrayScriptPath = path.resolve(testFileDir, "../../../automations/raxode-cache-xray.mjs");
 const responsesRoute = {
   provider: "openai",
   endpointShape: "responses",
@@ -23,6 +26,19 @@ const readyLocalReadinessProbe = {
   resolvePackage: (packageName: string) =>
     packageName === "tsx" ? "/repo/node_modules/tsx/dist/cli.mjs" : undefined,
 } as const;
+
+async function waitForTextFile(filePath: string): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    try {
+      return await readFile(filePath, "utf8");
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+  }
+  throw lastError;
+}
 
 test("direct application backend speaks direct ready and writes ordered compatibility log events", async () => {
   const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-"));
@@ -964,7 +980,7 @@ test("direct application backend writes live codex usage from framework telemetr
   assert.ok((turnResult?.core?.context?.sessionContextTokens ?? 0) >= (turnResult?.core?.context?.promptPackTokens ?? 0));
   assert.ok((turnResult?.core?.context?.transcriptTokens ?? 0) > 0);
   const xray = await execFileAsync(process.execPath, [
-    path.resolve("automations/raxode-cache-xray.mjs"),
+    cacheXrayScriptPath,
     logPath,
     "--require-new-telemetry",
   ], {
@@ -978,6 +994,175 @@ test("direct application backend writes live codex usage from framework telemetr
     process.env.RAXODE_STREAM_FPS = previousStreamFps;
   }
   await rm(stateRoot, { recursive: true, force: true });
+});
+
+test("direct application backend injects configured MCP+ native exposure into PromptPack", async () => {
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-mcp-plus-"));
+  const mcpWorkspace = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-mcp-server-"));
+  const serverPath = path.join(mcpWorkspace, "line-json-mcp-server.mjs");
+  const markerPath = path.join(mcpWorkspace, "terminated.txt");
+  await writeFile(serverPath, `
+import { writeFileSync } from "node:fs";
+const markerPath = ${JSON.stringify(markerPath)};
+let initialized = false;
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+process.on("SIGTERM", () => {
+  writeFileSync(markerPath, "terminated", "utf8");
+  process.exit(0);
+});
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "direct-mcp-plus", version: "1" } } });
+    } else if (payload.method === "notifications/initialized") {
+      initialized = true;
+    } else if (payload.method === "tools/list") {
+      if (!initialized) {
+        send({ jsonrpc: "2.0", id: payload.id, error: { code: -32002, message: "not initialized" } });
+        continue;
+      }
+      send({
+        jsonrpc: "2.0",
+        id: payload.id,
+        result: {
+          tools: [
+            { name: "browser.open", description: "Open a page.", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
+            { name: "network.status", description: "Inspect network state.", inputSchema: { type: "object", properties: { includeBodies: { type: "boolean" } } } }
+          ]
+        }
+      });
+    } else if (payload.method === "tools/call") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { content: [{ type: "text", text: "ok" }] } });
+    }
+  }
+});
+`, "utf8");
+
+  const previousStreamFps = process.env.RAXODE_STREAM_FPS;
+  process.env.RAXODE_STREAM_FPS = "1000";
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const errorOutput = new PassThrough();
+  let stdout = "";
+  let stderr = "";
+  output.on("data", (chunk: Buffer | string) => {
+    stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  errorOutput.on("data", (chunk: Buffer | string) => {
+    stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+
+  const done = startDirectApplicationBackend({
+    input,
+    output,
+    errorOutput,
+    cwd: process.cwd(),
+    sessionId: "direct-mcp-plus-test",
+    stateRoot,
+    mode: "live",
+    ...responsesRoute,
+    mcpServers: [{
+      serverId: "browser-plus",
+      mode: "mcp-plus",
+      transport: "stdio",
+      command: process.execPath,
+      args: [serverPath],
+      timeoutMs: 1_000,
+      manifest: {
+        server: {
+          id: "browser-plus",
+          title: "Browser Plus",
+          summary: "Browser MCP+ server for direct backend tests.",
+        },
+        exposure: {
+          pinnedTools: ["browser.open"],
+          indexedTools: ["network.status"],
+          toolCards: {
+            "network.status": {
+              title: "Network status",
+              summary: "Inspect network requests when debugging page/API failures.",
+              keywords: ["network", "request", "debug"],
+            },
+          },
+        },
+        skills: {
+          chapters: [{
+            id: "browser-debug",
+            title: "Browser debug",
+            summary: "Use snapshots before diagnostics.",
+          }],
+        },
+      },
+    }],
+    mcpPlus: {
+      projectId: "project.direct-mcp-plus-test",
+    },
+    liveProviderResolver: async () => ({
+      auth: {
+        kind: "oauth",
+        present: true,
+        headerPlan: [],
+        queryPlan: [],
+        publicSafe: true,
+      },
+      providerCaller: async () => ({ output_text: "mcp prompt ok", usage: { input_tokens: 64, output_tokens: 3 } }),
+    }),
+  });
+
+  input.write(`${JSON.stringify({
+    type: "direct_user_input",
+    text: "Use the configured browser MCP if relevant.",
+  })}\u0000/exit\u0000`);
+  input.end();
+  await done;
+
+  assert.equal(stderr, "");
+  const logPath = stdout.match(/log file: (.+)/u)?.[1]?.trim();
+  assert.ok(logPath);
+  const rows = (await readFile(logPath, "utf8"))
+    .split(/\r?\n/u)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as {
+      event?: string;
+      stage?: string;
+      cacheDebug?: {
+        promptPack?: {
+          segments?: Array<{
+            segmentKind?: string;
+            materialRefs?: readonly string[];
+          }>;
+        };
+        providerBody?: {
+          toolCount?: number;
+        };
+      };
+    });
+  const modelEnd = rows.find((row) => row.event === "stage_end" && row.stage === "core/model.infer");
+  const toolDeclarations = modelEnd?.cacheDebug?.promptPack?.segments?.find((segment) =>
+    segment.segmentKind === "toolDeclarations");
+  assert.ok(toolDeclarations);
+  assert.ok((modelEnd?.cacheDebug?.providerBody?.toolCount ?? 0) > 0);
+  const materialRefs = toolDeclarations.materialRefs ?? [];
+  assert.equal(materialRefs.includes("runtime:tool-declarations"), true);
+  assert.equal(materialRefs.includes("runtime:mcp-plus-native-exposure"), true);
+  assert.ok(
+    materialRefs.indexOf("runtime:mcp-plus-native-exposure")
+    > materialRefs.indexOf("runtime:tool-declarations"),
+  );
+  assert.equal(await waitForTextFile(markerPath), "terminated");
+
+  if (previousStreamFps === undefined) {
+    delete process.env.RAXODE_STREAM_FPS;
+  } else {
+    process.env.RAXODE_STREAM_FPS = previousStreamFps;
+  }
+  await rm(stateRoot, { recursive: true, force: true });
+  await rm(mcpWorkspace, { recursive: true, force: true });
 });
 
 test("direct application backend retains provider context after provider failure", async () => {

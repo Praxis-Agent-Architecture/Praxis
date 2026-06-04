@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import test from "node:test";
 
 import { createMcpRuntimeAdapter } from "../../../../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
@@ -63,8 +68,240 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
     assert.equal(progress?.ok, true);
     assert.equal(progress?.output.status, "reported");
 
-    assert.deepEqual(seenMethods, ["initialize", "prompts/list", "prompts/get"]);
+    assert.deepEqual(seenMethods, [
+      "initialize",
+      "notifications/initialized",
+      "prompts/list",
+      "prompts/get",
+    ]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("MCP runtime stdio adapter sends initialized notification before tools/list", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-stdio-"));
+  const serverPath = path.join(workspace, "stdio-mcp-server.mjs");
+  await writeFile(serverPath, `
+let buffer = "";
+let initialized = false;
+const seen = [];
+function frame(payload) {
+  const body = JSON.stringify(payload);
+  process.stdout.write("Content-Length: " + Buffer.byteLength(body, "utf8") + "\\r\\n\\r\\n" + body);
+}
+function readFrames() {
+  while (true) {
+    const headerEnd = buffer.indexOf("\\r\\n\\r\\n");
+    if (headerEnd < 0) return;
+    const header = buffer.slice(0, headerEnd);
+    const match = /Content-Length:\\s*(\\d+)/i.exec(header);
+    if (!match) {
+      buffer = buffer.slice(headerEnd + 4);
+      continue;
+    }
+    const bodyStart = headerEnd + 4;
+    const bodyEnd = bodyStart + Number(match[1]);
+    if (buffer.length < bodyEnd) return;
+    const payload = JSON.parse(buffer.slice(bodyStart, bodyEnd));
+    buffer = buffer.slice(bodyEnd);
+    seen.push(payload.method);
+    if (payload.method === "initialize") {
+      frame({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "1" } } });
+    } else if (payload.method === "notifications/initialized") {
+      initialized = true;
+    } else if (payload.method === "tools/list") {
+      if (!initialized) {
+        frame({ jsonrpc: "2.0", id: payload.id, error: { code: -32002, message: "not initialized" } });
+      } else {
+        frame({ jsonrpc: "2.0", id: payload.id, result: { tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }] } });
+      }
+    } else if (payload.method === "debug/seen") {
+      frame({ jsonrpc: "2.0", id: payload.id, result: { seen } });
+    }
+  }
+}
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  readFrames();
+});
+`, "utf8");
+
+  try {
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "stdio-standard",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverPath],
+        timeoutMs: 1_000,
+        framing: "content-length",
+      }],
+    });
+
+    const listed = await mcp.listTools?.({ serverId: "stdio-standard" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "echo");
+
+    const seen = await mcp.nativeExecute?.({ serverId: "stdio-standard", method: "debug/seen", params: {} });
+    assert.equal(seen?.ok, true);
+    assert.deepEqual((seen?.ok ? (seen.output as { result?: { seen?: string[] } }).result?.seen : undefined), [
+      "initialize",
+      "notifications/initialized",
+      "tools/list",
+      "debug/seen",
+    ]);
+    await mcp.disconnect?.({ serverId: "stdio-standard" });
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("MCP runtime stdio adapter defaults to line-json framing", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-line-json-"));
+  const serverPath = path.join(workspace, "line-json-mcp-server.mjs");
+  await writeFile(serverPath, `
+let initialized = false;
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "line", version: "1" } } });
+    } else if (payload.method === "notifications/initialized") {
+      initialized = true;
+    } else if (payload.method === "tools/list") {
+      send(initialized
+        ? { jsonrpc: "2.0", id: payload.id, result: { tools: [{ name: "line_echo", description: "Echo", inputSchema: { type: "object" } }] } }
+        : { jsonrpc: "2.0", id: payload.id, error: { code: -32002, message: "not initialized" } });
+    }
+  }
+});
+`, "utf8");
+
+  try {
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "stdio-line-json-default",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverPath],
+        timeoutMs: 1_000,
+      }],
+    });
+
+    const listed = await mcp.listTools?.({ serverId: "stdio-line-json-default" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "line_echo");
+    await mcp.disconnect?.({ serverId: "stdio-line-json-default" });
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("MCP runtime stdio adapter reconnects after a child exits", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-reconnect-"));
+  const serverPath = path.join(workspace, "reconnect-mcp-server.mjs");
+  await writeFile(serverPath, `
+let initialized = false;
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "reconnect", version: "1" } } });
+    } else if (payload.method === "notifications/initialized") {
+      initialized = true;
+    } else if (payload.method === "tools/list") {
+      send(initialized
+        ? { jsonrpc: "2.0", id: payload.id, result: { tools: [{ name: "reconnect_echo", description: "Echo", inputSchema: { type: "object" } }] } }
+        : { jsonrpc: "2.0", id: payload.id, error: { code: -32002, message: "not initialized" } });
+      process.exit(0);
+    }
+  }
+});
+`, "utf8");
+
+  try {
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "stdio-reconnect",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverPath],
+        timeoutMs: 250,
+      }],
+    });
+
+    const first = await mcp.listTools?.({ serverId: "stdio-reconnect" });
+    assert.equal(first?.ok, true);
+    await sleep(25);
+    const second = await mcp.listTools?.({ serverId: "stdio-reconnect" });
+    assert.equal(second?.ok, true);
+    if (second?.ok) assert.equal(second.output.tools[0]?.name, "reconnect_echo");
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("MCP runtime stdio adapter shutdown terminates child connections", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-shutdown-"));
+  const serverPath = path.join(workspace, "shutdown-mcp-server.mjs");
+  const markerPath = path.join(workspace, "terminated.txt");
+  await writeFile(serverPath, `
+import { writeFileSync } from "node:fs";
+const markerPath = ${JSON.stringify(markerPath)};
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+process.on("SIGTERM", () => {
+  writeFileSync(markerPath, "terminated", "utf8");
+  process.exit(0);
+});
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "shutdown", version: "1" } } });
+    } else if (payload.method === "tools/list") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { tools: [{ name: "shutdown_echo", description: "Echo", inputSchema: { type: "object" } }] } });
+    }
+  }
+});
+`, "utf8");
+
+  try {
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "stdio-shutdown",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverPath],
+        timeoutMs: 1_000,
+      }],
+    });
+
+    const listed = await mcp.listTools?.({ serverId: "stdio-shutdown" });
+    assert.equal(listed?.ok, true);
+    const shutdown = await mcp.shutdown?.({});
+    assert.equal(shutdown?.ok, true);
+    assert.equal(shutdown?.output.closedConnections, 1);
+    for (let attempt = 0; attempt < 20 && !existsSync(markerPath); attempt += 1) {
+      await sleep(25);
+    }
+    assert.equal(existsSync(markerPath), true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
   }
 });

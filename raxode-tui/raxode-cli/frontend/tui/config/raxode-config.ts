@@ -167,6 +167,40 @@ export interface RaxodeEmbeddingConfig {
   dimensions?: number;
 }
 
+export type RaxodeMcpServerMode = "native" | "mcp-plus";
+
+export type RaxodeMcpServerConfig = {
+  serverId: string;
+  mode: RaxodeMcpServerMode;
+  title?: string;
+  summary?: string;
+  enabled: boolean;
+  timeoutMs?: number;
+  manifest?: Record<string, unknown>;
+  metadata?: Record<string, unknown>;
+} & (
+  | {
+      transport: "stdio";
+      command: string;
+      args?: string[];
+      cwd?: string;
+      env?: Record<string, string>;
+      framing?: "content-length" | "line-json";
+    }
+  | {
+      transport: "http" | "sse";
+      url: string;
+      sseUrl?: string;
+      headers?: Record<string, string>;
+    }
+);
+
+export interface RaxodeMcpConfig {
+  servers: RaxodeMcpServerConfig[];
+  projectId?: string;
+  reprofileConsecutiveIndexedCalls?: number;
+}
+
 export interface RaxodeConfigFile {
   schemaVersion: number;
   providerSlots: Partial<Record<RaxodeProviderSlot, string>>;
@@ -176,6 +210,7 @@ export interface RaxodeConfigFile {
   workspace: RaxodeWorkspaceConfig;
   ui: RaxodeUiConfig;
   permissions: RaxodePermissionsConfig;
+  mcp: RaxodeMcpConfig;
 }
 
 export interface RaxodeRuntimeConfigSnapshot {
@@ -184,6 +219,7 @@ export interface RaxodeRuntimeConfigSnapshot {
   permissions: RaxodePermissionsConfig;
   embedding: RaxodeEmbeddingConfig;
   workspace: RaxodeWorkspaceConfig;
+  mcp: RaxodeMcpConfig;
 }
 
 export interface RaxodeResolvedProfile {
@@ -464,6 +500,9 @@ function createDefaultConfigFile(fallbackDir = process.cwd()): RaxodeConfigFile 
     permissions: {
       ...createDefaultRaxodePermissionsConfig(),
     },
+    mcp: {
+      servers: [],
+    },
   };
 }
 
@@ -542,6 +581,137 @@ function asBoolean(value: unknown, defaultValue = true): boolean {
 
 function asPositiveInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+function asStringArray(value: unknown, filePath: string, fieldPath: string): string[] | undefined {
+  if (value === undefined) return undefined;
+  if (!Array.isArray(value)) {
+    throw new RaxodeConfigError(`Raxode 配置字段无效: ${fieldPath}`, { filePath, fieldPath });
+  }
+  return value.map((entry, index) => asString(entry, filePath, `${fieldPath}[${index}]`));
+}
+
+function asStringRecord(value: unknown, filePath: string, fieldPath: string): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  const record = asRecord(value, filePath, fieldPath);
+  return Object.fromEntries(
+    Object.entries(record).map(([key, entry]) => [key, asString(entry, filePath, `${fieldPath}.${key}`)]),
+  );
+}
+
+function asObjectRecord(value: unknown, filePath: string, fieldPath: string): Record<string, unknown> | undefined {
+  if (value === undefined) return undefined;
+  return { ...asRecord(value, filePath, fieldPath) };
+}
+
+function asMcpServerMode(value: unknown, filePath: string, fieldPath: string): RaxodeMcpServerMode {
+  if (value === undefined) return "mcp-plus";
+  if (value === "native" || value === "mcp-plus") return value;
+  throw new RaxodeConfigError(
+    `Raxode 配置字段无效: ${fieldPath}`,
+    { filePath, fieldPath },
+  );
+}
+
+function asMcpStdioFraming(
+  value: unknown,
+  filePath: string,
+  fieldPath: string,
+): "content-length" | "line-json" | undefined {
+  if (value === undefined) return undefined;
+  if (value === "content-length" || value === "line-json") return value;
+  throw new RaxodeConfigError(
+    `Raxode 配置字段无效: ${fieldPath}`,
+    { filePath, fieldPath },
+  );
+}
+
+function asMcpServerConfig(value: unknown, filePath: string, fieldPath: string): RaxodeMcpServerConfig {
+  const record = asRecord(value, filePath, fieldPath);
+  const serverId = asString(record.serverId, filePath, `${fieldPath}.serverId`);
+  const transport = asString(record.transport, filePath, `${fieldPath}.transport`);
+  const common = {
+    serverId,
+    mode: asMcpServerMode(record.mode, filePath, `${fieldPath}.mode`),
+    title: asOptionalString(record.title),
+    summary: asOptionalString(record.summary),
+    enabled: asBoolean(record.enabled, true),
+    timeoutMs: asPositiveInteger(record.timeoutMs),
+    manifest: asObjectRecord(record.manifest, filePath, `${fieldPath}.manifest`),
+    metadata: asObjectRecord(record.metadata, filePath, `${fieldPath}.metadata`),
+  };
+  if (transport === "stdio") {
+    return {
+      ...common,
+      transport,
+      command: asString(record.command, filePath, `${fieldPath}.command`),
+      args: asStringArray(record.args, filePath, `${fieldPath}.args`),
+      cwd: asOptionalString(record.cwd),
+      env: asStringRecord(record.env, filePath, `${fieldPath}.env`),
+      framing: asMcpStdioFraming(record.framing, filePath, `${fieldPath}.framing`),
+    };
+  }
+  if (transport === "http" || transport === "sse") {
+    return {
+      ...common,
+      transport,
+      url: asString(record.url, filePath, `${fieldPath}.url`),
+      sseUrl: asOptionalString(record.sseUrl),
+      headers: asStringRecord(record.headers, filePath, `${fieldPath}.headers`),
+    };
+  }
+  throw new RaxodeConfigError(
+    `Raxode 配置字段无效: ${fieldPath}.transport`,
+    { filePath, fieldPath: `${fieldPath}.transport` },
+  );
+}
+
+function loadMcpConfig(value: unknown, filePath: string): RaxodeMcpConfig {
+  const record = value === undefined ? {} : asRecord(value, filePath, "mcp");
+  const rawServers = record.servers;
+  const servers = rawServers === undefined
+    ? []
+    : Array.isArray(rawServers)
+      ? rawServers.map((entry, index) => asMcpServerConfig(entry, filePath, `mcp.servers[${index}]`))
+      : (() => {
+          throw new RaxodeConfigError("Raxode 配置字段无效: mcp.servers", { filePath, fieldPath: "mcp.servers" });
+        })();
+  return {
+    servers,
+    projectId: asOptionalString(record.projectId),
+    reprofileConsecutiveIndexedCalls: asPositiveInteger(record.reprofileConsecutiveIndexedCalls),
+  };
+}
+
+function cloneMcpServerConfig(server: RaxodeMcpServerConfig): RaxodeMcpServerConfig {
+  const common = {
+    serverId: server.serverId,
+    mode: server.mode,
+    title: server.title,
+    summary: server.summary,
+    enabled: server.enabled,
+    timeoutMs: server.timeoutMs,
+    manifest: server.manifest ? { ...server.manifest } : undefined,
+    metadata: server.metadata ? { ...server.metadata } : undefined,
+  };
+  if (server.transport === "stdio") {
+    return {
+      ...common,
+      transport: "stdio",
+      command: server.command,
+      args: server.args ? [...server.args] : undefined,
+      cwd: server.cwd,
+      env: server.env ? { ...server.env } : undefined,
+      framing: server.framing,
+    };
+  }
+  return {
+    ...common,
+    transport: server.transport,
+    url: server.url,
+    sseUrl: server.sseUrl,
+    headers: server.headers ? { ...server.headers } : undefined,
+  };
 }
 
 function loadAuthProfiles(filePath: string): RaxodeAuthFile {
@@ -676,6 +846,7 @@ function loadConfigFile(filePath: string): RaxodeConfigFile {
   const ui = asRecord(parsed.ui ?? {}, filePath, "ui");
   const permissions = asRecord(parsed.permissions ?? {}, filePath, "permissions");
   const providerSlots = asRecord(parsed.providerSlots ?? {}, filePath, "providerSlots");
+  const mcp = loadMcpConfig(parsed.mcp, filePath);
   const matrix = Array.isArray(permissions.shared15ViewMatrix)
     ? permissions.shared15ViewMatrix.map((entry, index) => ({
         ...asRecord(entry, filePath, `permissions.shared15ViewMatrix[${index}]`),
@@ -767,6 +938,7 @@ function loadConfigFile(filePath: string): RaxodeConfigFile {
       shared15ViewMatrix: matrix,
       persistedAllowRules,
     },
+    mcp,
   };
 }
 
@@ -790,6 +962,11 @@ function migrateRaxodeConfigFile(config: RaxodeConfigFile): {
     embedding: { ...config.embedding },
     workspace: { ...config.workspace },
     ui: { ...config.ui },
+    mcp: {
+      projectId: config.mcp.projectId,
+      reprofileConsecutiveIndexedCalls: config.mcp.reprofileConsecutiveIndexedCalls,
+      servers: config.mcp.servers.map(cloneMcpServerConfig),
+    },
     permissions: {
       ...config.permissions,
       requireHumanOnRiskLevels: [...config.permissions.requireHumanOnRiskLevels],
@@ -978,7 +1155,12 @@ export function loadRaxodeRuntimeConfigSnapshot(
     permissions: config.permissions,
     embedding: config.embedding,
     workspace: config.workspace,
+    mcp: config.mcp,
   };
+}
+
+export function loadRaxodeMcpConfig(fallbackDir = process.cwd()): RaxodeMcpConfig {
+  return loadRaxodeConfigFile(fallbackDir).mcp;
 }
 
 export function loadResolvedProviderSlotConfig(

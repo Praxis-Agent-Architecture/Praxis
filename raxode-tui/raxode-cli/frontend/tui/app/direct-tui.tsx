@@ -2074,6 +2074,39 @@ function isDirectTuiInitRunningStatus(status?: string): boolean {
     || status === "started";
 }
 
+function cloneRaxodeMcpServerConfig(
+  server: RaxodeConfigFile["mcp"]["servers"][number],
+): RaxodeConfigFile["mcp"]["servers"][number] {
+  const common = {
+    serverId: server.serverId,
+    mode: server.mode,
+    title: server.title,
+    summary: server.summary,
+    enabled: server.enabled,
+    timeoutMs: server.timeoutMs,
+    manifest: server.manifest ? { ...server.manifest } : undefined,
+    metadata: server.metadata ? { ...server.metadata } : undefined,
+  };
+  if (server.transport === "stdio") {
+    return {
+      ...common,
+      transport: "stdio",
+      command: server.command,
+      args: server.args ? [...server.args] : undefined,
+      cwd: server.cwd,
+      env: server.env ? { ...server.env } : undefined,
+      framing: server.framing,
+    };
+  }
+  return {
+    ...common,
+    transport: server.transport,
+    url: server.url,
+    sseUrl: server.sseUrl,
+    headers: server.headers ? { ...server.headers } : undefined,
+  };
+}
+
 function cloneRaxodeConfigFile(configFile: RaxodeConfigFile): RaxodeConfigFile {
   return {
     schemaVersion: configFile.schemaVersion,
@@ -2093,6 +2126,11 @@ function cloneRaxodeConfigFile(configFile: RaxodeConfigFile): RaxodeConfigFile {
     },
     workspace: { ...configFile.workspace },
     ui: { ...configFile.ui },
+    mcp: {
+      projectId: configFile.mcp.projectId,
+      reprofileConsecutiveIndexedCalls: configFile.mcp.reprofileConsecutiveIndexedCalls,
+      servers: configFile.mcp.servers.map(cloneRaxodeMcpServerConfig),
+    },
     permissions: {
       ...configFile.permissions,
       requireHumanOnRiskLevels: [...configFile.permissions.requireHumanOnRiskLevels],

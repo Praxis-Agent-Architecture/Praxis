@@ -78,6 +78,11 @@ function contentLengthFrame(payload: JsonObject): string {
   return `Content-Length: ${Buffer.byteLength(body, "utf8")}\r\n\r\n${body}`;
 }
 
+function writeStdioPayload(connection: McpConnection, payload: JsonObject): void {
+  const framing = connection.profile.transport === "stdio" ? connection.profile.framing ?? "line-json" : undefined;
+  connection.child?.stdin.write(framing === "line-json" ? `${JSON.stringify(payload)}\n` : contentLengthFrame(payload));
+}
+
 function extractContentLengthFrames(buffer: string): { messages: JsonRpcResponse[]; rest: string } {
   const messages: JsonRpcResponse[] = [];
   let rest = buffer;
@@ -158,6 +163,15 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     return requestHttp(connection.profile, method, params);
   };
 
+  const closeConnection = (connection: McpConnection): void => {
+    for (const [, pending] of connection.pending) {
+      clearTimeout(pending.timeout);
+      pending.reject(new Error(`MCP connection '${connection.connectionId}' was closed.`));
+    }
+    connection.pending.clear();
+    connection.child?.kill();
+  };
+
   const connectProfile = async (
     profile: McpRuntimeServerProfile,
     connectionId: string,
@@ -171,7 +185,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       const connection: McpConnection = { profile, connectionId, child, nextId: 1, pending: new Map(), buffer: "" };
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
-        const extracted = profile.framing === "line-json"
+        const extracted = (profile.framing ?? "line-json") === "line-json"
           ? extractLineJsonFrames(connection.buffer + chunk)
           : extractContentLengthFrames(connection.buffer + chunk);
         connection.buffer = extracted.rest;
@@ -184,7 +198,16 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
           pending.resolve(message);
         }
       });
+      child.on("error", (error) => {
+        connections.delete(connectionId);
+        for (const [id, pending] of connection.pending) {
+          clearTimeout(pending.timeout);
+          pending.reject(new Error(`MCP stdio server error before response ${String(id)}: ${textFromUnknown(error.message)}`));
+        }
+        connection.pending.clear();
+      });
       child.on("exit", () => {
+        connections.delete(connectionId);
         for (const [id, pending] of connection.pending) {
           clearTimeout(pending.timeout);
           pending.reject(new Error(`MCP stdio server exited before response ${String(id)}.`));
@@ -200,6 +223,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
         child.kill();
         return initialized;
       }
+      writeStdioPayload(connection, { jsonrpc: "2.0", method: "notifications/initialized", params: {} });
       return success(connection, metadata(profile, { connectionId, initialized: true }));
     }
 
@@ -223,10 +247,24 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       clientInfo: { name: "praxis-agentcore", version: "0.1.0" },
     });
     if (!initialized.ok) return initialized;
+    const notified = await notifyHttp(profile, "notifications/initialized", {});
+    if (!notified.ok) return notified;
     return success(connection, metadata(profile, { connectionId, initialized: true }));
   };
 
   return {
+    async shutdown() {
+      const closedConnections = connections.size;
+      for (const [, connection] of connections) {
+        closeConnection(connection);
+      }
+      connections.clear();
+      return success({
+        status: "shutdown",
+        closedConnections,
+        serverIds: [...profiles.keys()],
+      });
+    },
     async authenticate(requestInput) {
       const profile = getProfile(requestInput.serverId);
       if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
@@ -258,7 +296,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       const id = requestInput.connectionId ?? `${requestInput.serverId}:${profile.transport}:connection`;
       const connection = connections.get(id);
       if (connection === undefined) return success({ connectionId: id, status: "not_found", serverId: requestInput.serverId, providerMetadata: metadata(profile, { connectionId: id }) });
-      connection.child?.kill();
+      closeConnection(connection);
       connections.delete(id);
       return success({ connectionId: id, status: "disconnected", serverId: requestInput.serverId, providerMetadata: metadata(profile, { connectionId: id }) });
     },
@@ -446,8 +484,7 @@ async function requestStdio(connection: McpConnection, method: string, params: J
     }, timeoutMs);
     connection.pending.set(id, { resolve, reject, timeout });
   });
-  const framing = connection.profile.transport === "stdio" ? connection.profile.framing : undefined;
-  connection.child.stdin.write(framing === "line-json" ? `${JSON.stringify(payload)}\n` : contentLengthFrame(payload));
+  writeStdioPayload(connection, payload);
   try {
     return normalizeJsonRpcResponse(await response);
   } catch (error) {
@@ -471,6 +508,25 @@ async function requestHttp(profile: Extract<McpRuntimeServerProfile, { transport
     return normalizeJsonRpcResponse(json as JsonRpcResponse);
   } catch (error) {
     return failure("MCP_HTTP_REQUEST_FAILED", textFromUnknown((error as Error).message ?? error));
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function notifyHttp(profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>, method: string, params: JsonObject): Promise<BaseToolExecutorResult<{ status: "notified" }>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), profile.timeoutMs ?? 5_000);
+  try {
+    const response = await fetch(profile.url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(profile.headers ?? {}) },
+      body: JSON.stringify({ jsonrpc: "2.0", method, params }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return failure("MCP_HTTP_NOTIFICATION_FAILED", `MCP HTTP endpoint returned HTTP ${response.status}.`);
+    return success({ status: "notified" });
+  } catch (error) {
+    return failure("MCP_HTTP_NOTIFICATION_FAILED", textFromUnknown((error as Error).message ?? error));
   } finally {
     clearTimeout(timeout);
   }

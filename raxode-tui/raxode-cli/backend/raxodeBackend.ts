@@ -31,6 +31,10 @@ import { createRaxodeAuthStateProvider } from "./authentication/authStateProvide
 import { createRaxodeContextAdapter } from "./context/contextBridge.js";
 import type { RaxodeOptions } from "./agents/codingAgent/config/raxodeOptions.js";
 import { inspectRaxodeMemoryBridge } from "./memory/memoryBridge.js";
+import {
+  loadRaxodeMcpRuntimeOptions,
+  mergeRaxodeMcpPlusRuntimeOptions,
+} from "./application/mcpConfig.js";
 import type { RaxodeLocalReadinessProbeInput } from "./application/localReadinessProbe.js";
 import {
   inspectRaxodeBackendReadinessWithLocalProbe,
@@ -79,6 +83,10 @@ type RaxodeBackendRuntimePorts = Pick<
   | "preCompactGovernanceEnabled"
   | "compactContextWindowTokens"
   | "compactThresholdRatio"
+  | "mcpServers"
+  | "mcpPlusServers"
+  | "mcpModule"
+  | "mcpPlus"
 >;
 
 export type RaxodeBackendOptions = RaxodeOptions & RaxodeBackendRuntimePorts & {
@@ -126,6 +134,7 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
   const reasoningEffort = options.reasoningEffort ?? modelOptions.reasoningEffort;
   const maxOutputTokens = options.maxOutputTokens ?? modelOptions.maxOutputTokens;
   const permissionProfile = options.policyProfile ?? "permissive";
+  const configuredMcp = loadRaxodeMcpRuntimeOptions(startDir);
   const agentOptions: RaxodeOptions = {
     policyProfile: permissionProfile,
     sandboxProfile: options.sandboxProfile,
@@ -187,6 +196,10 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
     preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
     compactContextWindowTokens: options.compactContextWindowTokens,
     compactThresholdRatio: options.compactThresholdRatio,
+    mcpServers: options.mcpServers ?? configuredMcp.mcpServers,
+    mcpPlusServers: options.mcpPlusServers,
+    mcpModule: options.mcpModule,
+    mcpPlus: mergeRaxodeMcpPlusRuntimeOptions(configuredMcp.mcpPlus, options.mcpPlus),
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => createRaxodeLiveProvider(manifest, {
       startDir,
       sessionId: context?.sessionId,

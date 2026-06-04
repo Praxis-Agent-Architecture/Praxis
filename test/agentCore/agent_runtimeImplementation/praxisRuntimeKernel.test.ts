@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../agentCoreContractTestHelper.js";
@@ -3693,6 +3694,146 @@ test("PraxisRuntimeKernel.runManifest lets MCP+ skill_write persist a server pro
   assert.equal(notes[0]?.title, "Snapshot before debugging");
 });
 
+test("PraxisRuntimeKernel.runManifest injects MCP+ sidecar after built-in tool declarations without skill body expansion", async () => {
+  class PromptMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-prompt";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-prompt" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Browser MCP+ server.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: ["network.status"],
+                  toolCards: {
+                    "network.status": {
+                      title: "Network status",
+                      summary: "Inspect network requests when debugging page/API failures.",
+                      keywords: ["network", "request", "debug"],
+                    },
+                  },
+                },
+                skills: {
+                  chapters: [{
+                    id: "browser-debug",
+                    title: "Browser debug",
+                    summary: "Use snapshots before diagnostics.",
+                  }],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(PromptMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-prompt",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const skillStore = createInMemoryMcpPlusSkillStore([{
+    id: "skill.full-body",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    chapter: "browser-debug",
+    title: "Full body should stay out of the prefix",
+    summary: "Compact card may be indexed, but body expansion is on demand.",
+    do: ["UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE"],
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  }]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-prompt",
+    sessionId: "session-mcp-plus-prompt",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [
+                {
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+                },
+                {
+                  name: "network.status",
+                  description: "Inspect network requests.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+              ],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "called", request } };
+        },
+      },
+    },
+  });
+
+  let providerBodyText = "";
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-prompt" }).runManifest(
+    compiled.manifest,
+    "inspect prompt flow",
+    {
+      sessionId: "session-mcp-plus-prompt",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        skillStore,
+      },
+      providerCaller: async (envelope) => {
+        providerBodyText = JSON.stringify(envelope.body);
+        return { output_text: "prompt inspected" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  assert.match(providerBodyText, /# Tool Declarations/u);
+  assert.match(providerBodyText, /MCP\+ Native Exposure/u);
+  assert.match(providerBodyText, /Network status/u);
+  assert.match(providerBodyText, /browser-debug/u);
+  assert.doesNotMatch(providerBodyText, /UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE/u);
+
+  const builtInToolDeclarationsIndex = providerBodyText.indexOf("# Tool Declarations");
+  const mcpPlusSidecarIndex = providerBodyText.indexOf("MCP+ Native Exposure");
+  const baseProtocolIndex = providerBodyText.indexOf("Praxis tool calling protocol:", mcpPlusSidecarIndex);
+  assert.ok(builtInToolDeclarationsIndex >= 0);
+  assert.ok(mcpPlusSidecarIndex > builtInToolDeclarationsIndex);
+  assert.ok(baseProtocolIndex > mcpPlusSidecarIndex);
+});
+
 test("PraxisRuntimeKernel.runManifest projects runtime MCP modules without changing agent source", async () => {
   class RuntimeMcpModuleAgent extends PraxisAgent {
     identity = "agent.runtime-mcp-module";
@@ -3812,6 +3953,91 @@ test("PraxisRuntimeKernel.runManifest projects runtime MCP modules without chang
   });
   assert.equal(compiled.manifest.harness.modules.mcp, undefined);
   assert.equal(compiled.manifest.harness.tools.some((item) => item.toolId === "mcp.use"), false);
+});
+
+test("PraxisRuntimeKernel.runManifest shuts down runtime-owned MCP stdio servers", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-runtime-mcp-shutdown-"));
+  const serverPath = path.join(workspace, "runtime-owned-mcp-server.mjs");
+  const markerPath = path.join(workspace, "terminated.txt");
+  await writeFile(serverPath, `
+import { writeFileSync } from "node:fs";
+const markerPath = ${JSON.stringify(markerPath)};
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+process.on("SIGTERM", () => {
+  writeFileSync(markerPath, "terminated", "utf8");
+  process.exit(0);
+});
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "runtime-owned", version: "1" } } });
+    } else if (payload.method === "tools/list") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { tools: [{ name: "runtime.echo", description: "Echo", inputSchema: { type: "object" } }] } });
+    }
+  }
+});
+`, "utf8");
+
+  class RuntimeOwnedMcpAgent extends PraxisAgent {
+    identity = "agent.runtime-owned-mcp-shutdown";
+    model = model("gpt-5.4", { carrierId: "carrier.runtime-owned-mcp-shutdown" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 0 }),
+    });
+  }
+
+  try {
+    const compiled = compileAgent(RuntimeOwnedMcpAgent, {
+      compiledAt: "2026-06-05T00:00:00.000Z",
+      manifestId: "manifest.runtime-owned-mcp-shutdown",
+    });
+    assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+    if (!compiled.ok) return;
+
+    const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-owned-mcp-shutdown" }).runManifest(
+      compiled.manifest,
+      "inspect runtime owned MCP shutdown",
+      {
+        sessionId: "session-runtime-owned-mcp-shutdown",
+        dryRun: false,
+        allowProviderCall: true,
+        allowToolExecution: true,
+        auth: authEnvelope(),
+        mcpModule: mcp.module({
+          servers: [
+            mcp.stdio("runtime-owned", {
+              command: process.execPath,
+              args: [serverPath],
+              mode: "native",
+              timeoutMs: 1_000,
+            }),
+          ],
+        }),
+        providerCaller: async () => ({ output_text: "runtime owned MCP inspected" }),
+        now: () => "2026-06-05T00:00:00.000Z",
+      },
+    );
+
+    assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+    for (let attempt = 0; attempt < 20 && !existsSync(markerPath); attempt += 1) {
+      await sleep(25);
+    }
+    assert.equal(existsSync(markerPath), true);
+    if (result.ok) assert.equal(result.events.includes("runtime.mcp.shutdown.completed"), true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test("PraxisRuntimeKernel.runManifest sanitizes invalid governance context before file.read dispatch", async () => {

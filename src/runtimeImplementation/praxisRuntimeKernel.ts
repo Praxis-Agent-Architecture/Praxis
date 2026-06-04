@@ -80,6 +80,7 @@ import {
 import type { StandardPromptPack } from "../executionEngine/promptPack/promptAssembler.js";
 import {
   type PromptPackSegmentKind,
+  type PromptPackMaterialDraft,
 } from "../executionEngine/promptPack/promptDefiner.js";
 import {
   createRuntimeBaseToolExecutorPort,
@@ -203,6 +204,7 @@ import {
   type McpPlusRuntimeOverlay,
   type McpPlusSkillStore,
   type McpHarnessModuleSpec,
+  type McpHarnessExposurePlan,
   planMcpHarnessExposure,
 } from "./runtime.mcpPlane/index.js";
 import type { McpRuntimeServerProfile } from "./runtime.execEngine/mcpRuntimeAdapter.js";
@@ -1148,13 +1150,85 @@ function createRuntimeMcpPlusController(input: {
   };
 }
 
-async function discoverRuntimeMcpDynamicTools(
+type RuntimeMcpDynamicSurface = {
+  tools: readonly ToolSpec[];
+  toolDeclarationPreludeMaterials: readonly PromptPackMaterialDraft[];
+};
+
+function mcpPlusPromptLine(label: string, value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized === undefined || normalized.length === 0 ? undefined : `${label}: ${normalized}`;
+}
+
+function renderMcpPlusNativePrelude(plan: McpHarnessExposurePlan): readonly PromptPackMaterialDraft[] {
+  const mcpPlusServers = plan.servers.filter((server) => server.mode === "mcp-plus");
+  if (mcpPlusServers.length === 0) return [];
+
+  const sections = mcpPlusServers.map((server) => {
+    const sidecar = server.surface.sidecar;
+    const visibleTools = server.surface.tools
+      .map((tool) => tool.name)
+      .filter((name) => typeof name === "string" && name.trim().length > 0);
+    const lines = [
+      `Server: ${server.serverId}`,
+      mcpPlusPromptLine("Mode", sidecar.serverCard.mode),
+      mcpPlusPromptLine("Title", sidecar.serverCard.title),
+      mcpPlusPromptLine("Summary", sidecar.serverCard.summary),
+      `Visible tools: ${visibleTools.join(", ") || "none"}`,
+    ].filter((line): line is string => line !== undefined);
+
+    if (sidecar.toolIndex.length > 0) {
+      lines.push("Tool index:");
+      for (const card of sidecar.toolIndex) {
+        lines.push(`- ${card.activation.toolName} (${card.id}): ${card.title}. ${card.summary}`);
+      }
+    }
+
+    if (sidecar.skillIndex.length > 0) {
+      lines.push("Skill index:");
+      for (const skill of sidecar.skillIndex) {
+        lines.push(`- ${skill.id}: ${skill.title}. ${skill.summary}`);
+      }
+    }
+
+    return lines.join("\n");
+  });
+
+  return [{
+    id: "runtime:mcp-plus-native-exposure",
+    kind: "tool-summary",
+    text: [
+      "# MCP+ Native Exposure",
+      "",
+      "MCP+ is a compact exposure layer over standard MCP. Praxis owns the runtime lifecycle; MCP remains the protocol boundary.",
+      "Use visible pinned or active MCP tools directly. Use indexed tool cards to decide when mcp_plus.expand or mcp_plus.reprofile is needed.",
+      "Use skill index cards to decide when mcp_plus.skill_read is relevant. Full skill bodies are read on demand and must not be assumed from this prefix-cached index.",
+      "",
+      sections.join("\n\n"),
+    ].join("\n"),
+    source: "runtime.mcpPlus.nativeExposure",
+    sourceCategory: "declared-built-in",
+    priority: 95.5,
+    trusted: true,
+    scope: "runtime.mcpPlus.exposure",
+    promptSegmentKind: "toolDeclarations",
+    metadata: {
+      promptSegmentKind: "toolDeclarations",
+      toolMaterialType: "policy",
+      mcpPlusServerIds: mcpPlusServers.map((server) => server.serverId),
+    },
+  }];
+}
+
+async function discoverRuntimeMcpDynamicSurface(
   manifest: AgentManifest,
   executor: BaseToolExecutorPort,
   mcpPlusRuntime?: RuntimeMcpPlusController,
-): Promise<readonly ToolSpec[]> {
+): Promise<RuntimeMcpDynamicSurface> {
   const profiles = buildMcpServerProfilesFromManifest(manifest);
-  if (profiles.length === 0 || executor.mcp?.listTools === undefined) return [];
+  if (profiles.length === 0 || executor.mcp?.listTools === undefined) {
+    return { tools: [], toolDeclarationPreludeMaterials: [] };
+  }
   const inventory: Record<string, { name: string; description: string; inputSchema: Record<string, unknown> }[]> = {};
   for (const profile of profiles) {
     const listed = await executor.mcp.listTools({ serverId: profile.serverId });
@@ -1165,16 +1239,34 @@ async function discoverRuntimeMcpDynamicTools(
       .filter((tool): tool is { name: string; description: string; inputSchema: Record<string, unknown> } => tool !== undefined);
   }
   await mcpPlusRuntime?.setNativeInventory(inventory);
-  return planMcpHarnessExposure(
+  const plan = planMcpHarnessExposure(
     manifest,
     inventory,
     await mcpPlusRuntime?.exposureStateByServerId(manifest) ?? {},
     await mcpPlusRuntime?.learnedProfilesByServerId(manifest) ?? {},
-  ).servers.flatMap((server) => [...server.dynamicToolSpecs]);
+  );
+  return {
+    tools: plan.servers.flatMap((server) => [...server.dynamicToolSpecs]),
+    toolDeclarationPreludeMaterials: renderMcpPlusNativePrelude(plan),
+  };
 }
 
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
   return createProviderToolMappings(manifest.harness.tools);
+}
+
+async function shutdownRuntimeOwnedExecutor(
+  executor: BaseToolExecutorPort | undefined,
+  events: string[],
+): Promise<void> {
+  const shutdown = executor?.mcp?.__praxisRuntimeOwnedShutdown;
+  if (typeof shutdown !== "function") return;
+  try {
+    const result = await shutdown({ reason: "runtime.runManifest.finished" });
+    events.push(result?.ok === false ? "runtime.mcp.shutdown.failed" : "runtime.mcp.shutdown.completed");
+  } catch {
+    events.push("runtime.mcp.shutdown.failed");
+  }
 }
 
 function providerToolSchemaFamilyForModel(model: AgentManifest["model"]): ProviderToolSchemaFamily {
@@ -3577,6 +3669,7 @@ async function buildPromptPackAndLower(input: {
   contextWindowTokens?: number;
   sessionSummary?: PromptContextSessionSummary;
   conversationWindow?: readonly PromptContextConversationMessage[];
+  toolDeclarationPreludeMaterials?: readonly PromptPackMaterialDraft[];
   projectContextGovernanceMaterials?: readonly {
     id: string;
     text: string;
@@ -3637,6 +3730,7 @@ async function buildPromptPackAndLower(input: {
       budget: contextWindowTokens === undefined ? undefined : { contextWindowTokens },
       sessionSummary: input.sessionSummary,
       conversationWindow: input.conversationWindow,
+      toolDeclarationPreludeMaterials: input.toolDeclarationPreludeMaterials,
       projectContextGovernanceMaterials: input.projectContextGovernanceMaterials?.map((material) => ({
         id: material.id,
         kind: "runtime",
@@ -5113,7 +5207,9 @@ export class PraxisRuntimeKernel {
         events.push(runtimeEvent.type);
       },
     });
+    const runtimeOwnedExecutor = options.executor === undefined ? executor : undefined;
 
+    try {
     const modelCaller = {
       kind: "application" as const,
       id: "praxis-runtime-kernel",
@@ -5135,12 +5231,15 @@ export class PraxisRuntimeKernel {
     const maxModelTurns = manifest.harness.loop.maxModelTurns ?? 2;
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;
     let toolMappings: readonly ProviderToolMapping[] = [];
+    let toolDeclarationPreludeMaterials: readonly PromptPackMaterialDraft[] = [];
     async function refreshRuntimeMcpTools(reason: string): Promise<void> {
+      const dynamicSurface = await discoverRuntimeMcpDynamicSurface(runtimeMcpBaseManifest, executor, mcpPlusRuntime);
       manifest = withRuntimeHarnessToolLayer(
         runtimeMcpBaseManifest,
-        await discoverRuntimeMcpDynamicTools(runtimeMcpBaseManifest, executor, mcpPlusRuntime),
+        dynamicSurface.tools,
         reason,
       );
+      toolDeclarationPreludeMaterials = dynamicSurface.toolDeclarationPreludeMaterials;
       toolMappings = providerToolMappings(manifest);
     }
     await refreshRuntimeMcpTools("session.checkpoint.start");
@@ -5241,6 +5340,7 @@ export class PraxisRuntimeKernel {
         contextWindowTokens: compactInputBudgetTokens,
         sessionSummary: compactSessionSummary,
         conversationWindow: compactConversationWindow,
+        toolDeclarationPreludeMaterials,
         projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
         toolContextSelection,
         toolContextUsage: toolContextHeatState.usage,
@@ -5499,6 +5599,7 @@ export class PraxisRuntimeKernel {
               events,
               sessionSummary: compactSessionSummary,
               conversationWindow: compactConversationWindow,
+              toolDeclarationPreludeMaterials,
               projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
               toolContextSelection,
               toolContextUsage: toolContextHeatState.usage,
@@ -6854,6 +6955,9 @@ export class PraxisRuntimeKernel {
       events,
       state: await store.readSession(sessionId),
     };
+    } finally {
+      await shutdownRuntimeOwnedExecutor(runtimeOwnedExecutor, events);
+    }
   }
 }
 
