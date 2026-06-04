@@ -22,6 +22,18 @@ type DiscoveredServer = {
   }>;
 };
 
+type LiveCallProbe = {
+  serverId: string;
+  toolName: string;
+  arguments: Record<string, unknown>;
+};
+
+type LiveCallProbeResult = LiveCallProbe & {
+  ok: boolean;
+  outputPreview?: string;
+  error?: string;
+};
+
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const runRoot = process.env.PRAXIS_MCP_SMOKE_DIR
   ? path.resolve(process.env.PRAXIS_MCP_SMOKE_DIR)
@@ -241,6 +253,110 @@ function moduleFor(mode: "native" | "mcp-plus", discovered: readonly DiscoveredS
   return mcp.module({ servers, metadata: { source: "automations.mcp-plus-native-smoke", mode } });
 }
 
+function outputPreview(value: unknown): string {
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  return (text ?? "").slice(0, 500);
+}
+
+function liveCallProbesFor(discovered: readonly DiscoveredServer[]): LiveCallProbe[] {
+  const servers = new Map(discovered.map((server) => [server.serverId, new Set(server.tools.map((tool) => tool.name))]));
+  const probes: LiveCallProbe[] = [
+    {
+      serverId: "filesystem-praxis",
+      toolName: "list_allowed_directories",
+      arguments: {},
+    },
+    {
+      serverId: "filesystem-tmp",
+      toolName: "list_allowed_directories",
+      arguments: {},
+    },
+    {
+      serverId: "memory",
+      toolName: "read_graph",
+      arguments: {},
+    },
+    {
+      serverId: "sequential-thinking",
+      toolName: "sequentialthinking",
+      arguments: {
+        thought: "Praxis MCP smoke probe.",
+        nextThoughtNeeded: false,
+        thoughtNumber: 1,
+        totalThoughts: 1,
+      },
+    },
+    {
+      serverId: "everything",
+      toolName: "echo",
+      arguments: { message: "praxis mcp smoke" },
+    },
+    {
+      serverId: "playwright",
+      toolName: "browser_navigate",
+      arguments: { url: "data:text/html,<title>Praxis MCP Smoke</title><main>Praxis MCP smoke probe</main>" },
+    },
+    {
+      serverId: "playwright",
+      toolName: "browser_snapshot",
+      arguments: { depth: 2 },
+    },
+    {
+      serverId: "time",
+      toolName: "get_current_time",
+      arguments: { timezone: "UTC" },
+    },
+    {
+      serverId: "fetch",
+      toolName: "fetch",
+      arguments: { url: "https://example.com", max_length: 300 },
+    },
+    {
+      serverId: "git",
+      toolName: "git_status",
+      arguments: { repo_path: repoRoot },
+    },
+    {
+      serverId: "sqlite",
+      toolName: "read_query",
+      arguments: { query: "select 1 as praxis_mcp_smoke" },
+    },
+  ];
+  return probes.filter((probe) => servers.get(probe.serverId)?.has(probe.toolName) === true);
+}
+
+async function runLiveCallProbes(discovered: readonly DiscoveredServer[]): Promise<LiveCallProbeResult[]> {
+  const adapter = createMcpRuntimeAdapter({ servers: SERVER_PROFILES.map((server) => server.profile) });
+  const results: LiveCallProbeResult[] = [];
+  try {
+    for (const probe of liveCallProbesFor(discovered)) {
+      const called = await adapter.callTool?.({
+        serverId: probe.serverId,
+        toolName: probe.toolName,
+        arguments: probe.arguments,
+      });
+      const result: LiveCallProbeResult = called?.ok === true
+        ? {
+            ...probe,
+            ok: true,
+            outputPreview: outputPreview(called.output),
+          }
+        : {
+            ...probe,
+            ok: false,
+            error: called?.ok === false ? called.error.message : "missing callTool result",
+          };
+      results.push(result);
+      console.log(`[probe] ${probe.serverId}.${probe.toolName}: ${result.ok ? "ok" : `failed: ${result.error}`}`);
+      if (!result.ok) throw new Error(`Live MCP call probe failed for ${probe.serverId}.${probe.toolName}: ${result.error}`);
+    }
+  } finally {
+    await adapter.callTool?.({ serverId: "playwright", toolName: "browser_close", arguments: {} });
+    await adapter.shutdown?.({});
+  }
+  return results;
+}
+
 async function discover(): Promise<DiscoveredServer[]> {
   const adapter = createMcpRuntimeAdapter({ servers: SERVER_PROFILES.map((server) => server.profile) });
   const discovered: DiscoveredServer[] = [];
@@ -376,17 +492,21 @@ async function runMode(mode: "native" | "mcp-plus", discovered: readonly Discove
 
 await mkdir(runRoot, { recursive: true });
 const discovered = await discover();
+const liveCallProbes = await runLiveCallProbes(discovered);
 await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discovered.map((server) => ({
   serverId: server.serverId,
   toolCount: server.tools.length,
   toolNames: server.tools.map((tool) => tool.name),
 })), null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "live-call-probes.json"), `${JSON.stringify(liveCallProbes, null, 2)}\n`, "utf8");
 const native = await runMode("native", discovered);
 const mcpPlus = await runMode("mcp-plus", discovered);
 const comparison = {
   runRoot,
   serverCount: discovered.length,
   totalNativeToolsDiscovered: discovered.reduce((sum, server) => sum + server.tools.length, 0),
+  liveCallProbeCount: liveCallProbes.length,
+  liveCallProbeServers: [...new Set(liveCallProbes.map((probe) => probe.serverId))],
   native,
   mcpPlus,
   deltas: {
