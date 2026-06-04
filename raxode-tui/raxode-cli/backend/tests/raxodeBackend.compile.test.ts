@@ -29,7 +29,7 @@ test("raxode coding agent compiles as an agentCore application agent", () => {
   assert.deepEqual(compiled.manifest.dependencies.map((dependency) => dependency.dependencyId), [
     "dependency.binary.node",
     "dependency.npm.tsx",
-    "dependency.binary.bwrap",
+    "dependency.binary.raxcell",
     "dependency.secret.provider.core.main",
   ]);
   assert.ok(compiled.manifest.capabilities.some((capability) => capability.capabilityId === "capability.raxode.sandbox"));

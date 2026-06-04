@@ -9,7 +9,22 @@
     "noEmit": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@praxis-ai/praxis": ["src/agentCore/index.ts"],
+      "@praxis-ai/praxis/agentCore": ["src/agentCore/index.ts"],
+      "@praxis-ai/praxis/agent-core": ["src/agentCore/index.ts"],
+      "@praxis-ai/praxis/application": ["src/applicationLayer/index.ts"],
+      "@praxis-ai/praxis/application-layer": ["src/applicationLayer/index.ts"],
+      "@praxis-ai/praxis/basetool": ["src/basetool/index.ts"],
+      "@praxis-ai/praxis/memory": ["src/memory_managementPool/index.ts"],
+      "@praxis-ai/praxis/modelAdapter": ["src/modelAdapter/index.ts"],
+      "@praxis-ai/praxis/model-adapter": ["src/modelAdapter/index.ts"],
+      "@praxis-ai/praxis/modelAdapter/*": ["src/modelAdapter/*.ts"],
+      "@praxis-ai/praxis/model-adapter/*": ["src/modelAdapter/*.ts"],
+      "@praxis-ai/praxis/provider/*": ["src/modelAdapter/*.ts"]
+    }
   },
   "include": ["src/**/*.ts", "test/**/*.ts", "examples/**/*.ts"],
   "exclude": [

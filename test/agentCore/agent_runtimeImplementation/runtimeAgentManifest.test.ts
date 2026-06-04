@@ -620,8 +620,8 @@ test("compileAgent preserves sandbox binary dependency kind in manifest facts", 
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["dependency.binary.bwrap"]);
-  assert.equal(result.manifest.dependencies.find((dependency) => dependency.dependencyId === "dependency.binary.bwrap")?.kind, "binary");
+  assert.deepEqual(result.manifest.sandbox.dependencyRefs, ["dependency.binary.raxcell"]);
+  assert.equal(result.manifest.dependencies.find((dependency) => dependency.dependencyId === "dependency.binary.raxcell")?.kind, "binary");
 });
 
 test("compileAgent does not let agent dependencies weaken sandbox requirements", () => {
@@ -630,7 +630,7 @@ test("compileAgent does not let agent dependencies weaken sandbox requirements",
     model = model("gpt-5.4");
     sandbox = sandbox.linuxBubblewrapReadonly();
     dependencies = [{
-      dependencyId: "binary:bwrap",
+      dependencyId: "binary:raxcell",
       kind: "custom",
       required: false,
       reason: "agent-level optional hint",
@@ -648,7 +648,7 @@ test("compileAgent does not let agent dependencies weaken sandbox requirements",
   assert.equal(result.ok, true);
   if (!result.ok) return;
 
-  const dependency = result.manifest.dependencies.find((item) => item.dependencyId === "dependency.binary.bwrap");
+  const dependency = result.manifest.dependencies.find((item) => item.dependencyId === "dependency.binary.raxcell");
   assert.ok(dependency);
   assert.equal(dependency.kind, "binary");
   assert.equal(dependency.required, true);

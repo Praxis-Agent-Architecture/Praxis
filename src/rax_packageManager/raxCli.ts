@@ -65,6 +65,12 @@ type RaxProjectResolution = {
   projectRoot?: string;
 };
 
+type PackageDependencyManifest = {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+};
+
 type LiveProviderBinding =
   | {
       ok: true;
@@ -245,6 +251,36 @@ async function pathExists(pathname: string): Promise<boolean> {
   }
 }
 
+async function findProjectRootForAgent(agentPath: string): Promise<string | undefined> {
+  let current = path.dirname(path.resolve(agentPath));
+  while (true) {
+    if (await pathExists(path.join(current, "rax.project.json")) || await pathExists(path.join(current, "package.json"))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+}
+
+async function isFrameworkDependencyMissing(projectRoot: string): Promise<boolean> {
+  const packageJsonPath = path.join(projectRoot, "package.json");
+  if (!await pathExists(packageJsonPath)) {
+    return false;
+  }
+  const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as PackageDependencyManifest;
+  const declaresFramework =
+    packageJson.dependencies?.["@praxis-ai/praxis"] !== undefined
+    || packageJson.devDependencies?.["@praxis-ai/praxis"] !== undefined
+    || packageJson.peerDependencies?.["@praxis-ai/praxis"] !== undefined;
+  if (!declaresFramework) {
+    return false;
+  }
+  return !await pathExists(path.join(projectRoot, "node_modules", "@praxis-ai", "praxis", "package.json"));
+}
+
 async function resolveAgentEntry(inputPath: string, exportName?: string): Promise<{ agentPath: string; exportName?: string }> {
   const absolute = path.resolve(inputPath);
   const info = await stat(absolute);
@@ -282,7 +318,7 @@ async function resolveProjectAgentEntry(inputPath: string, exportName?: string):
   const absolute = path.resolve(inputPath);
   const info = await stat(absolute);
   if (!info.isDirectory()) {
-    return { agentPath: absolute, exportName };
+    return { agentPath: absolute, exportName, projectRoot: await findProjectRootForAgent(absolute) };
   }
 
   const resolved = await resolveAgentEntry(inputPath, exportName);
@@ -970,6 +1006,21 @@ async function handleInspectTestRun(command: "inspect" | "test" | "run", args: r
   });
   if (!plan.ok) {
     return { exitCode: 1, output: `${plan.error.message}\n` };
+  }
+
+  if (resolvedEntry?.projectRoot !== undefined && await isFrameworkDependencyMissing(resolvedEntry.projectRoot)) {
+    return {
+      exitCode: 1,
+      output: [
+        `rax ${command} could not load ${agentPath}`,
+        "project dependency @praxis-ai/praxis is declared but not installed",
+        "self-repair hints:",
+        "  - run npm install in the generated agent project",
+        "  - verify @praxis-ai/praxis is installed or linked",
+        "  - rerun rax inspect after the issue is fixed",
+        "",
+      ].join("\n"),
+    };
   }
 
   let compiled: Awaited<ReturnType<typeof compileAgentFile>>;

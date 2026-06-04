@@ -14,8 +14,8 @@ export const officialRuntimeComponents = [
   {
     componentId: "component.sandbox.bubblewrap",
     kind: "sandbox",
-    title: "Linux bubblewrap sandbox",
-    dependencies: [dependency("dependency.binary.bwrap", { kind: "binary", required: true })],
+    title: "Linux Raxcell sandbox provider",
+    dependencies: [dependency("dependency.binary.raxcell", { kind: "binary", required: true })],
     fallbackComponentIds: ["component.sandbox.workspaceRollback"],
     supportedPlatforms: ["linux"],
   },

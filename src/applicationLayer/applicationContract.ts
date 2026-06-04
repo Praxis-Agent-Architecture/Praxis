@@ -5,6 +5,7 @@
  */
 
 import type { BaseToolProfileName } from "../basetool/types.js";
+import type { McpApplicationStateView } from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export type PraxisApplicationRuntimeMode = "dry-run" | "live";
 
@@ -207,6 +208,7 @@ export type PraxisApplicationViewModel = {
   approvals: readonly PraxisApplicationApprovalSummary[];
   manifest?: PraxisApplicationManifestView;
   tools: PraxisApplicationToolCatalogState;
+  mcp: McpApplicationStateView;
   counters: {
     turns: number;
     events: number;

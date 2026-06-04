@@ -191,6 +191,12 @@ function view(sessionId: string): PraxisApplicationViewModel {
       byReadiness: {},
       mountedToolIds: [],
     },
+    mcp: {
+      servers: [],
+      recommendedMode: "mcp-plus",
+      nativeCompatible: true,
+      publicSafe: true,
+    },
     counters: {
       turns: 1,
       events: 1,

@@ -21,6 +21,10 @@ import {
   capability as capabilityAuthoring,
   type CapabilitySpec,
 } from "./runtime.provisionPlane/index.js";
+import {
+  mcpHarnessModuleFrom,
+  runtimeRequirementsForMcpModule,
+} from "./runtime.mcpPlane/index.js";
 
 export type CredentialRef = RaxAuthRef & {
   credentialId?: string;
@@ -1144,7 +1148,7 @@ export const sandbox = {
       profile: "linux-bubblewrap",
       providerFamily: "linux-bubblewrap",
       isolationLevel: "process-namespace",
-      dependencyRefs: input.dependencyRefs ?? ["binary:bwrap"],
+      dependencyRefs: input.dependencyRefs ?? ["dependency.binary.raxcell"],
       mountPolicy: input.mountPolicy ?? {
         workspaceRootRef: "rax.workspace",
         allowedReadRoots: ["workspace", ".rax_workspace"],
@@ -1159,7 +1163,7 @@ export const sandbox = {
         windows: "unsupported",
       },
       metadata: {
-        provider: "bubblewrap",
+        provider: "raxcell",
         providerVersion: "v2",
         flatpakCompatible: true,
         fallback: "explicit-only",
@@ -2223,7 +2227,10 @@ function normalizeHarness(
     statePlane: authoring.statePlane,
     frameworkCore: authoring.frameworkCore,
     modules: input.modules ?? {},
-    runtimeRequirements: cleanList(input.runtimeRequirements),
+    runtimeRequirements: cleanList([
+      ...(input.runtimeRequirements ?? []),
+      ...runtimeRequirementsForMcpModule(mcpHarnessModuleFrom({ modules: input.modules })),
+    ]),
     capabilities: authoring.capabilities,
     dependencies: authoring.dependencies,
     metadata: input.metadata ?? {},

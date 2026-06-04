@@ -15,13 +15,17 @@ import {
   finalizeWorkspaceRollbackSnapshot,
   restoreWorkspaceRollbackSnapshot,
 } from "../../../../src/runtimeImplementation/runtime.sandboxPlane/workspaceRollbackSandbox.js";
+import type {
+  SandboxExecutionProviderPort,
+  SandboxProviderRunRequest,
+} from "../../../../src/runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import { sandbox } from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
 
 async function tempWorkspace(): Promise<string> {
   return await mkdtemp(path.join(os.tmpdir(), "praxis-sandbox-test-"));
 }
 
-test("sandbox command plan keeps bapr on host-observed and yolo on workspace rollback", async () => {
+test("sandbox command plan routes bapr through fallback sandbox and yolo on workspace rollback", async () => {
   const workspace = await tempWorkspace();
   const bapr = await createSandboxCommandPlan({
     runtimeId: "runtime-1",
@@ -33,9 +37,10 @@ test("sandbox command plan keeps bapr on host-observed and yolo on workspace rol
     sandbox: sandbox.hostObserved(),
     policyProfile: "bapr",
   });
-  assert.equal(bapr.mode, "none");
-  assert.equal(bapr.providerFamily, "host-observed");
+  assert.equal(bapr.mode, "isolated");
+  assert.equal(bapr.providerFamily, "workspace-rollback");
   assert.equal(bapr.filesystem.protectSecrets, false);
+  assert.ok(bapr.workspaceRollback);
 
   const yolo = await createSandboxCommandPlan({
     runtimeId: "runtime-1",
@@ -53,7 +58,7 @@ test("sandbox command plan keeps bapr on host-observed and yolo on workspace rol
   assert.ok(yolo.workspaceRollback);
 });
 
-test("sandbox command plan protects secrets for standard isolated policy", async () => {
+test("linux bubblewrap plan delegates secret protection facts to the sandbox provider", async () => {
   const workspace = await tempWorkspace();
   await writeFile(path.join(workspace, ".env"), "TOKEN=root\n", "utf8");
   await writeFile(path.join(workspace, ".env.local"), "TOKEN=local\n", "utf8");
@@ -76,8 +81,8 @@ test("sandbox command plan protects secrets for standard isolated policy", async
         profile: "linux-bubblewrap",
         status: "available",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
-        availableDependencies: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
         missingDependencies: [],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
@@ -92,15 +97,13 @@ test("sandbox command plan protects secrets for standard isolated policy", async
   });
   assert.equal(plan.mode, "isolated");
   assert.equal(plan.filesystem.protectSecrets, true);
-  if (plan.providerFamily === "linux-bubblewrap") {
-    const args = plan.args.join("\n");
-    assert.match(args, /\/workspace\/\.env/u);
-    assert.match(args, /\/workspace\/\.env\.local/u);
-    assert.match(args, /\/workspace\/nested\/\.env/u);
-  }
+  assert.equal(plan.providerFamily, "linux-bubblewrap");
+  assert.equal(plan.program, "true");
+  assert.deepEqual(plan.args, []);
+  assert.deepEqual(plan.filesystem.secretGlobs, [".env", ".env.*"]);
 });
 
-test("linux bubblewrap plan maps workspace subdirectory cwd into sandbox cwd", async () => {
+test("linux bubblewrap plan preserves host cwd for Raxcell provider lowering", async () => {
   if (process.platform !== "linux") return;
   const workspace = await tempWorkspace();
   const subdir = path.join(workspace, "packages", "app");
@@ -122,8 +125,8 @@ test("linux bubblewrap plan maps workspace subdirectory cwd into sandbox cwd", a
         profile: "linux-bubblewrap",
         status: "available",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
-        availableDependencies: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
         missingDependencies: [],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
@@ -137,13 +140,13 @@ test("linux bubblewrap plan maps workspace subdirectory cwd into sandbox cwd", a
     policyProfile: "standard",
     filesystem: { workspaceRoot: workspace },
   });
-  const chdirIndex = plan.args.indexOf("--chdir");
-  assert.notEqual(chdirIndex, -1);
-  assert.equal(plan.args[chdirIndex + 1], "/workspace/packages/app");
+  assert.equal(plan.providerFamily, "linux-bubblewrap");
+  assert.equal(plan.cwd, subdir);
+  assert.equal(plan.program, "pwd");
   await plan.cleanup?.();
 });
 
-test("linux bubblewrap readonly plan does not remount workspace root writable", async () => {
+test("linux bubblewrap readonly plan sends readonly filesystem facts to provider", async () => {
   if (process.platform !== "linux") return;
   const workspace = await tempWorkspace();
   const plan = await createSandboxCommandPlan({
@@ -163,8 +166,8 @@ test("linux bubblewrap readonly plan does not remount workspace root writable", 
         profile: "linux-bubblewrap",
         status: "available",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
-        availableDependencies: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
         missingDependencies: [],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
@@ -178,14 +181,17 @@ test("linux bubblewrap readonly plan does not remount workspace root writable", 
     policyProfile: "standard",
     filesystem: { workspaceRoot: workspace },
   });
-  const rootMountFlags = plan.args
-    .map((arg, index) => arg === workspace && plan.args[index + 1] === "/workspace" ? String(plan.args[index - 1]) : "")
-    .filter((flag) => flag.length > 0);
-  assert.deepEqual(rootMountFlags, ["--ro-bind"]);
+  assert.equal(plan.providerFamily, "linux-bubblewrap");
+  assert.equal(plan.filesystem.workspaceRoot, workspace);
+  assert.equal(plan.filesystem.readonlyRoot, true);
+  assert.deepEqual(plan.filesystem.allowedWriteRoots.map((root) => path.relative(workspace, root)), [
+    ".rax_workspace/sandbox",
+    ".rax_workspace/artifacts",
+  ]);
   await plan.cleanup?.();
 });
 
-test("linux bubblewrap plan mounts external allowed roots with the requested access", async () => {
+test("linux bubblewrap plan preserves external allowed roots for provider lowering", async () => {
   if (process.platform !== "linux") return;
   const workspace = await tempWorkspace();
   const readRoot = await tempWorkspace();
@@ -207,8 +213,8 @@ test("linux bubblewrap plan mounts external allowed roots with the requested acc
         profile: "linux-bubblewrap",
         status: "available",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
-        availableDependencies: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
         missingDependencies: [],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
@@ -226,15 +232,13 @@ test("linux bubblewrap plan mounts external allowed roots with the requested acc
       allowedWriteRoots: [writeRoot],
     },
   });
-  const readIndex = plan.args.findIndex((arg, index) => arg === "--ro-bind-try" && plan.args[index + 1] === readRoot && plan.args[index + 2] === readRoot);
-  const writeIndex = plan.args.findIndex((arg, index) => arg === "--bind-try" && plan.args[index + 1] === writeRoot && plan.args[index + 2] === writeRoot);
-  assert.notEqual(readIndex, -1);
-  assert.notEqual(writeIndex, -1);
-  assert.equal(plan.args.some((arg, index) => arg === "--bind-try" && plan.args[index + 1] === readRoot), false);
+  assert.equal(plan.providerFamily, "linux-bubblewrap");
+  assert.deepEqual(plan.filesystem.allowedReadRoots, [workspace, readRoot].map((root) => path.resolve(root)));
+  assert.deepEqual(plan.filesystem.allowedWriteRoots, [writeRoot].map((root) => path.resolve(root)));
   await plan.cleanup?.();
 });
 
-test("linux bubblewrap plan maps cwd inside an external allowed read root", async () => {
+test("linux bubblewrap plan preserves cwd inside an external allowed read root", async () => {
   if (process.platform !== "linux") return;
   const workspace = await tempWorkspace();
   const readRoot = await tempWorkspace();
@@ -257,8 +261,8 @@ test("linux bubblewrap plan maps cwd inside an external allowed read root", asyn
         profile: "linux-bubblewrap",
         status: "available",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
-        availableDependencies: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
         missingDependencies: [],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
@@ -276,13 +280,13 @@ test("linux bubblewrap plan maps cwd inside an external allowed read root", asyn
       allowedWriteRoots: [],
     },
   });
-  const chdirIndex = plan.args.indexOf("--chdir");
-  assert.notEqual(chdirIndex, -1);
-  assert.equal(plan.args[chdirIndex + 1], externalCwd);
+  assert.equal(plan.providerFamily, "linux-bubblewrap");
+  assert.equal(plan.cwd, externalCwd);
+  assert.deepEqual(plan.filesystem.allowedReadRoots, [workspace, readRoot].map((root) => path.resolve(root)));
   await plan.cleanup?.();
 });
 
-test("linux bubblewrap plan gives write roots precedence over duplicate read roots", async () => {
+test("linux bubblewrap plan keeps duplicate read/write roots explicit for provider policy", async () => {
   if (process.platform !== "linux") return;
   const workspace = await tempWorkspace();
   const sharedRoot = await tempWorkspace();
@@ -303,8 +307,8 @@ test("linux bubblewrap plan gives write roots precedence over duplicate read roo
         profile: "linux-bubblewrap",
         status: "available",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
-        availableDependencies: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
         missingDependencies: [],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
@@ -322,8 +326,9 @@ test("linux bubblewrap plan gives write roots precedence over duplicate read roo
       allowedWriteRoots: [sharedRoot],
     },
   });
-  assert.equal(plan.args.some((arg, index) => arg === "--ro-bind-try" && plan.args[index + 1] === sharedRoot), false);
-  assert.ok(plan.args.some((arg, index) => arg === "--bind-try" && plan.args[index + 1] === sharedRoot && plan.args[index + 2] === sharedRoot));
+  assert.equal(plan.providerFamily, "linux-bubblewrap");
+  assert.deepEqual(plan.filesystem.allowedReadRoots, [workspace, sharedRoot].map((root) => path.resolve(root)));
+  assert.deepEqual(plan.filesystem.allowedWriteRoots, [sharedRoot].map((root) => path.resolve(root)));
   await plan.cleanup?.();
 });
 
@@ -347,9 +352,9 @@ test("linux bubblewrap isolated command fails closed when provider is not ready"
         profile: "linux-bubblewrap",
         status: "missingDependency",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
         availableDependencies: [],
-        missingDependencies: ["dependency.binary.bwrap"],
+        missingDependencies: ["dependency.binary.raxcell"],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
         selfRepairHints: [],
@@ -365,6 +370,313 @@ test("linux bubblewrap isolated command fails closed when provider is not ready"
   assert.equal(result.error.code, "SANDBOX_COMMAND_FAILED");
   assert.match(result.error.message, /linux-bubblewrap sandbox is not ready/u);
   assert.equal(result.stdout, undefined);
+});
+
+test("linux bubblewrap isolated command executes through configured sandbox provider", async () => {
+  const workspace = await tempWorkspace();
+  const seen: SandboxProviderRunRequest[] = [];
+  const sandboxProvider: SandboxExecutionProviderPort = {
+    providerId: "test-raxcell",
+    providerFamily: "linux-bubblewrap",
+    async prepareRun(request) {
+      seen.push(request);
+      return {
+        kind: "runtime.sandboxPlane.provider.prepareRunResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        filesystemLowering: {
+          declaredRoots: request.filesystem.read.map((root) => ({ path: root, access: "read", source: "declared" })),
+          runtimeRoots: [],
+          policyGrants: request.policyGrants,
+          warnings: [],
+        },
+        backendArtifacts: [],
+        metadata: {},
+      };
+    },
+    async run(request) {
+      return {
+        kind: "runtime.sandboxPlane.provider.runResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        exitCode: 0,
+        stdout: `provider:${request.command.argv.join(" ")}`,
+        stderr: "",
+        timedOut: false,
+        filesystemLowering: null,
+        metadata: {},
+      };
+    },
+  };
+
+  const result = await runSandboxCommand({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    invocationId: "call-provider",
+    toolId: "shell.run",
+    command: "sh",
+    args: ["-lc", "printf should-not-local-spawn"],
+    cwd: workspace,
+    sandbox: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    filesystem: { workspaceRoot: workspace },
+  }, { sandboxProvider });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(seen.length, 1);
+  assert.equal(seen[0]?.policy.profile, "standard");
+  assert.equal(seen[0]?.filesystem.read.includes(workspace), true);
+  assert.match(result.stdout, /^provider:sh -lc/);
+  assert.equal(result.metadata.providerId, "test-raxcell");
+});
+
+test("linux bubblewrap grants approved outside-path write gaps to the sandbox provider", async () => {
+  const workspace = await tempWorkspace();
+  const seen: SandboxProviderRunRequest[] = [];
+  const sandboxProvider: SandboxExecutionProviderPort = {
+    providerId: "test-raxcell",
+    providerFamily: "linux-bubblewrap",
+    async prepareRun(request) {
+      seen.push(request);
+      if (request.policyGrants.length === 0) {
+        return {
+          kind: "runtime.sandboxPlane.provider.prepareRunResult",
+          ok: false,
+          providerFamily: "linux-bubblewrap",
+          environmentGap: {
+            reason: "path-outside-declared-roots",
+            path: "/home/proview/helloRax.txt",
+            required: ["write"],
+            publicSafeMessage: "outside path write requires upper runtime grant",
+          },
+          denial: null,
+          filesystemLowering: null,
+          backendArtifacts: [],
+          metadata: {},
+        };
+      }
+      return {
+        kind: "runtime.sandboxPlane.provider.prepareRunResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        filesystemLowering: {
+          declaredRoots: [],
+          runtimeRoots: [],
+          policyGrants: request.policyGrants,
+          warnings: [],
+        },
+        backendArtifacts: [],
+        metadata: {},
+      };
+    },
+    async run(request) {
+      const firstGrant = request.policyGrants[0];
+      const grantedAccess = firstGrant?.access?.join(",") ?? "none";
+      return {
+        kind: "runtime.sandboxPlane.provider.runResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        exitCode: 0,
+        stdout: `provider:${grantedAccess}`,
+        stderr: "",
+        timedOut: false,
+        filesystemLowering: null,
+        metadata: {},
+      };
+    },
+  };
+
+  const result = await runSandboxCommand({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    invocationId: "call-provider-write-gap",
+    toolId: "shell.run",
+    command: "sh",
+    args: ["-lc", "printf ok > /home/proview/helloRax.txt"],
+    cwd: workspace,
+    sandbox: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    filesystem: { workspaceRoot: workspace },
+    approval: {
+      accepted: true,
+      grantedBy: "praxis-human-approval",
+    },
+  }, { sandboxProvider });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[1]?.policyGrants, [{
+    reason: "path-outside-declared-roots",
+    path: "/home/proview/helloRax.txt",
+    access: ["write"],
+    grantedBy: "praxis-human-approval",
+  }]);
+  assert.equal(result.stdout, "provider:write");
+});
+
+test("linux bubblewrap rewrites approved HOME shell dynamic path gaps before provider lowering", async () => {
+  const workspace = await tempWorkspace();
+  const home = path.join(workspace, "home");
+  const expectedPath = path.join(home, "raxcell_dynamic_test.txt");
+  const seen: SandboxProviderRunRequest[] = [];
+  const sandboxProvider: SandboxExecutionProviderPort = {
+    providerId: "test-raxcell",
+    providerFamily: "linux-bubblewrap",
+    async prepareRun(request) {
+      seen.push(request);
+      if (request.policyGrants.length === 0) {
+        return {
+          kind: "runtime.sandboxPlane.provider.prepareRunResult",
+          ok: false,
+          providerFamily: "linux-bubblewrap",
+          environmentGap: {
+            reason: "shell-dynamic-path-unresolved",
+            path: "$HOME/raxcell_dynamic_test.txt",
+            required: ["write"],
+            publicSafeMessage: "dynamic shell path requires upper runtime handling",
+          },
+          denial: null,
+          filesystemLowering: {
+            declaredRoots: [],
+            runtimeRoots: [],
+            policyGrants: [],
+            warnings: [{ code: "SHELL_DYNAMIC_PATH_UNRESOLVED", message: "cannot statically resolve $HOME/raxcell_dynamic_test.txt" }],
+            effects: [{
+              rawToken: "$HOME/raxcell_dynamic_test.txt",
+              access: "write",
+              command: "printf",
+              reason: "shell-redirection",
+              confidence: "medium",
+              warning: "shell-dynamic-path-unresolved",
+            }],
+          },
+          backendArtifacts: [],
+          metadata: {},
+        };
+      }
+      return {
+        kind: "runtime.sandboxPlane.provider.prepareRunResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        filesystemLowering: {
+          declaredRoots: [],
+          runtimeRoots: [],
+          policyGrants: request.policyGrants,
+          warnings: [],
+        },
+        backendArtifacts: [],
+        metadata: {},
+      };
+    },
+    async run(request) {
+      return {
+        kind: "runtime.sandboxPlane.provider.runResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        exitCode: 0,
+        stdout: request.command.argv.join(" "),
+        stderr: "",
+        timedOut: false,
+        filesystemLowering: null,
+        metadata: {},
+      };
+    },
+  };
+
+  const result = await runSandboxCommand({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    invocationId: "call-provider-dynamic-home",
+    toolId: "shell.run",
+    command: "sh",
+    args: ["-lc", "printf ok > $HOME/raxcell_dynamic_test.txt"],
+    cwd: workspace,
+    env: { HOME: home },
+    sandbox: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    filesystem: { workspaceRoot: workspace },
+    approval: {
+      accepted: true,
+      grantedBy: "praxis-human-approval",
+    },
+  }, { sandboxProvider });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(seen.length, 2);
+  assert.equal(seen[1]?.command.argv[2], `printf ok > ${expectedPath}`);
+  assert.deepEqual(seen[1]?.policyGrants, [{
+    reason: "shell-dynamic-path-unresolved",
+    path: expectedPath,
+    access: ["write"],
+    grantedBy: "praxis-human-approval",
+  }]);
+  assert.equal(result.stdout, `sh -lc printf ok > ${expectedPath}`);
 });
 
 test("remote-worker sandbox fails closed when no adapter is configured", async () => {

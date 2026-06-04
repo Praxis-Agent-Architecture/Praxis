@@ -12,6 +12,7 @@ import {
   type PraxisApplicationCommand,
   type PraxisApplicationProtocolMessage,
 } from "@praxis-ai/praxis/application-layer";
+import type { SandboxExecutionProviderPort } from "@praxis-ai/praxis/agent-core";
 import type { RaxodeOptions } from "../agents/codingAgent/config/raxodeOptions.js";
 import {
   createRaxodeLiveProvider,
@@ -20,6 +21,7 @@ import {
 import { inspectRaxodeMemoryBridge } from "../memory/memoryBridge.js";
 import { raxodeApplication } from "./raxodeApplication.js";
 import type { RaxodeLocalReadinessProbeInput } from "./localReadinessProbe.js";
+import { resolveRaxodeRaxcellSandboxProvider } from "./raxcellSandboxProvider.js";
 import {
   createRaxodeReadinessEvent,
   inspectRaxodeBackendReadinessWithLocalProbe,
@@ -31,6 +33,7 @@ type StdioServerOptions = RaxodeOptions & {
   output?: NodeJS.WritableStream;
   errorOutput?: NodeJS.WritableStream;
   now?: () => string;
+  sandboxProvider?: SandboxExecutionProviderPort;
   localReadinessProbe?: Omit<RaxodeLocalReadinessProbeInput, "manifest">;
 };
 
@@ -101,6 +104,10 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     memoryProfile: memoryBridge.profile,
     memoryPromptGuide: memoryBridge.promptGuide,
   };
+  const sandboxProvider = resolveRaxodeRaxcellSandboxProvider({
+    sandboxProfile: options.sandboxProfile,
+    sandboxProvider: options.sandboxProvider,
+  });
   const created = await createApplicationProjectRuntime(projectRoot, {
     applicationId: raxodeApplication.id,
     cwd: startDir,
@@ -115,6 +122,7 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     permissionProfile,
     toolProfile: "agentCore",
     agentOptions,
+    sandboxProvider,
     now: options.now,
     liveProviderResolver: async (manifest, context) => createRaxodeLiveProvider(manifest, {
       startDir,
@@ -158,6 +166,7 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
           now: options.now,
           localProbe: options.localReadinessProbe,
           ports: {
+            sandboxProvider: sandboxProvider ? "configured" : "not-configured",
             liveProviderResolver: "configured",
           },
         }),

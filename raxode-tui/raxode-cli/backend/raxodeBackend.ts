@@ -26,6 +26,7 @@ import {
   createRaxodeLiveProvider,
   resolveRaxodeConfiguredModelOptions,
 } from "./authentication/liveProvider.js";
+import { resolveRaxodeRaxcellSandboxProvider } from "./application/raxcellSandboxProvider.js";
 import { createRaxodeAuthStateProvider } from "./authentication/authStateProvider.js";
 import { createRaxodeContextAdapter } from "./context/contextBridge.js";
 import type { RaxodeOptions } from "./agents/codingAgent/config/raxodeOptions.js";
@@ -42,6 +43,7 @@ function configuredRuntimePorts(options: RaxodeBackendOptions): Partial<RaxodeBa
     agentReviewResolver: options.agentReviewResolver ? "configured" : "not-configured",
     contextArtifactAdapters: options.contextArtifactAdapters ? "configured" : "not-configured",
     baseToolAdapters: options.baseToolAdapters ? "configured" : "not-configured",
+    sandboxProvider: options.sandboxProvider ? "configured" : "not-configured",
     authStateProvider: options.authStateProvider ? "configured" : "not-configured",
     foundationProject: options.foundationProject || options.openFoundationProject ? "configured" : "not-configured",
     liveProviderResolver: options.liveProviderResolver ? "configured" : "raxode-default",
@@ -68,6 +70,7 @@ type RaxodeBackendRuntimePorts = Pick<
   | "contextArtifactAdapters"
   | "baseToolAdapters"
   | "authStateProvider"
+  | "sandboxProvider"
   | "foundationProject"
   | "openFoundationProject"
   | "liveProviderResolver"
@@ -150,6 +153,10 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
     now: options.now,
   });
   const openFoundationProject = options.openFoundationProject ?? true;
+  const sandboxProvider = resolveRaxodeRaxcellSandboxProvider({
+    sandboxProfile: options.sandboxProfile,
+    sandboxProvider: options.sandboxProvider,
+  });
   const runtimeResult = await createApplicationProjectRuntime(projectRoot, {
     applicationId: "application.raxode.coding",
     runtimeId: options.runtimeId,
@@ -171,6 +178,7 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
     agentReviewResolver: options.agentReviewResolver,
     contextArtifactAdapters,
     baseToolAdapters: options.baseToolAdapters,
+    sandboxProvider,
     authStateProvider,
     foundationProject: options.foundationProject,
     openFoundationProject,
@@ -198,6 +206,7 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
     readinessPorts: configuredRuntimePorts({
       ...options,
       contextArtifactAdapters,
+      sandboxProvider,
       authStateProvider,
       openFoundationProject,
     }),

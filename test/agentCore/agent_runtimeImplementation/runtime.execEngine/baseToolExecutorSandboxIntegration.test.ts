@@ -13,10 +13,67 @@ import {
 import {
   prepareSandboxRuntime,
 } from "../../../../src/runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+import type {
+  SandboxExecutionProviderPort,
+  SandboxProviderEnvironmentGap,
+  SandboxProviderRunRequest,
+} from "../../../../src/runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import { sandbox } from "../../../../src/runtimeImplementation/runtimeAgentManifest.js";
 
 async function tempWorkspace(): Promise<string> {
   return await mkdtemp(path.join(os.tmpdir(), "praxis-executor-sandbox-"));
+}
+
+function fakeLinuxSandboxProvider(input: {
+  seen?: SandboxProviderRunRequest[];
+  stdout?: string;
+  environmentGap?: SandboxProviderEnvironmentGap;
+} = {}): SandboxExecutionProviderPort {
+  return {
+    providerId: "test-raxcell",
+    providerFamily: "linux-bubblewrap",
+    async prepareRun(request) {
+      input.seen?.push(request);
+      if (input.environmentGap !== undefined && request.policyGrants.length === 0) {
+        return {
+          kind: "runtime.sandboxPlane.provider.prepareRunResult",
+          ok: false,
+          providerFamily: "linux-bubblewrap",
+          environmentGap: input.environmentGap,
+          denial: null,
+          filesystemLowering: null,
+          backendArtifacts: [],
+          metadata: {},
+        };
+      }
+      return {
+        kind: "runtime.sandboxPlane.provider.prepareRunResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        filesystemLowering: {
+          declaredRoots: request.filesystem.read.map((root) => ({ path: root, access: "read", source: "declared" })),
+          runtimeRoots: [],
+          policyGrants: request.policyGrants,
+          warnings: [],
+        },
+        backendArtifacts: [],
+        metadata: {},
+      };
+    },
+    async run(request) {
+      return {
+        kind: "runtime.sandboxPlane.provider.runResult",
+        ok: true,
+        providerFamily: "linux-bubblewrap",
+        exitCode: 0,
+        stdout: input.stdout ?? `provider:${request.command.argv.join(" ")}`,
+        stderr: "",
+        timedOut: false,
+        filesystemLowering: null,
+        metadata: {},
+      };
+    },
+  };
 }
 
 test("executor denies .env reads under standard policy but allows them under yolo", async () => {
@@ -171,7 +228,8 @@ test("executor file.search can run under linux bubblewrap when provider is ready
   await writeFile(path.join(workspace, "a.txt"), "needle\n", "utf8");
   const spec = sandbox.linuxBubblewrapReadonly({ resourceLimits: { timeoutMs: 5_000 } });
   const prepared = await prepareSandboxRuntime(spec, { cwd: workspace, runSmoke: true });
-  if (!prepared.ready) t.skip(prepared.probe.publicSafeMessage);
+  if (!prepared.ready) return t.skip(prepared.probe.publicSafeMessage);
+  const seen: SandboxProviderRunRequest[] = [];
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-1",
     sessionId: "session-1",
@@ -179,10 +237,13 @@ test("executor file.search can run under linux bubblewrap when provider is ready
     sandboxSpec: spec,
     preparedSandbox: prepared,
     policyProfile: "standard",
+    sandboxProvider: fakeLinuxSandboxProvider({ seen, stdout: "a.txt:1:needle\n" }),
   });
   const result = await executor.search?.ripgrep?.({ query: "needle", cwd: "." });
   assert.equal(result?.ok, true);
   assert.match(String(result?.output?.stdout ?? ""), /a\.txt/u);
+  assert.equal(seen[0]?.action.toolId, "file.search");
+  assert.equal(seen[0]?.policy.profile, "standard");
   assert.equal((result?.metadata?.sandbox as { providerFamily?: string } | undefined)?.providerFamily, "linux-bubblewrap");
 });
 
@@ -191,13 +252,14 @@ test("executor accepts legacy prepared sandbox context without bypassing provide
   const workspace = await tempWorkspace();
   const spec = sandbox.linuxBubblewrapReadonly({ resourceLimits: { timeoutMs: 5_000 } });
   const prepared = await prepareSandboxRuntime(spec, { cwd: workspace, runSmoke: true });
-  if (!prepared.ready) t.skip(prepared.probe.publicSafeMessage);
+  if (!prepared.ready) return t.skip(prepared.probe.publicSafeMessage);
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-1",
     sessionId: "session-1",
     policy: { workspaceRoot: workspace, allowedRoots: [workspace], allowShellExecution: true },
     sandbox: prepared,
     policyProfile: "standard",
+    sandboxProvider: fakeLinuxSandboxProvider({ stdout: "/workspace\n" }),
   });
   const result = await executor.shell?.run?.({ command: "pwd", cwd: workspace });
   assert.equal(result?.ok, true);
@@ -210,7 +272,7 @@ test("executor lets yolo use explicit ready strong sandbox instead of forcing ro
   const workspace = await tempWorkspace();
   const spec = sandbox.linuxBubblewrapWorkspaceWrite({ resourceLimits: { timeoutMs: 5_000 } });
   const prepared = await prepareSandboxRuntime(spec, { cwd: workspace, runSmoke: true });
-  if (!prepared.ready) t.skip(prepared.probe.publicSafeMessage);
+  if (!prepared.ready) return t.skip(prepared.probe.publicSafeMessage);
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-1",
     sessionId: "session-1",
@@ -218,12 +280,171 @@ test("executor lets yolo use explicit ready strong sandbox instead of forcing ro
     sandboxSpec: spec,
     preparedSandbox: prepared,
     policyProfile: "yolo",
+    sandboxProvider: fakeLinuxSandboxProvider({ stdout: "/workspace\n" }),
   });
   const result = await executor.shell?.run?.({ command: "pwd", cwd: workspace });
   assert.equal(result?.ok, true);
   assert.equal(result?.output?.stdout.trim(), "/workspace");
   assert.equal((result?.metadata?.sandbox as { providerFamily?: string; mode?: string } | undefined)?.providerFamily, "linux-bubblewrap");
   assert.equal((result?.metadata?.sandbox as { providerFamily?: string; mode?: string } | undefined)?.mode, "isolated");
+});
+
+test("executor emits sandbox middleware audit events for provider-backed execution", async () => {
+  const workspace = await tempWorkspace();
+  const auditTypes: string[] = [];
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace], allowShellExecution: true },
+    sandboxSpec: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    sandboxProvider: fakeLinuxSandboxProvider({ stdout: "ok\n" }),
+    sandboxAudit: async (event) => { auditTypes.push(event.type); },
+  });
+
+  const result = await executor.shell?.run?.({ command: "printf ok", cwd: workspace });
+
+  assert.equal(result?.ok, true);
+  assert.deepEqual(auditTypes, [
+    "runtime.sandbox.middleware.prepareRun",
+    "runtime.sandbox.provider.run",
+  ]);
+});
+
+test("executor passes approved shell workspace writes to linux sandbox provider", async () => {
+  const workspace = await tempWorkspace();
+  const seen: SandboxProviderRunRequest[] = [];
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace], allowShellExecution: true },
+    sandboxSpec: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    sandboxProvider: fakeLinuxSandboxProvider({ seen, stdout: "ok\n" }),
+  });
+
+  const result = await executor.shell?.run?.({
+    command: "printf ok > raxcell_live_probe.txt",
+    cwd: workspace,
+    context: {
+      approval: {
+        accepted: true,
+        runtimeApproved: true,
+        approvalId: "approval-1",
+      },
+    },
+  });
+
+  assert.equal(result?.ok, true);
+  assert.equal(seen[0]?.filesystem.write.includes(workspace), true);
+  assert.equal(seen[0]?.filesystem.readonlyRoot, false);
+});
+
+test("executor turns approved external read sandbox gap into provider policy grant", async () => {
+  const workspace = await tempWorkspace();
+  const seen: SandboxProviderRunRequest[] = [];
+  const externalRoot = path.join(os.tmpdir(), "praxis-approved-outside");
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-1",
+    sessionId: "session-1",
+    policy: { workspaceRoot: workspace, allowedRoots: [workspace], allowShellExecution: true },
+    sandboxSpec: sandbox.linuxBubblewrapReadonly(),
+    preparedSandbox: {
+      providerFamily: "linux-bubblewrap",
+      profile: "linux-bubblewrap",
+      ready: true,
+      probe: {
+        providerFamily: "linux-bubblewrap",
+        profile: "linux-bubblewrap",
+        status: "available",
+        platform: process.platform,
+        dependencyRefs: ["dependency.binary.raxcell"],
+        availableDependencies: ["dependency.binary.raxcell"],
+        missingDependencies: [],
+        dependencyChecks: [],
+        dependencyInstallEnvelopes: [],
+        selfRepairHints: [],
+        nextAction: "none",
+        publicSafeMessage: "ready",
+        metadata: {},
+      },
+      events: [],
+    },
+    policyProfile: "standard",
+    sandboxProvider: fakeLinuxSandboxProvider({
+      seen,
+      stdout: "approved\n",
+      environmentGap: {
+        reason: "path-outside-declared-roots",
+        path: externalRoot,
+        required: ["read"],
+        publicSafeMessage: "The command references a path outside declared filesystem roots.",
+      },
+    }),
+  });
+
+  const result = await executor.shell?.run?.({
+    command: `ls -la ${externalRoot}`,
+    cwd: workspace,
+    context: {
+      approval: {
+        accepted: true,
+        runtimeApproved: true,
+        approvalId: "approval-outside-read",
+      },
+    },
+  });
+
+  assert.equal(result?.ok, true);
+  assert.equal(seen.length, 2);
+  assert.deepEqual(seen[1]?.policyGrants, [{
+    reason: "path-outside-declared-roots",
+    path: externalRoot,
+    access: ["read"],
+    grantedBy: "praxis-human-approval",
+  }]);
 });
 
 test("executor degrades unready strong sandbox to workspace rollback", async () => {
@@ -243,9 +464,9 @@ test("executor degrades unready strong sandbox to workspace rollback", async () 
         profile: "linux-bubblewrap",
         status: "missingDependency",
         platform: process.platform,
-        dependencyRefs: ["dependency.binary.bwrap"],
+        dependencyRefs: ["dependency.binary.raxcell"],
         availableDependencies: [],
-        missingDependencies: ["dependency.binary.bwrap"],
+        missingDependencies: ["dependency.binary.raxcell"],
         dependencyChecks: [],
         dependencyInstallEnvelopes: [],
         selfRepairHints: [],

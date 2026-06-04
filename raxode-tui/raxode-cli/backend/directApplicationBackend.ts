@@ -11,6 +11,7 @@ import type {
   RuntimeApprovalEnvelope,
   RuntimeApprovalResolution,
   RuntimeApprovalResolver,
+  SandboxExecutionProviderPort,
 } from "@praxis-ai/praxis/agent-core";
 import type {
   PraxisApplicationAttachment,
@@ -27,6 +28,7 @@ import type {
 import type { RaxodeOptions } from "./agents/codingAgent/config/raxodeOptions.js";
 import { inspectRaxodeMemoryBridge } from "./memory/memoryBridge.js";
 import type { RaxodeLocalReadinessProbeInput } from "./application/localReadinessProbe.js";
+import { resolveRaxodeRaxcellSandboxProvider } from "./application/raxcellSandboxProvider.js";
 import {
   loadDirectTuiSessionSnapshot,
   listDirectTuiAgents,
@@ -53,6 +55,7 @@ type DirectApplicationBackendOptions = RaxodeOptions & {
   preCompactGovernanceEnabled?: CreateApplicationProjectRuntimeOptions["preCompactGovernanceEnabled"];
   compactContextWindowTokens?: CreateApplicationProjectRuntimeOptions["compactContextWindowTokens"];
   compactThresholdRatio?: CreateApplicationProjectRuntimeOptions["compactThresholdRatio"];
+  sandboxProvider?: SandboxExecutionProviderPort;
   localReadinessProbe?: Omit<RaxodeLocalReadinessProbeInput, "manifest">;
 };
 
@@ -102,6 +105,17 @@ function normalizePermissionProfile(value: string | undefined): PraxisApplicatio
       return "standard";
     default:
       return "standard";
+  }
+}
+
+function normalizeSandboxProfile(value: string | undefined): RaxodeOptions["sandboxProfile"] | undefined {
+  switch (value) {
+    case "hostObserved":
+    case "workspaceOnly":
+    case "linuxBubblewrap":
+      return value;
+    default:
+      return undefined;
   }
 }
 
@@ -907,6 +921,11 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
       ?? process.env.RAXODE_APPLICATION_PERMISSION_PROFILE
       ?? process.env.PRAXIS_PERMISSION_PROFILE,
   );
+  const sandboxProfile = options.sandboxProfile
+    ?? normalizeSandboxProfile(
+      process.env.RAXODE_APPLICATION_SANDBOX_PROFILE
+        ?? process.env.PRAXIS_SANDBOX_PROFILE,
+    );
   const reportsDir = path.resolve(options.stateRoot ?? stateRoot, "live-reports");
   await mkdir(reportsDir, { recursive: true });
   const logPath = path.join(reportsDir, `direct-application-${sessionId.replace(/[^\w.-]+/gu, "_")}-${Date.now()}.jsonl`);
@@ -1061,7 +1080,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
   });
   const agentOptions: RaxodeOptions = {
     policyProfile: permissionProfile,
-    sandboxProfile: options.sandboxProfile,
+    sandboxProfile,
     persistence: options.persistence,
     includeAllCatalogTools: options.includeAllCatalogTools,
     provider,
@@ -1074,6 +1093,10 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     memoryProfile: memoryBridge.profile,
     memoryPromptGuide: memoryBridge.promptGuide,
   };
+  const sandboxProvider = resolveRaxodeRaxcellSandboxProvider({
+    sandboxProfile,
+    sandboxProvider: options.sandboxProvider,
+  });
 
   const created = await applicationLayer.createApplicationProjectRuntime(projectRoot, {
     applicationId: applicationModule.raxodeApplication.id,
@@ -1088,6 +1111,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     maxOutputTokens,
     permissionProfile,
     agentOptions,
+    sandboxProvider,
     initialConversations: restoredInitialConversation === undefined ? [] : [restoredInitialConversation],
     now: options.now,
     compactExecutor: options.compactExecutor,
@@ -1216,6 +1240,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     localProbe: options.localReadinessProbe,
     ports: {
       approvalResolver: "configured",
+      sandboxProvider: sandboxProvider ? "configured" : "not-configured",
       liveProviderResolver: options.liveProviderResolver ? "configured" : "raxode-default",
     },
   });

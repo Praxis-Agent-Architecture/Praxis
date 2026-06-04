@@ -32,7 +32,7 @@ import {
   type ProviderToolNameMapping,
   type ProviderToolSchemaFamily,
 } from "../modelAdapter/bridgingLayer/toolSchemaCompatibilityLayer.js";
-import type { BaseToolExecutorPort } from "../basetool/types.js";
+import type { BaseToolExecutorPort, BaseToolExecutorResult } from "../basetool/types.js";
 import { receiveTextInput } from "../executionEngine/IOTransceiver/inputReceiver/textReceiver.js";
 import { exposeTextOutput } from "../executionEngine/IOTransceiver/outputExposer/textExposer.js";
 import {
@@ -154,6 +154,7 @@ import {
   type BaseToolPolicyProfile,
   type PraxisAgent,
   type PraxisAgentInput,
+  type ToolSpec,
 } from "./runtimeAgentManifest.js";
 import {
   approvalInterfaceEnvelope,
@@ -183,6 +184,28 @@ import {
   type SandboxRuntimePrepareResult,
 } from "./runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import type { SandboxRemoteWorkerAdapter } from "./runtime.sandboxPlane/sandboxCommandRunner.js";
+import type {
+  SandboxExecutionProviderPort,
+  SandboxPolicyMiddlewareAuditEvent,
+} from "./runtime.sandboxPlane/sandboxPolicyMiddleware.js";
+import {
+  buildMcpServerProfilesFromManifest,
+  createInMemoryMcpPlusOverlayStore,
+  createFileMcpPlusProfileStore,
+  createFileMcpPlusSkillStore,
+  learnedProfileFromProposal,
+  mcp,
+  mcpHarnessModuleFrom,
+  type McpPlusLearnedProfile,
+  type McpPlusOverlayStore,
+  type McpPlusProfileProposal,
+  type McpPlusProfileStore,
+  type McpPlusRuntimeOverlay,
+  type McpPlusSkillStore,
+  type McpHarnessModuleSpec,
+  planMcpHarnessExposure,
+} from "./runtime.mcpPlane/index.js";
+import type { McpRuntimeServerProfile } from "./runtime.execEngine/mcpRuntimeAdapter.js";
 
 export type PraxisRuntimeKernelErrorCode =
   | "MANIFEST_COMPILE_FAILED"
@@ -224,6 +247,15 @@ export type PraxisRuntimeKernelOptions = {
   };
   executor?: BaseToolExecutorPort;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
+  mcpServers?: readonly McpRuntimeServerProfile[];
+  mcpModule?: McpHarnessModuleSpec;
+  mcpPlus?: {
+    projectId?: string;
+    profileStore?: McpPlusProfileStore;
+    overlayStore?: McpPlusOverlayStore;
+    skillStore?: McpPlusSkillStore;
+    reprofileConsecutiveIndexedCalls?: number;
+  };
   baseToolPolicy?: RuntimeBaseToolExecutorPolicy;
   baseToolResourceLimits?: RuntimeBaseToolExecutorResourceLimits;
   store?: RuntimeSessionStateEventStore;
@@ -262,6 +294,7 @@ export type PraxisRuntimeKernelOptions = {
     cwd?: string;
     runSmoke?: boolean;
     failOnUnavailable?: boolean;
+    provider?: SandboxExecutionProviderPort;
     remoteWorker?: SandboxRemoteWorkerAdapter;
   };
   onTextDelta?: (delta: string, metadata?: Readonly<Record<string, unknown>>) => void | Promise<void>;
@@ -797,6 +830,349 @@ function defaultMcpServerId(toolId: string, args: Readonly<Record<string, unknow
   return readString(args.serverId) ?? "local-mcp";
 }
 
+function withRuntimeHarnessToolLayer(manifest: AgentManifest, dynamicTools: readonly ToolSpec[], reason: string): AgentManifest {
+  const byId = new Map<string, ToolSpec>();
+  for (const tool of [...manifest.harness.tools, ...dynamicTools]) {
+    byId.set(tool.toolId, tool);
+  }
+  return {
+    ...manifest,
+    harness: {
+      ...manifest.harness,
+      tools: [...byId.values()],
+      metadata: {
+        ...manifest.harness.metadata,
+        runtimeMcpDynamicToolCount: dynamicTools.length,
+        runtimeMcpDynamicToolRefreshReason: reason,
+      },
+    },
+  };
+}
+
+function withRuntimeMcpModule(manifest: AgentManifest, module: McpHarnessModuleSpec | undefined): AgentManifest {
+  if (module === undefined || manifest.harness.modules.mcp !== undefined) return manifest;
+  const byId = new Map<string, ToolSpec>();
+  for (const tool of [...manifest.harness.tools, ...mcp.recommendedTools()]) {
+    byId.set(tool.toolId, tool);
+  }
+  return {
+    ...manifest,
+    harness: {
+      ...manifest.harness,
+      modules: {
+        ...manifest.harness.modules,
+        mcp: module,
+      },
+      tools: [...byId.values()],
+      runtimeRequirements: manifest.harness.runtimeRequirements.includes("runtime.mcp")
+        ? manifest.harness.runtimeRequirements
+        : [...manifest.harness.runtimeRequirements, "runtime.mcp"],
+      metadata: {
+        ...manifest.harness.metadata,
+        runtimeMcpModuleSource: "runtime.options.mcpModule",
+      },
+    },
+  };
+}
+
+function normalizeMcpNativeToolDeclaration(tool: unknown): { name: string; description: string; inputSchema: Record<string, unknown> } | undefined {
+  if (!isRecord(tool)) return undefined;
+  const name = readString(tool.name);
+  if (name === undefined) return undefined;
+  const description = readString(tool.description) ?? readString(tool.title) ?? name;
+  const schema = isRecord(tool.inputSchema) ? tool.inputSchema : isRecord(tool.input_schema) ? tool.input_schema : {};
+  return { name, description, inputSchema: schema };
+}
+
+type RuntimeMcpPlusController = {
+  setNativeInventory(inventory: Readonly<Record<string, readonly { name: string; description: string; inputSchema: Record<string, unknown> }[]>>): Promise<void>;
+  learnedProfilesByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, McpPlusLearnedProfile | undefined>>>;
+  exposureStateByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] }>>>;
+  callControlTool(input: {
+    manifest: AgentManifest;
+    serverId: string;
+    controlName: string;
+    args: Readonly<Record<string, unknown>>;
+    now: string;
+  }): Promise<BaseToolExecutorResult<unknown>>;
+  recordToolCall(input: {
+    manifest: AgentManifest;
+    toolId: string;
+    ok: boolean;
+    now: string;
+  }): Promise<boolean>;
+};
+
+function runtimeMcpPlusProjectId(input: { explicit?: string; workspaceRoot: string }): string {
+  if (typeof input.explicit === "string" && input.explicit.trim().length > 0) return input.explicit.trim();
+  return `project.${createHash("sha256").update(path.resolve(input.workspaceRoot)).digest("hex").slice(0, 16)}`;
+}
+
+function mcpPlusOverlayToExposureState(overlay: McpPlusRuntimeOverlay | undefined): { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] } {
+  if (overlay === undefined) return {};
+  return {
+    mode: overlay.mode,
+    activeTools: [
+      ...overlay.activeTools,
+      ...(overlay.pendingReprofile ? ["mcp_plus.reprofile"] : []),
+    ],
+  };
+}
+
+function readStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+}
+
+function proposalFromArgs(args: Readonly<Record<string, unknown>>, fallbackServerId: string): McpPlusProfileProposal {
+  const rawToolCards = isRecord(args.toolCards) ? args.toolCards : undefined;
+  const toolCards = rawToolCards === undefined ? undefined : Object.fromEntries(Object.entries(rawToolCards).flatMap(([toolName, card]) => {
+    if (!isRecord(card)) return [];
+    return [[toolName, {
+      title: readString(card.title),
+      summary: readString(card.summary),
+      keywords: readStringList(card.keywords),
+    }]];
+  }));
+  const rawSkillChapters = Array.isArray(args.skillChapters) ? args.skillChapters : [];
+  const proposal: McpPlusProfileProposal = {
+    serverId: readString(args.serverId) ?? fallbackServerId,
+    pinnedTools: readStringList(args.pinnedTools),
+    warmTools: readStringList(args.warmTools),
+    indexedTools: readStringList(args.indexedTools),
+    alwaysIndexTools: readStringList(args.alwaysIndexTools),
+    toolCards,
+    skillChapters: rawSkillChapters.flatMap((chapter) => {
+      if (!isRecord(chapter)) return [];
+      const id = readString(chapter.id);
+      const title = readString(chapter.title);
+      const summary = readString(chapter.summary);
+      return id === undefined || title === undefined || summary === undefined ? [] : [{ id, title, summary }];
+    }),
+    rationale: readString(args.rationale),
+  };
+  if (Object.hasOwn(args, "modeHint")) {
+    return {
+      ...proposal,
+      modeHint: args.modeHint,
+    } as unknown as McpPlusProfileProposal;
+  }
+  return proposal;
+}
+
+function mcpPlusServerSpec(manifest: AgentManifest, serverId: string) {
+  return mcpHarnessModuleFrom(manifest.harness)?.servers.find((server) => server.serverId === serverId);
+}
+
+function createRuntimeMcpPlusController(input: {
+  sessionId: string;
+  projectId: string;
+  profileStore: McpPlusProfileStore;
+  overlayStore: McpPlusOverlayStore;
+  skillStore: McpPlusSkillStore;
+  reprofileConsecutiveIndexedCalls: number;
+}): RuntimeMcpPlusController {
+  let nativeInventory: Readonly<Record<string, readonly { name: string; description: string; inputSchema: Record<string, unknown> }[]>> = {};
+
+  async function loadOverlay(serverId: string, now: string): Promise<McpPlusRuntimeOverlay> {
+    return await input.overlayStore.load({ sessionId: input.sessionId, serverId }) ?? {
+      serverId,
+      sessionId: input.sessionId,
+      mode: "expanded",
+      activeTools: [],
+      counters: { consecutiveIndexedToolCalls: {} },
+      updatedAt: now,
+    };
+  }
+
+  return {
+    async setNativeInventory(inventory) {
+      nativeInventory = inventory;
+    },
+    async learnedProfilesByServerId(manifest) {
+      const module = mcpHarnessModuleFrom(manifest.harness);
+      const profiles: Record<string, McpPlusLearnedProfile | undefined> = {};
+      for (const server of module?.servers ?? []) {
+        if (server.mode !== "mcp-plus" || server.manifest !== undefined) continue;
+        profiles[server.serverId] = await input.profileStore.load({ projectId: input.projectId, serverId: server.serverId });
+      }
+      return profiles;
+    },
+    async exposureStateByServerId(manifest) {
+      const module = mcpHarnessModuleFrom(manifest.harness);
+      const states: Record<string, { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] }> = {};
+      for (const server of module?.servers ?? []) {
+        if (server.mode !== "mcp-plus") continue;
+        states[server.serverId] = mcpPlusOverlayToExposureState(await input.overlayStore.load({ sessionId: input.sessionId, serverId: server.serverId }));
+      }
+      return states;
+    },
+    async callControlTool(control) {
+      if (control.controlName === "mcp_plus.init" || control.controlName === "mcp_plus.reprofile") {
+        const proposal = proposalFromArgs(control.args, control.serverId);
+        const nativeTools = nativeInventory[proposal.serverId] ?? [];
+        const existing = await input.profileStore.load({ projectId: input.projectId, serverId: proposal.serverId });
+        const learned = learnedProfileFromProposal({
+          proposal,
+          nativeTools,
+          projectId: input.projectId,
+          now: control.now,
+          existing,
+        });
+        if (!learned.ok) return { ok: false, error: learned.error };
+        await input.profileStore.save({ projectId: input.projectId, serverId: proposal.serverId }, learned.profile);
+        const overlay = await loadOverlay(proposal.serverId, control.now);
+        await input.overlayStore.save({ sessionId: input.sessionId, serverId: proposal.serverId }, {
+          ...overlay,
+          mode: "expanded",
+          activeTools: [],
+          pendingReprofile: false,
+          counters: { consecutiveIndexedToolCalls: {} },
+          updatedAt: control.now,
+          metadata: {
+            ...(overlay.metadata ?? {}),
+            lastProfileControl: control.controlName,
+          },
+        });
+        return {
+          ok: true,
+          output: {
+            accepted: true,
+            serverId: proposal.serverId,
+            projectId: input.projectId,
+            schemaVersion: learned.profile.schemaVersion,
+            controlName: control.controlName,
+          },
+          metadata: { serverId: proposal.serverId, projectId: input.projectId, controlName: control.controlName },
+        };
+      }
+
+      if (control.controlName === "mcp_plus.skill_read") {
+        const serverId = readString(control.args.serverId) ?? control.serverId;
+        const notes = await input.skillStore.read({ serverId, projectId: input.projectId }, {
+          id: readString(control.args.id),
+          chapter: readString(control.args.chapter),
+        });
+        return { ok: true, output: { serverId, projectId: input.projectId, notes } };
+      }
+
+      if (control.controlName === "mcp_plus.skill_write" || control.controlName === "mcp_plus.finish") {
+        const rawSkill = control.controlName === "mcp_plus.finish" && isRecord(control.args.skill)
+          ? control.args.skill
+          : control.args;
+        const serverId = readString(rawSkill.serverId) ?? readString(control.args.serverId) ?? control.serverId;
+        const chapter = readString(rawSkill.chapter);
+        const title = readString(rawSkill.title);
+        const summary = readString(rawSkill.summary);
+        if (chapter === undefined || title === undefined || summary === undefined) {
+          return {
+            ok: true,
+            output: {
+              accepted: false,
+              serverId,
+              projectId: input.projectId,
+              reason: "No complete skill note was provided.",
+            },
+          };
+        }
+        const note = await input.skillStore.write({ serverId, projectId: input.projectId }, {
+          chapter,
+          title,
+          summary,
+          whenToUse: readString(rawSkill.whenToUse),
+          do: readStringList(rawSkill.do),
+          why: readString(rawSkill.why),
+          avoid: readStringList(rawSkill.avoid),
+          pitfalls: readStringList(rawSkill.pitfalls),
+        });
+        return { ok: true, output: { accepted: true, serverId, projectId: input.projectId, note } };
+      }
+
+      if (control.controlName === "mcp_plus.expand") {
+        const serverId = readString(control.args.server) ?? readString(control.args.serverId) ?? control.serverId;
+        const request = readString(control.args.request)?.toLowerCase() ?? "";
+        const server = mcpPlusServerSpec(control.manifest, serverId);
+        const profile = await input.profileStore.load({ projectId: input.projectId, serverId });
+        const indexedTools = server?.manifest?.exposure?.indexedTools ?? profile?.exposure.indexedTools ?? [];
+        const activatedTools = request.length === 0
+          ? indexedTools
+          : indexedTools.filter((toolName) => toolName.toLowerCase().includes(request));
+        const overlay = await loadOverlay(serverId, control.now);
+        await input.overlayStore.save({ sessionId: input.sessionId, serverId }, {
+          ...overlay,
+          mode: "expanded",
+          activeTools: [...new Set([...overlay.activeTools, ...activatedTools])],
+          updatedAt: control.now,
+        });
+        return { ok: true, output: { serverId, activatedTools, mode: "expanded" } };
+      }
+
+      return { ok: false, error: { code: "MCP_PLUS_CONTROL_UNKNOWN", message: `Unknown MCP+ control tool: ${control.controlName}`, publicSafe: true } };
+    },
+    async recordToolCall(record) {
+      if (!record.ok) return false;
+      const toolSpec = record.manifest.harness.tools.find((tool) => tool.toolId === record.toolId);
+      if (toolSpec?.metadata?.toolProviderKind !== "mcp-static") return false;
+      const serverId = readString(toolSpec.metadata.serverId);
+      const nativeToolName = readString(toolSpec.metadata.nativeToolName);
+      if (serverId === undefined || nativeToolName === undefined) return false;
+      const server = mcpPlusServerSpec(record.manifest, serverId);
+      if (server?.mode !== "mcp-plus") return false;
+      const profile = server.manifest === undefined
+        ? await input.profileStore.load({ projectId: input.projectId, serverId })
+        : undefined;
+      const indexedTools = new Set(server.manifest?.exposure?.indexedTools ?? profile?.exposure.indexedTools ?? []);
+      const overlay = await loadOverlay(serverId, record.now);
+      const consecutiveIndexedToolCalls = { ...overlay.counters.consecutiveIndexedToolCalls };
+      let pendingReprofile = overlay.pendingReprofile;
+      if (indexedTools.has(nativeToolName)) {
+        consecutiveIndexedToolCalls[nativeToolName] = (consecutiveIndexedToolCalls[nativeToolName] ?? 0) + 1;
+        if (consecutiveIndexedToolCalls[nativeToolName] >= input.reprofileConsecutiveIndexedCalls) {
+          pendingReprofile = true;
+        }
+      } else {
+        for (const toolName of Object.keys(consecutiveIndexedToolCalls)) {
+          consecutiveIndexedToolCalls[toolName] = 0;
+        }
+      }
+      await input.overlayStore.save({ sessionId: input.sessionId, serverId }, {
+        ...overlay,
+        mode: "expanded",
+        activeTools: [...new Set([...overlay.activeTools, nativeToolName])],
+        pendingReprofile,
+        counters: { consecutiveIndexedToolCalls },
+        updatedAt: record.now,
+      });
+      return true;
+    },
+  };
+}
+
+async function discoverRuntimeMcpDynamicTools(
+  manifest: AgentManifest,
+  executor: BaseToolExecutorPort,
+  mcpPlusRuntime?: RuntimeMcpPlusController,
+): Promise<readonly ToolSpec[]> {
+  const profiles = buildMcpServerProfilesFromManifest(manifest);
+  if (profiles.length === 0 || executor.mcp?.listTools === undefined) return [];
+  const inventory: Record<string, { name: string; description: string; inputSchema: Record<string, unknown> }[]> = {};
+  for (const profile of profiles) {
+    const listed = await executor.mcp.listTools({ serverId: profile.serverId });
+    if (listed?.ok !== true) continue;
+    const rawTools: readonly unknown[] = Array.isArray(listed.output?.tools) ? listed.output.tools : [];
+    inventory[profile.serverId] = rawTools
+      .map(normalizeMcpNativeToolDeclaration)
+      .filter((tool): tool is { name: string; description: string; inputSchema: Record<string, unknown> } => tool !== undefined);
+  }
+  await mcpPlusRuntime?.setNativeInventory(inventory);
+  return planMcpHarnessExposure(
+    manifest,
+    inventory,
+    await mcpPlusRuntime?.exposureStateByServerId(manifest) ?? {},
+    await mcpPlusRuntime?.learnedProfilesByServerId(manifest) ?? {},
+  ).servers.flatMap((server) => [...server.dynamicToolSpecs]);
+}
+
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
   return createProviderToolMappings(manifest.harness.tools);
 }
@@ -1092,11 +1468,31 @@ function isShellCommandAllowedSystemPath(token: string): boolean {
   return token === "/dev/null";
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
 function shellCommandAbsolutePathTokens(command: string): readonly string[] {
   const matches = shellCommandPathScanSource(command).matchAll(/(^|[\s"'`=({[,;|&<>])\/(?!\/)[^\s"'`$;&|<>()[\]{}]*/gu);
   return [...matches]
     .map((match) => stripShellPathToken((match[0] ?? "").slice(match[1]?.length ?? 0)))
     .filter((token) => token.length > 1 && !token.includes("\0") && !isShellCommandAllowedSystemPath(token));
+}
+
+function shellCommandPathAccess(command: string, token: string): "read" | "write" {
+  const source = shellCommandPathScanSource(command);
+  const escaped = escapeRegExp(token);
+  const quotedToken = `["']?${escaped}["']?`;
+  if (new RegExp(`(?:^|[\\s;|&])(?:\\d?>|\\d?>>|>|>>|<>)\\s*${quotedToken}(?:\\s|$|[;&|])`, "u").test(source)) {
+    return "write";
+  }
+  if (new RegExp(`\\btee\\b[^\\n;&|]*${quotedToken}`, "u").test(source)) return "write";
+  if (new RegExp(`\\bsed\\b[^\\n;&|]*\\s-i\\b[^\\n;&|]*${quotedToken}`, "u").test(source)) return "write";
+  if (new RegExp(`\\b(?:touch|mkdir|rm|rmdir|chmod|chown)\\b[^\\n;&|]*${quotedToken}`, "u").test(source)) return "write";
+  if (new RegExp(`Path\\(\\s*["']${escaped}["']\\s*\\)[\\s\\S]*\\b(?:write_text|append_text)\\s*\\(`, "u").test(source)) {
+    return "write";
+  }
+  return "read";
 }
 
 function shellCommandOutsideAllowedRootsMetadata(input: {
@@ -1108,18 +1504,21 @@ function shellCommandOutsideAllowedRootsMetadata(input: {
   for (const token of shellCommandAbsolutePathTokens(input.command)) {
     const normalizedPath = path.resolve(token);
     if (isInsideAllowedRoots(normalizedPath, input.allowedRoots)) continue;
-    output.push(workspacePathMetadata({
-      ok: false,
-      reason: "OUTSIDE_ALLOWED_ROOTS",
-      message: "shell command references an absolute path outside runtime allowed roots",
-      requestedPath: token,
-      normalizedPath,
-      workspaceRoot: input.workspaceRoot,
-      allowedRoots: input.allowedRoots,
-      pathWasMapped: false,
-      mappingSource: "absolute",
-      suggestedCwd: input.workspaceRoot,
-    }, "path"));
+    output.push({
+      ...workspacePathMetadata({
+        ok: false,
+        reason: "OUTSIDE_ALLOWED_ROOTS",
+        message: "shell command references an absolute path outside runtime allowed roots",
+        requestedPath: token,
+        normalizedPath,
+        workspaceRoot: input.workspaceRoot,
+        allowedRoots: input.allowedRoots,
+        pathWasMapped: false,
+        mappingSource: "absolute",
+        suggestedCwd: input.workspaceRoot,
+      }, "path"),
+      workspacePathAccess: shellCommandPathAccess(input.command, token),
+    });
   }
   return output;
 }
@@ -1136,7 +1535,6 @@ function normalizeWorkspacePathContract(input: {
   const allowedRoots = normalizeAllowedRoots({ workspaceRoot, allowedRoots: input.allowedRoots });
   const nextArgs: Record<string, unknown> = { ...input.args };
   const normalizations: Readonly<Record<string, unknown>>[] = [];
-  const pathAccess = input.toolId === "patch.apply" ? "write" : "read";
   const allowOutsideAllowedRoots = input.profile !== undefined;
 
   if (input.toolId === "file.read" || input.toolId === "skill.load" || input.toolId === "media.viewImage") {
@@ -1176,13 +1574,16 @@ function normalizeWorkspacePathContract(input: {
     }
   }
   const workspaceOutsideAllowedRoots = normalizations.some((item) => item.workspaceOutsideAllowedRoots === true || item.reason === "OUTSIDE_ALLOWED_ROOTS");
+  const workspacePathAccess = input.toolId === "patch.apply" || normalizations.some((item) => item.workspacePathAccess === "write")
+    ? "write"
+    : "read";
 
   return {
     ok: true,
     args: withWorkspaceNormalizationMetadata(nextArgs, normalizations, workspaceOutsideAllowedRoots
       ? {
         workspaceOutsideAllowedRoots: true,
-        workspacePathAccess: pathAccess,
+        workspacePathAccess,
       }
       : {}),
     metadata: normalizations[0] === undefined
@@ -3056,6 +3457,7 @@ async function prepareKernelSandbox(input: {
   const sandbox = await prepareSandboxRuntime(input.manifest.sandbox, {
     cwd: input.options.sandbox?.cwd ?? input.storageRuntime.layout.workspace.root,
     runSmoke: input.options.sandbox?.runSmoke ?? false,
+    providerReady: input.options.sandbox?.provider !== undefined,
   });
   input.events.push(...sandbox.events);
   await input.store.appendEvent(event(
@@ -3510,6 +3912,7 @@ async function executeBaseToolDecision(input: {
   store: RuntimeSessionStateEventStore;
   approvalResolver?: RuntimeApprovalResolver;
   agentReviewResolver?: RuntimeAgentReviewResolver;
+  mcpPlusRuntime?: RuntimeMcpPlusController;
   now: () => string;
   events: string[];
 }): Promise<{
@@ -3520,6 +3923,166 @@ async function executeBaseToolDecision(input: {
   policyAdjudication?: BaseToolPolicyAdjudication;
   sandboxPlan?: BaseToolSandboxPlan;
 }> {
+  const dynamicToolSpec = input.manifest.harness.tools.find((tool) => tool.toolId === input.toolId);
+  const dynamicRuntimeToolId = typeof dynamicToolSpec?.metadata?.runtimeToolId === "string"
+    ? dynamicToolSpec.metadata.runtimeToolId
+    : undefined;
+  const dynamicRuntimeArguments = isRecord(dynamicToolSpec?.metadata?.runtimeArguments)
+    ? dynamicToolSpec.metadata.runtimeArguments
+    : undefined;
+  if (dynamicToolSpec?.metadata?.toolProviderKind === "mcp-plus-control") {
+    const serverId = readString(dynamicToolSpec.metadata.serverId);
+    const controlName = readString(dynamicToolSpec.metadata.controlName);
+    if (serverId === undefined || controlName === undefined || input.mcpPlusRuntime === undefined) {
+      const record: AgentToolCallRecord = {
+        callId: input.toolCallId,
+        toolId: input.toolId,
+        arguments: input.args,
+        ok: false,
+        error: {
+          code: "MCP_PLUS_CONTROL_UNAVAILABLE",
+          message: "MCP+ control tool is not available in this runtime.",
+          publicSafe: true,
+        },
+      };
+      const observation = createObservationMaterial({
+        observationId: `${input.sessionId}:observation:${input.toolCallId}`,
+        source: "baseTool",
+        status: "failed",
+        title: `MCP+ control ${controlName ?? input.toolId}`,
+        summary: "MCP+ control tool is not available.",
+        refs: [input.toolCallId, input.toolId],
+        payload: record.error,
+        metadata: metadataRecord({ toolCallId: input.toolCallId, toolId: input.toolId }),
+      });
+      return {
+        record,
+        observation,
+        events: ["runtime.mcpPlus.control.unavailable"],
+        governance: {
+          kind: "runtime.execEngine.baseTool.governanceDecision",
+          toolId: input.toolId,
+          status: "deny",
+          risk: "safe",
+          policyProfile: input.manifest.toolPolicy.profile,
+          policyMatrixId: input.manifest.toolPolicy.matrixId,
+          approvalRequired: false,
+          approvalReason: "MCP+ control tool is not available.",
+          sandbox: {
+            sandboxId: input.manifest.sandbox.sandboxId,
+            profile: input.manifest.sandbox.profile,
+            providerFamily: input.manifest.sandbox.providerFamily,
+            isolationLevel: input.manifest.sandbox.isolationLevel,
+            filesystem: input.manifest.sandbox.filesystem,
+            network: input.manifest.sandbox.network,
+            shell: input.manifest.sandbox.shell,
+            hostObserved: input.manifest.sandbox.profile === "host-observed",
+            dependencyRefs: input.manifest.sandbox.dependencyRefs ?? [],
+          },
+          resourceLimits: input.manifest.sandbox.resourceLimits,
+          publicSafe: true,
+          events: ["runtime.mcpPlus.control.unavailable"],
+          metadata: { toolCallId: input.toolCallId },
+        },
+      };
+    }
+    const controlResult = await input.mcpPlusRuntime.callControlTool({
+      manifest: input.manifest,
+      serverId,
+      controlName,
+      args: input.args,
+      now: input.now(),
+    });
+    const record: AgentToolCallRecord = {
+      callId: input.toolCallId,
+      toolId: input.toolId,
+      arguments: input.args,
+      ok: controlResult.ok,
+      ...(controlResult.ok ? { output: controlResult.output } : { error: controlResult.error }),
+    };
+    const controlFailureMessage = controlResult.ok ? undefined : controlResult.error?.message ?? "MCP+ control tool failed.";
+    const observation = createObservationMaterial({
+      observationId: `${input.sessionId}:observation:${input.toolCallId}`,
+      source: "baseTool",
+      status: controlResult.ok ? "completed" : "failed",
+      title: `MCP+ control ${controlName}`,
+      summary: controlResult.ok ? "MCP+ control tool completed." : controlFailureMessage ?? "MCP+ control tool failed.",
+      refs: [input.toolCallId, input.toolId],
+      payload: controlResult.ok ? controlResult.output : controlResult.error ?? { code: "MCP_PLUS_CONTROL_FAILED", message: controlFailureMessage, publicSafe: true },
+      metadata: metadataRecord({
+        toolCallId: input.toolCallId,
+        toolId: input.toolId,
+        serverId,
+        controlName,
+        observationStatus: controlResult.ok ? "completed" : "failed",
+      }),
+    });
+    return {
+      record,
+      observation,
+      events: [controlResult.ok ? "runtime.mcpPlus.control.completed" : "runtime.mcpPlus.control.failed"],
+      governance: {
+        kind: "runtime.execEngine.baseTool.governanceDecision",
+        toolId: input.toolId,
+        status: controlResult.ok ? "allow" : "deny",
+        risk: "safe",
+        policyProfile: input.manifest.toolPolicy.profile,
+        policyMatrixId: input.manifest.toolPolicy.matrixId,
+        approvalRequired: false,
+        sandbox: {
+          sandboxId: input.manifest.sandbox.sandboxId,
+          profile: input.manifest.sandbox.profile,
+          providerFamily: input.manifest.sandbox.providerFamily,
+          isolationLevel: input.manifest.sandbox.isolationLevel,
+          filesystem: input.manifest.sandbox.filesystem,
+          network: input.manifest.sandbox.network,
+          shell: input.manifest.sandbox.shell,
+          hostObserved: input.manifest.sandbox.profile === "host-observed",
+          dependencyRefs: input.manifest.sandbox.dependencyRefs ?? [],
+        },
+        resourceLimits: input.manifest.sandbox.resourceLimits,
+        publicSafe: true,
+        events: [controlResult.ok ? "runtime.mcpPlus.control.completed" : "runtime.mcpPlus.control.failed"],
+        metadata: { serverId, controlName },
+      },
+    };
+  }
+  if (dynamicRuntimeToolId !== undefined && dynamicRuntimeToolId !== input.toolId) {
+    const delegatedArgs = dynamicRuntimeToolId === "mcp.use"
+      ? {
+        ...(dynamicRuntimeArguments ?? {}),
+        arguments: input.args,
+      }
+      : {
+        ...(dynamicRuntimeArguments ?? {}),
+        ...input.args,
+      };
+    const delegated = await executeBaseToolDecision({
+      ...input,
+      toolId: dynamicRuntimeToolId,
+      args: delegatedArgs,
+      mcpPlusRuntime: input.mcpPlusRuntime,
+    });
+    return {
+      ...delegated,
+      record: {
+        ...delegated.record,
+        toolId: input.toolId,
+        arguments: input.args,
+      },
+      observation: {
+        ...delegated.observation,
+        material: {
+          ...delegated.observation.material,
+          metadata: {
+            ...(delegated.observation.material.metadata ?? {}),
+            dynamicRuntimeToolId,
+            dynamicMcpToolId: input.toolId,
+          },
+        },
+      },
+    };
+  }
   let toolArguments = enrichToolArguments(input.manifest, input.toolId, input.args, {
     runtimeId: input.runtimeId,
     sessionId: input.sessionId,
@@ -4499,6 +5062,8 @@ export class PraxisRuntimeKernel {
     });
 
     const dryRun = options.dryRun !== false;
+    manifest = withRuntimeMcpModule(manifest, options.mcpModule);
+    const runtimeMcpBaseManifest = manifest;
     const defaultBaseToolPolicy: RuntimeBaseToolExecutorPolicy = {
       workspaceRoot: toolWorkspaceRoot,
       allowedRoots: toolAllowedRoots,
@@ -4529,7 +5094,21 @@ export class PraxisRuntimeKernel {
       sandboxSpec: manifest.sandbox,
       preparedSandbox: sandboxPrepared.sandbox,
       policyProfile: manifest.toolPolicy.profile,
+      sandboxProvider: options.sandbox?.provider,
+      sandboxAudit: async (sandboxEvent: SandboxPolicyMiddlewareAuditEvent) => {
+        await store.appendEvent(event(
+          sessionId,
+          `event:sandbox:${sandboxEvent.actionId}:${sandboxEvent.type}`,
+          sandboxEvent.type,
+          now(),
+          { sandbox: sandboxEvent },
+        ));
+      },
       remoteSandboxWorker: options.sandbox?.remoteWorker,
+      mcpServers: [
+        ...buildMcpServerProfilesFromManifest(manifest),
+        ...(options.mcpServers ?? []),
+      ],
       emitEvent: (runtimeEvent) => {
         events.push(runtimeEvent.type);
       },
@@ -4541,9 +5120,30 @@ export class PraxisRuntimeKernel {
       sessionId,
     };
 
+    const mcpPlusRuntime = createRuntimeMcpPlusController({
+      sessionId,
+      projectId: runtimeMcpPlusProjectId({
+        explicit: options.mcpPlus?.projectId,
+        workspaceRoot: toolWorkspaceRoot,
+      }),
+      profileStore: options.mcpPlus?.profileStore ?? createFileMcpPlusProfileStore(path.join(toolWorkspaceRoot, ".rax_workspace", "mcp-plus")),
+      overlayStore: options.mcpPlus?.overlayStore ?? createInMemoryMcpPlusOverlayStore(),
+      skillStore: options.mcpPlus?.skillStore ?? createFileMcpPlusSkillStore(path.join(toolWorkspaceRoot, ".rax_workspace", "mcp-plus")),
+      reprofileConsecutiveIndexedCalls: options.mcpPlus?.reprofileConsecutiveIndexedCalls ?? 6,
+    });
+
     const maxModelTurns = manifest.harness.loop.maxModelTurns ?? 2;
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;
-    const toolMappings = providerToolMappings(manifest);
+    let toolMappings: readonly ProviderToolMapping[] = [];
+    async function refreshRuntimeMcpTools(reason: string): Promise<void> {
+      manifest = withRuntimeHarnessToolLayer(
+        runtimeMcpBaseManifest,
+        await discoverRuntimeMcpDynamicTools(runtimeMcpBaseManifest, executor, mcpPlusRuntime),
+        reason,
+      );
+      toolMappings = providerToolMappings(manifest);
+    }
+    await refreshRuntimeMcpTools("session.checkpoint.start");
     const providerFamily = providerToolSchemaFamilyForModel(manifest.model);
     let toolContextSelection: {
       families: string[];
@@ -5771,6 +6371,7 @@ export class PraxisRuntimeKernel {
             store,
             approvalResolver: options.approvalResolver,
             agentReviewResolver: options.agentReviewResolver,
+            mcpPlusRuntime,
             preparedSandbox: sandboxPrepared.sandbox,
             dependencyRuntime: options.baseToolDependencyRuntime,
             now,
@@ -5783,6 +6384,18 @@ export class PraxisRuntimeKernel {
           });
           toolCalls.push(executed.record);
           observations.push(executed.observation);
+          const mcpPlusToolCallUpdated = await mcpPlusRuntime.recordToolCall({
+            manifest,
+            toolId: executed.record.toolId,
+            ok: executed.record.ok,
+            now: now(),
+          });
+          if (executed.record.ok && (
+            mcpPlusToolCallUpdated ||
+            manifest.harness.tools.find((tool) => tool.toolId === executed.record.toolId)?.metadata?.toolProviderKind === "mcp-plus-control"
+          )) {
+            await refreshRuntimeMcpTools("session.checkpoint.after_mcp_tool");
+          }
           if (invalidatesFileReadCache(executed.record.toolId)) {
             sameTurnFileReadCache.clear();
           } else if (readCacheKey !== undefined && executed.record.ok) {

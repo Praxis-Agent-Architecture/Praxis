@@ -357,6 +357,53 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       })) : [];
       return success({ uri: requestInput.resourceUri, contents, truncated: false, providerMetadata: metadata(connected.output.profile, { method: "resources/read" }), raw: read.output });
     },
+    async listPrompts(requestInput) {
+      const connected = await getConnection(requestInput.serverId);
+      if (!connected.ok) return connected;
+      const listed = await request(connected.output, "prompts/list", requestInput.cursor === undefined ? {} : { cursor: requestInput.cursor });
+      if (!listed.ok) return listed;
+      const raw = resultObject(listed.output);
+      const prompts = Array.isArray(raw.prompts) ? raw.prompts.filter(isObject).map((prompt) => ({
+        name: String(prompt.name ?? ""),
+        title: typeof prompt.title === "string" ? prompt.title : undefined,
+        description: typeof prompt.description === "string" ? prompt.description : undefined,
+        arguments: Array.isArray(prompt.arguments) ? prompt.arguments : undefined,
+        raw: prompt,
+      })).filter((prompt) => prompt.name.length > 0) : [];
+      return success({ prompts, nextCursor: typeof raw.nextCursor === "string" ? raw.nextCursor : undefined, providerMetadata: metadata(connected.output.profile, { method: "prompts/list" }), raw: listed.output });
+    },
+    async getPrompt(requestInput) {
+      const connected = await getConnection(requestInput.serverId);
+      if (!connected.ok) return connected;
+      const read = await request(connected.output, "prompts/get", { name: requestInput.name, arguments: requestInput.arguments ?? {} });
+      if (!read.ok) return read;
+      return success(read.output, metadata(connected.output.profile, { method: "prompts/get", promptName: requestInput.name }));
+    },
+    async setRoots(requestInput) {
+      const profile = getProfile(requestInput.serverId);
+      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
+      return success({ serverId: requestInput.serverId, roots: requestInput.roots ?? [], status: "registered", providerMetadata: metadata(profile, { hostSemantic: "roots" }) });
+    },
+    async reportProgress(requestInput) {
+      const profile = getProfile(requestInput.serverId);
+      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
+      return success({ serverId: requestInput.serverId, progressToken: requestInput.progressToken, progress: requestInput.progress, total: requestInput.total, status: "reported", providerMetadata: metadata(profile, { hostSemantic: "progress" }) });
+    },
+    async createSamplingMessage(requestInput) {
+      const profile = getProfile(requestInput.serverId);
+      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
+      return success({ serverId: requestInput.serverId, status: "accepted", request: requestInput, providerMetadata: metadata(profile, { hostSemantic: "sampling" }) });
+    },
+    async elicit(requestInput) {
+      const profile = getProfile(requestInput.serverId);
+      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
+      return success({ serverId: requestInput.serverId, status: "pending", request: requestInput, providerMetadata: metadata(profile, { hostSemantic: "elicitation" }) });
+    },
+    async setLoggingLevel(requestInput) {
+      const profile = getProfile(requestInput.serverId);
+      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
+      return success({ serverId: requestInput.serverId, level: requestInput.level ?? "info", status: "configured", providerMetadata: metadata(profile, { hostSemantic: "logging" }) });
+    },
     async createResource(requestInput) {
       const profile = getProfile(requestInput.serverId);
       if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);

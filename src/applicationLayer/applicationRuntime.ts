@@ -23,6 +23,7 @@ import {
   type RuntimeAgentReviewResolver,
   type RuntimeAuthResolver,
   type RuntimeAuthResolverRequest,
+  type SandboxExecutionProviderPort,
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
   type BaseToolProfileName,
@@ -30,6 +31,18 @@ import {
   type PreCompactGovernanceExecutor,
   type PraxisProjectRuntime,
 } from "../agentCore/index.js";
+import {
+  createMcpApplicationStateView,
+  toMcpRuntimeServerProfile,
+  type McpApplicationStateView,
+  type McpApplicationServerInput,
+  type McpHarnessModuleSpec,
+  type McpHarnessServerSpec,
+  type McpPlusApplicationServerInput,
+  type McpPlusOverlayStore,
+  type McpPlusProfileStore,
+  type McpPlusSkillStore,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
 import {
   invokeOpenAIV1Responses,
   type OpenAIV1ResponsesProviderCaller,
@@ -145,10 +158,21 @@ export type PraxisApplicationRuntimeOptions = {
   permissionProfile?: PraxisApplicationPermissionProfile;
   toolProfile?: PraxisApplicationToolProfile;
   agentOptions?: unknown;
+  sandboxProvider?: SandboxExecutionProviderPort;
   approvalResolver?: RuntimeApprovalResolver;
   agentReviewResolver?: RuntimeAgentReviewResolver;
   contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
   baseToolAdapters?: Partial<BaseToolExecutorPort>;
+  mcpServers?: readonly McpApplicationServerInput[];
+  mcpPlusServers?: readonly McpPlusApplicationServerInput[];
+  mcpModule?: McpHarnessModuleSpec;
+  mcpPlus?: {
+    projectId?: string;
+    profileStore?: McpPlusProfileStore;
+    overlayStore?: McpPlusOverlayStore;
+    skillStore?: McpPlusSkillStore;
+    reprofileConsecutiveIndexedCalls?: number;
+  };
   onApplicationToolEvent?: (event: PraxisApplicationEvent) => void | Promise<void>;
   initialConversations?: readonly PraxisApplicationInitialConversation[];
   foundationProject?: PraxisProjectRuntime;
@@ -213,6 +237,7 @@ type RuntimeState = {
   multiagentActiveSessions: number;
   multiagentBackgroundRuns: Set<string>;
   auth?: PraxisApplicationAuthState;
+  mcp: McpApplicationStateView;
 };
 
 type ApplicationConversationMessage = {
@@ -2994,11 +3019,41 @@ function summarizeRunUsage(result: Extract<AgentRunResult, { ok: true }>): Praxi
   return summary.modelCalls > 0 ? summary : undefined;
 }
 
+function createApplicationMcpModule(
+  options: Pick<PraxisApplicationRuntimeOptions, "mcpServers" | "mcpPlusServers" | "mcpModule">,
+): McpHarnessModuleSpec | undefined {
+  if (options.mcpModule !== undefined) return options.mcpModule;
+  const nativeServers: McpHarnessServerSpec[] = (options.mcpServers ?? []).map((server) => ({
+    ...server,
+    mode: server.mode ?? "native",
+  }));
+  const plusServers: McpHarnessServerSpec[] = (options.mcpPlusServers ?? []).map((server) => ({
+    ...server,
+    mode: "mcp-plus",
+  }));
+  const servers = [...nativeServers, ...plusServers];
+  if (servers.length === 0) return undefined;
+  return {
+    kind: "praxis.mcp.module",
+    version: "praxis.mcp.v1",
+    servers,
+    recommended: true,
+    metadata: { source: "application.mcp.options" },
+  };
+}
+
+function applicationMcpServerProfiles(
+  module: McpHarnessModuleSpec | undefined,
+): ReturnType<typeof toMcpRuntimeServerProfile>[] {
+  return (module?.servers ?? []).map(toMcpRuntimeServerProfile);
+}
+
 export function createPraxisApplicationRuntime(options: PraxisApplicationRuntimeOptions): PraxisApplicationRuntime {
   const now = options.now ?? defaultNow;
   const listeners = new Set<(event: PraxisApplicationEvent) => void>();
   const project = options.project;
   const applicationId = options.applicationId ?? project.applicationId;
+  const applicationMcpModule = createApplicationMcpModule(options);
   const state: RuntimeState = {
     status: "idle",
     sessionId: options.sessionId ?? `session.${applicationId}.default`,
@@ -3047,6 +3102,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     multiagentActiveSessions: 1,
     multiagentBackgroundRuns: new Set(),
     auth: undefined,
+    mcp: createMcpApplicationStateView(applicationMcpModule),
   };
 
   async function refreshAuthState(): Promise<void> {
@@ -3259,12 +3315,15 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             exposeProviderTools: true,
             approvalResolver: approvalResolverForRun(),
             agentReviewResolver: options.agentReviewResolver,
+            mcpServers: applicationMcpServerProfiles(applicationMcpModule),
+            mcpModule: applicationMcpModule,
+            mcpPlus: options.mcpPlus,
             storage: {
               cwd: childSession.workingDirectory,
               workspaceRoot: path.join(project.projectRoot, ".raxode"),
               initMode: "on-run",
             },
-            sandbox: { cwd: childSession.workingDirectory },
+            sandbox: { cwd: childSession.workingDirectory, provider: options.sandboxProvider },
             baseToolAdapters: {
               agent: multiagentAgentAdapter(),
               ...(options.contextArtifactAdapters ?? {}),
@@ -3393,6 +3452,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         : "input budget: unknown",
       `permission: ${state.permissionProfile}`,
       `tool profile: ${state.toolProfile}`,
+      `mcp servers: ${state.mcp.servers.length}`,
       `workspace: ${state.cwd}`,
       `tools: ${summarizeToolCatalog(state.manifest, state.toolProfile).mounted}/${summarizeToolCatalog(state.manifest, state.toolProfile).total}`,
       state.finalOutput ? `final: ${state.finalOutput}` : `status: ${state.status}`,
@@ -3423,6 +3483,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       approvals: [...state.approvals.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
       manifest: summarizeManifest(state.manifest),
       tools: summarizeToolCatalog(state.manifest, state.toolProfile),
+      mcp: state.mcp,
       counters: {
         turns: state.turns,
         events: state.events.length,
@@ -3623,7 +3684,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             workspaceRoot: path.join(project.projectRoot, ".raxode"),
             initMode: "on-run",
           },
-          sandbox: { cwd: state.cwd },
+          sandbox: { cwd: state.cwd, provider: options.sandboxProvider },
           now,
         }),
         timeoutMs,
@@ -3886,12 +3947,15 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       compactThresholdRatio: options.compactThresholdRatio,
       approvalResolver: approvalResolverForRun(),
       agentReviewResolver: options.agentReviewResolver,
+      mcpServers: applicationMcpServerProfiles(applicationMcpModule),
+      mcpModule: applicationMcpModule,
+      mcpPlus: options.mcpPlus,
       storage: {
         cwd: state.cwd,
         workspaceRoot: path.join(project.projectRoot, ".raxode"),
         initMode: "on-run",
       },
-      sandbox: { cwd: state.cwd },
+      sandbox: { cwd: state.cwd, provider: options.sandboxProvider },
       baseToolAdapters: {
         agent: multiagentAgentAdapter(),
         ...(options.contextArtifactAdapters ?? {}),

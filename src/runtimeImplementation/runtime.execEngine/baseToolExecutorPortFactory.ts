@@ -23,6 +23,10 @@ import {
   runSandboxCommand,
   type SandboxRemoteWorkerAdapter,
 } from "../runtime.sandboxPlane/sandboxCommandRunner.js";
+import type {
+  SandboxExecutionProviderPort,
+  SandboxPolicyMiddlewareAuditEvent,
+} from "../runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import {
   createMcpRuntimeAdapter,
   type McpRuntimeServerProfile,
@@ -90,6 +94,8 @@ export type RuntimeBaseToolExecutorContext = {
   sandboxSpec?: SandboxSpec;
   preparedSandbox?: SandboxRuntimePrepareResult;
   policyProfile?: BaseToolPolicyProfile;
+  sandboxProvider?: SandboxExecutionProviderPort;
+  sandboxAudit?: (event: SandboxPolicyMiddlewareAuditEvent) => Promise<void> | void;
   remoteSandboxWorker?: SandboxRemoteWorkerAdapter;
   mcpServers?: readonly McpRuntimeServerProfile[];
   environment?: Readonly<Record<string, string | undefined>>;
@@ -255,7 +261,6 @@ function legacyPreparedSandbox(value: RuntimeBaseToolExecutorSandbox | undefined
 
 function sandboxModeForContext(context: RuntimeBaseToolExecutorContext): "none" | "workspace-rollback" | "isolated" {
   const profile = policyProfileForContext(context);
-  if (profile === "bapr") return "none";
   const explicitProviderFamily = context.sandboxSpec?.providerFamily ?? context.sandbox?.providerFamily;
   const prepared = context.preparedSandbox ?? legacyPreparedSandbox(context.sandbox);
   if (strongSandboxFamily(explicitProviderFamily)) {
@@ -409,6 +414,7 @@ async function runCommand(
     shellScript?: boolean;
     timeoutMs?: number;
     network?: "allow" | "deny" | "approval" | "provider-policy";
+    approved?: boolean;
   } = {},
 ): Promise<BaseToolExecutorResult> {
   const profile = policyProfileForContext(context);
@@ -418,6 +424,10 @@ async function runCommand(
   const resolvedCwd = resolveCommandCwd(context, cwd);
   if (!resolvedCwd.ok) return resolvedCwd;
   const commandCwd = String(resolvedCwd.output);
+  const root = workspaceRoot(context);
+  const approvedWriteRoots = input.approved === true
+    ? context.policy?.allowedWriteRoots ?? [root]
+    : context.policy?.allowedWriteRoots;
   if (spec !== undefined) {
     const result = await runSandboxCommand({
       runtimeId: context.runtimeId,
@@ -435,13 +445,17 @@ async function runCommand(
       policyProfile: profile,
       sandboxMode: sandboxModeForContext(context),
       filesystem: {
-        workspaceRoot: workspaceRoot(context),
-        allowedReadRoots: context.policy?.allowedRoots ?? [workspaceRoot(context)],
-        ...(context.policy?.allowedWriteRoots === undefined ? {} : { allowedWriteRoots: context.policy.allowedWriteRoots }),
+        workspaceRoot: root,
+        allowedReadRoots: context.policy?.allowedRoots ?? [root],
+        ...(approvedWriteRoots === undefined ? {} : { allowedWriteRoots: approvedWriteRoots }),
+        ...(input.approved === true ? { readonlyRoot: false } : {}),
       },
       network: input.network,
+      approval: input.approved === true ? { accepted: true, grantedBy: "praxis-human-approval" } : undefined,
     }, {
       remoteWorker: context.remoteSandboxWorker,
+      sandboxProvider: context.sandboxProvider,
+      audit: context.sandboxAudit,
     });
     if (!result.ok) {
       return fail(result.error.code, result.error.message, {
@@ -520,6 +534,7 @@ function createShellExecutor(context: RuntimeBaseToolExecutorContext): BaseToolE
         invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
         shellScript: true,
         timeoutMs: typeof request?.timeoutMs === "number" ? request.timeoutMs : undefined,
+        approved: approvedByRuntimeContext(request?.context),
       });
     }),
   };
@@ -533,6 +548,7 @@ function createProcessExecutor(context: RuntimeBaseToolExecutorContext): BaseToo
         toolId: "process.run",
         invocationId: typeof request?.toolCallId === "string" ? request.toolCallId : undefined,
         timeoutMs: typeof request?.timeoutMs === "number" ? request.timeoutMs : undefined,
+        approved: approvedByRuntimeContext(request?.context),
       });
     }),
     wait: withAdapter(context, "process", "wait", async (request) => {
@@ -722,7 +738,22 @@ function createMcpExecutor(context: RuntimeBaseToolExecutorContext): BaseToolExe
   const configured = context.mcpServers !== undefined && context.mcpServers.length > 0
     ? createMcpRuntimeAdapter({ servers: context.mcpServers })
     : undefined;
-  const base = configured ?? createUnavailableNamespace("mcp", ["connect", "ping", "listTools", "call", "stream", "listResources", "readResource"]);
+  const base = configured ?? createUnavailableNamespace("mcp", [
+    "connect",
+    "ping",
+    "listTools",
+    "call",
+    "stream",
+    "listResources",
+    "readResource",
+    "listPrompts",
+    "getPrompt",
+    "setRoots",
+    "reportProgress",
+    "createSamplingMessage",
+    "elicit",
+    "setLoggingLevel",
+  ]);
   const callTool = base.callTool ?? base.call;
   const streamTool = base.streamTool ?? base.stream;
   return {
@@ -738,7 +769,21 @@ export function listRuntimeBaseToolImplementedPortPaths(
 ): readonly string[] {
   const ports = new Set<string>(baseToolExecutorPortFactoryDescriptor.implementedAdapters);
   if (context.mcpServers !== undefined && context.mcpServers.length > 0) {
-    for (const portPath of ["mcp.connect", "mcp.call", "mcp.callTool", "mcp.listTools", "mcp.listResources", "mcp.readResource"]) {
+    for (const portPath of [
+      "mcp.connect",
+      "mcp.call",
+      "mcp.callTool",
+      "mcp.listTools",
+      "mcp.listResources",
+      "mcp.readResource",
+      "mcp.listPrompts",
+      "mcp.getPrompt",
+      "mcp.setRoots",
+      "mcp.reportProgress",
+      "mcp.createSamplingMessage",
+      "mcp.elicit",
+      "mcp.setLoggingLevel",
+    ]) {
       ports.add(portPath);
     }
   }
@@ -789,6 +834,7 @@ export function createRuntimeBaseToolExecutorPort(
           toolId: typeof request?.toolId === "string" ? request.toolId : "sandbox.run",
           invocationId: typeof request?.invocationId === "string" ? request.invocationId : undefined,
           network: request?.network === "allow" ? "allow" : undefined,
+          approved: approvedByRuntimeContext(request?.context),
         });
       }),
     },

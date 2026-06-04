@@ -36,6 +36,7 @@ import {
 import {
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
+  resolveRaxcellBinaryPath,
   sandboxRuntimeProviderDescriptor,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
 import {
@@ -44,6 +45,15 @@ import {
   runSandboxCommand,
   sandboxCommandRunnerDescriptor,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxCommandRunner.js";
+import {
+  createRaxcellSandboxProvider,
+  mapSandboxProviderRequestToRaxcell,
+  raxcellSandboxProviderDescriptor,
+} from "../runtimeImplementation/runtime.sandboxPlane/raxcellSandboxProvider.js";
+import {
+  runSandboxPolicyMiddleware,
+  sandboxPolicyMiddlewareDescriptor,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
@@ -196,6 +206,17 @@ import {
   ExecutionMonitor,
   analyzeExecutionMonitor,
 } from "../runtimeImplementation/runtime.executionMonitor/index.js";
+import {
+  buildMcpServerProfilesFromManifest,
+  createMcpApplicationStateView,
+  createFileMcpPlusProfileStore,
+  createFileMcpPlusSkillStore,
+  createInMemoryMcpPlusOverlayStore,
+  createInMemoryMcpPlusProfileStore,
+  createInMemoryMcpPlusSkillStore,
+  mcp,
+  planMcpHarnessExposure,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export {
   PromptPack,
@@ -263,6 +284,39 @@ export {
   type ToolSpec,
   type ToolPolicyCustomInput,
 } from "../runtimeImplementation/runtimeAgentManifest.js";
+
+export {
+  buildMcpServerProfilesFromManifest,
+  createMcpApplicationStateView,
+  createFileMcpPlusProfileStore,
+  createFileMcpPlusSkillStore,
+  createInMemoryMcpPlusOverlayStore,
+  createInMemoryMcpPlusProfileStore,
+  createInMemoryMcpPlusSkillStore,
+  mcp,
+  planMcpHarnessExposure,
+};
+
+export type {
+  McpApplicationServerView,
+  McpApplicationServerInput,
+  McpApplicationStateView,
+  McpHarnessExposurePlan,
+  McpHarnessModuleSpec,
+  McpHarnessServerMode,
+  McpHarnessServerSpec,
+  McpPlusLearnedProfile,
+  McpPlusApplicationServerInput,
+  McpPlusOverlayStore,
+  McpPlusOverlayStoreKey,
+  McpPlusProfileProposal,
+  McpPlusProfileStore,
+  McpPlusProfileStoreKey,
+  McpPlusRuntimeOverlay,
+  McpPlusSkillNote,
+  McpPlusSkillStore,
+  McpTransportSpec,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export {
   createMemoryPlane,
@@ -637,6 +691,7 @@ export {
 export {
   createSandboxRuntimeProvider,
   prepareSandboxRuntime,
+  resolveRaxcellBinaryPath,
   sandboxRuntimeProviderDescriptor,
   type SandboxRuntimePrepareResult,
   type SandboxRuntimeDependencyCheck,
@@ -647,6 +702,24 @@ export {
   type SandboxRuntimeProviderStatus,
   type SandboxRuntimeSmokeResult,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxRuntimeProvider.js";
+
+export {
+  createRaxcellSandboxProvider,
+  mapSandboxProviderRequestToRaxcell,
+  raxcellSandboxProviderDescriptor,
+  type RaxcellClientLike,
+  type RaxcellSandboxProviderOptions,
+} from "../runtimeImplementation/runtime.sandboxPlane/raxcellSandboxProvider.js";
+
+export {
+  runSandboxPolicyMiddleware,
+  sandboxPolicyMiddlewareDescriptor,
+  type SandboxExecutionProviderPort,
+  type SandboxPolicyMiddlewareAuditEvent,
+  type SandboxPolicyMiddlewareEnvironmentGapDecision,
+  type SandboxPolicyMiddlewareResult,
+  type SandboxProviderRunRequest,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 
 export {
   approvalInterfaceEnvelope,
@@ -1134,12 +1207,18 @@ export const dependencyPlane = Object.freeze({
 });
 
 export const sandboxPlane = Object.freeze({
+  createRaxcellSandboxProvider,
   createSandboxCommandPlan,
   createLocalSandboxRemoteWorkerAdapter,
   createSandboxRuntimeProvider,
+  mapSandboxProviderRequestToRaxcell,
   prepareSandboxRuntime,
+  resolveRaxcellBinaryPath,
+  runSandboxPolicyMiddleware,
   runSandboxCommand,
+  raxcellSandboxProviderDescriptor,
   sandboxCommandRunnerDescriptor,
+  sandboxPolicyMiddlewareDescriptor,
   sandboxRuntimeProviderDescriptor,
 });
 

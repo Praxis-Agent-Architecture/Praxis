@@ -189,11 +189,11 @@ test("frameworkInspectionReport exposes linux bubblewrap sandbox readiness and i
     sandbox: {
       ready: false,
       required: true,
-      reason: "binary:bwrap is missing",
+      reason: "dependency.binary.raxcell is missing",
       probeStatus: "missingDependency",
       smokeStatus: "skipped",
-      missingDependencies: ["binary:bwrap"],
-      selfRepairHints: ["Install bubblewrap through the system package manager, then rerun rax test."],
+      missingDependencies: ["dependency.binary.raxcell"],
+      selfRepairHints: ["Configure the Raxcell CLI binary path through RAXCELL_BIN or inject RaxcellSandboxProvider at runtime."],
     },
   });
 
@@ -206,7 +206,7 @@ test("frameworkInspectionReport exposes linux bubblewrap sandbox readiness and i
   assert.equal(result.report.sandbox.linuxBubblewrap?.home, ".rax_workspace/sandbox/home");
   assert.equal(result.report.sandbox.linuxBubblewrap?.networkMode, "deny");
   assert.equal(result.report.sandbox.linuxBubblewrap?.deviceExposure, "minimal-by-default");
-  assert.deepEqual(result.report.sandbox.readiness.missingDependencies, ["binary:bwrap"]);
+  assert.deepEqual(result.report.sandbox.readiness.missingDependencies, ["dependency.binary.raxcell"]);
   assert.equal(result.report.findings.some((finding) => finding.findingId === "sandbox.provider.not-ready"), true);
 });
 

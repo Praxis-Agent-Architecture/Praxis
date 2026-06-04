@@ -120,15 +120,15 @@ function createRaxodeProvisioning(options: ReturnType<typeof normalizeRaxodeOpti
         source: "raxode-backend",
       },
     }),
-    praxis.dependency.binary("bwrap", {
+    praxis.dependency.binary("raxcell", {
       required: options.sandboxProfile === "linuxBubblewrap",
       install: "manual",
-      reason: "Prepare the Linux bubblewrap sandbox provider; Praxis degrades to workspace rollback when it is unavailable.",
+      reason: "Prepare the Raxcell Linux sandbox provider; Praxis degrades to workspace rollback when it is unavailable.",
       metadata: {
         source: "raxode-sandbox",
         providerFamily: "linux-bubblewrap",
         defaultWithSandbox: true,
-        installHint: "Install bubblewrap with the OS package manager, for example apt install bubblewrap.",
+        installHint: "Set RAXCELL_BIN or put the raxcell CLI on PATH.",
       },
     }),
     praxis.dependency.secretRef("provider.core.main", {

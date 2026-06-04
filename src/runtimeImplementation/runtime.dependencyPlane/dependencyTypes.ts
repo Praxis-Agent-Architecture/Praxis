@@ -178,6 +178,7 @@ export function canonicalDependencyId(input: string): string {
   const value = input.trim();
   const legacy: Record<string, string> = {
     "binary:bwrap": "dependency.binary.bwrap",
+    "binary:raxcell": "dependency.binary.raxcell",
     "binary:podman|docker": "dependency.binary.podmanOrDocker",
     "windows:Windows-Sandbox": "dependency.windows.sandbox",
     "macos:containerization": "dependency.macos.containerization",
@@ -222,6 +223,7 @@ export function legacyDependencyIds(input: string): readonly string[] {
   const canonical = canonicalDependencyId(input);
   const reverse: Record<string, readonly string[]> = {
     "dependency.binary.bwrap": ["binary:bwrap"],
+    "dependency.binary.raxcell": ["binary:raxcell"],
     "dependency.binary.podmanOrDocker": ["binary:podman|docker"],
     "dependency.windows.sandbox": ["windows:Windows-Sandbox"],
     "dependency.macos.containerization": ["macos:containerization"],
