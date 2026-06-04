@@ -34,6 +34,15 @@ type LiveCallProbeResult = LiveCallProbe & {
   error?: string;
 };
 
+type RuntimeToolFlowSummary = {
+  mode: "native" | "mcp-plus";
+  ok: boolean;
+  providerToolName?: string;
+  toolCallCount: number;
+  toolCallOkCount: number;
+  outputPreview?: string;
+};
+
 const repoRoot = path.resolve(import.meta.dirname, "..");
 const runRoot = process.env.PRAXIS_MCP_SMOKE_DIR
   ? path.resolve(process.env.PRAXIS_MCP_SMOKE_DIR)
@@ -189,6 +198,21 @@ class McpSmokeAgent extends PraxisAgent {
       scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
     }),
     loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 0 }),
+  });
+}
+
+class McpSmokeToolFlowAgent extends PraxisAgent {
+  identity = "agent.mcp-smoke-tool-flow";
+  model = model("gpt-5.4", { carrierId: "carrier.mcp-smoke-tool-flow" });
+  toolPolicy = toolPolicies.bapr();
+  harness = harness({
+    tools: mcp.recommendedTools(),
+    policy: policy({
+      allowProviderCall: true,
+      allowToolExecution: true,
+      scopes: ["agent.invoke", "tool.execute", "mcp:call"],
+    }),
+    loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
   });
 }
 
@@ -357,6 +381,66 @@ async function runLiveCallProbes(discovered: readonly DiscoveredServer[]): Promi
   return results;
 }
 
+async function runRuntimeToolFlow(mode: "native" | "mcp-plus", discovered: readonly DiscoveredServer[]): Promise<RuntimeToolFlowSummary> {
+  const compiled = compileAgent(McpSmokeToolFlowAgent, {
+    compiledAt: "2026-06-05T00:00:00.000Z",
+    manifestId: `manifest.mcp-smoke.tool-flow.${mode}`,
+  });
+  if (!compiled.ok) throw new Error(`Failed to compile ${mode} MCP tool-flow smoke agent.`);
+
+  let calls = 0;
+  let providerToolName: string | undefined;
+  const result = await createPraxisRuntimeKernel({ runtimeId: `runtime-real-mcp-tool-flow-${mode}` }).runManifest(
+    compiled.manifest,
+    `Call the everything echo MCP tool through ${mode} runtime tool flow.`,
+    {
+      sessionId: `session-real-mcp-tool-flow-${mode}`,
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      mcpModule: moduleFor(mode, discovered),
+      mcpPlus: { projectId: "project.mcp-smoke" },
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        providerToolName ??= body.tools
+          ?.map((item) => item.name)
+          .find((name): name is string => typeof name === "string" && name.includes("mcp_everything_echo"));
+        if (calls === 1) {
+          if (providerToolName === undefined) {
+            throw new Error(`${mode} tool-flow did not expose everything.echo provider tool.`);
+          }
+          return {
+            output: [{
+              type: "function_call",
+              name: providerToolName,
+              call_id: `${mode}-everything-echo`,
+              arguments: JSON.stringify({ message: `praxis ${mode} runtime tool flow` }),
+            }],
+          };
+        }
+        return { output_text: `${mode} runtime MCP tool flow completed` };
+      },
+      now: () => "2026-06-05T00:00:00.000Z",
+    },
+  );
+  if (!result.ok) throw new Error(`${mode} runtime tool-flow failed: ${JSON.stringify(result.error)}`);
+  const summary: RuntimeToolFlowSummary = {
+    mode,
+    ok: result.ok,
+    providerToolName,
+    toolCallCount: result.toolCalls.length,
+    toolCallOkCount: result.toolCalls.filter((toolCall) => toolCall.ok).length,
+    outputPreview: outputPreview(result.outputText),
+  };
+  if (summary.toolCallCount !== 1 || summary.toolCallOkCount !== 1) {
+    throw new Error(`${mode} runtime tool-flow expected one successful MCP tool call, got ${JSON.stringify(summary)}`);
+  }
+  console.log(`[tool-flow] ${mode}: ${JSON.stringify(summary)}`);
+  return summary;
+}
+
 async function discover(): Promise<DiscoveredServer[]> {
   const adapter = createMcpRuntimeAdapter({ servers: SERVER_PROFILES.map((server) => server.profile) });
   const discovered: DiscoveredServer[] = [];
@@ -493,12 +577,15 @@ async function runMode(mode: "native" | "mcp-plus", discovered: readonly Discove
 await mkdir(runRoot, { recursive: true });
 const discovered = await discover();
 const liveCallProbes = await runLiveCallProbes(discovered);
+const nativeToolFlow = await runRuntimeToolFlow("native", discovered);
+const mcpPlusToolFlow = await runRuntimeToolFlow("mcp-plus", discovered);
 await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discovered.map((server) => ({
   serverId: server.serverId,
   toolCount: server.tools.length,
   toolNames: server.tools.map((tool) => tool.name),
 })), null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-call-probes.json"), `${JSON.stringify(liveCallProbes, null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "runtime-tool-flow.json"), `${JSON.stringify([nativeToolFlow, mcpPlusToolFlow], null, 2)}\n`, "utf8");
 const native = await runMode("native", discovered);
 const mcpPlus = await runMode("mcp-plus", discovered);
 const comparison = {
@@ -507,6 +594,7 @@ const comparison = {
   totalNativeToolsDiscovered: discovered.reduce((sum, server) => sum + server.tools.length, 0),
   liveCallProbeCount: liveCallProbes.length,
   liveCallProbeServers: [...new Set(liveCallProbes.map((probe) => probe.serverId))],
+  runtimeToolFlows: [nativeToolFlow, mcpPlusToolFlow],
   native,
   mcpPlus,
   deltas: {
