@@ -60,6 +60,16 @@ type LiveResourceProbeResult = {
   error?: string;
 };
 
+type LiveCompletionProbeResult = {
+  serverId: string;
+  refType: "ref/resource" | "ref/prompt";
+  argumentName: string;
+  ok: boolean;
+  values?: readonly string[];
+  outputPreview?: string;
+  error?: string;
+};
+
 type LiveTransportProbeResult = {
   transport: "http";
   serverId: string;
@@ -582,6 +592,41 @@ async function runLiveResourceProbes(): Promise<LiveResourceProbeResult[]> {
   return results;
 }
 
+async function runLiveCompletionProbes(): Promise<LiveCompletionProbeResult[]> {
+  const adapter = createMcpRuntimeAdapter({ servers: SERVER_PROFILES.map((server) => server.profile) });
+  const results: LiveCompletionProbeResult[] = [];
+  try {
+    const completed = await adapter.complete?.({
+      serverId: "everything",
+      ref: { type: "ref/resource", uri: "demo://resource/dynamic/text/{resourceId}" },
+      argument: { name: "resourceId", value: "1" },
+    });
+    const result: LiveCompletionProbeResult = completed?.ok === true
+      ? {
+          serverId: "everything",
+          refType: "ref/resource",
+          argumentName: "resourceId",
+          ok: completed.output.values.includes("1"),
+          values: completed.output.values,
+          outputPreview: outputPreview(completed.output),
+          ...(completed.output.values.includes("1") ? {} : { error: `completion values did not include expected resource id: ${completed.output.values.join(", ")}` }),
+        }
+      : {
+          serverId: "everything",
+          refType: "ref/resource",
+          argumentName: "resourceId",
+          ok: false,
+          error: completed?.ok === false ? completed.error.message : "missing completion result",
+        };
+    results.push(result);
+    console.log(`[completion-probe] everything.completion/complete: ${result.ok ? "ok" : `failed: ${result.error}`}`);
+    if (!result.ok) throw new Error(`Live MCP completion probe failed: ${result.error}`);
+  } finally {
+    await adapter.shutdown?.({});
+  }
+  return results;
+}
+
 async function runRuntimeToolFlow(mode: "native" | "mcp-plus", discovered: readonly DiscoveredServer[]): Promise<RuntimeToolFlowSummary> {
   const compiled = compileAgent(McpSmokeToolFlowAgent, {
     compiledAt: "2026-06-05T00:00:00.000Z",
@@ -1039,6 +1084,7 @@ const discovered = await discover();
 const liveCallProbes = await runLiveCallProbes(discovered);
 const livePromptProbes = await runLivePromptProbes();
 const liveResourceProbes = await runLiveResourceProbes();
+const liveCompletionProbes = await runLiveCompletionProbes();
 const liveTransportProbes = await runLiveTransportProbes();
 const nativeToolFlow = await runRuntimeToolFlow("native", discovered);
 const mcpPlusToolFlow = await runRuntimeToolFlow("mcp-plus", discovered);
@@ -1051,6 +1097,7 @@ await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discover
 await writeFile(path.join(runRoot, "live-call-probes.json"), `${JSON.stringify(liveCallProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-prompt-probes.json"), `${JSON.stringify(livePromptProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-resource-probes.json"), `${JSON.stringify(liveResourceProbes, null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "live-completion-probes.json"), `${JSON.stringify(liveCompletionProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-transport-probes.json"), `${JSON.stringify(liveTransportProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-tool-flow.json"), `${JSON.stringify([nativeToolFlow, mcpPlusToolFlow], null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-skill-flow.json"), `${JSON.stringify(mcpPlusSkillFlow, null, 2)}\n`, "utf8");
@@ -1067,9 +1114,12 @@ const comparison = {
   liveResourceProbeCount: liveResourceProbes.length,
   liveResourceProbeServers: [...new Set(liveResourceProbes.map((probe) => probe.serverId))],
   liveResourceProbeOperations: [...new Set(liveResourceProbes.map((probe) => probe.operation))],
+  liveCompletionProbeCount: liveCompletionProbes.length,
+  liveCompletionProbeServers: [...new Set(liveCompletionProbes.map((probe) => probe.serverId))],
   liveTransportProbeCount: liveTransportProbes.length,
   liveTransportProbeTransports: [...new Set(liveTransportProbes.map((probe) => probe.transport))],
   liveResourceProbeResults: liveResourceProbes,
+  liveCompletionProbeResults: liveCompletionProbes,
   liveTransportProbeResults: liveTransportProbes,
   runtimeToolFlows: [nativeToolFlow, mcpPlusToolFlow],
   runtimeSkillFlow: mcpPlusSkillFlow,
