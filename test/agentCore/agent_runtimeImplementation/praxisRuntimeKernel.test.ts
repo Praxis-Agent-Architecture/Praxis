@@ -3152,6 +3152,165 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /opened/u);
 });
 
+test("PraxisRuntimeKernel.runManifest preserves MCP resources and prompts for MCP+ servers", async () => {
+  class McpPlusPassThroughAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-pass-through";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-pass-through" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Browser MCP+ server with standard MCP pass-through.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: [],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 3, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(McpPlusPassThroughAgent, {
+    compiledAt: "2026-06-05T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-pass-through",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  let listResourcesInput: unknown;
+  let listPromptsInput: unknown;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-pass-through",
+    sessionId: "session-mcp-plus-pass-through",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [{
+                name: "browser.open",
+                description: "Open a browser page.",
+                inputSchema: {
+                  type: "object",
+                  properties: { url: { type: "string" } },
+                  required: ["url"],
+                },
+              }],
+            },
+          };
+        },
+        async listResources(request) {
+          listResourcesInput = request;
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              resources: [{ uri: "browser-plus://state", name: "Browser state" }],
+            },
+          };
+        },
+        async listPrompts(request) {
+          listPromptsInput = request;
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              cursor: request?.cursor,
+              prompts: [{ name: "browser-triage", title: "Browser triage" }],
+            },
+          };
+        },
+      },
+    },
+  });
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-pass-through" }).runManifest(
+    compiled.manifest,
+    "list MCP+ resources and prompts",
+    {
+      sessionId: "session-mcp-plus-pass-through",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        const toolNames = (body.tools ?? []).map((item) => item.name ?? "");
+        const resourcesToolName = toolNames.find((name) => name === "mcp.resources" || name.includes("mcp_resources"));
+        const promptsToolName = toolNames.find((name) => name === "mcp.prompts" || name.includes("mcp_prompts"));
+        assert.equal(typeof resourcesToolName, "string");
+        assert.equal(typeof promptsToolName, "string");
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: resourcesToolName,
+              call_id: "mcp-plus-resources-list",
+              arguments: JSON.stringify({
+                operation: "list",
+                serverId: "browser-plus",
+              }),
+            }],
+          };
+        }
+        if (calls === 2) {
+          return {
+            output: [{
+              type: "function_call",
+              name: promptsToolName,
+              call_id: "mcp-plus-prompts-list",
+              arguments: JSON.stringify({
+                operation: "list",
+                serverId: "browser-plus",
+                cursor: "page-1",
+              }),
+            }],
+          };
+        }
+        return { output_text: "MCP+ resources and prompts stayed available" };
+      },
+      now: () => "2026-06-05T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.deepEqual(listResourcesInput, { serverId: "browser-plus" });
+  assert.deepEqual(listPromptsInput, { serverId: "browser-plus", cursor: "page-1" });
+  assert.equal(result.toolCalls.length, 2);
+  assert.equal(result.toolCalls[0]?.toolId, "mcp.resources");
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /browser-plus:\/\/state/u);
+  assert.equal(result.toolCalls[1]?.toolId, "mcp.prompts");
+  assert.equal(result.toolCalls[1]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[1]?.output), /browser-triage/u);
+});
+
 test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes tools at the next checkpoint", async () => {
   class InitMcpPlusAgent extends PraxisAgent {
     identity = "agent.mcp-plus-init";
