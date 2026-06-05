@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   createApplicationProjectRuntime,
@@ -21,7 +22,7 @@ import {
   createRaxodeBackendRestServer,
 } from "../raxodeBackend.js";
 
-const backendRoot = path.resolve("raxode-cli/backend");
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fakeAuth: AuthEnvelope = {
   kind: "none",
   present: true,
