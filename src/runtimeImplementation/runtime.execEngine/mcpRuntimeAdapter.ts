@@ -145,6 +145,17 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
 
   const getProfile = (serverId: string): McpRuntimeServerProfile | undefined => profiles.get(serverId);
 
+  const subscriptionResourceUri = (requestInput: JsonObject): string | undefined => {
+    if (typeof requestInput.uri === "string" && requestInput.uri.trim().length > 0) return requestInput.uri;
+    if (typeof requestInput.subject === "string" && requestInput.subject.trim().length > 0) return requestInput.subject;
+    if (typeof requestInput.subscriptionId !== "string") return undefined;
+    const marker = ":subscription:resource:";
+    const markerIndex = requestInput.subscriptionId.indexOf(marker);
+    if (markerIndex < 0) return undefined;
+    const uri = requestInput.subscriptionId.slice(markerIndex + marker.length);
+    return uri.trim().length > 0 ? uri : undefined;
+  };
+
   const getConnection = async (
     serverId: string,
     connectionId?: string,
@@ -320,12 +331,59 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     async subscribe(requestInput) {
       const connected = await getConnection(requestInput.serverId, requestInput.connectionId);
       if (!connected.ok) return connected;
-      return success({ subscriptionId: `${requestInput.serverId}:subscription:${requestInput.subjectType}:${requestInput.subject}`, status: "subscribed", serverId: requestInput.serverId, connectionId: connected.output.connectionId, providerMetadata: metadata(connected.output.profile, { eventKinds: requestInput.eventKinds ?? [] }) });
+      const resourceUri = subscriptionResourceUri(requestInput);
+      if ((requestInput.subjectType === undefined || requestInput.subjectType === "resource") && resourceUri !== undefined) {
+        const subscribed = await request(connected.output, "resources/subscribe", { uri: resourceUri });
+        if (!subscribed.ok) return subscribed;
+        return success({
+          subscriptionId: `${requestInput.serverId}:subscription:resource:${resourceUri}`,
+          status: "subscribed",
+          serverId: requestInput.serverId,
+          connectionId: connected.output.connectionId,
+          uri: resourceUri,
+          providerMetadata: metadata(connected.output.profile, {
+            method: "resources/subscribe",
+            eventKinds: requestInput.eventKinds ?? [],
+          }),
+          raw: subscribed.output,
+        });
+      }
+      return success({
+        subscriptionId: `${requestInput.serverId}:subscription:${requestInput.subjectType}:${requestInput.subject}`,
+        status: "subscribed",
+        serverId: requestInput.serverId,
+        connectionId: connected.output.connectionId,
+        providerMetadata: metadata(connected.output.profile, {
+          eventKinds: requestInput.eventKinds ?? [],
+          hostSemantic: "subscribe",
+          localOnly: true,
+        }),
+      });
     },
     async unsubscribe(requestInput) {
-      const profile = getProfile(requestInput.serverId);
-      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
-      return success({ subscriptionId: requestInput.subscriptionId, status: "unsubscribed", serverId: requestInput.serverId, providerMetadata: metadata(profile) });
+      const connected = await getConnection(requestInput.serverId, requestInput.connectionId);
+      if (!connected.ok) return connected;
+      const resourceUri = subscriptionResourceUri(requestInput);
+      if (resourceUri !== undefined) {
+        const unsubscribed = await request(connected.output, "resources/unsubscribe", { uri: resourceUri });
+        if (!unsubscribed.ok) return unsubscribed;
+        return success({
+          subscriptionId: requestInput.subscriptionId ?? `${requestInput.serverId}:subscription:resource:${resourceUri}`,
+          status: "unsubscribed",
+          serverId: requestInput.serverId,
+          connectionId: connected.output.connectionId,
+          uri: resourceUri,
+          providerMetadata: metadata(connected.output.profile, { method: "resources/unsubscribe" }),
+          raw: unsubscribed.output,
+        });
+      }
+      return success({
+        subscriptionId: requestInput.subscriptionId,
+        status: "unsubscribed",
+        serverId: requestInput.serverId,
+        connectionId: connected.output.connectionId,
+        providerMetadata: metadata(connected.output.profile, { hostSemantic: "unsubscribe", localOnly: true }),
+      });
     },
     async callTool(requestInput) {
       const connected = await getConnection(requestInput.serverId);

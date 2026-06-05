@@ -210,6 +210,66 @@ test("MCP runtime HTTP adapter forwards paginated tools and resources cursors", 
   }
 });
 
+test("MCP runtime HTTP adapter forwards resource subscription requests", async () => {
+  const seen: Array<{ method?: string; params?: Record<string, unknown> }> = [];
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/rpc") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const payload = JSON.parse(body) as { id?: string | number; method?: string; params?: Record<string, unknown> };
+      seen.push({ method: payload.method, params: payload.params });
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result: { ok: true } }));
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as AddressInfo;
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "resource-events",
+        transport: "http",
+        url: `http://127.0.0.1:${address.port}/rpc`,
+      }],
+    });
+
+    const subscribed = await mcp.subscribe?.({
+      serverId: "resource-events",
+      subjectType: "resource",
+      subject: "memory://watched",
+      eventKinds: ["changed"],
+    });
+    assert.equal(subscribed?.ok, true);
+    assert.equal(subscribed?.output.uri, "memory://watched");
+    assert.equal(subscribed?.output.providerMetadata.method, "resources/subscribe");
+
+    const unsubscribed = await mcp.unsubscribe?.({
+      serverId: "resource-events",
+      subscriptionId: "resource-events:subscription:resource:memory://watched",
+    });
+    assert.equal(unsubscribed?.ok, true);
+    assert.equal(unsubscribed?.output.uri, "memory://watched");
+    assert.equal(unsubscribed?.output.providerMetadata.method, "resources/unsubscribe");
+
+    assert.deepEqual(seen.map((item) => ({ method: item.method, params: item.params })), [
+      { method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "praxis-agentcore", version: "0.1.0" } } },
+      { method: "notifications/initialized", params: {} },
+      { method: "resources/subscribe", params: { uri: "memory://watched" } },
+      { method: "resources/unsubscribe", params: { uri: "memory://watched" } },
+    ]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("MCP runtime stdio adapter sends initialized notification before tools/list", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-stdio-"));
   const serverPath = path.join(workspace, "stdio-mcp-server.mjs");
