@@ -70,6 +70,16 @@ type LiveCompletionProbeResult = {
   error?: string;
 };
 
+type HostSemanticsProbeResult = {
+  serverId: string;
+  ok: boolean;
+  rootName?: string;
+  requestedMethods: readonly string[];
+  notificationMethods: readonly string[];
+  outputPreview?: string;
+  error?: string;
+};
+
 type LiveTransportProbeResult = {
   transport: "http";
   serverId: string;
@@ -920,6 +930,153 @@ async function runLiveTransportProbes(): Promise<LiveTransportProbeResult[]> {
   }
 }
 
+async function runHostSemanticsProbe(): Promise<HostSemanticsProbeResult> {
+  const serverId = "host-semantics";
+  const serverPath = path.join(runRoot, "host-semantics-mcp-server.mjs");
+  await writeFile(serverPath, `
+let pendingToolsListId;
+let rootsDone = false;
+let samplingDone = false;
+let elicitationDone = false;
+let progressSent = false;
+let hooksDeclared = false;
+let rootName = "missing-root";
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+function maybeFinish() {
+  if (pendingToolsListId !== undefined && rootsDone && samplingDone && elicitationDone && progressSent) {
+    send({ jsonrpc: "2.0", id: pendingToolsListId, result: { tools: [{ name: "host_semantics_ok", description: rootName, inputSchema: { type: "object" } }] } });
+    pendingToolsListId = undefined;
+  }
+}
+function handle(payload) {
+  if (payload.method === "initialize") {
+    hooksDeclared = payload.params?.capabilities?.roots?.listChanged === true &&
+      payload.params?.capabilities?.sampling !== undefined &&
+      payload.params?.capabilities?.elicitation?.form !== undefined &&
+      payload.params?.capabilities?.elicitation?.url !== undefined;
+    send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "host-semantics", version: "1" } } });
+    return;
+  }
+  if (payload.method === "tools/list") {
+    if (!hooksDeclared) {
+      send({ jsonrpc: "2.0", id: payload.id, error: { code: -32002, message: "host capabilities were not declared" } });
+      return;
+    }
+    pendingToolsListId = payload.id;
+    send({ jsonrpc: "2.0", id: "roots-1", method: "roots/list", params: {} });
+    send({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: "host-semantics", progress: 1, total: 1, message: "checking host semantics" } });
+    progressSent = true;
+    send({ jsonrpc: "2.0", id: "sampling-1", method: "sampling/createMessage", params: { messages: [{ role: "user", content: { type: "text", text: "summarize host semantics" } }], maxTokens: 16 } });
+    send({ jsonrpc: "2.0", id: "elicit-1", method: "elicitation/create", params: { mode: "form", message: "Confirm host semantics", requestedSchema: { type: "object", properties: { ok: { type: "boolean" } } } } });
+    return;
+  }
+  if (payload.id === "roots-1") {
+    const roots = payload.result?.roots ?? [];
+    rootName = roots[0]?.name ?? "missing-root";
+    rootsDone = rootName === "mcp-smoke-root";
+    maybeFinish();
+    return;
+  }
+  if (payload.id === "sampling-1") {
+    samplingDone = payload.result?.model === "praxis-smoke-model";
+    maybeFinish();
+    return;
+  }
+  if (payload.id === "elicit-1") {
+    elicitationDone = payload.result?.action === "decline";
+    maybeFinish();
+  }
+}
+process.stdin.setEncoding("utf8");
+let buffer = "";
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  const lines = buffer.split("\\n");
+  buffer = lines.pop() ?? "";
+  for (const line of lines) {
+    if (line.trim().length > 0) handle(JSON.parse(line));
+  }
+});
+`, "utf8");
+
+  const requestedMethods: string[] = [];
+  const notificationMethods: string[] = [];
+  const adapter = createMcpRuntimeAdapter({
+    servers: [{
+      serverId,
+      transport: "stdio",
+      command: process.execPath,
+      args: [serverPath],
+      timeoutMs: 3_000,
+    }],
+    host: {
+      createSamplingMessage(request) {
+        requestedMethods.push(request.method);
+        return {
+          role: "assistant",
+          content: { type: "text", text: "sampled host semantics" },
+          model: "praxis-smoke-model",
+          stopReason: "endTurn",
+        };
+      },
+      elicit(request) {
+        requestedMethods.push(request.method);
+        return { action: "decline" };
+      },
+      onNotification(notification) {
+        notificationMethods.push(notification.method);
+      },
+    },
+  });
+
+  try {
+    const registered = await adapter.setRoots?.({
+      serverId,
+      roots: [{ uri: `file://${repoRoot}`, name: "mcp-smoke-root" }],
+    });
+    if (registered?.ok !== true) {
+      return {
+        serverId,
+        ok: false,
+        requestedMethods,
+        notificationMethods,
+        error: registered?.ok === false ? registered.error.message : "missing setRoots result",
+      };
+    }
+    const listed = await adapter.listTools?.({ serverId });
+    const tool = listed?.ok === true
+      ? listed.output.tools.find((item: { name?: string }) => item.name === "host_semantics_ok")
+      : undefined;
+    const result: HostSemanticsProbeResult = listed?.ok === true && tool !== undefined
+      ? {
+          serverId,
+          ok: requestedMethods.includes("sampling/createMessage") &&
+            requestedMethods.includes("elicitation/create") &&
+            notificationMethods.includes("notifications/progress") &&
+            tool.description === "mcp-smoke-root",
+          rootName: tool.description,
+          requestedMethods,
+          notificationMethods,
+          outputPreview: outputPreview(listed.output),
+        }
+      : {
+          serverId,
+          ok: false,
+          requestedMethods,
+          notificationMethods,
+          error: listed?.ok === false ? listed.error.message : "missing host semantics listTools result",
+        };
+    console.log(`[host-semantics-probe] ${serverId}: ${result.ok ? "ok" : `failed: ${result.error ?? "semantic assertion failed"}`}`);
+    if (!result.ok) throw new Error(`Host semantics MCP probe failed: ${JSON.stringify(result)}`);
+    return result;
+  } finally {
+    await adapter.disconnect?.({ serverId });
+    await adapter.shutdown?.({});
+  }
+}
+
 function eventFromProgress(mode: string, progress: AgentModelCallProgressEvent & { cacheDebug?: AgentModelCacheDebugRecord }) {
   const cacheDebug = progress.cacheDebug;
   const estimatedInput = cacheDebug?.providerBody.cacheShape.providerStablePrefixEstimatedTokens ?? 0;
@@ -1086,6 +1243,7 @@ const livePromptProbes = await runLivePromptProbes();
 const liveResourceProbes = await runLiveResourceProbes();
 const liveCompletionProbes = await runLiveCompletionProbes();
 const liveTransportProbes = await runLiveTransportProbes();
+const hostSemanticsProbe = await runHostSemanticsProbe();
 const nativeToolFlow = await runRuntimeToolFlow("native", discovered);
 const mcpPlusToolFlow = await runRuntimeToolFlow("mcp-plus", discovered);
 const mcpPlusSkillFlow = await runRuntimeSkillFlow(discovered);
@@ -1099,6 +1257,7 @@ await writeFile(path.join(runRoot, "live-prompt-probes.json"), `${JSON.stringify
 await writeFile(path.join(runRoot, "live-resource-probes.json"), `${JSON.stringify(liveResourceProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-completion-probes.json"), `${JSON.stringify(liveCompletionProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-transport-probes.json"), `${JSON.stringify(liveTransportProbes, null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "host-semantics-probe.json"), `${JSON.stringify(hostSemanticsProbe, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-tool-flow.json"), `${JSON.stringify([nativeToolFlow, mcpPlusToolFlow], null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-skill-flow.json"), `${JSON.stringify(mcpPlusSkillFlow, null, 2)}\n`, "utf8");
 const native = await runMode("native", discovered);
@@ -1118,6 +1277,7 @@ const comparison = {
   liveCompletionProbeServers: [...new Set(liveCompletionProbes.map((probe) => probe.serverId))],
   liveTransportProbeCount: liveTransportProbes.length,
   liveTransportProbeTransports: [...new Set(liveTransportProbes.map((probe) => probe.transport))],
+  hostSemanticsProbe,
   liveResourceProbeResults: liveResourceProbes,
   liveCompletionProbeResults: liveCompletionProbes,
   liveTransportProbeResults: liveTransportProbes,
