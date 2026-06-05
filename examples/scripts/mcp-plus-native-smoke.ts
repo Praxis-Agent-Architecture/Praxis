@@ -4,14 +4,14 @@ import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-import { createCredentialRef } from "../src/modelAdapter/authProfileLayer/credentialRef.js";
-import { createChatGPTCodexAuthEnvelope } from "../src/modelAdapter/authProfileLayer/codexAuth.js";
-import { compileAgent, harness, loop, model, policy, PraxisAgent, toolPolicies } from "../src/runtimeImplementation/runtimeAgentManifest.js";
-import { createPraxisRuntimeKernel, type AgentModelCacheDebugRecord, type AgentModelCallProgressEvent } from "../src/runtimeImplementation/praxisRuntimeKernel.js";
-import { createMcpRuntimeAdapter, type McpRuntimeServerProfile } from "../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
-import { runDevDoctor } from "../src/devdoctor/index.js";
-import type { ExecutionMonitorReport } from "../src/runtimeImplementation/runtime.executionMonitor/index.js";
-import { mcp, type McpHarnessModuleSpec, type McpHarnessServerSpec } from "../src/runtimeImplementation/runtime.mcpPlane/index.js";
+import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
+import { createChatGPTCodexAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/codexAuth.js";
+import { compileAgent, harness, loop, model, policy, PraxisAgent, toolPolicies } from "../../src/runtimeImplementation/runtimeAgentManifest.js";
+import { createPraxisRuntimeKernel, type AgentModelCacheDebugRecord, type AgentModelCallProgressEvent } from "../../src/runtimeImplementation/praxisRuntimeKernel.js";
+import { createMcpRuntimeAdapter, type McpRuntimeServerProfile } from "../../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
+import { runDevDoctor } from "../../src/devdoctor/index.js";
+import type { ExecutionMonitorReport } from "../../src/runtimeImplementation/runtime.executionMonitor/index.js";
+import { mcp, type McpHarnessModuleSpec, type McpHarnessServerSpec } from "../../src/runtimeImplementation/runtime.mcpPlane/index.js";
 
 type DiscoveredServer = {
   serverId: string;
@@ -77,7 +77,7 @@ type DevdoctorCacheXraySummary = {
   };
 };
 
-const repoRoot = path.resolve(import.meta.dirname, "..");
+const repoRoot = path.resolve(import.meta.dirname, "../..");
 const runRoot = process.env.PRAXIS_MCP_SMOKE_DIR
   ? path.resolve(process.env.PRAXIS_MCP_SMOKE_DIR)
   : path.join(os.tmpdir(), `praxis-mcp-smoke-${Date.now()}`);
@@ -308,7 +308,7 @@ function moduleFor(mode: "native" | "mcp-plus", discovered: readonly DiscoveredS
     mode,
     ...(mode === "mcp-plus" ? { manifest: toolManifest(server) } : {}),
   }));
-  return mcp.module({ servers, metadata: { source: "automations.mcp-plus-native-smoke", mode } });
+  return mcp.module({ servers, metadata: { source: "examples.scripts.mcp-plus-native-smoke", mode } });
 }
 
 function outputPreview(value: unknown): string {
