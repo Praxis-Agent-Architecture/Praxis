@@ -233,6 +233,8 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
       }],
     });
     assert.equal(implemented.includes("mcp.call"), true);
+    assert.equal(implemented.includes("mcp.subscribe"), true);
+    assert.equal(implemented.includes("mcp.unsubscribe"), true);
 
     const connected = await executor.mcp?.connect?.({ serverId: "http-sse-mcp", transportHint: "sse" });
     assert.equal(connected?.ok, true);

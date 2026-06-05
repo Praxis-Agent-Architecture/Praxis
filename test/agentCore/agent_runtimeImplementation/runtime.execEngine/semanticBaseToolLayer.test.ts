@@ -462,6 +462,51 @@ test("mcp.use, mcp.resources, and mcp.prompts route to MCP runtime ports", async
   assert.equal(readResult.ok, true);
   assert.deepEqual(readInput, { serverId: "docs", uri: "file://readme" });
 
+  let subscribeInput: unknown;
+  const subscribeResult = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "subscribe", serverId: "docs", uri: "file://readme" },
+    executor: {
+      mcp: {
+        subscribe(request) {
+          subscribeInput = request;
+          return { ok: true, output: { subscriptionId: "sub-docs", status: "subscribed" } };
+        },
+      },
+    },
+  });
+  assert.equal(subscribeResult.ok, true);
+  assert.deepEqual(subscribeInput, {
+    serverId: "docs",
+    uri: "file://readme",
+    subjectType: "resource",
+    subject: "file://readme",
+  });
+
+  const invalidUnsubscribe = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "unsubscribe", serverId: "docs" },
+    executor: {},
+  });
+  assert.equal(invalidUnsubscribe.ok, false);
+  assert.equal(invalidUnsubscribe.error?.code, "MISSING_REQUIRED_FIELD");
+
+  let unsubscribeInput: unknown;
+  const unsubscribeResult = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "unsubscribe", serverId: "docs", subscriptionId: "sub-docs" },
+    executor: {
+      mcp: {
+        unsubscribe(request) {
+          unsubscribeInput = request;
+          return { ok: true, output: { subscriptionId: "sub-docs", status: "unsubscribed" } };
+        },
+      },
+    },
+  });
+  assert.equal(unsubscribeResult.ok, true);
+  assert.deepEqual(unsubscribeInput, { serverId: "docs", subscriptionId: "sub-docs" });
+
   let listPromptsInput: unknown;
   const listPromptsResult = await promptsLookup.handler.invoke({
     toolId: "mcp.prompts",

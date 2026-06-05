@@ -148,11 +148,17 @@ function activeSupportsFor(
 ): readonly BaseToolRuntimeSupportRequirement[] {
   const operation = toolInputRecord(toolInput).operation;
   if (entry.toolId === "mcp.resources") {
-    if (operation === "list") {
-      return entry.requiredSupports.filter((support) => support.portPath !== "mcp.readResource");
-    }
-    if (operation === "read") {
-      return entry.requiredSupports.filter((support) => support.portPath !== "mcp.listResources");
+    const activePort = operation === "list"
+      ? "mcp.listResources"
+      : operation === "read"
+        ? "mcp.readResource"
+        : operation === "subscribe"
+          ? "mcp.subscribe"
+          : operation === "unsubscribe"
+            ? "mcp.unsubscribe"
+            : undefined;
+    if (activePort !== undefined) {
+      return entry.requiredSupports.filter((support) => support.portPath === activePort);
     }
     return entry.requiredSupports;
   }
