@@ -3031,7 +3031,7 @@ function createApplicationMcpModule(
   if (options.mcpModule !== undefined) return options.mcpModule;
   const nativeServers: McpHarnessServerSpec[] = (options.mcpServers ?? []).map((server) => ({
     ...server,
-    mode: server.mode ?? "native",
+    mode: server.mode ?? (server.manifest === undefined ? "native" : "mcp-plus"),
   }));
   const plusServers: McpHarnessServerSpec[] = (options.mcpPlusServers ?? []).map((server) => ({
     ...server,
