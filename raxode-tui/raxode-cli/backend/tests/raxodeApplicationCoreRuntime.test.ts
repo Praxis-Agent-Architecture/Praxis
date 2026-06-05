@@ -3,6 +3,7 @@ import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   createApplicationProjectRuntime,
@@ -21,7 +22,7 @@ import {
   createRaxodeBackendRestServer,
 } from "../raxodeBackend.js";
 
-const backendRoot = path.resolve("raxode-cli/backend");
+const backendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fakeAuth: AuthEnvelope = {
   kind: "none",
   present: true,
@@ -120,11 +121,59 @@ test("raxode backend runs through applicationLayer with codingCore defaults", as
     assert.equal(result.view.agentId, "agent.raxode.coding");
     assert.equal(result.view.permissionProfile, "permissive");
     assert.equal(result.view.toolProfile, "agentCore");
-    assert.equal(result.view.tools.mounted, 25);
+    assert.equal(result.view.tools.mounted, 27);
     assert.equal(result.view.model.contextWindowTokens, 400_000);
     assert.equal(result.view.model.maxInputTokens, 272_000);
     assert.equal(result.view.model.inputBudgetThreshold, 0.95);
     assert.equal(result.view.model.usableInputTokens, 258_400);
+  } finally {
+    isolated.cleanup();
+  }
+});
+
+test("raxode backend forwards configured MCP+ servers into application runtime", async () => {
+  const isolated = createIsolatedBackendRoot();
+  const backend = await createRaxodeBackend({
+    projectRoot: isolated.backendRoot,
+    now: () => "2026-05-10T00:00:00.000Z",
+    localReadinessProbe: readyLocalReadinessProbe,
+    mcpServers: [
+      {
+        serverId: "playwright",
+        mode: "mcp-plus",
+        transport: "stdio",
+        command: "npx",
+        args: ["@playwright/mcp@latest"],
+        title: "Playwright MCP+",
+        summary: "Browser automation through Playwright MCP.",
+        manifest: {
+          server: {
+            id: "playwright",
+            title: "Playwright MCP+",
+            summary: "Browser automation through Playwright MCP.",
+          },
+          exposure: {
+            pinnedTools: ["browser_navigate", "browser_snapshot"],
+            indexedTools: ["browser_network_requests"],
+          },
+        },
+      },
+    ],
+    mcpPlus: {
+      projectId: "project.raxode.test",
+      reprofileConsecutiveIndexedCalls: 6,
+    },
+  });
+  try {
+    const view = await backend.getView();
+
+    assert.equal(view.mcp.recommendedMode, "mcp-plus");
+    assert.equal(view.mcp.nativeCompatible, true);
+    assert.equal(view.mcp.servers.length, 1);
+    assert.equal(view.mcp.servers[0]?.serverId, "playwright");
+    assert.equal(view.mcp.servers[0]?.mode, "mcp-plus");
+    assert.equal(view.mcp.servers[0]?.transport, "stdio");
+    assert.equal(view.mcp.servers[0]?.manifestPresent, true);
   } finally {
     isolated.cleanup();
   }

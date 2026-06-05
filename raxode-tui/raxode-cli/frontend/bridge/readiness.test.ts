@@ -26,6 +26,27 @@ function validReadiness(overrides: Record<string, unknown> = {}) {
       expectedCoreToolIds: ["shell.run", "file.read"],
       mountedToolIds: ["shell.run", "file.read"],
     },
+    mcp: {
+      kind: "raxode.mcpReadinessSummary",
+      schemaVersion: "raxode.mcpReadinessSummary.v1",
+      configuredServerCount: 1,
+      enabledServerCount: 1,
+      disabledServerCount: 0,
+      enabledMcpPlusServerCount: 1,
+      enabledNativeServerCount: 0,
+      configuredServerIds: ["playwright"],
+      enabledServerIds: ["playwright"],
+      enabledMcpPlusServerIds: ["playwright"],
+      enabledNativeServerIds: [],
+      recommendedMode: "mcp-plus",
+      nativeCompatible: true,
+      publicSafe: true,
+      profileIdentity: "serverId+project",
+      runtimeOverlayIdentity: "serverId+session",
+      schemaRefreshBoundary: "session-checkpoint",
+      projectId: "project.raxode.test",
+      reprofileConsecutiveIndexedCalls: 6,
+    },
     dependencies: [{
       dependencyId: "dependency.binary.node",
       kind: "binary",
@@ -96,6 +117,31 @@ test("readiness bridge accepts the complete backend readiness contract", () => {
 
 test("readiness bridge rejects readiness without tool facts", () => {
   const readiness = validReadiness({ tools: undefined });
+  assert.equal(isRaxodeBackendReadiness(readiness), false);
+});
+
+test("readiness bridge rejects MCP summaries that are not public-safe", () => {
+  const readiness = validReadiness({
+    mcp: {
+      kind: "raxode.mcpReadinessSummary",
+      schemaVersion: "raxode.mcpReadinessSummary.v1",
+      configuredServerCount: 1,
+      enabledServerCount: 1,
+      disabledServerCount: 0,
+      enabledMcpPlusServerCount: 1,
+      enabledNativeServerCount: 0,
+      configuredServerIds: ["playwright"],
+      enabledServerIds: ["playwright"],
+      enabledMcpPlusServerIds: ["playwright"],
+      enabledNativeServerIds: [],
+      recommendedMode: "mcp-plus",
+      nativeCompatible: true,
+      publicSafe: false,
+      profileIdentity: "serverId+project",
+      runtimeOverlayIdentity: "serverId+session",
+      schemaRefreshBoundary: "session-checkpoint",
+    },
+  });
   assert.equal(isRaxodeBackendReadiness(readiness), false);
 });
 

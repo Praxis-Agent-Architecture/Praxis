@@ -745,9 +745,13 @@ function createMcpExecutor(context: RuntimeBaseToolExecutorContext): BaseToolExe
     "call",
     "stream",
     "listResources",
+    "listResourceTemplates",
     "readResource",
+    "subscribe",
+    "unsubscribe",
     "listPrompts",
     "getPrompt",
+    "complete",
     "setRoots",
     "reportProgress",
     "createSamplingMessage",
@@ -756,12 +760,16 @@ function createMcpExecutor(context: RuntimeBaseToolExecutorContext): BaseToolExe
   ]);
   const callTool = base.callTool ?? base.call;
   const streamTool = base.streamTool ?? base.stream;
-  return {
+  const namespace: BaseToolExecutorNamespace = {
     ...base,
     ...(callTool === undefined ? {} : { call: callTool, callTool }),
     ...(streamTool === undefined ? {} : { stream: streamTool, streamTool }),
     ...(context.adapters?.mcp ?? {}),
   };
+  if (configured?.shutdown !== undefined && namespace.__praxisRuntimeOwnedShutdown === undefined) {
+    namespace.__praxisRuntimeOwnedShutdown = configured.shutdown;
+  }
+  return namespace;
 }
 
 export function listRuntimeBaseToolImplementedPortPaths(
@@ -775,9 +783,13 @@ export function listRuntimeBaseToolImplementedPortPaths(
       "mcp.callTool",
       "mcp.listTools",
       "mcp.listResources",
+      "mcp.listResourceTemplates",
       "mcp.readResource",
+      "mcp.subscribe",
+      "mcp.unsubscribe",
       "mcp.listPrompts",
       "mcp.getPrompt",
+      "mcp.complete",
       "mcp.setRoots",
       "mcp.reportProgress",
       "mcp.createSamplingMessage",

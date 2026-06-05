@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -61,8 +61,8 @@ test("baseToolSupportCatalog covers the semantic basetool catalog without work T
   const snapshot = snapshotBaseToolSupportCatalog();
 
   assert.equal(baseToolSupportCatalogDescriptor.semanticCatalog, true);
-  assert.equal(catalog.length, 25);
-  assert.equal(snapshot.total, 25);
+  assert.equal(catalog.length, 27);
+  assert.equal(snapshot.total, 27);
   assert.equal(snapshot.byFamily.work ?? 0, 0);
   assert.equal(catalog.some((entry) => entry.storageFamily === "workBase"), false);
 
@@ -71,6 +71,13 @@ test("baseToolSupportCatalog covers the semantic basetool catalog without work T
   assert.equal(shell.family, "core");
   assert.equal(shell.group, "shell");
   assert.equal(shell.requiredSupports.some((support) => support.portPath === "shell.run"), true);
+
+  const prompts = catalog.find((entry) => entry.toolId === "mcp.prompts");
+  assert.ok(prompts);
+  assert.deepEqual(prompts.requiredSupports.map((support) => support.portPath), ["mcp.listPrompts", "mcp.getPrompt"]);
+  const completions = catalog.find((entry) => entry.toolId === "mcp.completions");
+  assert.ok(completions);
+  assert.deepEqual(completions.requiredSupports.map((support) => support.portPath), ["mcp.complete"]);
 
   const file = catalog.find((entry) => entry.toolId === "file.read");
   assert.ok(file);
@@ -158,14 +165,24 @@ test("baseToolSupportCatalog preflight blocks adapter-required semantic tools un
 
 test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provider through semantic aliases", async () => {
   const seenMethods: string[] = [];
+  const seenReadResourceParams: Array<Record<string, unknown> | undefined> = [];
+  const seenSseHeaders: Array<{ protocolVersion?: string; accept?: string }> = [];
+  let sseStream: ServerResponse | undefined;
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/sse") {
+      sseStream = response;
+      seenSseHeaders.push({
+        protocolVersion: typeof request.headers["mcp-protocol-version"] === "string"
+          ? request.headers["mcp-protocol-version"]
+          : undefined,
+        accept: typeof request.headers.accept === "string" ? request.headers.accept : undefined,
+      });
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
-        connection: "close",
+        connection: "keep-alive",
       });
-      response.end("event: ready\ndata: {}\n\n");
+      response.write("event: endpoint\ndata: /rpc\n\n");
       return;
     }
     if (request.method !== "POST" || request.url !== "/rpc") {
@@ -180,6 +197,7 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
     request.on("end", () => {
       const payload = JSON.parse(body) as { id?: string | number; method?: string; params?: Record<string, unknown> };
       seenMethods.push(payload.method ?? "");
+      if (payload.method === "resources/read") seenReadResourceParams.push(payload.params);
       const result = payload.method === "tools/list"
         ? { tools: [{ name: "echo", description: "HTTP MCP echo", inputSchema: { type: "object" } }] }
         : payload.method === "tools/call"
@@ -220,6 +238,10 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
       }],
     });
     assert.equal(implemented.includes("mcp.call"), true);
+    assert.equal(implemented.includes("mcp.complete"), true);
+    assert.equal(implemented.includes("mcp.listResourceTemplates"), true);
+    assert.equal(implemented.includes("mcp.subscribe"), true);
+    assert.equal(implemented.includes("mcp.unsubscribe"), true);
 
     const connected = await executor.mcp?.connect?.({ serverId: "http-sse-mcp", transportHint: "sse" });
     assert.equal(connected?.ok, true);
@@ -236,10 +258,54 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
     assert.equal(resources?.ok, true);
     if (resources?.ok) assert.equal(resources.output.resources[0]?.uri, "memory://hello");
 
-    assert.deepEqual(seenMethods, ["initialize", "tools/call", "resources/list"]);
+    const readResource = await executor.mcp?.readResource?.({ serverId: "http-sse-mcp", uri: "memory://hello" });
+    assert.equal(readResource?.ok, true);
+    if (readResource?.ok) assert.match(JSON.stringify(readResource.output), /resource-ok/u);
+    assert.deepEqual(seenReadResourceParams, [{ uri: "memory://hello" }]);
+
+    assert.deepEqual(seenSseHeaders, [
+      { protocolVersion: "2025-06-18", accept: "application/json, text/event-stream" },
+    ]);
+
+    assert.deepEqual(seenMethods, [
+      "initialize",
+      "notifications/initialized",
+      "tools/call",
+      "resources/list",
+      "resources/read",
+    ]);
   } finally {
+    sseStream?.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
+});
+
+test("runtime factory preserves externally supplied MCP shutdown ownership", async () => {
+  let externalShutdownCalled = false;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-factory-mcp-external-shutdown",
+    sessionId: "session-factory-mcp-external-shutdown",
+    mcpServers: [{
+      serverId: "configured-mcp",
+      transport: "stdio",
+      command: process.execPath,
+      args: ["-e", "process.stdin.resume()"],
+      timeoutMs: 1_000,
+    }],
+    adapters: {
+      mcp: {
+        async __praxisRuntimeOwnedShutdown() {
+          externalShutdownCalled = true;
+          return { ok: true as const, output: { status: "external-shutdown" } };
+        },
+      },
+    },
+  });
+
+  const shutdown = await executor.mcp?.__praxisRuntimeOwnedShutdown?.({});
+  assert.equal(externalShutdownCalled, true);
+  assert.equal(shutdown?.ok, true);
+  if (shutdown?.ok) assert.equal(shutdown.output.status, "external-shutdown");
 });
 
 test("runtime factory executor can drive semantic core tools through mounted baseTools", async () => {

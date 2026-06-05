@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import test from "node:test";
 
 import { defineAgentCoreContractTest } from "../agentCoreContractTestHelper.js";
@@ -32,6 +33,7 @@ import {
   createInMemoryMcpPlusSkillStore,
   mcp,
   type McpPlusLearnedProfile,
+  type McpPlusRuntimeOverlay,
 } from "../../../src/runtimeImplementation/runtime.mcpPlane/index.js";
 import { createInMemorySessionStateEventStore } from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
 import type {
@@ -3036,7 +3038,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
                   summary: "Browser MCP server with MCP+ exposure policy.",
                 },
                 exposure: {
-                  pinnedTools: ["browser.open"],
+                  pinnedTools: ["browser.open", "browser.inspect"],
                   indexedTools: [],
                 },
               },
@@ -3048,7 +3050,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
     });
@@ -3062,23 +3064,43 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
   if (!compiled.ok) return;
 
   let executedMcpUseRequest: unknown;
+  const listToolRequests: unknown[] = [];
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-dynamic-mcp",
     sessionId: "session-dynamic-mcp",
     adapters: {
       mcp: {
         async listTools(request) {
+          listToolRequests.push(request);
+          if (request?.cursor === undefined) {
+            return {
+              ok: true as const,
+              output: {
+                serverId: request?.serverId,
+                tools: [{
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: {
+                    type: "object",
+                    properties: { url: { type: "string" } },
+                    required: ["url"],
+                  },
+                }],
+                nextCursor: "page-2",
+              },
+            };
+          }
           return {
             ok: true as const,
             output: {
               serverId: request?.serverId,
               tools: [{
-                name: "browser.open",
-                description: "Open a browser page.",
+                name: "browser.inspect",
+                description: "Inspect a browser page.",
                 inputSchema: {
                   type: "object",
-                  properties: { url: { type: "string" } },
-                  required: ["url"],
+                  properties: { selector: { type: "string" } },
+                  required: ["selector"],
                 },
               }],
             },
@@ -3118,7 +3140,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
         providerToolNames.push(...(body.tools ?? []).map((item) => item.name ?? ""));
         dynamicProviderToolName ??= body.tools
           ?.map((item) => item.name)
-          .find((name): name is string => typeof name === "string" && name.includes("mcp_browser-plus_browser_open"));
+          .find((name): name is string => typeof name === "string" && name.includes("mcp_browser-plus_browser_inspect"));
         if (calls === 1) {
           assert.equal(typeof dynamicProviderToolName, "string");
           return {
@@ -3126,7 +3148,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
               type: "function_call",
               name: dynamicProviderToolName,
               call_id: "dynamic-mcp-open",
-              arguments: JSON.stringify({ url: "https://example.test/docs" }),
+              arguments: JSON.stringify({ selector: "main" }),
             }],
           };
         }
@@ -3141,13 +3163,179 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
   assert.equal(providerToolNames.includes(dynamicProviderToolName ?? ""), true);
   assert.deepEqual(executedMcpUseRequest, {
     serverId: "browser-plus",
-    toolName: "browser.open",
-    arguments: { url: "https://example.test/docs" },
+    toolName: "browser.inspect",
+    arguments: { selector: "main" },
   });
+  assert.equal(listToolRequests.length % 2, 0);
+  for (let index = 0; index < listToolRequests.length; index += 2) {
+    assert.deepEqual(listToolRequests.slice(index, index + 2), [
+      { serverId: "browser-plus" },
+      { serverId: "browser-plus", cursor: "page-2" },
+    ]);
+  }
   assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0]?.toolId, "mcp.browser-plus.browser.open");
+  assert.equal(result.toolCalls[0]?.toolId, "mcp.browser-plus.browser.inspect");
   assert.equal(result.toolCalls[0]?.ok, true);
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /opened/u);
+});
+
+test("PraxisRuntimeKernel.runManifest preserves MCP resources and prompts for MCP+ servers", async () => {
+  class McpPlusPassThroughAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-pass-through";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-pass-through" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Browser MCP+ server with standard MCP pass-through.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: [],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 3, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(McpPlusPassThroughAgent, {
+    compiledAt: "2026-06-05T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-pass-through",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  let listResourcesInput: unknown;
+  let listPromptsInput: unknown;
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-pass-through",
+    sessionId: "session-mcp-plus-pass-through",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [{
+                name: "browser.open",
+                description: "Open a browser page.",
+                inputSchema: {
+                  type: "object",
+                  properties: { url: { type: "string" } },
+                  required: ["url"],
+                },
+              }],
+            },
+          };
+        },
+        async listResources(request) {
+          listResourcesInput = request;
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              resources: [{ uri: "browser-plus://state", name: "Browser state" }],
+            },
+          };
+        },
+        async listPrompts(request) {
+          listPromptsInput = request;
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              cursor: request?.cursor,
+              prompts: [{ name: "browser-triage", title: "Browser triage" }],
+            },
+          };
+        },
+      },
+    },
+  });
+
+  let calls = 0;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-pass-through" }).runManifest(
+    compiled.manifest,
+    "list MCP+ resources and prompts",
+    {
+      sessionId: "session-mcp-plus-pass-through",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        const toolNames = (body.tools ?? []).map((item) => item.name ?? "");
+        const resourcesToolName = toolNames.find((name) => name === "mcp.resources" || name.includes("mcp_resources"));
+        const promptsToolName = toolNames.find((name) => name === "mcp.prompts" || name.includes("mcp_prompts"));
+        assert.equal(typeof resourcesToolName, "string");
+        assert.equal(typeof promptsToolName, "string");
+        if (calls === 1) {
+          return {
+            output: [{
+              type: "function_call",
+              name: resourcesToolName,
+              call_id: "mcp-plus-resources-list",
+              arguments: JSON.stringify({
+                operation: "list",
+                serverId: "browser-plus",
+              }),
+            }],
+          };
+        }
+        if (calls === 2) {
+          return {
+            output: [{
+              type: "function_call",
+              name: promptsToolName,
+              call_id: "mcp-plus-prompts-list",
+              arguments: JSON.stringify({
+                operation: "list",
+                serverId: "browser-plus",
+                cursor: "page-1",
+              }),
+            }],
+          };
+        }
+        return { output_text: "MCP+ resources and prompts stayed available" };
+      },
+      now: () => "2026-06-05T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.deepEqual(listResourcesInput, { serverId: "browser-plus" });
+  assert.deepEqual(listPromptsInput, { serverId: "browser-plus", cursor: "page-1" });
+  assert.equal(result.toolCalls.length, 2);
+  assert.equal(result.toolCalls[0]?.toolId, "mcp.resources");
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /browser-plus:\/\/state/u);
+  assert.equal(result.toolCalls[1]?.toolId, "mcp.prompts");
+  assert.equal(result.toolCalls[1]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[1]?.output), /browser-triage/u);
 });
 
 test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes tools at the next checkpoint", async () => {
@@ -3171,7 +3359,7 @@ test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes 
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 4, maxToolCalls: 1 }),
     });
@@ -3252,8 +3440,17 @@ test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes 
                 serverId: "browser-plus",
                 pinnedTools: ["browser.open"],
                 indexedTools: ["network.status"],
+                toolCards: {
+                  "network.status": {
+                    title: "Network status",
+                    summary: "Inspect network when page loading is suspicious.",
+                    keywords: ["network"],
+                  },
+                },
                 modeHint: "expanded",
-                rationale: "Mode belongs to runtime overlay, not the learned profile.",
+                rationale: {
+                  summary: "Mode belongs to runtime overlay, not the learned profile.",
+                },
               }),
             }],
           };
@@ -3270,7 +3467,16 @@ test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes 
                 serverId: "browser-plus",
                 pinnedTools: ["browser.open"],
                 indexedTools: ["network.status"],
-                rationale: "browser.open is the common first action.",
+                toolCards: {
+                  "network.status": {
+                    title: "Network status",
+                    summary: "Inspect network when page loading is suspicious.",
+                    keywords: ["network"],
+                  },
+                },
+                rationale: {
+                  summary: "browser.open is the common first action.",
+                },
               }),
             }],
           };
@@ -3335,7 +3541,7 @@ test("PraxisRuntimeKernel.runManifest expands developer manifest indexed MCP+ to
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 3, maxToolCalls: 1 }),
     });
@@ -3423,6 +3629,147 @@ test("PraxisRuntimeKernel.runManifest expands developer manifest indexed MCP+ to
   assert.equal(result.toolCalls[0]?.ok, true);
 });
 
+test("PraxisRuntimeKernel.runManifest merges MCP+ learned profile into developer manifest at checkpoint", async () => {
+  class LearnedProfileManifestMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-learned-manifest";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-learned-manifest" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Developer-authored browser MCP+ server.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: ["network.status"],
+                  alwaysIndexTools: ["network.status"],
+                  toolCards: {
+                    "network.status": {
+                      title: "Developer network status",
+                      summary: "Developer card must keep priority over learned cards.",
+                      keywords: ["developer"],
+                    },
+                  },
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(LearnedProfileManifestMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-learned-manifest",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const profile: McpPlusLearnedProfile = {
+    schemaVersion: "mcp-plus.profile.v1",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    exposure: {
+      pinnedTools: ["page.snapshot", "network.status"],
+      indexedTools: ["network.status"],
+      toolCards: {
+        "network.status": {
+          title: "Learned network status",
+          summary: "Learned card should not override the developer card.",
+          keywords: ["learned"],
+        },
+      },
+    },
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  };
+  const profileStore = createInMemoryMcpPlusProfileStore([profile]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-learned-manifest",
+    sessionId: "session-mcp-plus-learned-manifest",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [
+                {
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+                },
+                {
+                  name: "page.snapshot",
+                  description: "Read the current page accessibility snapshot.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+                {
+                  name: "network.status",
+                  description: "Inspect network requests.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+              ],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "called", request } };
+        },
+      },
+    },
+  });
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-learned-manifest" }).runManifest(
+    compiled.manifest,
+    "inspect merged mcp-plus profile",
+    {
+      sessionId: "session-mcp-plus-learned-manifest",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        profileStore,
+      },
+      providerCaller: async (envelope) => {
+        const body = envelope.body as { instructions?: unknown; tools?: readonly { name?: string }[] };
+        const toolNames = (body.tools ?? []).map((item) => item.name ?? "");
+        assert.equal(toolNames.some((name) => name.includes("mcp_browser-plus_browser_open")), true);
+        assert.equal(toolNames.some((name) => name.includes("mcp_browser-plus_page_snapshot")), true);
+        assert.equal(toolNames.some((name) => name.includes("mcp_browser-plus_network_status")), false);
+        assert.equal(toolNames.some((name) => name.includes("mcp_plus_init")), false);
+        assert.match(JSON.stringify(body.instructions), /Developer network status/u);
+        assert.doesNotMatch(JSON.stringify(body.instructions), /Learned network status/u);
+        return { output_text: "developer manifest and learned profile merged" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+});
+
 test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecutive indexed tool calls", async () => {
   class ReprofileMcpPlusAgent extends PraxisAgent {
     identity = "agent.mcp-plus-reprofile";
@@ -3444,7 +3791,7 @@ test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecu
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 8, maxToolCalls: 1 }),
     });
@@ -3476,7 +3823,7 @@ test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecu
     activeTools: ["network.status"],
     counters: { consecutiveIndexedToolCalls: {} },
     updatedAt: "2026-06-04T00:00:00.000Z",
-  }]);
+  } as unknown as McpPlusRuntimeOverlay]);
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-mcp-plus-reprofile",
     sessionId: "session-mcp-plus-reprofile",
@@ -3556,8 +3903,162 @@ test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecu
   assert.equal(result.toolCalls.filter((record) => record.toolId.endsWith("network.status")).length, 6);
   assert.equal(sawReprofileTool, true);
   const overlay = await overlayStore.load({ sessionId: "session-mcp-plus-reprofile", serverId: "browser-plus" });
-  assert.equal(overlay?.pendingReprofile, true);
-  assert.equal(overlay?.counters.consecutiveIndexedToolCalls["network.status"], 6);
+  assert.equal(overlay?.state.pendingReprofile, true);
+  assert.equal(overlay?.state.counters.consecutiveIndexedToolCalls["network.status"], 6);
+  assert.equal(overlay?.mode, undefined);
+  assert.equal(overlay?.activeTools, undefined);
+  assert.equal(overlay?.pendingReprofile, undefined);
+  assert.equal(overlay?.counters, undefined);
+});
+
+test("PraxisRuntimeKernel.runManifest does not schedule MCP+ reprofile for interleaved indexed tool calls", async () => {
+  class ReprofileInterleavedMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-reprofile-interleaved";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-reprofile-interleaved" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 8, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(ReprofileInterleavedMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-reprofile-interleaved",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const profile: McpPlusLearnedProfile = {
+    schemaVersion: "mcp-plus.profile.v1",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    exposure: {
+      pinnedTools: ["browser.open"],
+      indexedTools: ["network.status", "console.logs"],
+    },
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  };
+  const profileStore = createInMemoryMcpPlusProfileStore([profile]);
+  const overlayStore = createInMemoryMcpPlusOverlayStore([{
+    serverId: "browser-plus",
+    sessionId: "session-mcp-plus-reprofile-interleaved",
+    state: {
+      mode: "expanded",
+      activeTools: ["network.status", "console.logs"],
+      counters: { consecutiveIndexedToolCalls: {} },
+    },
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  }]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-reprofile-interleaved",
+    sessionId: "session-mcp-plus-reprofile-interleaved",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [
+                {
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+                },
+                {
+                  name: "network.status",
+                  description: "Inspect network requests.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+                {
+                  name: "console.logs",
+                  description: "Inspect browser console logs.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+              ],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "indexed", request } };
+        },
+      },
+    },
+  });
+
+  let calls = 0;
+  let sawReprofileTool = false;
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-reprofile-interleaved" }).runManifest(
+    compiled.manifest,
+    "inspect indexed tools alternately",
+    {
+      sessionId: "session-mcp-plus-reprofile-interleaved",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        profileStore,
+        overlayStore,
+        reprofileConsecutiveIndexedCalls: 6,
+      },
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        const toolNames = (body.tools ?? []).map((item) => item.name ?? "");
+        sawReprofileTool ||= toolNames.some((name) => name.includes("mcp_plus_reprofile"));
+        const networkToolName = toolNames.find((name) => name.includes("mcp_browser-plus_network_status"));
+        const consoleToolName = toolNames.find((name) => name.includes("mcp_browser-plus_console_logs"));
+        if (calls <= 6) {
+          const toolName = calls % 2 === 1 ? networkToolName : consoleToolName;
+          assert.equal(typeof networkToolName, "string");
+          assert.equal(typeof consoleToolName, "string");
+          assert.equal(typeof toolName, "string");
+          return {
+            output: [{
+              type: "function_call",
+              name: toolName,
+              call_id: `indexed-${calls}`,
+              arguments: JSON.stringify({}),
+            }],
+          };
+        }
+        assert.equal(sawReprofileTool, false);
+        return { output_text: "reprofile is not available for interleaved calls" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.equal(result.toolCalls.filter((record) => record.toolId.endsWith("network.status")).length, 3);
+  assert.equal(result.toolCalls.filter((record) => record.toolId.endsWith("console.logs")).length, 3);
+  assert.equal(sawReprofileTool, false);
+  const overlay = await overlayStore.load({ sessionId: "session-mcp-plus-reprofile-interleaved", serverId: "browser-plus" });
+  assert.equal(overlay?.state.pendingReprofile, undefined);
+  assert.equal(overlay?.state.counters.consecutiveIndexedToolCalls["network.status"], 0);
+  assert.equal(overlay?.state.counters.consecutiveIndexedToolCalls["console.logs"], 1);
 });
 
 test("PraxisRuntimeKernel.runManifest lets MCP+ skill_write persist a server project skill note", async () => {
@@ -3599,7 +4100,7 @@ test("PraxisRuntimeKernel.runManifest lets MCP+ skill_write persist a server pro
       policy: policy({
         allowProviderCall: true,
         allowToolExecution: true,
-        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list"],
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
       }),
       loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
     });
@@ -3691,6 +4192,296 @@ test("PraxisRuntimeKernel.runManifest lets MCP+ skill_write persist a server pro
   assert.equal(notes.length, 1);
   assert.equal(notes[0]?.chapter, "browser-debug");
   assert.equal(notes[0]?.title, "Snapshot before debugging");
+});
+
+test("PraxisRuntimeKernel.runManifest injects MCP+ sidecar after built-in tool declarations without skill body expansion", async () => {
+  class PromptMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-prompt";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-prompt" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Browser MCP+ server.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: ["network.status"],
+                  toolCards: {
+                    "network.status": {
+                      title: "Network status",
+                      summary: "Inspect network requests when debugging page/API failures.",
+                      keywords: ["network", "request", "debug"],
+                    },
+                  },
+                },
+                skills: {
+                  chapters: [{
+                    id: "browser-debug",
+                    title: "Browser debug",
+                    summary: "Use snapshots before diagnostics.",
+                  }],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(PromptMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-prompt",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const skillStore = createInMemoryMcpPlusSkillStore([{
+    id: "skill.full-body",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    chapter: "browser-debug",
+    title: "Full body should stay out of the prefix",
+    summary: "Compact card may be indexed, but body expansion is on demand.",
+    do: ["UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE"],
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  }]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-prompt",
+    sessionId: "session-mcp-plus-prompt",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [
+                {
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+                },
+                {
+                  name: "network.status",
+                  description: "Inspect network requests.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+              ],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "called", request } };
+        },
+      },
+    },
+  });
+
+  let providerBodyText = "";
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-prompt" }).runManifest(
+    compiled.manifest,
+    "inspect prompt flow",
+    {
+      sessionId: "session-mcp-plus-prompt",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        skillStore,
+      },
+      providerCaller: async (envelope) => {
+        providerBodyText = JSON.stringify(envelope.body);
+        return { output_text: "prompt inspected" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  assert.match(providerBodyText, /# Tool Declarations/u);
+  assert.match(providerBodyText, /MCP\+ Native Exposure/u);
+  assert.match(providerBodyText, /Network status/u);
+  assert.match(providerBodyText, /browser-debug/u);
+  assert.match(providerBodyText, /Full body should stay out of the prefix/u);
+  assert.match(providerBodyText, /Compact card may be indexed, but body expansion is on demand/u);
+  assert.doesNotMatch(providerBodyText, /UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE/u);
+
+  const builtInToolDeclarationsIndex = providerBodyText.indexOf("# Tool Declarations");
+  const mcpPlusSidecarIndex = providerBodyText.indexOf("MCP+ Native Exposure");
+  const baseProtocolIndex = providerBodyText.indexOf("Praxis tool calling protocol:", mcpPlusSidecarIndex);
+  assert.ok(builtInToolDeclarationsIndex >= 0);
+  assert.ok(mcpPlusSidecarIndex > builtInToolDeclarationsIndex);
+  assert.ok(baseProtocolIndex > mcpPlusSidecarIndex);
+});
+
+test("PraxisRuntimeKernel.runManifest expands MCP+ skill bodies only through skill_read tool results", async () => {
+  class SkillReadMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-skill-read";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-skill-read" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Browser MCP+ server.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: [],
+                },
+                skills: {
+                  chapters: [{
+                    id: "browser-debug",
+                    title: "Browser debug",
+                    summary: "Use snapshots before diagnostics.",
+                  }],
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 2, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(SkillReadMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-skill-read",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const skillStore = createInMemoryMcpPlusSkillStore([{
+    id: "skill.full-body",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    chapter: "browser-debug",
+    title: "Read full skill on demand",
+    summary: "Compact skill card only.",
+    do: ["UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT"],
+    pitfalls: ["UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT"],
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  }]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-skill-read",
+    sessionId: "session-mcp-plus-skill-read",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [{
+                name: "browser.open",
+                description: "Open a browser page.",
+                inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+              }],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "called", request } };
+        },
+      },
+    },
+  });
+
+  let calls = 0;
+  let firstProviderBodyText = "";
+  let secondStableInstructionsText = "";
+  let secondDynamicInputText = "";
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-skill-read" }).runManifest(
+    compiled.manifest,
+    "read the full browser debugging skill",
+    {
+      sessionId: "session-mcp-plus-skill-read",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        skillStore,
+      },
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { tools?: readonly { name?: string }[] };
+        if (calls === 1) {
+          firstProviderBodyText = JSON.stringify(envelope.body);
+          const skillReadToolName = (body.tools ?? [])
+            .map((item) => item.name ?? "")
+            .find((name) => name.includes("mcp_plus_skill_read"));
+          assert.equal(typeof skillReadToolName, "string");
+          return {
+            output: [{
+              type: "function_call",
+              name: skillReadToolName,
+              call_id: "skill-read",
+              arguments: JSON.stringify({ serverId: "browser-plus", id: "skill.full-body" }),
+            }],
+          };
+        }
+        const bodyRecord = envelope.body as { instructions?: unknown; input?: unknown };
+        secondStableInstructionsText = JSON.stringify(bodyRecord.instructions);
+        secondDynamicInputText = JSON.stringify(bodyRecord.input);
+        return { output_text: "skill body read" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  if (!result.ok) return;
+  assert.doesNotMatch(firstProviderBodyText, /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.doesNotMatch(firstProviderBodyText, /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
+  assert.equal(result.toolCalls.length, 1);
+  assert.equal(result.toolCalls[0]?.ok, true);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.match(JSON.stringify(result.toolCalls[0]?.output), /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
+  assert.doesNotMatch(secondStableInstructionsText, /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.doesNotMatch(secondStableInstructionsText, /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
+  assert.match(secondDynamicInputText, /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.match(secondDynamicInputText, /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
 });
 
 test("PraxisRuntimeKernel.runManifest projects runtime MCP modules without changing agent source", async () => {
@@ -3812,6 +4603,91 @@ test("PraxisRuntimeKernel.runManifest projects runtime MCP modules without chang
   });
   assert.equal(compiled.manifest.harness.modules.mcp, undefined);
   assert.equal(compiled.manifest.harness.tools.some((item) => item.toolId === "mcp.use"), false);
+});
+
+test("PraxisRuntimeKernel.runManifest shuts down runtime-owned MCP stdio servers", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "praxis-runtime-mcp-shutdown-"));
+  const serverPath = path.join(workspace, "runtime-owned-mcp-server.mjs");
+  const markerPath = path.join(workspace, "terminated.txt");
+  await writeFile(serverPath, `
+import { writeFileSync } from "node:fs";
+const markerPath = ${JSON.stringify(markerPath)};
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+process.on("SIGTERM", () => {
+  writeFileSync(markerPath, "terminated", "utf8");
+  process.exit(0);
+});
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "runtime-owned", version: "1" } } });
+    } else if (payload.method === "tools/list") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { tools: [{ name: "runtime.echo", description: "Echo", inputSchema: { type: "object" } }] } });
+    }
+  }
+});
+`, "utf8");
+
+  class RuntimeOwnedMcpAgent extends PraxisAgent {
+    identity = "agent.runtime-owned-mcp-shutdown";
+    model = model("gpt-5.4", { carrierId: "carrier.runtime-owned-mcp-shutdown" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 0 }),
+    });
+  }
+
+  try {
+    const compiled = compileAgent(RuntimeOwnedMcpAgent, {
+      compiledAt: "2026-06-05T00:00:00.000Z",
+      manifestId: "manifest.runtime-owned-mcp-shutdown",
+    });
+    assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+    if (!compiled.ok) return;
+
+    const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-owned-mcp-shutdown" }).runManifest(
+      compiled.manifest,
+      "inspect runtime owned MCP shutdown",
+      {
+        sessionId: "session-runtime-owned-mcp-shutdown",
+        dryRun: false,
+        allowProviderCall: true,
+        allowToolExecution: true,
+        auth: authEnvelope(),
+        mcpModule: mcp.module({
+          servers: [
+            mcp.stdio("runtime-owned", {
+              command: process.execPath,
+              args: [serverPath],
+              mode: "native",
+              timeoutMs: 1_000,
+            }),
+          ],
+        }),
+        providerCaller: async () => ({ output_text: "runtime owned MCP inspected" }),
+        now: () => "2026-06-05T00:00:00.000Z",
+      },
+    );
+
+    assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+    for (let attempt = 0; attempt < 20 && !existsSync(markerPath); attempt += 1) {
+      await sleep(25);
+    }
+    assert.equal(existsSync(markerPath), true);
+    if (result.ok) assert.equal(result.events.includes("runtime.mcp.shutdown.completed"), true);
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });
 
 test("PraxisRuntimeKernel.runManifest sanitizes invalid governance context before file.read dispatch", async () => {

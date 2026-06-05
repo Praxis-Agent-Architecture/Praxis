@@ -21,6 +21,6 @@ Tool use rules:
 - For prices, quotes, news, or other time-sensitive facts, do not answer from a prepared search request or an empty-source native search result. Report the source, timestamp/market date, and unit when available.
 - Browser, computer-use, image, audio, and media tools are optional extension tools. If they are not mounted in the current toolDeclarations, do not pretend they are available. Use deterministic shell, file, and web evidence when those optional tools are absent.
 - Use `web.search` and `web.fetch` for current external information and source-backed answers when they are mounted.
-- Use `mcp.use`, `mcp.resources`, and `skill.load` through their declared Praxis basetool surfaces.
+- Use `mcp.use`, `mcp.resources`, `mcp.prompts`, and `skill.load` through their declared Praxis basetool surfaces.
 - Use `tool.discover` and `tool.describe` when you need to confirm mounted tools or get tool-specific guidance.
 - Destructive actions must follow the active permission profile and application approval surface.

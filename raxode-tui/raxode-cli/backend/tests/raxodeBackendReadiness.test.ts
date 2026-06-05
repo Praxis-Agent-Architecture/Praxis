@@ -26,14 +26,14 @@ test("raxode backend readiness summarizes new Praxis module surfaces", () => {
   assert.equal(readiness.kind, "raxode.backendReadiness");
   assert.equal(readiness.permissionProfile, "permissive");
   assert.equal(readiness.toolProfile, "agentCore");
-  assert.equal(readiness.tools.mountedToolIds.length, 25);
+  assert.equal(readiness.tools.mountedToolIds.length, 27);
   const tools = readiness.areas.find((area) => area.area === "tools");
   assert.equal(tools?.status, "ready");
   assert.equal(tools?.owner, "basetool");
   assert.equal(tools?.phase, "implemented");
   assert.equal(tools?.severity, "ok");
-  assert.equal(tools?.facts.mountedToolCount, 25);
-  assert.equal(tools?.facts.expectedToolCount, 25);
+  assert.equal(tools?.facts.mountedToolCount, 27);
+  assert.equal(tools?.facts.expectedToolCount, 27);
 
   const context = readiness.areas.find((area) => area.area === "context");
   assert.equal(context?.status, "ready");
@@ -45,6 +45,18 @@ test("raxode backend readiness summarizes new Praxis module surfaces", () => {
     "retrievedContext",
     "context.load",
   ]);
+
+  const mcp = readiness.areas.find((area) => area.area === "mcp");
+  assert.equal(readiness.mcp.kind, "raxode.mcpReadinessSummary");
+  assert.equal(readiness.mcp.recommendedMode, "mcp-plus");
+  assert.equal(readiness.mcp.nativeCompatible, true);
+  assert.equal(readiness.mcp.schemaRefreshBoundary, "session-checkpoint");
+  assert.equal(readiness.mcp.profileIdentity, "serverId+project");
+  assert.equal(readiness.mcp.runtimeOverlayIdentity, "serverId+session");
+  assert.equal(mcp?.status, "ready");
+  assert.equal(mcp?.owner, "mcpPlane");
+  assert.equal(mcp?.phase, "implemented");
+  assert.equal(mcp?.facts.enabledServerCount, 0);
 
   const memory = readiness.areas.find((area) => area.area === "memory");
   assert.equal(memory?.status, "ready");

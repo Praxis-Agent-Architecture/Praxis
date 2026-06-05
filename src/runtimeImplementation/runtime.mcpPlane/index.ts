@@ -10,13 +10,22 @@ import path from "node:path";
 import {
   compileMcpPlusManifest,
   createExpandToolDeclaration,
+  createInitToolDeclaration as createMcpPlusContractInitToolDeclaration,
+  createLearnedProfileFromProposal as createContractLearnedProfileFromProposal,
+  createReprofileToolDeclaration as createMcpPlusContractReprofileToolDeclaration,
   lowerExposurePlanToMcpSurface,
+  mergeMcpPlusPolicy,
+  normalizeProfileProposal,
   planExposure,
+  validateProfileProposal,
   type ExposureMode,
   type ExposureState,
   type McpCompatibleSurface,
+  type McpPlusLearnedProfile as ContractMcpPlusLearnedProfile,
   type McpPlusManifest,
+  type McpPlusProfileProposal as ContractMcpPlusProfileProposal,
   type NativeToolDeclaration,
+  type ProfileProposalValidationIssueCode,
 } from "@praxis-ai/mcp-plus";
 
 import type { ToolSpec } from "../runtimeAgentManifest.js";
@@ -123,7 +132,7 @@ export type McpPlusProfileProposal = {
     title: string;
     summary: string;
   }[];
-  rationale?: string;
+  rationale?: string | Readonly<Record<string, string>>;
   metadata?: Readonly<Record<string, unknown>>;
 };
 
@@ -133,7 +142,7 @@ export type McpPlusLearnedProfile = {
   projectId: string;
   exposure: NonNullable<McpPlusManifest["exposure"]>;
   skills?: NonNullable<McpPlusManifest["skills"]>;
-  rationale?: string;
+  rationale?: string | Readonly<Record<string, string>>;
   createdAt: string;
   updatedAt: string;
   metadata?: Readonly<Record<string, unknown>>;
@@ -142,14 +151,26 @@ export type McpPlusLearnedProfile = {
 export type McpPlusRuntimeOverlay = {
   serverId: string;
   sessionId: string;
-  mode: ExposureMode;
-  activeTools: readonly string[];
-  pendingReprofile?: boolean;
-  counters: {
-    consecutiveIndexedToolCalls: Readonly<Record<string, number>>;
+  state: {
+    mode: ExposureMode;
+    activeTools: readonly string[];
+    pendingReprofile?: boolean;
+    counters: {
+      consecutiveIndexedToolCalls: Readonly<Record<string, number>>;
+    };
   };
   updatedAt: string;
   metadata?: Readonly<Record<string, unknown>>;
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  mode?: ExposureMode;
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  activeTools?: readonly string[];
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  pendingReprofile?: boolean;
+  /** @deprecated Read-only migration support for pre-contract Praxis overlays. */
+  counters?: {
+    consecutiveIndexedToolCalls: Readonly<Record<string, number>>;
+  };
 };
 
 export type McpPlusProfileStoreKey = {
@@ -256,6 +277,14 @@ export const mcp = {
         toolId: "mcp.resources",
         metadata: { source: "praxis.mcp.recommendedTools", toolProviderKind: "mcp-static" },
       },
+      {
+        toolId: "mcp.prompts",
+        metadata: { source: "praxis.mcp.recommendedTools", toolProviderKind: "mcp-static" },
+      },
+      {
+        toolId: "mcp.completions",
+        metadata: { source: "praxis.mcp.recommendedTools", toolProviderKind: "mcp-static" },
+      },
     ];
   },
 } as const;
@@ -345,19 +374,11 @@ function jsonObjectSchema(properties: Readonly<Record<string, unknown>>, require
 }
 
 export function createMcpPlusInitToolDeclaration(): NativeToolDeclaration {
-  return {
-    name: "mcp_plus.init",
-    description: "Submit the first MCP+ profile proposal for this standard MCP server after inspecting its full MCP tools/list surface.",
-    inputSchema: profileProposalInputSchema("init"),
-  };
+  return createMcpPlusContractInitToolDeclaration();
 }
 
 export function createMcpPlusReprofileToolDeclaration(): NativeToolDeclaration {
-  return {
-    name: "mcp_plus.reprofile",
-    description: "Submit an updated MCP+ profile proposal for this standard MCP server when runtime usage shows the current profile is stale.",
-    inputSchema: profileProposalInputSchema("reprofile"),
-  };
+  return createMcpPlusContractReprofileToolDeclaration();
 }
 
 export function createMcpPlusSkillReadToolDeclaration(): NativeToolDeclaration {
@@ -400,37 +421,6 @@ export function createMcpPlusFinishToolDeclaration(): NativeToolDeclaration {
       skill: createMcpPlusSkillWriteToolDeclaration().inputSchema,
     }, ["serverId", "outcome"]),
   };
-}
-
-function profileProposalInputSchema(kind: "init" | "reprofile"): Record<string, unknown> {
-  return jsonObjectSchema({
-    serverId: { type: "string" },
-    pinnedTools: { type: "array", items: { type: "string" } },
-    warmTools: { type: "array", items: { type: "string" } },
-    indexedTools: { type: "array", items: { type: "string" } },
-    alwaysIndexTools: { type: "array", items: { type: "string" } },
-    toolCards: {
-      type: "object",
-      additionalProperties: {
-        type: "object",
-        properties: {
-          title: { type: "string" },
-          summary: { type: "string" },
-          keywords: { type: "array", items: { type: "string" } },
-        },
-        additionalProperties: false,
-      },
-    },
-    skillChapters: {
-      type: "array",
-      items: jsonObjectSchema({
-        id: { type: "string" },
-        title: { type: "string" },
-        summary: { type: "string" },
-      }, ["id", "title", "summary"]),
-    },
-    rationale: { type: "string", description: `${kind} rationale for the host runtime.` },
-  }, ["serverId"]);
 }
 
 function dynamicToolSpecForNativeTool(
@@ -619,6 +609,51 @@ function defaultToolCard(tool: NativeToolDeclaration): { title: string; summary:
   };
 }
 
+function profileRationaleForContract(
+  rationale: McpPlusProfileProposal["rationale"],
+): Record<string, string> | undefined {
+  if (typeof rationale === "string") {
+    return rationale.trim().length === 0 ? undefined : { summary: rationale };
+  }
+  if (rationale === undefined) return undefined;
+  return Object.fromEntries(Object.entries(rationale).filter(([, value]) => typeof value === "string"));
+}
+
+function toContractProfileProposal(proposal: McpPlusProfileProposal): unknown {
+  const toolCards = Object.fromEntries(Object.entries(proposal.toolCards ?? {}).map(([toolName, card]) => [toolName, {
+    title: card.title,
+    summary: card.summary,
+    keywords: card.keywords === undefined ? undefined : [...card.keywords],
+  }]));
+  const contractProposal: Record<string, unknown> = {
+    serverId: proposal.serverId,
+    pinnedTools: uniqueStrings(proposal.pinnedTools),
+    warmTools: proposal.warmTools === undefined ? undefined : uniqueStrings(proposal.warmTools),
+    indexedTools: uniqueStrings(proposal.indexedTools),
+    alwaysIndexTools: proposal.alwaysIndexTools === undefined ? undefined : uniqueStrings(proposal.alwaysIndexTools),
+    toolCards,
+    skillChapters: proposal.skillChapters?.map((chapter) => ({ ...chapter })),
+    rationale: profileRationaleForContract(proposal.rationale),
+  };
+  if (Object.hasOwn(proposal as Record<string, unknown>, "modeHint")) {
+    contractProposal.modeHint = (proposal as Record<string, unknown>).modeHint;
+  }
+  return Object.fromEntries(Object.entries(contractProposal).filter(([, value]) => value !== undefined));
+}
+
+function profileErrorCodeFromValidationIssue(code: ProfileProposalValidationIssueCode): string {
+  switch (code) {
+    case "unknown_tool":
+      return "MCP_PLUS_PROFILE_UNKNOWN_TOOL";
+    case "always_index_pinned":
+      return "MCP_PLUS_PROFILE_ALWAYS_INDEX_PINNED";
+    case "reserved_runtime_field":
+      return "MCP_PLUS_PROFILE_MODE_HINT_UNSUPPORTED";
+    default:
+      return "MCP_PLUS_PROFILE_INVALID_PROPOSAL";
+  }
+}
+
 function learnedManifestFromProfile(profile: McpPlusLearnedProfile, server: McpHarnessServerSpec): McpPlusManifest {
   return {
     server: {
@@ -628,6 +663,28 @@ function learnedManifestFromProfile(profile: McpPlusLearnedProfile, server: McpH
     },
     exposure: profile.exposure,
     skills: profile.skills,
+  };
+}
+
+function contractLearnedProfileFromPraxisProfile(profile: McpPlusLearnedProfile): ContractMcpPlusLearnedProfile {
+  const toolCards = Object.fromEntries(Object.entries(profile.exposure.toolCards ?? {}).flatMap(([toolName, card]) => {
+    if (typeof card.summary !== "string" || card.summary.trim().length === 0) return [];
+    return [[toolName, {
+      title: card.title,
+      summary: card.summary,
+      keywords: card.keywords === undefined ? undefined : [...card.keywords],
+    }]];
+  }));
+  return {
+    schemaVersion: profile.schemaVersion,
+    serverId: profile.serverId,
+    pinnedTools: [...(profile.exposure.pinnedTools ?? [])],
+    warmTools: [...(profile.exposure.warmTools ?? [])],
+    indexedTools: [...(profile.exposure.indexedTools ?? [])],
+    alwaysIndexTools: [...(profile.exposure.alwaysIndexTools ?? [])],
+    toolCards,
+    skillChapters: profile.skills?.chapters?.map((chapter) => ({ ...chapter })),
+    rationale: profileRationaleForContract(profile.rationale),
   };
 }
 
@@ -677,68 +734,43 @@ export function learnedProfileFromProposal(input: {
   projectId: string;
   now: string;
   existing?: McpPlusLearnedProfile;
+  protectedAlwaysIndexTools?: readonly string[];
 }): { ok: true; profile: McpPlusLearnedProfile } | { ok: false; error: { code: string; message: string; publicSafe: true } } {
-  if (Object.hasOwn(input.proposal as Record<string, unknown>, "modeHint")) {
+  const contractProposal = toContractProfileProposal(input.proposal);
+  const validation = validateProfileProposal(contractProposal, input.nativeTools, {
+    serverId: input.proposal.serverId,
+    alwaysIndexTools: [
+      ...(input.existing?.exposure.alwaysIndexTools ?? []),
+      ...(input.protectedAlwaysIndexTools ?? []),
+    ],
+  });
+  if (!validation.valid) {
+    const primary = validation.issues[0];
     return {
       ok: false,
       error: {
-        code: "MCP_PLUS_PROFILE_MODE_HINT_UNSUPPORTED",
-        message: "MCP+ profile proposals do not accept modeHint in v1; runtime overlays own exposure mode.",
+        code: primary === undefined ? "MCP_PLUS_PROFILE_INVALID_PROPOSAL" : profileErrorCodeFromValidationIssue(primary.code),
+        message: validation.issues.map((issue) => issue.message).join(" "),
         publicSafe: true,
       },
     };
   }
-  const nativeToolNames = new Set(input.nativeTools.map((tool) => tool.name));
-  const referenced = [
-    ...uniqueStrings(input.proposal.pinnedTools),
-    ...uniqueStrings(input.proposal.warmTools),
-    ...uniqueStrings(input.proposal.indexedTools),
-    ...uniqueStrings(input.proposal.alwaysIndexTools),
-    ...Object.keys(input.proposal.toolCards ?? {}),
-  ];
-  const unknown = referenced.filter((toolName) => !nativeToolNames.has(toolName));
-  if (unknown.length > 0) {
-    return {
-      ok: false,
-      error: {
-        code: "MCP_PLUS_PROFILE_UNKNOWN_TOOL",
-        message: `MCP+ profile proposal references unknown tool(s): ${unknown.join(", ")}`,
-        publicSafe: true,
-      },
-    };
-  }
-  const alwaysIndex = new Set(uniqueStrings(input.proposal.alwaysIndexTools));
-  const pinnedAlwaysIndex = uniqueStrings(input.proposal.pinnedTools).filter((toolName) => alwaysIndex.has(toolName));
-  if (pinnedAlwaysIndex.length > 0) {
-    return {
-      ok: false,
-      error: {
-        code: "MCP_PLUS_PROFILE_ALWAYS_INDEX_PINNED",
-        message: `alwaysIndexTools cannot be pinned: ${pinnedAlwaysIndex.join(", ")}`,
-        publicSafe: true,
-      },
-    };
-  }
+  const normalizedProposal = normalizeProfileProposal(contractProposal as ContractMcpPlusProfileProposal);
+  const contractProfile = createContractLearnedProfileFromProposal(normalizedProposal);
   const profile: McpPlusLearnedProfile = {
     schemaVersion: "mcp-plus.profile.v1",
-    serverId: input.proposal.serverId,
+    serverId: contractProfile.serverId,
     projectId: input.projectId,
     exposure: {
-      pinnedTools: uniqueStrings(input.proposal.pinnedTools),
-      warmTools: uniqueStrings(input.proposal.warmTools),
-      indexedTools: uniqueStrings(input.proposal.indexedTools),
-      alwaysIndexTools: uniqueStrings(input.proposal.alwaysIndexTools),
-      toolCards: input.proposal.toolCards === undefined ? undefined : Object.fromEntries(
-        Object.entries(input.proposal.toolCards).map(([toolName, card]) => [toolName, {
-          title: card.title,
-          summary: card.summary,
-          keywords: card.keywords === undefined ? undefined : [...card.keywords],
-        }]),
-      ),
+      pinnedTools: contractProfile.pinnedTools ?? [],
+      warmTools: contractProfile.warmTools ?? [],
+      indexedTools: contractProfile.indexedTools ?? [],
+      alwaysIndexTools: contractProfile.alwaysIndexTools ?? [],
+      toolCards: contractProfile.toolCards,
     },
-    skills: input.proposal.skillChapters === undefined ? input.existing?.skills : {
+    skills: contractProfile.skillChapters === undefined ? input.existing?.skills : {
       ...(input.existing?.skills ?? {}),
-      chapters: input.proposal.skillChapters.map((chapter) => ({ ...chapter })),
+      chapters: contractProfile.skillChapters.map((chapter) => ({ ...chapter })),
     },
     rationale: input.proposal.rationale,
     createdAt: input.existing?.createdAt ?? input.now,
@@ -792,9 +824,15 @@ export function planMcpHarnessExposure(
         dynamicToolSpecs: dynamicToolSpecsForSurface(server.serverId, surface),
       };
     }
-    const effectiveManifest = server.manifest ?? (learnedProfile === undefined
+    const baseManifest = server.manifest ?? (learnedProfile === undefined
       ? fallbackMcpPlusManifest(server, nativeTools)
       : learnedManifestFromProfile(learnedProfile, server));
+    const effectiveManifest = learnedProfile === undefined
+      ? baseManifest
+      : mergeMcpPlusPolicy({
+        manifest: baseManifest,
+        learnedProfile: contractLearnedProfileFromPraxisProfile(learnedProfile),
+      });
     const graph = compileMcpPlusManifest(effectiveManifest, nativeTools);
     const state: ExposureState = {
       serverId: server.serverId,
@@ -803,10 +841,11 @@ export function planMcpHarnessExposure(
     };
     const plan = planExposure(graph, state);
     const surface = lowerExposurePlanToMcpSurface(plan);
+    const shouldExposeExpandControl = state.mode === "frozen" || surface.sidecar.toolIndex.length > 0;
     const withNativeControls: McpCompatibleSurface = {
       tools: [
         ...surface.tools.filter((tool) => tool.name !== "mcp_plus.expand"),
-        createExpandToolDeclaration(),
+        ...(shouldExposeExpandControl ? [createExpandToolDeclaration()] : []),
         ...(stateByServerId[server.serverId]?.mode === "frozen" ? [] : [
           createMcpPlusSkillReadToolDeclaration(),
           createMcpPlusSkillWriteToolDeclaration(),

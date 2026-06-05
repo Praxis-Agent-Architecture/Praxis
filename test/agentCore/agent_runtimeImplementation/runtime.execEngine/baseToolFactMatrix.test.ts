@@ -27,6 +27,8 @@ const coreToolIds = [
   "agent.kill",
   "mcp.use",
   "mcp.resources",
+  "mcp.prompts",
+  "mcp.completions",
   "media.viewImage",
   "process.wait",
   "process.kill",
@@ -39,7 +41,7 @@ test("baseTool fact matrix covers the core and multiagent mesh catalog without r
 
   assert.equal(matrix.surface, "basetool.factMatrix");
   assert.equal(matrix.version, "praxis.basetool.factMatrix.v1");
-  assert.equal(matrix.total, 25);
+  assert.equal(matrix.total, 27);
   assert.deepEqual(matrix.profiles.map((row) => row.name), [
     "codingCore",
     "researchCore",
@@ -86,7 +88,9 @@ test("baseTool fact matrix exposes runtime ports and sandbox hints as facts", ()
   const riskByToolId = new Map(matrix.risk.map((row) => [row.toolId, row]));
 
   assert.deepEqual(byToolId.get("file.read")?.runtimePorts, ["filesystem.readText"]);
-  assert.deepEqual(byToolId.get("mcp.resources")?.runtimePorts, ["mcp.listResources", "mcp.readResource"]);
+  assert.deepEqual(byToolId.get("mcp.resources")?.runtimePorts, ["mcp.listResources", "mcp.listResourceTemplates", "mcp.readResource", "mcp.subscribe", "mcp.unsubscribe"]);
+  assert.deepEqual(byToolId.get("mcp.prompts")?.runtimePorts, ["mcp.listPrompts", "mcp.getPrompt"]);
+  assert.deepEqual(byToolId.get("mcp.completions")?.runtimePorts, ["mcp.complete"]);
   assert.equal(riskByToolId.get("file.read")?.sandboxHint.filesystem, "read");
   assert.equal(riskByToolId.get("patch.apply")?.sandboxHint.filesystem, "write");
   assert.equal(riskByToolId.get("web.search")?.sandboxHint.network, "egress");

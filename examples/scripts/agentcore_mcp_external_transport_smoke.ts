@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -7,7 +7,7 @@ import type { BaseToolExecutorPort } from "../../src/basetool/types.js";
 import { createBaseToolRegistry } from "../../src/basetool/registry.js";
 import { adaptRuntimeToolInvocation } from "../../src/basetool/invocationAdapter.js";
 import { bridgeExecEngineInvocation } from "../../src/runtimeImplementation/runtime.execEngine/execEngineInvocationBridge.js";
-import { createMcpRuntimeAdapter } from "../../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
+import { createRuntimeBaseToolExecutorPort } from "../../src/runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 
 const args = process.argv.slice(2);
 const argSet = new Set(args);
@@ -111,12 +111,21 @@ function jsonRpcResult(method: string, params: Record<string, unknown>): unknown
   return { ok: true, method };
 }
 
-async function startHttpMcpServer(): Promise<{ server: Server; url: string; sseUrl: string }> {
+async function startHttpMcpServer(): Promise<{ server: Server; url: string; sseUrl: string; close: () => Promise<void> }> {
+  const sseStreams = new Set<ServerResponse>();
+  const sseMessage = (message: unknown): string => `event: message\ndata: ${JSON.stringify(message)}\n\n`;
   const server = createServer(async (request, response) => {
     if (request.method === "GET" && request.url === "/sse") {
-      response.writeHead(200, { "content-type": "text/event-stream" });
+      sseStreams.add(response);
+      response.on("close", () => {
+        sseStreams.delete(response);
+      });
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
       response.write("event: endpoint\ndata: /sse-rpc\n\n");
-      response.end();
       return;
     }
     if (request.method !== "POST") {
@@ -126,18 +135,37 @@ async function startHttpMcpServer(): Promise<{ server: Server; url: string; sseU
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { id?: unknown; method?: unknown; params?: unknown };
+    const result = jsonRpcResult(String(body.method ?? ""), typeof body.params === "object" && body.params !== null ? body.params as Record<string, unknown> : {});
+    if (request.url === "/sse-rpc") {
+      response.writeHead(202, { "content-type": "application/json" });
+      response.end("{}");
+      if (body.id !== undefined && body.id !== null) {
+        for (const stream of sseStreams) {
+          stream.write(sseMessage({ jsonrpc: "2.0", id: body.id, result }));
+        }
+      }
+      return;
+    }
     response.writeHead(200, { "content-type": "application/json" });
     response.end(JSON.stringify({
       jsonrpc: "2.0",
       id: body.id ?? null,
-      result: jsonRpcResult(String(body.method ?? ""), typeof body.params === "object" && body.params !== null ? body.params as Record<string, unknown> : {}),
+      result,
     }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (typeof address !== "object" || address === null) throw new Error("HTTP MCP smoke server did not expose a port.");
   const base = `http://127.0.0.1:${address.port}`;
-  return { server, url: `${base}/mcp`, sseUrl: `${base}/sse` };
+  return {
+    server,
+    url: `${base}/mcp`,
+    sseUrl: `${base}/sse`,
+    async close() {
+      for (const stream of sseStreams) stream.end();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }
 
 async function invokeMcpToolThroughRuntimeChain(
@@ -179,7 +207,7 @@ function truncate(value: unknown): string {
 
 async function main(): Promise<void> {
   if (!argSet.has("--no-model")) {
-    console.log("agentCore MCP external transport smoke is a no-model transport test; pass --no-model for the strict registry/handler/executor path.");
+    console.log("agentCore MCP external transport smoke is a no-model transport test; pass --no-model for the strict current registry/handler/executor path.");
   }
   const useNpmFilesystem = argSet.has("--npm-filesystem");
   const npmWorkspace = useNpmFilesystem ? await mkdtemp(path.join(os.tmpdir(), "praxis-mcp-filesystem-")) : undefined;
@@ -188,37 +216,35 @@ async function main(): Promise<void> {
     await writeFile(npmReadme, "# npm filesystem MCP\n\nexternal package smoke\n", "utf8");
   }
   const http = await startHttpMcpServer();
-  const executor: BaseToolExecutorPort = {
-    mcp: createMcpRuntimeAdapter({
-      servers: [
-        { serverId: stdioServerId, transport: "stdio", command: process.execPath, args: ["--input-type=module", "-e", stdioServerSource], timeoutMs: 5_000 },
-        { serverId: httpServerId, transport: "http", url: http.url, timeoutMs: 5_000 },
-        { serverId: sseServerId, transport: "sse", url: http.url, sseUrl: http.sseUrl, timeoutMs: 5_000 },
-        ...(npmWorkspace === undefined ? [] : [{
-          serverId: npmFilesystemServerId,
-          transport: "stdio" as const,
-          command: "npx",
-          args: ["-y", "@modelcontextprotocol/server-filesystem", npmWorkspace],
-          timeoutMs: 20_000,
-          framing: "line-json" as const,
-        }]),
-      ],
-    }),
-  };
+  const executor: BaseToolExecutorPort = createRuntimeBaseToolExecutorPort({
+    runtimeId: "agentcore-mcp-external-transport-runtime",
+    sessionId: "agentcore-mcp-external-transport-session",
+    mcpServers: [
+      { serverId: stdioServerId, transport: "stdio", command: process.execPath, args: ["--input-type=module", "-e", stdioServerSource], timeoutMs: 5_000, framing: "content-length" },
+      { serverId: httpServerId, transport: "http", url: http.url, timeoutMs: 5_000 },
+      { serverId: sseServerId, transport: "sse", url: http.url, sseUrl: http.sseUrl, timeoutMs: 5_000 },
+      ...(npmWorkspace === undefined ? [] : [{
+        serverId: npmFilesystemServerId,
+        transport: "stdio" as const,
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", npmWorkspace],
+        timeoutMs: 20_000,
+        framing: "line-json" as const,
+      }]),
+    ],
+  });
   const cases: readonly SmokeCase[] = [
-    { label: "stdio-connect", toolId: "mcp.connect", input: { target: { serverId: stdioServerId, transportHint: "stdio" }, context: mcpContext }, expectText: "connected" },
-    { label: "stdio-list-tools", toolId: "mcp.listTools", input: { target: { serverId: stdioServerId }, context: mcpContext }, expectText: "External stdio echo" },
-    { label: "stdio-call-tool", toolId: "mcp.call", input: { target: { serverId: stdioServerId, name: "echo", mode: "tool", arguments: { message: "hello-stdio" } }, context: mcpContext }, expectText: "hello-stdio" },
-    { label: "stdio-read-resource", toolId: "mcp.readResource", input: { target: { serverId: stdioServerId, resourceUri }, context: mcpContext }, expectText: "external stdio MCP resource" },
-    { label: "http-connect", toolId: "mcp.connect", input: { target: { serverId: httpServerId, transportHint: "http" }, context: mcpContext }, expectText: "connected" },
-    { label: "http-list-tools", toolId: "mcp.listTools", input: { target: { serverId: httpServerId }, context: mcpContext }, expectText: "External HTTP echo" },
-    { label: "http-call-tool", toolId: "mcp.call", input: { target: { serverId: httpServerId, name: "echo", mode: "tool", arguments: { message: "hello-http" } }, context: mcpContext }, expectText: "hello-http" },
-    { label: "sse-connect", toolId: "mcp.connect", input: { target: { serverId: sseServerId, transportHint: "sse" }, context: mcpContext }, expectText: "connected" },
-    { label: "sse-call-tool", toolId: "mcp.call", input: { target: { serverId: sseServerId, name: "echo", mode: "tool", arguments: { message: "hello-sse" } }, context: mcpContext }, expectText: "hello-sse" },
+    { label: "stdio-call-tool", toolId: "mcp.use", input: { serverId: stdioServerId, toolName: "echo", arguments: { message: "hello-stdio" }, context: mcpContext }, expectText: "hello-stdio" },
+    { label: "stdio-list-resources", toolId: "mcp.resources", input: { operation: "list", serverId: stdioServerId, context: mcpContext }, expectText: "external-mcp.md" },
+    { label: "stdio-read-resource", toolId: "mcp.resources", input: { operation: "read", serverId: stdioServerId, uri: resourceUri, context: mcpContext }, expectText: "external stdio MCP resource" },
+    { label: "http-call-tool", toolId: "mcp.use", input: { serverId: httpServerId, toolName: "echo", arguments: { message: "hello-http" }, context: mcpContext }, expectText: "hello-http" },
+    { label: "http-list-resources", toolId: "mcp.resources", input: { operation: "list", serverId: httpServerId, context: mcpContext }, expectText: "external-mcp.md" },
+    { label: "http-read-resource", toolId: "mcp.resources", input: { operation: "read", serverId: httpServerId, uri: resourceUri, context: mcpContext }, expectText: "external HTTP/SSE MCP resource" },
+    { label: "sse-call-tool", toolId: "mcp.use", input: { serverId: sseServerId, toolName: "echo", arguments: { message: "hello-sse" }, context: mcpContext }, expectText: "hello-sse" },
+    { label: "sse-list-resources", toolId: "mcp.resources", input: { operation: "list", serverId: sseServerId, context: mcpContext }, expectText: "external-mcp.md" },
+    { label: "sse-read-resource", toolId: "mcp.resources", input: { operation: "read", serverId: sseServerId, uri: resourceUri, context: mcpContext }, expectText: "external HTTP/SSE MCP resource" },
     ...(npmReadme === undefined ? [] : [
-      { label: "npm-filesystem-connect", toolId: "mcp.connect", input: { target: { serverId: npmFilesystemServerId, transportHint: "stdio" }, context: mcpContext }, expectText: "connected" },
-      { label: "npm-filesystem-list-tools", toolId: "mcp.listTools", input: { target: { serverId: npmFilesystemServerId }, context: mcpContext }, expectText: "read_file" },
-      { label: "npm-filesystem-call-tool", toolId: "mcp.call", input: { target: { serverId: npmFilesystemServerId, name: "read_file", mode: "tool", arguments: { path: npmReadme } }, context: mcpContext }, expectText: "npm filesystem MCP" },
+      { label: "npm-filesystem-call-tool", toolId: "mcp.use", input: { serverId: npmFilesystemServerId, toolName: "read_file", arguments: { path: npmReadme }, context: mcpContext }, expectText: "npm filesystem MCP" },
     ] satisfies readonly SmokeCase[]),
   ];
 
@@ -239,9 +265,8 @@ async function main(): Promise<void> {
       console.log(JSON.stringify(record));
     }
   } finally {
-    await new Promise<void>((resolve) => http.server.close(() => resolve()));
-    await executor.mcp?.disconnect?.({ serverId: stdioServerId });
-    await executor.mcp?.disconnect?.({ serverId: npmFilesystemServerId });
+    await executor.mcp?.shutdown?.({});
+    await http.close();
     if (npmWorkspace !== undefined) await rm(npmWorkspace, { recursive: true, force: true });
   }
 

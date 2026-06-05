@@ -36,6 +36,8 @@ const coreToolIds = [
   "agent.kill",
   "mcp.use",
   "mcp.resources",
+  "mcp.prompts",
+  "mcp.completions",
   "media.viewImage",
   "process.wait",
   "process.kill",
@@ -122,6 +124,8 @@ test("basetool Coding Core descriptor exposes the implemented core tool ids", ()
     "context.load",
     "mcp.use",
     "mcp.resources",
+    "mcp.prompts",
+    "mcp.completions",
     "media.viewImage",
     "process.wait",
     "process.kill",
@@ -394,13 +398,17 @@ test("skill.load and context.load validate and call extension ports", async () =
   assert.deepEqual(contextInput, { kind: "workspaceIndex", query: "basetool", limit: 3 });
 });
 
-test("mcp.use and mcp.resources route to MCP runtime ports", async () => {
+test("mcp.use, mcp.resources, mcp.prompts, and mcp.completions route to MCP runtime ports", async () => {
   const registry = createBaseToolRegistry();
   const useLookup = registry.lookupHandler("mcp.use");
   const resourcesLookup = registry.lookupHandler("mcp.resources");
+  const promptsLookup = registry.lookupHandler("mcp.prompts");
+  const completionsLookup = registry.lookupHandler("mcp.completions");
   assert.equal(useLookup.ok, true);
   assert.equal(resourcesLookup.ok, true);
-  if (!useLookup.ok || !resourcesLookup.ok) return;
+  assert.equal(promptsLookup.ok, true);
+  assert.equal(completionsLookup.ok, true);
+  if (!useLookup.ok || !resourcesLookup.ok || !promptsLookup.ok || !completionsLookup.ok) return;
 
   let callInput: unknown;
   const callResult = await useLookup.handler.invoke({
@@ -421,7 +429,7 @@ test("mcp.use and mcp.resources route to MCP runtime ports", async () => {
   let listInput: unknown;
   const listResult = await resourcesLookup.handler.invoke({
     toolId: "mcp.resources",
-    input: { operation: "list", serverId: "docs" },
+    input: { operation: "list", serverId: "docs", uriPrefix: "file://", cursor: "page-1" },
     executor: {
       mcp: {
         listResources(request) {
@@ -432,7 +440,23 @@ test("mcp.use and mcp.resources route to MCP runtime ports", async () => {
     },
   });
   assert.equal(listResult.ok, true);
-  assert.deepEqual(listInput, { serverId: "docs" });
+  assert.deepEqual(listInput, { serverId: "docs", uriPrefix: "file://", cursor: "page-1" });
+
+  let templatesInput: unknown;
+  const templatesResult = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "templates", serverId: "docs", cursor: "templates-page-1" },
+    executor: {
+      mcp: {
+        listResourceTemplates(request) {
+          templatesInput = request;
+          return { ok: true, output: { resourceTemplates: [] } };
+        },
+      },
+    },
+  });
+  assert.equal(templatesResult.ok, true);
+  assert.deepEqual(templatesInput, { serverId: "docs", cursor: "templates-page-1" });
 
   const invalidRead = await resourcesLookup.handler.invoke({
     toolId: "mcp.resources",
@@ -457,6 +481,125 @@ test("mcp.use and mcp.resources route to MCP runtime ports", async () => {
   });
   assert.equal(readResult.ok, true);
   assert.deepEqual(readInput, { serverId: "docs", uri: "file://readme" });
+
+  let subscribeInput: unknown;
+  const subscribeResult = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "subscribe", serverId: "docs", uri: "file://readme" },
+    executor: {
+      mcp: {
+        subscribe(request) {
+          subscribeInput = request;
+          return { ok: true, output: { subscriptionId: "sub-docs", status: "subscribed" } };
+        },
+      },
+    },
+  });
+  assert.equal(subscribeResult.ok, true);
+  assert.deepEqual(subscribeInput, {
+    serverId: "docs",
+    uri: "file://readme",
+    subjectType: "resource",
+    subject: "file://readme",
+  });
+
+  const invalidUnsubscribe = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "unsubscribe", serverId: "docs" },
+    executor: {},
+  });
+  assert.equal(invalidUnsubscribe.ok, false);
+  assert.equal(invalidUnsubscribe.error?.code, "MISSING_REQUIRED_FIELD");
+
+  let unsubscribeInput: unknown;
+  const unsubscribeResult = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "unsubscribe", serverId: "docs", subscriptionId: "sub-docs" },
+    executor: {
+      mcp: {
+        unsubscribe(request) {
+          unsubscribeInput = request;
+          return { ok: true, output: { subscriptionId: "sub-docs", status: "unsubscribed" } };
+        },
+      },
+    },
+  });
+  assert.equal(unsubscribeResult.ok, true);
+  assert.deepEqual(unsubscribeInput, { serverId: "docs", subscriptionId: "sub-docs" });
+
+  let listPromptsInput: unknown;
+  const listPromptsResult = await promptsLookup.handler.invoke({
+    toolId: "mcp.prompts",
+    input: { operation: "list", serverId: "docs", cursor: "page-1" },
+    executor: {
+      mcp: {
+        listPrompts(request) {
+          listPromptsInput = request;
+          return { ok: true, output: { prompts: [] } };
+        },
+      },
+    },
+  });
+  assert.equal(listPromptsResult.ok, true);
+  assert.deepEqual(listPromptsInput, { serverId: "docs", cursor: "page-1" });
+
+  const invalidGetPrompt = await promptsLookup.handler.invoke({
+    toolId: "mcp.prompts",
+    input: { operation: "get" },
+    executor: {},
+  });
+  assert.equal(invalidGetPrompt.ok, false);
+  assert.equal(invalidGetPrompt.error?.code, "MISSING_REQUIRED_FIELD");
+
+  let getPromptInput: unknown;
+  const getPromptResult = await promptsLookup.handler.invoke({
+    toolId: "mcp.prompts",
+    input: { operation: "get", serverId: "docs", name: "triage", arguments: { topic: "repo" } },
+    executor: {
+      mcp: {
+        getPrompt(request) {
+          getPromptInput = request;
+          return { ok: true, output: { messages: [] } };
+        },
+      },
+    },
+  });
+  assert.equal(getPromptResult.ok, true);
+  assert.deepEqual(getPromptInput, { serverId: "docs", name: "triage", arguments: { topic: "repo" } });
+
+  let completeInput: unknown;
+  const completeResult = await completionsLookup.handler.invoke({
+    toolId: "mcp.completions",
+    input: {
+      serverId: "docs",
+      ref: { type: "ref/resource", uri: "file://{name}" },
+      argument: { name: "name", value: "rea" },
+      context: { arguments: { folder: "docs" } },
+    },
+    executor: {
+      mcp: {
+        complete(request) {
+          completeInput = request;
+          return { ok: true, output: { completion: { values: ["readme.md"], total: 1, hasMore: false } } };
+        },
+      },
+    },
+  });
+  assert.equal(completeResult.ok, true);
+  assert.deepEqual(completeInput, {
+    serverId: "docs",
+    ref: { type: "ref/resource", uri: "file://{name}" },
+    argument: { name: "name", value: "rea" },
+    context: { arguments: { folder: "docs" } },
+  });
+
+  const invalidCompletion = await completionsLookup.handler.invoke({
+    toolId: "mcp.completions",
+    input: { ref: { type: "ref/prompt" }, argument: { name: "topic", value: "" } },
+    executor: {},
+  });
+  assert.equal(invalidCompletion.ok, false);
+  assert.equal(invalidCompletion.error?.code, "MISSING_REQUIRED_FIELD");
 });
 
 test("media.viewImage validates image selectors and calls media runtime port", async () => {
@@ -724,14 +867,38 @@ test("semantic basetool support catalog reports readiness from implemented ports
   const catalog = createBaseToolSupportCatalog({ implementedPortPaths: ["shell.run"] });
   const shellRun = catalog.find((entry) => entry.toolId === "shell.run");
   const fileRead = catalog.find((entry) => entry.toolId === "file.read");
+  const mcpPrompts = catalog.find((entry) => entry.toolId === "mcp.prompts");
+  const mcpCompletions = catalog.find((entry) => entry.toolId === "mcp.completions");
 
-  assert.equal(catalog.length, 25);
+  assert.equal(catalog.length, 27);
   assert.equal(shellRun?.readiness, "available");
   assert.equal(fileRead?.readiness, "unavailable");
+  assert.deepEqual(mcpPrompts?.requiredSupports.map((support) => support.portPath), ["mcp.listPrompts", "mcp.getPrompt"]);
+  assert.deepEqual(mcpCompletions?.requiredSupports.map((support) => support.portPath), ["mcp.complete"]);
 
   const readiness = evaluateBaseToolRuntimeReadiness({
     toolId: "shell.run",
     implementedPortPaths: ["shell.run"],
   });
   assert.equal(readiness.decision, "allowed");
+
+  const listPromptReadiness = evaluateBaseToolRuntimeReadiness({
+    toolId: "mcp.prompts",
+    toolInput: { operation: "list" },
+    implementedPortPaths: ["mcp.listPrompts"],
+  });
+  assert.equal(listPromptReadiness.decision, "allowed");
+
+  const getPromptReadiness = evaluateBaseToolRuntimeReadiness({
+    toolId: "mcp.prompts",
+    toolInput: { operation: "get" },
+    implementedPortPaths: ["mcp.getPrompt"],
+  });
+  assert.equal(getPromptReadiness.decision, "allowed");
+
+  const completionReadiness = evaluateBaseToolRuntimeReadiness({
+    toolId: "mcp.completions",
+    implementedPortPaths: ["mcp.complete"],
+  });
+  assert.equal(completionReadiness.decision, "allowed");
 });

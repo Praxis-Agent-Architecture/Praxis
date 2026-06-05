@@ -57,6 +57,7 @@ export type PromptContextAssemblyRequest = {
   sessionSummary?: PromptContextSessionSummary;
   conversationWindow?: readonly PromptContextConversationMessage[];
   projectContextGovernanceMaterials?: readonly PromptPackMaterialDraft[];
+  toolDeclarationPreludeMaterials?: readonly PromptPackMaterialDraft[];
   budget?: PromptContextAssemblyBudget;
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
@@ -485,6 +486,22 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
     sandboxMode: input.manifest.sandbox?.profile,
     toolSpecificGuidance: PRAXIS_BASE_TOOL_CALLING_PROTOCOL,
   });
+  const toolDeclarationPreludeMaterials = (input.toolDeclarationPreludeMaterials ?? []).map((material, index): PromptPackMaterialDraft => ({
+    ...material,
+    id: material.id ?? `runtime:tool-declaration-prelude:${index + 1}`,
+    kind: material.kind,
+    source: material.source ?? "runtime.toolDeclarationPrelude",
+    sourceCategory: material.sourceCategory ?? "declared-built-in",
+    priority: material.priority ?? 95.5 - index,
+    trusted: material.trusted ?? true,
+    scope: material.scope ?? "runtime.toolCalling",
+    promptSegmentKind: "toolDeclarations",
+    metadata: {
+      ...(material.metadata ?? {}),
+      promptSegmentKind: "toolDeclarations",
+      toolMaterialType: "policy",
+    },
+  }));
 
   const sessionSummaryMaterial: PromptPackMaterialDraft[] = input.sessionSummary === undefined
     ? []
@@ -514,6 +531,7 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
     ...projectContextGovernanceMaterials,
     ...sessionSummaryMaterial,
     ...memoryContextMaterials,
+    ...toolDeclarationPreludeMaterials,
     {
       id: `task:${input.turnIndex}`,
       kind: "user" as const,
@@ -596,6 +614,7 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
       ...manifestPromptMaterials,
       declaredRuntimeContextMaterial,
       toolDeclarationsMaterial,
+      ...toolDeclarationPreludeMaterials,
       ...projectContextGovernanceMaterials,
       ...sessionSummaryMaterial,
       ...memoryContextMaterials,

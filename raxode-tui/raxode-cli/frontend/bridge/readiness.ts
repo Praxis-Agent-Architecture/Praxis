@@ -110,6 +110,30 @@ function isReadinessTools(value: unknown): value is RaxodeBackendReadiness["tool
     isStringArray(record.mountedToolIds);
 }
 
+function isReadinessMcp(value: unknown): value is RaxodeBackendReadiness["mcp"] {
+  const record = recordValue(value);
+  return record !== undefined &&
+    record.kind === "raxode.mcpReadinessSummary" &&
+    record.schemaVersion === "raxode.mcpReadinessSummary.v1" &&
+    typeof record.configuredServerCount === "number" &&
+    typeof record.enabledServerCount === "number" &&
+    typeof record.disabledServerCount === "number" &&
+    typeof record.enabledMcpPlusServerCount === "number" &&
+    typeof record.enabledNativeServerCount === "number" &&
+    isStringArray(record.configuredServerIds) &&
+    isStringArray(record.enabledServerIds) &&
+    isStringArray(record.enabledMcpPlusServerIds) &&
+    isStringArray(record.enabledNativeServerIds) &&
+    record.recommendedMode === "mcp-plus" &&
+    record.nativeCompatible === true &&
+    record.publicSafe === true &&
+    record.profileIdentity === "serverId+project" &&
+    record.runtimeOverlayIdentity === "serverId+session" &&
+    record.schemaRefreshBoundary === "session-checkpoint" &&
+    (record.projectId === undefined || typeof record.projectId === "string") &&
+    (record.reprofileConsecutiveIndexedCalls === undefined || typeof record.reprofileConsecutiveIndexedCalls === "number");
+}
+
 function isReadinessDependency(value: unknown): value is RaxodeBackendReadiness["dependencies"][number] {
   const record = recordValue(value);
   const probe = recordValue(record?.probe);
@@ -216,6 +240,7 @@ export function isRaxodeBackendReadiness(value: unknown): value is RaxodeBackend
     typeof record.storageKind === "string" &&
     isReadinessModel(record.model) &&
     isReadinessTools(record.tools) &&
+    isReadinessMcp(record.mcp) &&
     Array.isArray(record.dependencies) &&
     record.dependencies.every(isReadinessDependency) &&
     isReadinessPolicy(record.policy) &&

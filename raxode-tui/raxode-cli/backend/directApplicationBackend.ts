@@ -27,6 +27,11 @@ import type {
 } from "@praxis-ai/praxis/application-layer";
 import type { RaxodeOptions } from "./agents/codingAgent/config/raxodeOptions.js";
 import { inspectRaxodeMemoryBridge } from "./memory/memoryBridge.js";
+import {
+  loadRaxodeMcpRuntimeOptions,
+  mergeRaxodeMcpPlusRuntimeOptions,
+} from "./application/mcpConfig.js";
+import { createRaxodeMcpReadinessSummaryFromRuntimeOptions } from "./application/mcpReadinessSummary.js";
 import type { RaxodeLocalReadinessProbeInput } from "./application/localReadinessProbe.js";
 import { resolveRaxodeRaxcellSandboxProvider } from "./application/raxcellSandboxProvider.js";
 import {
@@ -55,6 +60,10 @@ type DirectApplicationBackendOptions = RaxodeOptions & {
   preCompactGovernanceEnabled?: CreateApplicationProjectRuntimeOptions["preCompactGovernanceEnabled"];
   compactContextWindowTokens?: CreateApplicationProjectRuntimeOptions["compactContextWindowTokens"];
   compactThresholdRatio?: CreateApplicationProjectRuntimeOptions["compactThresholdRatio"];
+  mcpServers?: CreateApplicationProjectRuntimeOptions["mcpServers"];
+  mcpPlusServers?: CreateApplicationProjectRuntimeOptions["mcpPlusServers"];
+  mcpModule?: CreateApplicationProjectRuntimeOptions["mcpModule"];
+  mcpPlus?: CreateApplicationProjectRuntimeOptions["mcpPlus"];
   sandboxProvider?: SandboxExecutionProviderPort;
   localReadinessProbe?: Omit<RaxodeLocalReadinessProbeInput, "manifest">;
 };
@@ -1071,6 +1080,13 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
   const reasoningEffort = options.reasoningEffort ?? modelOptions.reasoningEffort;
   const maxOutputTokens = options.maxOutputTokens ?? modelOptions.maxOutputTokens;
   const compactOptions = resolveDirectCompactOptions(options);
+  const configuredMcp = loadRaxodeMcpRuntimeOptions(cwd);
+  const mcpServers = options.mcpServers ?? configuredMcp.mcpServers;
+  const mcpPlus = mergeRaxodeMcpPlusRuntimeOptions(configuredMcp.mcpPlus, options.mcpPlus);
+  const mcpReadiness = createRaxodeMcpReadinessSummaryFromRuntimeOptions({
+    mcpServers,
+    mcpPlus,
+  });
   const projectRoot = path.resolve(options.projectRoot ?? defaultProjectRoot());
   const memoryBridge = await inspectRaxodeMemoryBridge({
     projectRoot,
@@ -1119,6 +1135,10 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
     compactContextWindowTokens: compactOptions.compactContextWindowTokens,
     compactThresholdRatio: compactOptions.compactThresholdRatio,
+    mcpServers,
+    mcpPlusServers: options.mcpPlusServers,
+    mcpModule: options.mcpModule,
+    mcpPlus,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       startDir: cwd,
       sessionId: context?.sessionId,
@@ -1238,6 +1258,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     options: agentOptions,
     now: options.now,
     localProbe: options.localReadinessProbe,
+    mcp: mcpReadiness,
     ports: {
       approvalResolver: "configured",
       sandboxProvider: sandboxProvider ? "configured" : "not-configured",

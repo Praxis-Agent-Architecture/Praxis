@@ -129,6 +129,8 @@
     "example:minimal": "node --import tsx examples/minimal/runRepoInspector.ts",
     "example:fullstack": "node --import tsx examples/fullstack/runRepoInspector.ts",
     "smoke:agentCore": "node --import tsx examples/scripts/agentcore_smoke.ts",
+    "smoke:mcp-external-transport": "node --import tsx examples/scripts/agentcore_mcp_external_transport_smoke.ts --no-model",
+    "smoke:mcp-plus-native": "node --import tsx examples/scripts/mcp-plus-native-smoke.ts",
     "smoke:modelAdapter": "node --import tsx examples/scripts/modelAdapter_smoke.ts",
     "raxode:typecheck": "tsc -p raxode-tui/tsconfig.json --noEmit",
     "raxode:test:backend": "cd raxode-tui && node --import tsx --test raxode-cli/frontend/bridge/*.test.ts raxode-cli/frontend/tui/cli/*.test.ts raxode-cli/frontend/tui/input/*.test.ts raxode-cli/backend/tests/*.test.ts",

@@ -8,10 +8,12 @@ import {
   ensureRaxodeHomeScaffold,
   loadRaxodeConfigFile,
   loadRaxodeLiveChatModelPlan,
+  loadRaxodeMcpConfig,
   loadRaxodePermissionsConfig,
   loadResolvedEmbeddingConfig,
   loadResolvedProviderSlotConfig,
   resolveConfiguredWorkspaceRoot,
+  RaxodeConfigError,
 } from "../config/raxode-config.js";
 
 test("ensureRaxodeHomeScaffold creates auth/config templates and state directories", async () => {
@@ -135,6 +137,103 @@ test("loadRaxodePermissionsConfig reads persistent capability overrides without 
   assert.equal(permissions.requestedMode, "standard");
   assert.equal(permissions.capabilityOverrides[0]?.capabilitySelector, "git.push");
   assert.equal(permissions.shared15ViewMatrix.length, 0);
+
+  delete process.env.RAXODE_HOME;
+});
+
+test("loadRaxodeMcpConfig reads MCP+ stdio server declarations", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxode-mcp-"));
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
+  ensureRaxodeHomeScaffold(rootDir);
+
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
+  const config = loadRaxodeConfigFile(rootDir);
+  config.mcp = {
+    projectId: "project.raxode.test",
+    reprofileConsecutiveIndexedCalls: 6,
+    servers: [
+      {
+        serverId: "playwright",
+        mode: "mcp-plus",
+        transport: "stdio",
+        command: "npx",
+        args: ["@playwright/mcp@latest"],
+        title: "Playwright MCP+",
+        summary: "Browser automation through Playwright MCP.",
+        enabled: true,
+        timeoutMs: 20_000,
+        manifest: {
+          server: {
+            id: "playwright",
+            title: "Playwright MCP+",
+            summary: "Browser automation through Playwright MCP.",
+          },
+          exposure: {
+            pinnedTools: ["browser_navigate", "browser_snapshot"],
+            indexedTools: ["browser_network_requests"],
+          },
+        },
+      },
+    ],
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  const mcp = loadRaxodeMcpConfig(rootDir);
+
+  assert.equal(mcp.projectId, "project.raxode.test");
+  assert.equal(mcp.reprofileConsecutiveIndexedCalls, 6);
+  assert.equal(mcp.servers.length, 1);
+  assert.equal(mcp.servers[0]?.serverId, "playwright");
+  assert.equal(mcp.servers[0]?.mode, "mcp-plus");
+  assert.equal(mcp.servers[0]?.transport, "stdio");
+  assert.equal(mcp.servers[0]?.enabled, true);
+  assert.deepEqual(mcp.servers[0]?.transport === "stdio" ? mcp.servers[0].args : [], ["@playwright/mcp@latest"]);
+  assert.equal(mcp.servers[0]?.manifest?.server && typeof mcp.servers[0].manifest.server === "object", true);
+
+  delete process.env.RAXODE_HOME;
+});
+
+test("loadRaxodeMcpConfig rejects invalid MCP mode and stdio framing", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxode-mcp-invalid-"));
+  process.env.RAXODE_HOME = path.join(rootDir, ".raxode");
+  ensureRaxodeHomeScaffold(rootDir);
+
+  const configPath = path.join(process.env.RAXODE_HOME!, "config.json");
+  const config = loadRaxodeConfigFile(rootDir) as unknown as Record<string, unknown>;
+  config.mcp = {
+    servers: [
+      {
+        serverId: "playwright",
+        mode: "wrapper",
+        transport: "stdio",
+        command: "npx",
+      },
+    ],
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  assert.throws(
+    () => loadRaxodeMcpConfig(rootDir),
+    (error) => error instanceof RaxodeConfigError && error.fieldPath === "mcp.servers[0].mode",
+  );
+
+  config.mcp = {
+    servers: [
+      {
+        serverId: "playwright",
+        mode: "mcp-plus",
+        transport: "stdio",
+        command: "npx",
+        framing: "stdio-json",
+      },
+    ],
+  };
+  await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  assert.throws(
+    () => loadRaxodeMcpConfig(rootDir),
+    (error) => error instanceof RaxodeConfigError && error.fieldPath === "mcp.servers[0].framing",
+  );
 
   delete process.env.RAXODE_HOME;
 });

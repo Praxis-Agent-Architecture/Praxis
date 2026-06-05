@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { mkdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import type { SkillIndexEntry } from "@praxis-ai/mcp-plus";
 import type { OpenAIV1ResponsesProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_responses.js";
 import type { OpenAiV1ChatCompletionsProviderCaller } from "../modelAdapter/actualInvocationLayer/openai/v1_chat_completions.js";
 import type { AnthropicV1MessagesProviderCaller } from "../modelAdapter/actualInvocationLayer/anthropic/v1_messages.js";
@@ -80,6 +81,7 @@ import {
 import type { StandardPromptPack } from "../executionEngine/promptPack/promptAssembler.js";
 import {
   type PromptPackSegmentKind,
+  type PromptPackMaterialDraft,
 } from "../executionEngine/promptPack/promptDefiner.js";
 import {
   createRuntimeBaseToolExecutorPort,
@@ -203,6 +205,7 @@ import {
   type McpPlusRuntimeOverlay,
   type McpPlusSkillStore,
   type McpHarnessModuleSpec,
+  type McpHarnessExposurePlan,
   planMcpHarnessExposure,
 } from "./runtime.mcpPlane/index.js";
 import type { McpRuntimeServerProfile } from "./runtime.execEngine/mcpRuntimeAdapter.js";
@@ -775,7 +778,11 @@ function runtimeGrantedPermissionsForTool(toolId: string, _profile: BaseToolPoli
     case "mcp.use":
       return ["mcp:call", "mcp:auth"];
     case "mcp.resources":
-      return ["mcp:resource:list", "mcp:resource:read"];
+      return ["mcp:resource:list", "mcp:resource:template:list", "mcp:resource:read", "mcp:resource:subscribe"];
+    case "mcp.prompts":
+      return ["mcp:prompt:list", "mcp:prompt:get"];
+    case "mcp.completions":
+      return ["mcp:completion"];
     case "media.viewImage":
       return ["media:image:read", "filesystem:read"];
     case "process.wait":
@@ -888,6 +895,7 @@ type RuntimeMcpPlusController = {
   setNativeInventory(inventory: Readonly<Record<string, readonly { name: string; description: string; inputSchema: Record<string, unknown> }[]>>): Promise<void>;
   learnedProfilesByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, McpPlusLearnedProfile | undefined>>>;
   exposureStateByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] }>>>;
+  skillIndexByServerId(manifest: AgentManifest): Promise<Readonly<Record<string, readonly SkillIndexEntry[]>>>;
   callControlTool(input: {
     manifest: AgentManifest;
     serverId: string;
@@ -908,20 +916,68 @@ function runtimeMcpPlusProjectId(input: { explicit?: string; workspaceRoot: stri
   return `project.${createHash("sha256").update(path.resolve(input.workspaceRoot)).digest("hex").slice(0, 16)}`;
 }
 
-function mcpPlusOverlayToExposureState(overlay: McpPlusRuntimeOverlay | undefined): { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] } {
-  if (overlay === undefined) return {};
+type McpPlusOverlayRuntimeState = McpPlusRuntimeOverlay["state"];
+
+function readMcpPlusOverlayState(overlay: McpPlusRuntimeOverlay | undefined): McpPlusOverlayRuntimeState | undefined {
+  if (overlay === undefined) return undefined;
   return {
-    mode: overlay.mode,
+    mode: overlay.state?.mode ?? overlay.mode ?? "expanded",
+    activeTools: [...(overlay.state?.activeTools ?? overlay.activeTools ?? [])],
+    pendingReprofile: overlay.state?.pendingReprofile ?? overlay.pendingReprofile,
+    counters: {
+      consecutiveIndexedToolCalls: {
+        ...(overlay.counters?.consecutiveIndexedToolCalls ?? {}),
+        ...(overlay.state?.counters.consecutiveIndexedToolCalls ?? {}),
+      },
+    },
+  };
+}
+
+function mcpPlusOverlayToExposureState(overlay: McpPlusRuntimeOverlay | undefined): { mode?: McpPlusRuntimeOverlay["state"]["mode"]; activeTools?: string[] } {
+  const state = readMcpPlusOverlayState(overlay);
+  if (state === undefined) return {};
+  return {
+    mode: state.mode,
     activeTools: [
-      ...overlay.activeTools,
-      ...(overlay.pendingReprofile ? ["mcp_plus.reprofile"] : []),
+      ...state.activeTools,
+      ...(state.pendingReprofile ? ["mcp_plus.reprofile"] : []),
     ],
+  };
+}
+
+function withMcpPlusOverlayState(
+  overlay: McpPlusRuntimeOverlay,
+  state: McpPlusOverlayRuntimeState,
+  input: { updatedAt: string; metadata?: Readonly<Record<string, unknown>> },
+): McpPlusRuntimeOverlay {
+  const {
+    mode: _legacyMode,
+    activeTools: _legacyActiveTools,
+    pendingReprofile: _legacyPendingReprofile,
+    counters: _legacyCounters,
+    ...base
+  } = overlay;
+  return {
+    ...base,
+    state,
+    updatedAt: input.updatedAt,
+    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
   };
 }
 
 function readStringList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+}
+
+function readStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+function readProfileRationale(value: unknown): string | Record<string, string> | undefined {
+  return readString(value) ?? readStringRecord(value);
 }
 
 function proposalFromArgs(args: Readonly<Record<string, unknown>>, fallbackServerId: string): McpPlusProfileProposal {
@@ -949,7 +1005,7 @@ function proposalFromArgs(args: Readonly<Record<string, unknown>>, fallbackServe
       const summary = readString(chapter.summary);
       return id === undefined || title === undefined || summary === undefined ? [] : [{ id, title, summary }];
     }),
-    rationale: readString(args.rationale),
+    rationale: readProfileRationale(args.rationale),
   };
   if (Object.hasOwn(args, "modeHint")) {
     return {
@@ -978,9 +1034,11 @@ function createRuntimeMcpPlusController(input: {
     return await input.overlayStore.load({ sessionId: input.sessionId, serverId }) ?? {
       serverId,
       sessionId: input.sessionId,
-      mode: "expanded",
-      activeTools: [],
-      counters: { consecutiveIndexedToolCalls: {} },
+      state: {
+        mode: "expanded",
+        activeTools: [],
+        counters: { consecutiveIndexedToolCalls: {} },
+      },
       updatedAt: now,
     };
   }
@@ -993,47 +1051,71 @@ function createRuntimeMcpPlusController(input: {
       const module = mcpHarnessModuleFrom(manifest.harness);
       const profiles: Record<string, McpPlusLearnedProfile | undefined> = {};
       for (const server of module?.servers ?? []) {
-        if (server.mode !== "mcp-plus" || server.manifest !== undefined) continue;
+        if (server.mode !== "mcp-plus") continue;
         profiles[server.serverId] = await input.profileStore.load({ projectId: input.projectId, serverId: server.serverId });
       }
       return profiles;
     },
     async exposureStateByServerId(manifest) {
       const module = mcpHarnessModuleFrom(manifest.harness);
-      const states: Record<string, { mode?: McpPlusRuntimeOverlay["mode"]; activeTools?: string[] }> = {};
+      const states: Record<string, { mode?: McpPlusRuntimeOverlay["state"]["mode"]; activeTools?: string[] }> = {};
       for (const server of module?.servers ?? []) {
         if (server.mode !== "mcp-plus") continue;
         states[server.serverId] = mcpPlusOverlayToExposureState(await input.overlayStore.load({ sessionId: input.sessionId, serverId: server.serverId }));
       }
       return states;
     },
+    async skillIndexByServerId(manifest) {
+      const module = mcpHarnessModuleFrom(manifest.harness);
+      const indexes: Record<string, SkillIndexEntry[]> = {};
+      for (const server of module?.servers ?? []) {
+        if (server.mode !== "mcp-plus") continue;
+        const notes = await input.skillStore.list({ projectId: input.projectId, serverId: server.serverId });
+        indexes[server.serverId] = notes.map((note) => ({
+          id: note.id,
+          title: note.title,
+          summary: note.summary,
+          serverId: server.serverId,
+          whenToUse: note.whenToUse,
+          why: note.why,
+          pitfallsPreview: note.pitfalls?.slice(0, 3),
+        }));
+      }
+      return indexes;
+    },
     async callControlTool(control) {
       if (control.controlName === "mcp_plus.init" || control.controlName === "mcp_plus.reprofile") {
         const proposal = proposalFromArgs(control.args, control.serverId);
         const nativeTools = nativeInventory[proposal.serverId] ?? [];
         const existing = await input.profileStore.load({ projectId: input.projectId, serverId: proposal.serverId });
+        const server = mcpPlusServerSpec(control.manifest, proposal.serverId);
         const learned = learnedProfileFromProposal({
           proposal,
           nativeTools,
           projectId: input.projectId,
           now: control.now,
           existing,
+          protectedAlwaysIndexTools: server?.manifest?.exposure?.alwaysIndexTools,
         });
         if (!learned.ok) return { ok: false, error: learned.error };
         await input.profileStore.save({ projectId: input.projectId, serverId: proposal.serverId }, learned.profile);
         const overlay = await loadOverlay(proposal.serverId, control.now);
-        await input.overlayStore.save({ sessionId: input.sessionId, serverId: proposal.serverId }, {
-          ...overlay,
-          mode: "expanded",
-          activeTools: [],
-          pendingReprofile: false,
-          counters: { consecutiveIndexedToolCalls: {} },
-          updatedAt: control.now,
-          metadata: {
-            ...(overlay.metadata ?? {}),
-            lastProfileControl: control.controlName,
+        await input.overlayStore.save({ sessionId: input.sessionId, serverId: proposal.serverId }, withMcpPlusOverlayState(
+          overlay,
+          {
+            mode: "expanded",
+            activeTools: [],
+            pendingReprofile: false,
+            counters: { consecutiveIndexedToolCalls: {} },
           },
-        });
+          {
+            updatedAt: control.now,
+            metadata: {
+              ...(overlay.metadata ?? {}),
+              lastProfileControl: control.controlName,
+            },
+          },
+        ));
         return {
           ok: true,
           output: {
@@ -1098,12 +1180,20 @@ function createRuntimeMcpPlusController(input: {
           ? indexedTools
           : indexedTools.filter((toolName) => toolName.toLowerCase().includes(request));
         const overlay = await loadOverlay(serverId, control.now);
-        await input.overlayStore.save({ sessionId: input.sessionId, serverId }, {
-          ...overlay,
-          mode: "expanded",
-          activeTools: [...new Set([...overlay.activeTools, ...activatedTools])],
-          updatedAt: control.now,
-        });
+        const overlayState = readMcpPlusOverlayState(overlay) ?? {
+          mode: "expanded" as const,
+          activeTools: [],
+          counters: { consecutiveIndexedToolCalls: {} },
+        };
+        await input.overlayStore.save({ sessionId: input.sessionId, serverId }, withMcpPlusOverlayState(
+          overlay,
+          {
+            ...overlayState,
+            mode: "expanded",
+            activeTools: [...new Set([...overlayState.activeTools, ...activatedTools])],
+          },
+          { updatedAt: control.now },
+        ));
         return { ok: true, output: { serverId, activatedTools, mode: "expanded" } };
       }
 
@@ -1123,9 +1213,19 @@ function createRuntimeMcpPlusController(input: {
         : undefined;
       const indexedTools = new Set(server.manifest?.exposure?.indexedTools ?? profile?.exposure.indexedTools ?? []);
       const overlay = await loadOverlay(serverId, record.now);
-      const consecutiveIndexedToolCalls = { ...overlay.counters.consecutiveIndexedToolCalls };
-      let pendingReprofile = overlay.pendingReprofile;
+      const overlayState = readMcpPlusOverlayState(overlay) ?? {
+        mode: "expanded" as const,
+        activeTools: [],
+        counters: { consecutiveIndexedToolCalls: {} },
+      };
+      const consecutiveIndexedToolCalls = { ...overlayState.counters.consecutiveIndexedToolCalls };
+      let pendingReprofile = overlayState.pendingReprofile;
       if (indexedTools.has(nativeToolName)) {
+        for (const toolName of Object.keys(consecutiveIndexedToolCalls)) {
+          if (toolName !== nativeToolName) {
+            consecutiveIndexedToolCalls[toolName] = 0;
+          }
+        }
         consecutiveIndexedToolCalls[nativeToolName] = (consecutiveIndexedToolCalls[nativeToolName] ?? 0) + 1;
         if (consecutiveIndexedToolCalls[nativeToolName] >= input.reprofileConsecutiveIndexedCalls) {
           pendingReprofile = true;
@@ -1135,46 +1235,177 @@ function createRuntimeMcpPlusController(input: {
           consecutiveIndexedToolCalls[toolName] = 0;
         }
       }
-      await input.overlayStore.save({ sessionId: input.sessionId, serverId }, {
-        ...overlay,
-        mode: "expanded",
-        activeTools: [...new Set([...overlay.activeTools, nativeToolName])],
-        pendingReprofile,
-        counters: { consecutiveIndexedToolCalls },
-        updatedAt: record.now,
-      });
+      await input.overlayStore.save({ sessionId: input.sessionId, serverId }, withMcpPlusOverlayState(
+        overlay,
+        {
+          mode: "expanded",
+          activeTools: [...new Set([...overlayState.activeTools, nativeToolName])],
+          pendingReprofile,
+          counters: { consecutiveIndexedToolCalls },
+        },
+        { updatedAt: record.now },
+      ));
       return true;
     },
   };
 }
 
-async function discoverRuntimeMcpDynamicTools(
+type RuntimeMcpDynamicSurface = {
+  tools: readonly ToolSpec[];
+  toolDeclarationPreludeMaterials: readonly PromptPackMaterialDraft[];
+};
+
+function mcpPlusPromptLine(label: string, value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized === undefined || normalized.length === 0 ? undefined : `${label}: ${normalized}`;
+}
+
+function renderMcpPlusNativePrelude(plan: McpHarnessExposurePlan): readonly PromptPackMaterialDraft[] {
+  const mcpPlusServers = plan.servers.filter((server) => server.mode === "mcp-plus");
+  if (mcpPlusServers.length === 0) return [];
+
+  const sections = mcpPlusServers.map((server) => {
+    const sidecar = server.surface.sidecar;
+    const visibleTools = server.surface.tools
+      .map((tool) => tool.name)
+      .filter((name) => typeof name === "string" && name.trim().length > 0);
+    const lines = [
+      `Server: ${server.serverId}`,
+      mcpPlusPromptLine("Mode", sidecar.serverCard.mode),
+      mcpPlusPromptLine("Title", sidecar.serverCard.title),
+      mcpPlusPromptLine("Summary", sidecar.serverCard.summary),
+      `Visible tools: ${visibleTools.join(", ") || "none"}`,
+    ].filter((line): line is string => line !== undefined);
+
+    if (sidecar.toolIndex.length > 0) {
+      lines.push("Tool index:");
+      for (const card of sidecar.toolIndex) {
+        lines.push(`- ${card.activation.toolName} (${card.id}): ${card.title}. ${card.summary}`);
+      }
+    }
+
+    if (sidecar.skillIndex.length > 0) {
+      lines.push("Skill index:");
+      for (const skill of sidecar.skillIndex) {
+        lines.push(`- ${skill.id}: ${skill.title}. ${skill.summary}`);
+      }
+    }
+
+    return lines.join("\n");
+  });
+
+  return [{
+    id: "runtime:mcp-plus-native-exposure",
+    kind: "tool-summary",
+    text: [
+      "# MCP+ Native Exposure",
+      "",
+      "MCP+ is a compact exposure layer over standard MCP. Praxis owns the runtime lifecycle; MCP remains the protocol boundary.",
+      "Use visible pinned or active MCP tools directly. Use indexed tool cards to decide when mcp_plus.expand or mcp_plus.reprofile is needed.",
+      "Use skill index cards to decide when mcp_plus.skill_read is relevant. Full skill bodies are read on demand and must not be assumed from this prefix-cached index.",
+      "",
+      sections.join("\n\n"),
+    ].join("\n"),
+    source: "runtime.mcpPlus.nativeExposure",
+    sourceCategory: "declared-built-in",
+    priority: 95.5,
+    trusted: true,
+    scope: "runtime.mcpPlus.exposure",
+    promptSegmentKind: "toolDeclarations",
+    metadata: {
+      promptSegmentKind: "toolDeclarations",
+      toolMaterialType: "policy",
+      mcpPlusServerIds: mcpPlusServers.map((server) => server.serverId),
+    },
+  }];
+}
+
+function mergeStoredSkillIndexIntoMcpPlusPlan(
+  plan: McpHarnessExposurePlan,
+  skillIndexByServerId: Readonly<Record<string, readonly SkillIndexEntry[]>>,
+): McpHarnessExposurePlan {
+  return {
+    servers: plan.servers.map((server) => {
+      if (server.mode !== "mcp-plus") return server;
+      const storedSkillIndex = skillIndexByServerId[server.serverId] ?? [];
+      if (storedSkillIndex.length === 0) return server;
+      const existingSkillIds = new Set(server.surface.sidecar.skillIndex.map((skill) => skill.id));
+      const mergedSkillIndex = [
+        ...server.surface.sidecar.skillIndex,
+        ...storedSkillIndex.filter((skill) => !existingSkillIds.has(skill.id)),
+      ];
+      return {
+        ...server,
+        surface: {
+          ...server.surface,
+          sidecar: {
+            ...server.surface.sidecar,
+            skillIndex: mergedSkillIndex,
+          },
+        },
+      };
+    }),
+  };
+}
+
+async function discoverRuntimeMcpDynamicSurface(
   manifest: AgentManifest,
   executor: BaseToolExecutorPort,
   mcpPlusRuntime?: RuntimeMcpPlusController,
-): Promise<readonly ToolSpec[]> {
+): Promise<RuntimeMcpDynamicSurface> {
   const profiles = buildMcpServerProfilesFromManifest(manifest);
-  if (profiles.length === 0 || executor.mcp?.listTools === undefined) return [];
+  if (profiles.length === 0 || executor.mcp?.listTools === undefined) {
+    return { tools: [], toolDeclarationPreludeMaterials: [] };
+  }
   const inventory: Record<string, { name: string; description: string; inputSchema: Record<string, unknown> }[]> = {};
   for (const profile of profiles) {
-    const listed = await executor.mcp.listTools({ serverId: profile.serverId });
-    if (listed?.ok !== true) continue;
-    const rawTools: readonly unknown[] = Array.isArray(listed.output?.tools) ? listed.output.tools : [];
+    const rawTools: unknown[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 100; page += 1) {
+      const listed = await executor.mcp.listTools({ serverId: profile.serverId, ...(cursor === undefined ? {} : { cursor }) });
+      if (listed?.ok !== true) break;
+      if (Array.isArray(listed.output?.tools)) rawTools.push(...listed.output.tools);
+      const nextCursor = typeof listed.output?.nextCursor === "string" ? listed.output.nextCursor : undefined;
+      if (nextCursor === undefined || nextCursor === cursor) break;
+      cursor = nextCursor;
+    }
     inventory[profile.serverId] = rawTools
       .map(normalizeMcpNativeToolDeclaration)
       .filter((tool): tool is { name: string; description: string; inputSchema: Record<string, unknown> } => tool !== undefined);
   }
   await mcpPlusRuntime?.setNativeInventory(inventory);
-  return planMcpHarnessExposure(
+  const plan = planMcpHarnessExposure(
     manifest,
     inventory,
     await mcpPlusRuntime?.exposureStateByServerId(manifest) ?? {},
     await mcpPlusRuntime?.learnedProfilesByServerId(manifest) ?? {},
-  ).servers.flatMap((server) => [...server.dynamicToolSpecs]);
+  );
+  const promptPlan = mergeStoredSkillIndexIntoMcpPlusPlan(
+    plan,
+    await mcpPlusRuntime?.skillIndexByServerId(manifest) ?? {},
+  );
+  return {
+    tools: plan.servers.flatMap((server) => [...server.dynamicToolSpecs]),
+    toolDeclarationPreludeMaterials: renderMcpPlusNativePrelude(promptPlan),
+  };
 }
 
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
   return createProviderToolMappings(manifest.harness.tools);
+}
+
+async function shutdownRuntimeOwnedExecutor(
+  executor: BaseToolExecutorPort | undefined,
+  events: string[],
+): Promise<void> {
+  const shutdown = executor?.mcp?.__praxisRuntimeOwnedShutdown;
+  if (typeof shutdown !== "function") return;
+  try {
+    const result = await shutdown({ reason: "runtime.runManifest.finished" });
+    events.push(result?.ok === false ? "runtime.mcp.shutdown.failed" : "runtime.mcp.shutdown.completed");
+  } catch {
+    events.push("runtime.mcp.shutdown.failed");
+  }
 }
 
 function providerToolSchemaFamilyForModel(model: AgentManifest["model"]): ProviderToolSchemaFamily {
@@ -3577,6 +3808,7 @@ async function buildPromptPackAndLower(input: {
   contextWindowTokens?: number;
   sessionSummary?: PromptContextSessionSummary;
   conversationWindow?: readonly PromptContextConversationMessage[];
+  toolDeclarationPreludeMaterials?: readonly PromptPackMaterialDraft[];
   projectContextGovernanceMaterials?: readonly {
     id: string;
     text: string;
@@ -3637,6 +3869,7 @@ async function buildPromptPackAndLower(input: {
       budget: contextWindowTokens === undefined ? undefined : { contextWindowTokens },
       sessionSummary: input.sessionSummary,
       conversationWindow: input.conversationWindow,
+      toolDeclarationPreludeMaterials: input.toolDeclarationPreludeMaterials,
       projectContextGovernanceMaterials: input.projectContextGovernanceMaterials?.map((material) => ({
         id: material.id,
         kind: "runtime",
@@ -5113,7 +5346,9 @@ export class PraxisRuntimeKernel {
         events.push(runtimeEvent.type);
       },
     });
+    const runtimeOwnedExecutor = options.executor === undefined ? executor : undefined;
 
+    try {
     const modelCaller = {
       kind: "application" as const,
       id: "praxis-runtime-kernel",
@@ -5135,12 +5370,15 @@ export class PraxisRuntimeKernel {
     const maxModelTurns = manifest.harness.loop.maxModelTurns ?? 2;
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;
     let toolMappings: readonly ProviderToolMapping[] = [];
+    let toolDeclarationPreludeMaterials: readonly PromptPackMaterialDraft[] = [];
     async function refreshRuntimeMcpTools(reason: string): Promise<void> {
+      const dynamicSurface = await discoverRuntimeMcpDynamicSurface(runtimeMcpBaseManifest, executor, mcpPlusRuntime);
       manifest = withRuntimeHarnessToolLayer(
         runtimeMcpBaseManifest,
-        await discoverRuntimeMcpDynamicTools(runtimeMcpBaseManifest, executor, mcpPlusRuntime),
+        dynamicSurface.tools,
         reason,
       );
+      toolDeclarationPreludeMaterials = dynamicSurface.toolDeclarationPreludeMaterials;
       toolMappings = providerToolMappings(manifest);
     }
     await refreshRuntimeMcpTools("session.checkpoint.start");
@@ -5241,6 +5479,7 @@ export class PraxisRuntimeKernel {
         contextWindowTokens: compactInputBudgetTokens,
         sessionSummary: compactSessionSummary,
         conversationWindow: compactConversationWindow,
+        toolDeclarationPreludeMaterials,
         projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
         toolContextSelection,
         toolContextUsage: toolContextHeatState.usage,
@@ -5499,6 +5738,7 @@ export class PraxisRuntimeKernel {
               events,
               sessionSummary: compactSessionSummary,
               conversationWindow: compactConversationWindow,
+              toolDeclarationPreludeMaterials,
               projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
               toolContextSelection,
               toolContextUsage: toolContextHeatState.usage,
@@ -6854,6 +7094,9 @@ export class PraxisRuntimeKernel {
       events,
       state: await store.readSession(sessionId),
     };
+    } finally {
+      await shutdownRuntimeOwnedExecutor(runtimeOwnedExecutor, events);
+    }
   }
 }
 

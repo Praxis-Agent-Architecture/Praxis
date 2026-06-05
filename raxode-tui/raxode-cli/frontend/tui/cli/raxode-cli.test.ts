@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   buildBackendReadinessStatusLines,
@@ -12,7 +13,11 @@ import {
   resolveRaxodeLaunchPlan,
 } from "./raxode-cli.js";
 import type { RaxodeResolvedRoleConfig } from "../config/raxode-config.js";
-import { ensureRaxodeHomeScaffold } from "../config/raxode-config.js";
+import {
+  ensureRaxodeHomeScaffold,
+  loadRaxodeConfigFile,
+} from "../config/raxode-config.js";
+import { loadRaxodeMcpReadinessSummary } from "../../../backend/application/mcpConfig.js";
 
 test("resolveRaxodeCliCommand defaults bare raxode to tui", () => {
   assert.deepEqual(resolveRaxodeCliCommand([]), {
@@ -47,14 +52,55 @@ test("buildBackendReadinessStatusLines exposes Praxis module readiness", () => {
   assert.ok(lines.some((line) => line === "Praxis backend module gaps: none"));
   assert.ok(lines.some((line) =>
     line === "Praxis backend runtime ports: approval=default-policy, agentReview=not-configured, contextArtifact=configured, baseTool=not-configured, authState=configured, foundation=configured, liveProvider=raxode-default"));
+  assert.ok(lines.some((line) =>
+    line === "Praxis backend MCP: configured=0 enabled=0 mcpPlus=0 native=0 checkpoint=session-checkpoint profile=serverId+project"));
+  assert.ok(lines.some((line) => line === "Praxis backend MCP servers: none"));
   assert.ok(lines.some((line) => line === "Praxis backend model: provider=openai, model=gpt-5.5, route=responses"));
-  assert.ok(lines.some((line) => line === "Praxis backend tools: agentCore mounted=25 expected=25"));
+  assert.ok(lines.some((line) => line === "Praxis backend tools: agentCore mounted=27 expected=27"));
   assert.ok(lines.some((line) => line.includes("Praxis backend sandbox: host-observed")));
   assert.ok(lines.some((line) => line.includes("dependency.binary.node=ready")));
   assert.ok(lines.some((line) => line.includes("dependency.npm.tsx=ready")));
   assert.ok(lines.some((line) => line === "Praxis backend dependency actions: none"));
   assert.ok(lines.some((line) => line === "Praxis backend sandbox probe: not-required fallback=workspace-rollback"));
   assert.ok(lines.some((line) => line === "Praxis backend sandbox actions: none"));
+});
+
+test("buildBackendReadinessStatusLines exposes configured ten-server MCP+ summary", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "praxis-raxode-cli-mcp-status-"));
+  const previousHome = process.env.RAXODE_HOME;
+  const raxodeHome = path.join(rootDir, ".raxode");
+  process.env.RAXODE_HOME = raxodeHome;
+  ensureRaxodeHomeScaffold(rootDir);
+
+  try {
+    const examplePath = fileURLToPath(new URL("../../../../../examples/raxode-mcp-plus-ten-server.config.json", import.meta.url));
+    const example = JSON.parse(await readFile(examplePath, "utf8")) as { mcp?: Record<string, unknown> };
+    const config = loadRaxodeConfigFile(rootDir);
+    config.mcp = example.mcp as typeof config.mcp;
+    await writeFile(path.join(raxodeHome, "config.json"), `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+    const lines = buildBackendReadinessStatusLines({
+      now: () => "2026-05-10T00:00:00.000Z",
+      mcp: loadRaxodeMcpReadinessSummary(rootDir),
+      localProbe: {
+        nodeVersion: "v22.22.3",
+        resolvePackage: (packageName) => packageName === "tsx" ? "/repo/node_modules/tsx/dist/cli.mjs" : undefined,
+      },
+    });
+
+    assert.ok(lines.some((line) =>
+      line === "Praxis backend MCP: configured=10 enabled=10 mcpPlus=10 native=0 checkpoint=session-checkpoint profile=serverId+project"));
+    assert.ok(lines.some((line) => line.includes("Praxis backend MCP servers:")));
+    assert.ok(lines.some((line) => line.includes("playwright")));
+    assert.ok(lines.some((line) => line.includes("filesystem-praxis")));
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.RAXODE_HOME;
+    } else {
+      process.env.RAXODE_HOME = previousHome;
+    }
+    await rm(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("buildBackendReadinessStatusLines reports local dependency probe gaps", () => {

@@ -26,6 +26,10 @@ export type {
 } from "./backend/application/runtimeReadiness.js";
 
 export type {
+  RaxodeMcpReadinessSummary,
+} from "./backend/application/mcpReadinessSummary.js";
+
+export type {
   RaxodeBackendModuleId,
   RaxodeBackendModuleInventory,
   RaxodeBackendModuleInventoryItem,

@@ -60,8 +60,8 @@ test("raxode stdio application server speaks application JSONL protocol", async 
   };
   assert.equal(ready.view?.permissionProfile, "permissive");
   assert.equal(ready.view?.toolProfile, "agentCore");
-  assert.equal(ready.view?.tools?.mounted, 25);
-  assert.equal(ready.view?.tools?.total, 25);
+  assert.equal(ready.view?.tools?.mounted, 27);
+  assert.equal(ready.view?.tools?.total, 27);
   const readiness = await waitForLine(lines, (line) =>
     line.type === "application.event"
     && (line.event as { eventId?: string } | undefined)?.eventId === "raxode.backend.readiness",

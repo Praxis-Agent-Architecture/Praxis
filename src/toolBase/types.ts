@@ -45,6 +45,7 @@ export type ToolBaseId =
   | "context.load"
   | "mcp.use"
   | "mcp.resources"
+  | "mcp.prompts"
   | "lsp.query"
   | "browser.use"
   | "computer.use"

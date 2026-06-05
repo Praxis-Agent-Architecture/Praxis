@@ -31,6 +31,11 @@ import { createRaxodeAuthStateProvider } from "./authentication/authStateProvide
 import { createRaxodeContextAdapter } from "./context/contextBridge.js";
 import type { RaxodeOptions } from "./agents/codingAgent/config/raxodeOptions.js";
 import { inspectRaxodeMemoryBridge } from "./memory/memoryBridge.js";
+import {
+  loadRaxodeMcpRuntimeOptions,
+  mergeRaxodeMcpPlusRuntimeOptions,
+} from "./application/mcpConfig.js";
+import { createRaxodeMcpReadinessSummaryFromRuntimeOptions } from "./application/mcpReadinessSummary.js";
 import type { RaxodeLocalReadinessProbeInput } from "./application/localReadinessProbe.js";
 import {
   inspectRaxodeBackendReadinessWithLocalProbe,
@@ -79,6 +84,10 @@ type RaxodeBackendRuntimePorts = Pick<
   | "preCompactGovernanceEnabled"
   | "compactContextWindowTokens"
   | "compactThresholdRatio"
+  | "mcpServers"
+  | "mcpPlusServers"
+  | "mcpModule"
+  | "mcpPlus"
 >;
 
 export type RaxodeBackendOptions = RaxodeOptions & RaxodeBackendRuntimePorts & {
@@ -126,6 +135,13 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
   const reasoningEffort = options.reasoningEffort ?? modelOptions.reasoningEffort;
   const maxOutputTokens = options.maxOutputTokens ?? modelOptions.maxOutputTokens;
   const permissionProfile = options.policyProfile ?? "permissive";
+  const configuredMcp = loadRaxodeMcpRuntimeOptions(startDir);
+  const mcpServers = options.mcpServers ?? configuredMcp.mcpServers;
+  const mcpPlus = mergeRaxodeMcpPlusRuntimeOptions(configuredMcp.mcpPlus, options.mcpPlus);
+  const mcpReadiness = createRaxodeMcpReadinessSummaryFromRuntimeOptions({
+    mcpServers,
+    mcpPlus,
+  });
   const agentOptions: RaxodeOptions = {
     policyProfile: permissionProfile,
     sandboxProfile: options.sandboxProfile,
@@ -187,6 +203,10 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
     preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
     compactContextWindowTokens: options.compactContextWindowTokens,
     compactThresholdRatio: options.compactThresholdRatio,
+    mcpServers,
+    mcpPlusServers: options.mcpPlusServers,
+    mcpModule: options.mcpModule,
+    mcpPlus,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => createRaxodeLiveProvider(manifest, {
       startDir,
       sessionId: context?.sessionId,
@@ -210,11 +230,12 @@ async function createRaxodeRuntime(options: RaxodeBackendOptions = {}) {
       authStateProvider,
       openFoundationProject,
     }),
+    mcpReadiness,
   };
 }
 
 export async function createRaxodeBackend(options: RaxodeBackendOptions = {}): Promise<RaxodeBackend> {
-  const { projectRoot, runtime, readinessOptions, readinessPorts } = await createRaxodeRuntime(options);
+  const { projectRoot, runtime, readinessOptions, readinessPorts, mcpReadiness } = await createRaxodeRuntime(options);
   const transport = createLocalApplicationTransport(runtime);
 
   return {
@@ -230,6 +251,7 @@ export async function createRaxodeBackend(options: RaxodeBackendOptions = {}): P
         now: options.now,
         localProbe: options.localReadinessProbe,
         ports: readinessPorts,
+        mcp: mcpReadiness,
       });
     },
     async dispatch(command) {
