@@ -11,7 +11,12 @@ import { createPraxisRuntimeKernel, type AgentModelCacheDebugRecord, type AgentM
 import { createMcpRuntimeAdapter, type McpRuntimeServerProfile } from "../../src/runtimeImplementation/runtime.execEngine/mcpRuntimeAdapter.js";
 import { runDevDoctor } from "../../src/devdoctor/index.js";
 import type { ExecutionMonitorReport } from "../../src/runtimeImplementation/runtime.executionMonitor/index.js";
-import { mcp, type McpHarnessModuleSpec, type McpHarnessServerSpec } from "../../src/runtimeImplementation/runtime.mcpPlane/index.js";
+import {
+  createInMemoryMcpPlusSkillStore,
+  mcp,
+  type McpHarnessModuleSpec,
+  type McpHarnessServerSpec,
+} from "../../src/runtimeImplementation/runtime.mcpPlane/index.js";
 
 type DiscoveredServer = {
   serverId: string;
@@ -65,6 +70,24 @@ type RuntimeToolFlowSummary = {
   toolCallCount: number;
   toolCallOkCount: number;
   toolOutputPreview?: string;
+  outputPreview?: string;
+};
+
+type RuntimeSkillFlowSummary = {
+  ok: boolean;
+  providerToolName?: string;
+  toolCallCount: number;
+  toolCallOkCount: number;
+  skillBodyMarker: string;
+  skillPitfallMarker: string;
+  firstStablePrefixContainsSkillBody: boolean;
+  firstProviderBodyContainsSkillBody: boolean;
+  secondStablePrefixContainsSkillBody: boolean;
+  secondDynamicInputContainsSkillBody: boolean;
+  secondDynamicInputContainsSkillPitfall: boolean;
+  secondObservationSegmentCachePolicy?: string;
+  secondProviderInstructionSegmentKinds: readonly string[];
+  secondProviderDynamicInputSegmentKinds: readonly string[];
   outputPreview?: string;
 };
 
@@ -545,6 +568,119 @@ async function runRuntimeToolFlow(mode: "native" | "mcp-plus", discovered: reado
   return summary;
 }
 
+async function runRuntimeSkillFlow(discovered: readonly DiscoveredServer[]): Promise<RuntimeSkillFlowSummary> {
+  const compiled = compileAgent(McpSmokeToolFlowAgent, {
+    compiledAt: "2026-06-05T00:00:00.000Z",
+    manifestId: "manifest.mcp-smoke.skill-flow.mcp-plus",
+  });
+  if (!compiled.ok) throw new Error("Failed to compile MCP+ skill-flow smoke agent.");
+
+  const skillBodyMarker = "UNIQUE_MCP_PLUS_SKILL_BODY_DYNAMIC_ONLY";
+  const skillPitfallMarker = "UNIQUE_MCP_PLUS_SKILL_PITFALL_DYNAMIC_ONLY";
+  const skillStore = createInMemoryMcpPlusSkillStore([{
+    id: "skill.everything.echo",
+    serverId: "everything",
+    projectId: "project.mcp-smoke",
+    chapter: "everything-debug",
+    title: "Echo workflow skill card",
+    summary: "Compact card for the everything echo workflow.",
+    whenToUse: "When validating MCP+ skill body expansion.",
+    do: [skillBodyMarker],
+    pitfalls: [skillPitfallMarker],
+    createdAt: "2026-06-05T00:00:00.000Z",
+    updatedAt: "2026-06-05T00:00:00.000Z",
+  }]);
+
+  let calls = 0;
+  let providerToolName: string | undefined;
+  let firstProviderBodyText = "";
+  let firstStableInstructionsText = "";
+  let secondStableInstructionsText = "";
+  let secondDynamicInputText = "";
+  const cacheDebugs: AgentModelCacheDebugRecord[] = [];
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-real-mcp-skill-flow-mcp-plus" }).runManifest(
+    compiled.manifest,
+    "Read the full everything MCP+ skill body and keep it out of the stable prefix.",
+    {
+      sessionId: "session-real-mcp-skill-flow-mcp-plus",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      mcpModule: moduleFor("mcp-plus", discovered),
+      mcpPlus: {
+        projectId: "project.mcp-smoke",
+        skillStore,
+      },
+      providerCaller: async (envelope) => {
+        calls += 1;
+        const body = envelope.body as { instructions?: unknown; input?: unknown; tools?: readonly { name?: string }[] };
+        if (calls === 1) {
+          firstProviderBodyText = JSON.stringify(envelope.body);
+          firstStableInstructionsText = JSON.stringify(body.instructions);
+          providerToolName = body.tools
+            ?.map((item) => item.name)
+            .find((name): name is string => typeof name === "string" && name.includes("mcp_plus_skill_read"));
+          if (providerToolName === undefined) {
+            throw new Error("MCP+ skill-flow did not expose mcp_plus.skill_read provider tool.");
+          }
+          return {
+            output: [{
+              type: "function_call",
+              name: providerToolName,
+              call_id: "mcp-plus-skill-read",
+              arguments: JSON.stringify({ serverId: "everything", id: "skill.everything.echo" }),
+            }],
+          };
+        }
+        secondStableInstructionsText = JSON.stringify(body.instructions);
+        secondDynamicInputText = JSON.stringify(body.input);
+        return { output_text: "mcp-plus skill body expansion stayed dynamic" };
+      },
+      onModelCallProgress: async (progress) => {
+        if (progress.phase === "completed" && progress.cacheDebug !== undefined) {
+          cacheDebugs.push(progress.cacheDebug);
+        }
+      },
+      now: () => "2026-06-05T00:00:00.000Z",
+    },
+  );
+  if (!result.ok) throw new Error(`mcp-plus runtime skill-flow failed: ${JSON.stringify(result.error)}`);
+  const secondCache = cacheDebugs[1];
+  const observationSegment = secondCache?.promptPack.segments.find((segment) => segment.segmentKind === "observations");
+  const summary: RuntimeSkillFlowSummary = {
+    ok: result.ok,
+    providerToolName,
+    toolCallCount: result.toolCalls.length,
+    toolCallOkCount: result.toolCalls.filter((toolCall) => toolCall.ok).length,
+    skillBodyMarker,
+    skillPitfallMarker,
+    firstStablePrefixContainsSkillBody: firstStableInstructionsText.includes(skillBodyMarker) || firstStableInstructionsText.includes(skillPitfallMarker),
+    firstProviderBodyContainsSkillBody: firstProviderBodyText.includes(skillBodyMarker) || firstProviderBodyText.includes(skillPitfallMarker),
+    secondStablePrefixContainsSkillBody: secondStableInstructionsText.includes(skillBodyMarker) || secondStableInstructionsText.includes(skillPitfallMarker),
+    secondDynamicInputContainsSkillBody: secondDynamicInputText.includes(skillBodyMarker),
+    secondDynamicInputContainsSkillPitfall: secondDynamicInputText.includes(skillPitfallMarker),
+    secondObservationSegmentCachePolicy: observationSegment?.cachePolicy,
+    secondProviderInstructionSegmentKinds: secondCache?.promptPack.providerLowering?.instructionSegmentKinds ?? [],
+    secondProviderDynamicInputSegmentKinds: secondCache?.promptPack.providerLowering?.dynamicInputSegmentKinds ?? [],
+    outputPreview: outputPreview(result.finalOutput),
+  };
+  if (summary.toolCallCount !== 1 || summary.toolCallOkCount !== 1) {
+    throw new Error(`mcp-plus skill-flow expected one successful skill_read call, got ${JSON.stringify(summary)}`);
+  }
+  if (summary.firstProviderBodyContainsSkillBody || summary.secondStablePrefixContainsSkillBody) {
+    throw new Error(`MCP+ full skill body leaked into provider stable/prefix text: ${JSON.stringify(summary)}`);
+  }
+  if (!summary.secondDynamicInputContainsSkillBody || !summary.secondDynamicInputContainsSkillPitfall) {
+    throw new Error(`MCP+ full skill body was not delivered through dynamic tool-result input: ${JSON.stringify(summary)}`);
+  }
+  if (summary.secondObservationSegmentCachePolicy !== "dynamic-no-cache") {
+    throw new Error(`MCP+ skill_read observation is not dynamic-no-cache: ${JSON.stringify(summary)}`);
+  }
+  console.log(`[skill-flow] mcp-plus: ${JSON.stringify(summary)}`);
+  return summary;
+}
+
 async function discover(): Promise<DiscoveredServer[]> {
   const adapter = createMcpRuntimeAdapter({ servers: SERVER_PROFILES.map((server) => server.profile) });
   const discovered: DiscoveredServer[] = [];
@@ -825,6 +961,7 @@ const livePromptProbes = await runLivePromptProbes();
 const liveTransportProbes = await runLiveTransportProbes();
 const nativeToolFlow = await runRuntimeToolFlow("native", discovered);
 const mcpPlusToolFlow = await runRuntimeToolFlow("mcp-plus", discovered);
+const mcpPlusSkillFlow = await runRuntimeSkillFlow(discovered);
 await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discovered.map((server) => ({
   serverId: server.serverId,
   toolCount: server.tools.length,
@@ -834,6 +971,7 @@ await writeFile(path.join(runRoot, "live-call-probes.json"), `${JSON.stringify(l
 await writeFile(path.join(runRoot, "live-prompt-probes.json"), `${JSON.stringify(livePromptProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-transport-probes.json"), `${JSON.stringify(liveTransportProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-tool-flow.json"), `${JSON.stringify([nativeToolFlow, mcpPlusToolFlow], null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "runtime-skill-flow.json"), `${JSON.stringify(mcpPlusSkillFlow, null, 2)}\n`, "utf8");
 const native = await runMode("native", discovered);
 const mcpPlus = await runMode("mcp-plus", discovered);
 const comparison = {
@@ -848,6 +986,7 @@ const comparison = {
   liveTransportProbeTransports: [...new Set(liveTransportProbes.map((probe) => probe.transport))],
   liveTransportProbeResults: liveTransportProbes,
   runtimeToolFlows: [nativeToolFlow, mcpPlusToolFlow],
+  runtimeSkillFlow: mcpPlusSkillFlow,
   native,
   mcpPlus,
   deltas: {
