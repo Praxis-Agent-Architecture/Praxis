@@ -29,6 +29,8 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
         ? { prompts: [{ name: "triage", title: "Triage" }] }
         : payload.method === "prompts/get"
           ? { description: "Triage prompt", messages: [{ role: "user", content: { type: "text", text: "triage" } }] }
+          : payload.method === "logging/setLevel"
+            ? { accepted: true, level: payload.params?.level }
           : payload.method === "ping"
             ? {}
             : { ok: true };
@@ -68,11 +70,21 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
     assert.equal(progress?.ok, true);
     assert.equal(progress?.output.status, "reported");
 
+    const logging = await mcp.setLoggingLevel?.({ serverId: "standard-mcp", level: "debug" });
+    assert.equal(logging?.ok, true);
+    assert.equal(logging?.output.level, "debug");
+
+    const cancelled = await mcp.cancelExecution?.({ serverId: "standard-mcp", executionId: "request-1", reason: "test cancellation" });
+    assert.equal(cancelled?.ok, true);
+    assert.equal(cancelled?.output.status, "cancelled");
+
     assert.deepEqual(seenMethods, [
       "initialize",
       "notifications/initialized",
       "prompts/list",
       "prompts/get",
+      "logging/setLevel",
+      "notifications/cancelled",
     ]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -179,6 +191,10 @@ function readFrames() {
       } else {
         frame({ jsonrpc: "2.0", id: payload.id, result: { tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }] } });
       }
+    } else if (payload.method === "logging/setLevel") {
+      frame({ jsonrpc: "2.0", id: payload.id, result: { accepted: true, level: payload.params.level } });
+    } else if (payload.method === "notifications/cancelled") {
+      // Notification: no response.
     } else if (payload.method === "debug/seen") {
       frame({ jsonrpc: "2.0", id: payload.id, result: { seen } });
     }
@@ -207,12 +223,22 @@ process.stdin.on("data", (chunk) => {
     assert.equal(listed?.ok, true);
     if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "echo");
 
+    const logging = await mcp.setLoggingLevel?.({ serverId: "stdio-standard", level: "warning" });
+    assert.equal(logging?.ok, true);
+    assert.equal(logging?.output.level, "warning");
+
+    const cancelled = await mcp.cancelExecution?.({ serverId: "stdio-standard", executionId: "stdio-request-1", reason: "done" });
+    assert.equal(cancelled?.ok, true);
+    assert.equal(cancelled?.output.status, "cancelled");
+
     const seen = await mcp.nativeExecute?.({ serverId: "stdio-standard", method: "debug/seen", params: {} });
     assert.equal(seen?.ok, true);
     assert.deepEqual((seen?.ok ? (seen.output as { result?: { seen?: string[] } }).result?.seen : undefined), [
       "initialize",
       "notifications/initialized",
       "tools/list",
+      "logging/setLevel",
+      "notifications/cancelled",
       "debug/seen",
     ]);
     await mcp.disconnect?.({ serverId: "stdio-standard" });

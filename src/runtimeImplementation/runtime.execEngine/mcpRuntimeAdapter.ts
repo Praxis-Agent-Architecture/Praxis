@@ -171,6 +171,13 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     return requested;
   };
 
+  const notify = async (connection: McpConnection, method: string, params: JsonObject = {}): Promise<BaseToolExecutorResult<{ status: "notified" }>> => {
+    if (connection.profile.transport === "stdio") {
+      return notifyStdio(connection, method, params);
+    }
+    return notifyHttp(connection.profile, method, params, connection.sessionId);
+  };
+
   const closeConnection = (connection: McpConnection): void => {
     for (const [, pending] of connection.pending) {
       clearTimeout(pending.timeout);
@@ -335,9 +342,14 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       return success({ executionId: `${requestInput.serverId}:execution:${requestInput.name}`, streamId: `${requestInput.serverId}:stream:${requestInput.name}`, status: "completed", channel: requestInput.channel ?? "chunks", chunks: [called.output], providerMetadata: metadata(connected.output.profile, { method: "tools/call", toolName: requestInput.name }) });
     },
     async cancelExecution(requestInput) {
-      const profile = getProfile(requestInput.serverId);
-      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
-      return success({ executionId: requestInput.executionId, status: "cancelled", serverId: requestInput.serverId, providerMetadata: metadata(profile) });
+      const connected = await getConnection(requestInput.serverId);
+      if (!connected.ok) return connected;
+      const cancelled = await notify(connected.output, "notifications/cancelled", {
+        requestId: requestInput.executionId,
+        reason: requestInput.reason,
+      });
+      if (!cancelled.ok) return cancelled;
+      return success({ executionId: requestInput.executionId, status: "cancelled", serverId: requestInput.serverId, providerMetadata: metadata(connected.output.profile, { method: "notifications/cancelled" }) });
     },
     async nativeExecute(requestInput) {
       const connected = await getConnection(requestInput.serverId);
@@ -448,9 +460,12 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       return success({ serverId: requestInput.serverId, status: "pending", request: requestInput, providerMetadata: metadata(profile, { hostSemantic: "elicitation" }) });
     },
     async setLoggingLevel(requestInput) {
-      const profile = getProfile(requestInput.serverId);
-      if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
-      return success({ serverId: requestInput.serverId, level: requestInput.level ?? "info", status: "configured", providerMetadata: metadata(profile, { hostSemantic: "logging" }) });
+      const connected = await getConnection(requestInput.serverId);
+      if (!connected.ok) return connected;
+      const level = requestInput.level ?? "info";
+      const configured = await request(connected.output, "logging/setLevel", { level });
+      if (!configured.ok) return configured;
+      return success({ serverId: requestInput.serverId, level, status: "configured", providerMetadata: metadata(connected.output.profile, { method: "logging/setLevel" }), raw: configured.output });
     },
     async createResource(requestInput) {
       const profile = getProfile(requestInput.serverId);
@@ -500,6 +515,12 @@ async function requestStdio(connection: McpConnection, method: string, params: J
   } catch (error) {
     return failure("MCP_STDIO_REQUEST_FAILED", textFromUnknown((error as Error).message ?? error));
   }
+}
+
+async function notifyStdio(connection: McpConnection, method: string, params: JsonObject): Promise<BaseToolExecutorResult<{ status: "notified" }>> {
+  if (connection.child === undefined) return failure("MCP_STDIO_NOT_CONNECTED", "MCP stdio child process is not connected.");
+  writeStdioPayload(connection, { jsonrpc: "2.0", method, params });
+  return success({ status: "notified" });
 }
 
 function httpHeaders(
