@@ -450,7 +450,7 @@ async function runLivePromptProbes(): Promise<LivePromptProbeResult[]> {
     results.push(listResult);
     console.log(`[prompt-probe] everything.prompts/list: ${listResult.ok ? "ok" : `failed: ${listResult.error}`}`);
     if (!listResult.ok) throw new Error(`Live MCP prompt list probe failed: ${listResult.error}`);
-    const promptName = listed.output.prompts.find((prompt) => prompt.name === "simple-prompt")?.name ?? listed.output.prompts[0]?.name;
+    const promptName = listed.output.prompts.find((prompt: { name?: string }) => prompt.name === "simple-prompt")?.name ?? listed.output.prompts[0]?.name;
     if (promptName === undefined) throw new Error("Live MCP prompt list probe returned no prompt names.");
 
     const prompt = await adapter.getPrompt?.({ serverId: "everything", name: promptName, arguments: {} });
@@ -532,7 +532,7 @@ async function runRuntimeToolFlow(mode: "native" | "mcp-plus", discovered: reado
     toolCallCount: result.toolCalls.length,
     toolCallOkCount: result.toolCalls.filter((toolCall) => toolCall.ok).length,
     toolOutputPreview: outputPreview(toolCall?.output),
-    outputPreview: outputPreview(result.outputText),
+    outputPreview: outputPreview(result.finalOutput),
   };
   if (summary.toolCallCount !== 1 || summary.toolCallOkCount !== 1) {
     throw new Error(`${mode} runtime tool-flow expected one successful MCP tool call, got ${JSON.stringify(summary)}`);
@@ -555,7 +555,7 @@ async function discover(): Promise<DiscoveredServer[]> {
       }
       discovered.push({
         ...server,
-        tools: listed.output.tools.map((tool) => ({
+        tools: listed.output.tools.map((tool: { name: string; description?: string; inputSchema?: unknown }) => ({
           name: tool.name,
           description: tool.description,
           inputSchema: tool.inputSchema,
@@ -700,6 +700,10 @@ function summarizePromptPackFlow(cache: AgentModelCacheDebugRecord): PromptPackF
   const toolRefs = toolSegment?.materialRefs ?? [];
   const builtInToolDeclarationsMaterialIndex = toolRefs.indexOf("runtime:tool-declarations");
   const mcpPlusPreludeMaterialIndex = toolRefs.indexOf("runtime:mcp-plus-native-exposure");
+  const providerLowering = cache.promptPack.providerLowering ?? {
+    instructionSegmentKinds: [],
+    dynamicInputSegmentKinds: [],
+  };
   return {
     mcpPlusPreludePresent: mcpPlusPreludeMaterialIndex >= 0,
     mcpPlusPreludeSegmentKind: mcpPlusPreludeMaterialIndex >= 0 ? toolSegment?.segmentKind : undefined,
@@ -713,8 +717,8 @@ function summarizePromptPackFlow(cache: AgentModelCacheDebugRecord): PromptPackF
     refsAroundMcpPlusPrelude: mcpPlusPreludeMaterialIndex < 0
       ? []
       : toolRefs.slice(Math.max(0, mcpPlusPreludeMaterialIndex - 3), mcpPlusPreludeMaterialIndex + 4),
-    providerInstructionSegmentKinds: cache.promptPack.providerLowering.instructionSegmentKinds,
-    providerDynamicInputSegmentKinds: cache.promptPack.providerLowering.dynamicInputSegmentKinds,
+    providerInstructionSegmentKinds: providerLowering.instructionSegmentKinds,
+    providerDynamicInputSegmentKinds: providerLowering.dynamicInputSegmentKinds,
     cacheRiskWarnings: cache.promptPack.cacheRiskWarnings,
   };
 }

@@ -386,6 +386,176 @@ process.stdin.on("data", (chunk) => {
   }
 });
 
+test("MCP runtime stdio adapter answers server roots requests and records notifications", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-roots-"));
+  const serverPath = path.join(workspace, "roots-mcp-server.mjs");
+  await writeFile(serverPath, `
+let buffer = "";
+let rootsRequestId;
+let toolsListId;
+function frame(payload) {
+  const body = JSON.stringify(payload);
+  process.stdout.write("Content-Length: " + Buffer.byteLength(body, "utf8") + "\\r\\n\\r\\n" + body);
+}
+function readFrames() {
+  while (true) {
+    const headerEnd = buffer.indexOf("\\r\\n\\r\\n");
+    if (headerEnd < 0) return;
+    const header = buffer.slice(0, headerEnd);
+    const match = /Content-Length:\\s*(\\d+)/i.exec(header);
+    if (!match) {
+      buffer = buffer.slice(headerEnd + 4);
+      continue;
+    }
+    const bodyStart = headerEnd + 4;
+    const bodyEnd = bodyStart + Number(match[1]);
+    if (buffer.length < bodyEnd) return;
+    const payload = JSON.parse(buffer.slice(bodyStart, bodyEnd));
+    buffer = buffer.slice(bodyEnd);
+    if (payload.method === "initialize") {
+      const hasRoots = payload.params?.capabilities?.roots?.listChanged === true;
+      frame({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "roots", version: "1" }, hasRoots } });
+    } else if (payload.method === "tools/list") {
+      toolsListId = payload.id;
+      rootsRequestId = "roots-" + payload.id;
+      frame({ jsonrpc: "2.0", id: rootsRequestId, method: "roots/list", params: {} });
+      frame({ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: "scan", progress: 1, total: 2, message: "scanning roots" } });
+    } else if (payload.id === rootsRequestId) {
+      const roots = payload.result?.roots ?? [];
+      frame({ jsonrpc: "2.0", id: toolsListId, result: { tools: [{ name: roots[0]?.name ?? "missing_root", description: roots[0]?.uri ?? "missing", inputSchema: { type: "object" } }] } });
+    }
+  }
+}
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  buffer += chunk;
+  readFrames();
+});
+`, "utf8");
+
+  const notifications: Array<{ method: string; params: Record<string, unknown> }> = [];
+  let mcp: ReturnType<typeof createMcpRuntimeAdapter> | undefined;
+  try {
+    mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "stdio-roots",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverPath],
+        timeoutMs: 1_000,
+        framing: "content-length",
+      }],
+      host: {
+        onNotification(notification) {
+          notifications.push({ method: notification.method, params: notification.params });
+        },
+      },
+    });
+
+    const registered = await mcp.setRoots?.({
+      serverId: "stdio-roots",
+      roots: [{ uri: `file://${workspace}`, name: "workspace-root" }],
+    });
+    assert.equal(registered?.ok, true);
+    if (registered?.ok) assert.equal(registered.output.roots[0]?.name, "workspace-root");
+
+    const listed = await mcp.listTools?.({ serverId: "stdio-roots" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) {
+      assert.equal(listed.output.tools[0]?.name, "workspace-root");
+      assert.equal(listed.output.tools[0]?.description, `file://${workspace}`);
+    }
+
+    assert.deepEqual(notifications, [{
+      method: "notifications/progress",
+      params: { progressToken: "scan", progress: 1, total: 2, message: "scanning roots" },
+    }]);
+    await mcp.disconnect?.({ serverId: "stdio-roots" });
+  } finally {
+    await mcp?.shutdown?.({});
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
+test("MCP runtime stdio adapter uses host hooks for sampling and elicitation requests", async () => {
+  const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-host-hooks-"));
+  const serverPath = path.join(workspace, "hooks-mcp-server.mjs");
+  await writeFile(serverPath, `
+let buffer = "";
+let pendingToolsListId;
+let samplingDone = false;
+let elicitationDone = false;
+let hooksDeclared = false;
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+function maybeFinish() {
+  if (pendingToolsListId !== undefined && samplingDone && elicitationDone) {
+    send({ jsonrpc: "2.0", id: pendingToolsListId, result: { tools: [{ name: "hooked", description: "Hooked", inputSchema: { type: "object" } }] } });
+    pendingToolsListId = undefined;
+  }
+}
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      hooksDeclared = payload.params?.capabilities?.sampling !== undefined && payload.params?.capabilities?.elicitation?.form !== undefined && payload.params?.capabilities?.elicitation?.url !== undefined;
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "hooks", version: "1" } } });
+    } else if (payload.method === "tools/list") {
+      if (!hooksDeclared) {
+        send({ jsonrpc: "2.0", id: payload.id, error: { code: -32002, message: "host hooks were not declared" } });
+        continue;
+      }
+      pendingToolsListId = payload.id;
+      send({ jsonrpc: "2.0", id: "sampling-1", method: "sampling/createMessage", params: { messages: [{ role: "user", content: { type: "text", text: "summarize" } }], maxTokens: 16 } });
+      send({ jsonrpc: "2.0", id: "elicit-1", method: "elicitation/create", params: { mode: "form", message: "Need confirmation", requestedSchema: { type: "object", properties: { ok: { type: "boolean" } } } } });
+    } else if (payload.id === "sampling-1") {
+      if (payload.result?.model === "praxis-test-model") samplingDone = true;
+      maybeFinish();
+    } else if (payload.id === "elicit-1") {
+      if (payload.result?.action === "decline") elicitationDone = true;
+      maybeFinish();
+    }
+  }
+});
+`, "utf8");
+
+  const requested: string[] = [];
+  let mcp: ReturnType<typeof createMcpRuntimeAdapter> | undefined;
+  try {
+    mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "stdio-host-hooks",
+        transport: "stdio",
+        command: process.execPath,
+        args: [serverPath],
+        timeoutMs: 1_000,
+      }],
+      host: {
+        createSamplingMessage(request) {
+          requested.push(request.method);
+          return { role: "assistant", content: { type: "text", text: "sampled" }, model: "praxis-test-model", stopReason: "endTurn" };
+        },
+        elicit(request) {
+          requested.push(request.method);
+          return { action: "decline" };
+        },
+      },
+    });
+
+    const listed = await mcp.listTools?.({ serverId: "stdio-host-hooks" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "hooked");
+    assert.deepEqual(requested, ["sampling/createMessage", "elicitation/create"]);
+    await mcp.disconnect?.({ serverId: "stdio-host-hooks" });
+  } finally {
+    await mcp?.shutdown?.({});
+    await rm(workspace, { recursive: true, force: true });
+  }
+});
+
 test("MCP runtime stdio adapter defaults to line-json framing", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-line-json-"));
   const serverPath = path.join(workspace, "line-json-mcp-server.mjs");

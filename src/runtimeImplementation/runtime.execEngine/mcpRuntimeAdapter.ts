@@ -26,12 +26,43 @@ export type McpRuntimeServerProfile =
       timeoutMs?: number;
     };
 
-export type McpRuntimeAdapterOptions = {
-  servers: readonly McpRuntimeServerProfile[];
+export type McpRuntimeRoot = {
+  uri: string;
+  name?: string;
+  _meta?: Readonly<Record<string, unknown>>;
 };
 
-type JsonRpcResponse = {
+export type McpRuntimeHostRequest = {
+  serverId: string;
+  connectionId: string;
+  method: string;
+  requestId?: string | number | null;
+  params: JsonObject;
+};
+
+export type McpRuntimeHostNotification = {
+  serverId: string;
+  connectionId: string;
+  method: string;
+  params: JsonObject;
+};
+
+export type McpRuntimeHostHooks = {
+  listRoots?: (request: McpRuntimeHostRequest) => Promise<readonly McpRuntimeRoot[]> | readonly McpRuntimeRoot[];
+  createSamplingMessage?: (request: McpRuntimeHostRequest) => Promise<unknown> | unknown;
+  elicit?: (request: McpRuntimeHostRequest) => Promise<unknown> | unknown;
+  onNotification?: (notification: McpRuntimeHostNotification) => Promise<void> | void;
+};
+
+export type McpRuntimeAdapterOptions = {
+  servers: readonly McpRuntimeServerProfile[];
+  host?: McpRuntimeHostHooks;
+};
+
+type JsonRpcMessage = {
   id?: string | number | null;
+  method?: string;
+  params?: unknown;
   result?: unknown;
   error?: {
     code?: number | string;
@@ -46,8 +77,9 @@ type McpConnection = {
   child?: ChildProcessWithoutNullStreams;
   sessionId?: string;
   nextId: number;
-  pending: Map<string | number, { resolve: (value: JsonRpcResponse) => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }>;
+  pending: Map<string | number, { resolve: (value: JsonRpcMessage) => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }>;
   buffer: string;
+  notifications: McpRuntimeHostNotification[];
 };
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -87,8 +119,8 @@ function writeStdioPayload(connection: McpConnection, payload: JsonObject): void
   connection.child?.stdin.write(framing === "line-json" ? `${JSON.stringify(payload)}\n` : contentLengthFrame(payload));
 }
 
-function extractContentLengthFrames(buffer: string): { messages: JsonRpcResponse[]; rest: string } {
-  const messages: JsonRpcResponse[] = [];
+function extractContentLengthFrames(buffer: string): { messages: JsonRpcMessage[]; rest: string } {
+  const messages: JsonRpcMessage[] = [];
   let rest = buffer;
   while (true) {
     const headerEnd = rest.indexOf("\r\n\r\n");
@@ -107,7 +139,7 @@ function extractContentLengthFrames(buffer: string): { messages: JsonRpcResponse
     rest = rest.slice(bodyEnd);
     try {
       const parsed = JSON.parse(raw) as unknown;
-      if (isObject(parsed)) messages.push(parsed as JsonRpcResponse);
+      if (isObject(parsed)) messages.push(parsed as JsonRpcMessage);
     } catch {
       // Drop malformed provider frames. The pending call will time out with a public-safe error.
     }
@@ -115,8 +147,8 @@ function extractContentLengthFrames(buffer: string): { messages: JsonRpcResponse
   return { messages, rest };
 }
 
-function extractLineJsonFrames(buffer: string): { messages: JsonRpcResponse[]; rest: string } {
-  const messages: JsonRpcResponse[] = [];
+function extractLineJsonFrames(buffer: string): { messages: JsonRpcMessage[]; rest: string } {
+  const messages: JsonRpcMessage[] = [];
   const lines = buffer.split("\n");
   const rest = lines.pop() ?? "";
   for (const line of lines) {
@@ -124,7 +156,7 @@ function extractLineJsonFrames(buffer: string): { messages: JsonRpcResponse[]; r
     if (trimmed.length === 0) continue;
     try {
       const parsed = JSON.parse(trimmed) as unknown;
-      if (isObject(parsed)) messages.push(parsed as JsonRpcResponse);
+      if (isObject(parsed)) messages.push(parsed as JsonRpcMessage);
     } catch {
       // Drop malformed provider frames. The pending call will time out with a public-safe error.
     }
@@ -135,6 +167,7 @@ function extractLineJsonFrames(buffer: string): { messages: JsonRpcResponse[]; r
 export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonNullable<BaseToolExecutorPort["mcp"]> {
   const profiles = new Map(options.servers.map((profile) => [profile.serverId, profile]));
   const connections = new Map<string, McpConnection>();
+  const rootsByServerId = new Map<string, readonly McpRuntimeRoot[]>();
 
   const metadata = (profile: McpRuntimeServerProfile, extra: Readonly<Record<string, unknown>> = {}) => ({
     serverId: profile.serverId,
@@ -198,6 +231,111 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     connection.child?.kill();
   };
 
+  const stdioClientCapabilities = (): JsonObject => ({
+    roots: { listChanged: true },
+    ...(options.host?.createSamplingMessage === undefined ? {} : { sampling: {} }),
+    ...(options.host?.elicit === undefined ? {} : { elicitation: { form: {}, url: {} } }),
+  });
+
+  const writeStdioResult = (connection: McpConnection, id: string | number | null | undefined, result: unknown): void => {
+    if (id === undefined || id === null) return;
+    writeStdioPayload(connection, { jsonrpc: "2.0", id, result });
+  };
+
+  const writeStdioError = (
+    connection: McpConnection,
+    id: string | number | null | undefined,
+    code: number,
+    message: string,
+    data?: unknown,
+  ): void => {
+    if (id === undefined || id === null) return;
+    writeStdioPayload(connection, {
+      jsonrpc: "2.0",
+      id,
+      error: { code, message, ...(data === undefined ? {} : { data }) },
+    });
+  };
+
+  const hostRequest = (connection: McpConnection, message: JsonRpcMessage): McpRuntimeHostRequest => ({
+    serverId: connection.profile.serverId,
+    connectionId: connection.connectionId,
+    method: message.method ?? "",
+    requestId: message.id,
+    params: resultObject(message.params),
+  });
+
+  const recordNotification = (connection: McpConnection, message: JsonRpcMessage): void => {
+    if (typeof message.method !== "string") return;
+    const notification = {
+      serverId: connection.profile.serverId,
+      connectionId: connection.connectionId,
+      method: message.method,
+      params: resultObject(message.params),
+    };
+    connection.notifications.push(notification);
+    if (connection.notifications.length > 100) connection.notifications.splice(0, connection.notifications.length - 100);
+    const notified = options.host?.onNotification?.(notification);
+    if (notified !== undefined) void Promise.resolve(notified).catch(() => undefined);
+  };
+
+  const handleStdioRequest = async (connection: McpConnection, message: JsonRpcMessage): Promise<void> => {
+    if (typeof message.method !== "string") {
+      writeStdioError(connection, message.id, -32600, "Invalid MCP JSON-RPC request.");
+      return;
+    }
+    try {
+      if (message.method === "ping") {
+        writeStdioResult(connection, message.id, {});
+        return;
+      }
+      if (message.method === "roots/list") {
+        const requestInput = hostRequest(connection, message);
+        const roots = options.host?.listRoots === undefined
+          ? rootsByServerId.get(connection.profile.serverId) ?? []
+          : await options.host.listRoots(requestInput);
+        writeStdioResult(connection, message.id, { roots });
+        return;
+      }
+      if (message.method === "sampling/createMessage") {
+        if (options.host?.createSamplingMessage === undefined) {
+          writeStdioError(connection, message.id, -32601, "MCP sampling is not configured for this Praxis runtime.");
+          return;
+        }
+        writeStdioResult(connection, message.id, await options.host.createSamplingMessage(hostRequest(connection, message)));
+        return;
+      }
+      if (message.method === "elicitation/create") {
+        if (options.host?.elicit === undefined) {
+          writeStdioError(connection, message.id, -32601, "MCP elicitation is not configured for this Praxis runtime.");
+          return;
+        }
+        writeStdioResult(connection, message.id, await options.host.elicit(hostRequest(connection, message)));
+        return;
+      }
+      writeStdioError(connection, message.id, -32601, `MCP client method '${message.method}' is not supported by this Praxis runtime.`);
+    } catch (error) {
+      writeStdioError(connection, message.id, -32603, textFromUnknown((error as Error).message ?? error));
+    }
+  };
+
+  const handleStdioMessage = (connection: McpConnection, message: JsonRpcMessage): void => {
+    if (typeof message.method === "string" && message.id !== undefined && message.id !== null) {
+      void handleStdioRequest(connection, message);
+      return;
+    }
+    if (typeof message.method === "string") {
+      recordNotification(connection, message);
+      return;
+    }
+    if (message.id === undefined || message.id === null) return;
+    const pending = connection.pending.get(message.id);
+    if (pending === undefined) return;
+    clearTimeout(pending.timeout);
+    connection.pending.delete(message.id);
+    pending.resolve(message);
+  };
+
   const connectProfile = async (
     profile: McpRuntimeServerProfile,
     connectionId: string,
@@ -208,7 +346,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
         env: { ...process.env, ...(profile.env ?? {}) },
         stdio: ["pipe", "pipe", "pipe"],
       });
-      const connection: McpConnection = { profile, connectionId, child, nextId: 1, pending: new Map(), buffer: "" };
+      const connection: McpConnection = { profile, connectionId, child, nextId: 1, pending: new Map(), buffer: "", notifications: [] };
       child.stdout.setEncoding("utf8");
       child.stdout.on("data", (chunk: string) => {
         const extracted = (profile.framing ?? "line-json") === "line-json"
@@ -216,12 +354,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
           : extractContentLengthFrames(connection.buffer + chunk);
         connection.buffer = extracted.rest;
         for (const message of extracted.messages) {
-          if (message.id === undefined || message.id === null) continue;
-          const pending = connection.pending.get(message.id);
-          if (pending === undefined) continue;
-          clearTimeout(pending.timeout);
-          connection.pending.delete(message.id);
-          pending.resolve(message);
+          handleStdioMessage(connection, message);
         }
       });
       child.on("error", (error) => {
@@ -242,7 +375,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       });
       const initialized = await requestStdio(connection, "initialize", {
         protocolVersion: "2025-06-18",
-        capabilities: {},
+        capabilities: stdioClientCapabilities(),
         clientInfo: { name: "praxis-agentcore", version: "0.1.0" },
       });
       if (!initialized.ok) {
@@ -266,7 +399,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       }
     }
 
-    const connection: McpConnection = { profile, connectionId, nextId: 1, pending: new Map(), buffer: "" };
+    const connection: McpConnection = { profile, connectionId, nextId: 1, pending: new Map(), buffer: "", notifications: [] };
     const initialized = await requestHttp(profile, "initialize", {
       protocolVersion: "2025-06-18",
       capabilities: {},
@@ -558,7 +691,18 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     async setRoots(requestInput) {
       const profile = getProfile(requestInput.serverId);
       if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);
-      return success({ serverId: requestInput.serverId, roots: requestInput.roots ?? [], status: "registered", providerMetadata: metadata(profile, { hostSemantic: "roots" }) });
+      const roots = (Array.isArray(requestInput.roots) ? requestInput.roots.filter(isObject).map((root: JsonObject) => ({
+        uri: String(root.uri ?? ""),
+        name: typeof root.name === "string" ? root.name : undefined,
+        _meta: isObject(root._meta) ? root._meta : undefined,
+      })).filter((root: McpRuntimeRoot) => root.uri.length > 0) : []) satisfies readonly McpRuntimeRoot[];
+      rootsByServerId.set(requestInput.serverId, roots);
+      for (const [, connection] of connections) {
+        if (connection.profile.serverId === requestInput.serverId) {
+          await notify(connection, "notifications/roots/list_changed", {});
+        }
+      }
+      return success({ serverId: requestInput.serverId, roots, status: "registered", providerMetadata: metadata(profile, { hostSemantic: "roots" }) });
     },
     async reportProgress(requestInput) {
       const profile = getProfile(requestInput.serverId);
@@ -618,7 +762,7 @@ async function requestStdio(connection: McpConnection, method: string, params: J
   const id = connection.nextId++;
   const payload = { jsonrpc: "2.0", id, method, params };
   const timeoutMs = connection.profile.timeoutMs ?? 5_000;
-  const response = new Promise<JsonRpcResponse>((resolve, reject) => {
+  const response = new Promise<JsonRpcMessage>((resolve, reject) => {
     const timeout = setTimeout(() => {
       connection.pending.delete(id);
       reject(new Error(`MCP stdio request '${method}' timed out after ${timeoutMs}ms.`));
@@ -670,7 +814,7 @@ async function requestHttp(
     if (!response.ok) return failure("MCP_HTTP_REQUEST_FAILED", `MCP HTTP endpoint returned HTTP ${response.status}.`);
     const json = await response.json() as unknown;
     if (!isObject(json)) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response was not a JSON object.");
-    const normalized = normalizeJsonRpcResponse(json as JsonRpcResponse);
+    const normalized = normalizeJsonRpcResponse(json as JsonRpcMessage);
     const responseSessionId = response.headers.get(MCP_SESSION_ID_HEADER) ?? undefined;
     if (!normalized.ok || responseSessionId === undefined) return normalized;
     return success(normalized.output, { ...(normalized.metadata ?? {}), mcpSessionId: responseSessionId });
@@ -705,7 +849,7 @@ async function notifyHttp(
   }
 }
 
-function normalizeJsonRpcResponse(response: JsonRpcResponse): BaseToolExecutorResult<unknown> {
+function normalizeJsonRpcResponse(response: JsonRpcMessage): BaseToolExecutorResult<unknown> {
   if (response.error !== undefined) {
     return failure("MCP_JSONRPC_ERROR", response.error.message ?? `MCP JSON-RPC error ${String(response.error.code ?? "unknown")}.`);
   }
