@@ -485,14 +485,14 @@ export const semanticBaseToolCatalog = [
     toolId: "mcp.resources",
     layer: "agent",
     title: "Read MCP Resources",
-    description: "List, read, subscribe to, or unsubscribe from MCP resources through runtime-owned MCP clients.",
+    description: "List resources, list resource templates, read, subscribe to, or unsubscribe from MCP resources through runtime-owned MCP clients.",
     risk: "read",
-    runtimePorts: ["mcp.listResources", "mcp.readResource", "mcp.subscribe", "mcp.unsubscribe"],
-    permissionHints: ["mcp:resources", "mcp:read", "mcp:resource:subscribe"],
+    runtimePorts: ["mcp.listResources", "mcp.listResourceTemplates", "mcp.readResource", "mcp.subscribe", "mcp.unsubscribe"],
+    permissionHints: ["mcp:resources", "mcp:read", "mcp:resource:template:list", "mcp:resource:subscribe"],
     inputSchema: schema({
       type: "object",
       properties: {
-        operation: { type: "string", enum: ["list", "read", "subscribe", "unsubscribe"] },
+        operation: { type: "string", enum: ["list", "templates", "read", "subscribe", "unsubscribe"] },
         serverId: { type: "string" },
         uri: { type: "string" },
         uriPrefix: { type: "string" },

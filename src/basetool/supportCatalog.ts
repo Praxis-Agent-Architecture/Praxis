@@ -150,6 +150,8 @@ function activeSupportsFor(
   if (entry.toolId === "mcp.resources") {
     const activePort = operation === "list"
       ? "mcp.listResources"
+      : operation === "templates"
+        ? "mcp.listResourceTemplates"
       : operation === "read"
         ? "mcp.readResource"
         : operation === "subscribe"

@@ -778,7 +778,7 @@ function runtimeGrantedPermissionsForTool(toolId: string, _profile: BaseToolPoli
     case "mcp.use":
       return ["mcp:call", "mcp:auth"];
     case "mcp.resources":
-      return ["mcp:resource:list", "mcp:resource:read", "mcp:resource:subscribe"];
+      return ["mcp:resource:list", "mcp:resource:template:list", "mcp:resource:read", "mcp:resource:subscribe"];
     case "mcp.prompts":
       return ["mcp:prompt:list", "mcp:prompt:get"];
     case "media.viewImage":

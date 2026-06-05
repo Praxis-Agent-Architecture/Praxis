@@ -87,7 +87,7 @@ test("baseTool fact matrix exposes runtime ports and sandbox hints as facts", ()
   const riskByToolId = new Map(matrix.risk.map((row) => [row.toolId, row]));
 
   assert.deepEqual(byToolId.get("file.read")?.runtimePorts, ["filesystem.readText"]);
-  assert.deepEqual(byToolId.get("mcp.resources")?.runtimePorts, ["mcp.listResources", "mcp.readResource", "mcp.subscribe", "mcp.unsubscribe"]);
+  assert.deepEqual(byToolId.get("mcp.resources")?.runtimePorts, ["mcp.listResources", "mcp.listResourceTemplates", "mcp.readResource", "mcp.subscribe", "mcp.unsubscribe"]);
   assert.deepEqual(byToolId.get("mcp.prompts")?.runtimePorts, ["mcp.listPrompts", "mcp.getPrompt"]);
   assert.equal(riskByToolId.get("file.read")?.sandboxHint.filesystem, "read");
   assert.equal(riskByToolId.get("patch.apply")?.sandboxHint.filesystem, "write");

@@ -173,6 +173,8 @@ test("MCP runtime HTTP adapter forwards paginated tools and resources cursors", 
         ? { tools: [{ name: "paged_tool", inputSchema: { type: "object" } }], nextCursor: "tools-page-2" }
         : payload.method === "resources/list"
           ? { resources: [{ uri: "memory://paged", name: "paged" }], nextCursor: "resources-page-2" }
+          : payload.method === "resources/templates/list"
+            ? { resourceTemplates: [{ uriTemplate: "memory://{name}", name: "memory-template", description: "Memory template" }], nextCursor: "templates-page-2" }
           : { ok: true };
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result }));
@@ -199,11 +201,18 @@ test("MCP runtime HTTP adapter forwards paginated tools and resources cursors", 
     assert.equal(resources?.output.nextCursor, "resources-page-2");
     assert.equal(resources?.output.exhausted, false);
 
+    const templates = await mcp.listResourceTemplates?.({ serverId: "paged-http", cursor: "templates-page-1" });
+    assert.equal(templates?.ok, true);
+    assert.equal(templates?.output.resourceTemplates[0]?.uriTemplate, "memory://{name}");
+    assert.equal(templates?.output.nextCursor, "templates-page-2");
+    assert.equal(templates?.output.exhausted, false);
+
     assert.deepEqual(seen.map((item) => ({ method: item.method, params: item.params })), [
       { method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "praxis-agentcore", version: "0.1.0" } } },
       { method: "notifications/initialized", params: {} },
       { method: "tools/list", params: { cursor: "tools-page-1" } },
       { method: "resources/list", params: { cursor: "resources-page-1" } },
+      { method: "resources/templates/list", params: { cursor: "templates-page-1" } },
     ]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -473,6 +473,30 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
         raw: listed.output,
       });
     },
+    async listResourceTemplates(requestInput) {
+      const connected = await getConnection(requestInput.serverId);
+      if (!connected.ok) return connected;
+      const listed = await request(connected.output, "resources/templates/list", requestInput.cursor === undefined ? {} : { cursor: requestInput.cursor });
+      if (!listed.ok) return listed;
+      const raw = resultObject(listed.output);
+      const resourceTemplates = Array.isArray(raw.resourceTemplates) ? raw.resourceTemplates.filter(isObject).map((template) => ({
+        uriTemplate: String(template.uriTemplate ?? template.uri_template ?? ""),
+        name: typeof template.name === "string" ? template.name : undefined,
+        title: typeof template.title === "string" ? template.title : undefined,
+        description: typeof template.description === "string" ? template.description : undefined,
+        mimeType: typeof template.mimeType === "string" ? template.mimeType : typeof template.mime_type === "string" ? template.mime_type : undefined,
+        raw: template,
+      })).filter((template) => template.uriTemplate.length > 0) : [];
+      const nextCursor = typeof raw.nextCursor === "string" ? raw.nextCursor : undefined;
+      return success({
+        resourceTemplates,
+        templates: resourceTemplates,
+        nextCursor,
+        exhausted: nextCursor === undefined,
+        providerMetadata: metadata(connected.output.profile, { method: "resources/templates/list" }),
+        raw: listed.output,
+      });
+    },
     async readResource(requestInput) {
       const connected = await getConnection(requestInput.serverId);
       if (!connected.ok) return connected;

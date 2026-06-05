@@ -21,8 +21,8 @@ export async function invokeMcpResourcesCore(
   const subscriptionId = stringField(definition, input.value, "subscriptionId");
   if (!subscriptionId.ok) return subscriptionId.result;
 
-  if (!["list", "read", "subscribe", "unsubscribe"].includes(operation.value)) {
-    return errorResult(definition, "INVALID_FIELD_VALUE", "mcp.resources operation must be 'list', 'read', 'subscribe', or 'unsubscribe'.");
+  if (!["list", "templates", "read", "subscribe", "unsubscribe"].includes(operation.value)) {
+    return errorResult(definition, "INVALID_FIELD_VALUE", "mcp.resources operation must be 'list', 'templates', 'read', 'subscribe', or 'unsubscribe'.");
   }
   if (operation.value === "read" && (uri.value?.trim().length ?? 0) === 0) {
     return errorResult(definition, "MISSING_REQUIRED_FIELD", "mcp.resources read requires 'uri'.");
@@ -36,6 +36,8 @@ export async function invokeMcpResourcesCore(
 
   const method = operation.value === "list"
     ? "listResources"
+    : operation.value === "templates"
+      ? "listResourceTemplates"
     : operation.value === "read"
       ? "readResource"
       : operation.value;

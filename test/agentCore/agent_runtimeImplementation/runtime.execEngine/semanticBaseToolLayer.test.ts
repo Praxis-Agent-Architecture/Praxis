@@ -438,6 +438,22 @@ test("mcp.use, mcp.resources, and mcp.prompts route to MCP runtime ports", async
   assert.equal(listResult.ok, true);
   assert.deepEqual(listInput, { serverId: "docs", uriPrefix: "file://", cursor: "page-1" });
 
+  let templatesInput: unknown;
+  const templatesResult = await resourcesLookup.handler.invoke({
+    toolId: "mcp.resources",
+    input: { operation: "templates", serverId: "docs", cursor: "templates-page-1" },
+    executor: {
+      mcp: {
+        listResourceTemplates(request) {
+          templatesInput = request;
+          return { ok: true, output: { resourceTemplates: [] } };
+        },
+      },
+    },
+  });
+  assert.equal(templatesResult.ok, true);
+  assert.deepEqual(templatesInput, { serverId: "docs", cursor: "templates-page-1" });
+
   const invalidRead = await resourcesLookup.handler.invoke({
     toolId: "mcp.resources",
     input: { operation: "read" },
