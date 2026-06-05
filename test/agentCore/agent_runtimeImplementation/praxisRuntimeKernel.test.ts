@@ -3629,6 +3629,147 @@ test("PraxisRuntimeKernel.runManifest expands developer manifest indexed MCP+ to
   assert.equal(result.toolCalls[0]?.ok, true);
 });
 
+test("PraxisRuntimeKernel.runManifest merges MCP+ learned profile into developer manifest at checkpoint", async () => {
+  class LearnedProfileManifestMcpPlusAgent extends PraxisAgent {
+    identity = "agent.mcp-plus-learned-manifest";
+    model = model("gpt-5.4", { carrierId: "carrier.mcp-plus-learned-manifest" });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Developer-authored browser MCP+ server.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: ["network.status"],
+                  alwaysIndexTools: ["network.status"],
+                  toolCards: {
+                    "network.status": {
+                      title: "Developer network status",
+                      summary: "Developer card must keep priority over learned cards.",
+                      keywords: ["developer"],
+                    },
+                  },
+                },
+              },
+            }),
+          ],
+        }),
+      },
+      tools: mcp.recommendedTools(),
+      policy: policy({
+        allowProviderCall: true,
+        allowToolExecution: true,
+        scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
+      }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1, maxToolCalls: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(LearnedProfileManifestMcpPlusAgent, {
+    compiledAt: "2026-06-04T00:00:00.000Z",
+    manifestId: "manifest.mcp-plus-learned-manifest",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const profile: McpPlusLearnedProfile = {
+    schemaVersion: "mcp-plus.profile.v1",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    exposure: {
+      pinnedTools: ["page.snapshot", "network.status"],
+      indexedTools: ["network.status"],
+      toolCards: {
+        "network.status": {
+          title: "Learned network status",
+          summary: "Learned card should not override the developer card.",
+          keywords: ["learned"],
+        },
+      },
+    },
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  };
+  const profileStore = createInMemoryMcpPlusProfileStore([profile]);
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime-mcp-plus-learned-manifest",
+    sessionId: "session-mcp-plus-learned-manifest",
+    adapters: {
+      mcp: {
+        async listTools(request) {
+          return {
+            ok: true as const,
+            output: {
+              serverId: request?.serverId,
+              tools: [
+                {
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+                },
+                {
+                  name: "page.snapshot",
+                  description: "Read the current page accessibility snapshot.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+                {
+                  name: "network.status",
+                  description: "Inspect network requests.",
+                  inputSchema: { type: "object", properties: {} },
+                },
+              ],
+            },
+          };
+        },
+        async call(request) {
+          return { ok: true as const, output: { result: "called", request } };
+        },
+      },
+    },
+  });
+
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-learned-manifest" }).runManifest(
+    compiled.manifest,
+    "inspect merged mcp-plus profile",
+    {
+      sessionId: "session-mcp-plus-learned-manifest",
+      dryRun: false,
+      allowProviderCall: true,
+      allowToolExecution: true,
+      auth: authEnvelope(),
+      executor,
+      mcpPlus: {
+        projectId: "project.raxode",
+        profileStore,
+      },
+      providerCaller: async (envelope) => {
+        const body = envelope.body as { instructions?: unknown; tools?: readonly { name?: string }[] };
+        const toolNames = (body.tools ?? []).map((item) => item.name ?? "");
+        assert.equal(toolNames.some((name) => name.includes("mcp_browser-plus_browser_open")), true);
+        assert.equal(toolNames.some((name) => name.includes("mcp_browser-plus_page_snapshot")), true);
+        assert.equal(toolNames.some((name) => name.includes("mcp_browser-plus_network_status")), false);
+        assert.equal(toolNames.some((name) => name.includes("mcp_plus_init")), false);
+        assert.match(JSON.stringify(body.instructions), /Developer network status/u);
+        assert.doesNotMatch(JSON.stringify(body.instructions), /Learned network status/u);
+        return { output_text: "developer manifest and learned profile merged" };
+      },
+      now: () => "2026-06-04T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+});
+
 test("PraxisRuntimeKernel.runManifest schedules MCP+ reprofile after six consecutive indexed tool calls", async () => {
   class ReprofileMcpPlusAgent extends PraxisAgent {
     identity = "agent.mcp-plus-reprofile";

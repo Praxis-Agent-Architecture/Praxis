@@ -14,12 +14,14 @@ import {
   createLearnedProfileFromProposal as createContractLearnedProfileFromProposal,
   createReprofileToolDeclaration as createMcpPlusContractReprofileToolDeclaration,
   lowerExposurePlanToMcpSurface,
+  mergeMcpPlusPolicy,
   normalizeProfileProposal,
   planExposure,
   validateProfileProposal,
   type ExposureMode,
   type ExposureState,
   type McpCompatibleSurface,
+  type McpPlusLearnedProfile as ContractMcpPlusLearnedProfile,
   type McpPlusManifest,
   type McpPlusProfileProposal as ContractMcpPlusProfileProposal,
   type NativeToolDeclaration,
@@ -664,6 +666,28 @@ function learnedManifestFromProfile(profile: McpPlusLearnedProfile, server: McpH
   };
 }
 
+function contractLearnedProfileFromPraxisProfile(profile: McpPlusLearnedProfile): ContractMcpPlusLearnedProfile {
+  const toolCards = Object.fromEntries(Object.entries(profile.exposure.toolCards ?? {}).flatMap(([toolName, card]) => {
+    if (typeof card.summary !== "string" || card.summary.trim().length === 0) return [];
+    return [[toolName, {
+      title: card.title,
+      summary: card.summary,
+      keywords: card.keywords === undefined ? undefined : [...card.keywords],
+    }]];
+  }));
+  return {
+    schemaVersion: profile.schemaVersion,
+    serverId: profile.serverId,
+    pinnedTools: [...(profile.exposure.pinnedTools ?? [])],
+    warmTools: [...(profile.exposure.warmTools ?? [])],
+    indexedTools: [...(profile.exposure.indexedTools ?? [])],
+    alwaysIndexTools: [...(profile.exposure.alwaysIndexTools ?? [])],
+    toolCards,
+    skillChapters: profile.skills?.chapters?.map((chapter) => ({ ...chapter })),
+    rationale: profileRationaleForContract(profile.rationale),
+  };
+}
+
 function fallbackMcpPlusManifest(server: McpHarnessServerSpec, nativeTools: readonly NativeToolDeclaration[]): McpPlusManifest {
   const smallServer = nativeTools.length <= 8;
   return {
@@ -710,11 +734,15 @@ export function learnedProfileFromProposal(input: {
   projectId: string;
   now: string;
   existing?: McpPlusLearnedProfile;
+  protectedAlwaysIndexTools?: readonly string[];
 }): { ok: true; profile: McpPlusLearnedProfile } | { ok: false; error: { code: string; message: string; publicSafe: true } } {
   const contractProposal = toContractProfileProposal(input.proposal);
   const validation = validateProfileProposal(contractProposal, input.nativeTools, {
     serverId: input.proposal.serverId,
-    alwaysIndexTools: input.existing?.exposure.alwaysIndexTools,
+    alwaysIndexTools: [
+      ...(input.existing?.exposure.alwaysIndexTools ?? []),
+      ...(input.protectedAlwaysIndexTools ?? []),
+    ],
   });
   if (!validation.valid) {
     const primary = validation.issues[0];
@@ -796,9 +824,15 @@ export function planMcpHarnessExposure(
         dynamicToolSpecs: dynamicToolSpecsForSurface(server.serverId, surface),
       };
     }
-    const effectiveManifest = server.manifest ?? (learnedProfile === undefined
+    const baseManifest = server.manifest ?? (learnedProfile === undefined
       ? fallbackMcpPlusManifest(server, nativeTools)
       : learnedManifestFromProfile(learnedProfile, server));
+    const effectiveManifest = learnedProfile === undefined
+      ? baseManifest
+      : mergeMcpPlusPolicy({
+        manifest: baseManifest,
+        learnedProfile: contractLearnedProfileFromPraxisProfile(learnedProfile),
+      });
     const graph = compileMcpPlusManifest(effectiveManifest, nativeTools);
     const state: ExposureState = {
       serverId: server.serverId,

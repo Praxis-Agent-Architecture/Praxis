@@ -300,6 +300,21 @@ test("MCP+ learned profile keeps schema version and rejects invalid proposals", 
   assert.equal(alwaysIndexPinned.ok, false);
   if (!alwaysIndexPinned.ok) assert.equal(alwaysIndexPinned.error.code, "MCP_PLUS_PROFILE_ALWAYS_INDEX_PINNED");
 
+  const protectedAlwaysIndexPinned = learnedProfileFromProposal({
+    projectId: "project.raxode",
+    now: "2026-06-04T00:00:00.000Z",
+    nativeTools,
+    protectedAlwaysIndexTools: ["network.status"],
+    proposal: {
+      serverId: "browser-plus",
+      pinnedTools: ["network.status"],
+      indexedTools: [],
+      toolCards: {},
+    },
+  });
+  assert.equal(protectedAlwaysIndexPinned.ok, false);
+  if (!protectedAlwaysIndexPinned.ok) assert.equal(protectedAlwaysIndexPinned.error.code, "MCP_PLUS_PROFILE_ALWAYS_INDEX_PINNED");
+
   const modeHint = learnedProfileFromProposal({
     projectId: "project.raxode",
     now: "2026-06-04T00:00:00.000Z",
@@ -460,4 +475,82 @@ test("MCP+ learned profile folds tool surface without asking for init again", ()
   ]);
   assert.equal(plus?.surface.tools.some((tool) => tool.name === "mcp_plus.init"), false);
   assert.deepEqual([...plus?.surface.sidecar.toolIndex.map((entry) => entry.id) ?? []].sort(), ["network.status", "page.snapshot"]);
+});
+
+test("MCP+ developer manifest merges later learned profile while preserving always-index protection", () => {
+  const learned = learnedProfileFromProposal({
+    projectId: "project.raxode",
+    now: "2026-06-04T00:00:00.000Z",
+    nativeTools,
+    protectedAlwaysIndexTools: ["network.status"],
+    proposal: {
+      serverId: "browser-plus",
+      pinnedTools: ["page.snapshot"],
+      indexedTools: ["network.status"],
+      toolCards: {
+        "network.status": {
+          title: "Learned network status",
+          summary: "Learned card should not override the developer card.",
+          keywords: ["learned"],
+        },
+      },
+      rationale: "page.snapshot became frequent enough to pin after usage.",
+    },
+  });
+  assert.equal(learned.ok, true);
+  if (!learned.ok) return;
+
+  const manifest = {
+    harness: {
+      modules: {
+        mcp: mcp.module({
+          servers: [
+            mcp.stdio("browser-plus", {
+              command: "node",
+              args: ["server.js"],
+              mode: "mcp-plus",
+              manifest: {
+                server: {
+                  id: "browser-plus",
+                  title: "Browser Plus",
+                  summary: "Developer-authored MCP+ manifest.",
+                },
+                exposure: {
+                  pinnedTools: ["browser.open"],
+                  indexedTools: ["network.status"],
+                  alwaysIndexTools: ["network.status"],
+                  toolCards: {
+                    "network.status": {
+                      title: "Developer network status",
+                      summary: "Developer card must keep priority over learned cards.",
+                      keywords: ["developer"],
+                    },
+                  },
+                },
+              },
+            }),
+          ],
+        }),
+      },
+    },
+  };
+
+  const planned = planMcpHarnessExposure(manifest, {
+    "browser-plus": nativeTools,
+  }, {}, {
+    "browser-plus": learned.profile,
+  });
+
+  const plus = planned.servers[0];
+  assert.deepEqual(plus?.surface.tools.map((tool) => tool.name), [
+    "browser.open",
+    "page.snapshot",
+    "mcp_plus.expand",
+    "mcp_plus.skill_read",
+    "mcp_plus.skill_write",
+    "mcp_plus.finish",
+  ]);
+  assert.equal(plus?.surface.tools.some((tool) => tool.name === "network.status"), false);
+  assert.equal(plus?.surface.tools.some((tool) => tool.name === "mcp_plus.init"), false);
+  assert.equal(plus?.surface.sidecar.toolIndex.find((entry) => entry.id === "network.status")?.title, "Developer network status");
 });

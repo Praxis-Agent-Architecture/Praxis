@@ -1051,7 +1051,7 @@ function createRuntimeMcpPlusController(input: {
       const module = mcpHarnessModuleFrom(manifest.harness);
       const profiles: Record<string, McpPlusLearnedProfile | undefined> = {};
       for (const server of module?.servers ?? []) {
-        if (server.mode !== "mcp-plus" || server.manifest !== undefined) continue;
+        if (server.mode !== "mcp-plus") continue;
         profiles[server.serverId] = await input.profileStore.load({ projectId: input.projectId, serverId: server.serverId });
       }
       return profiles;
@@ -1088,12 +1088,14 @@ function createRuntimeMcpPlusController(input: {
         const proposal = proposalFromArgs(control.args, control.serverId);
         const nativeTools = nativeInventory[proposal.serverId] ?? [];
         const existing = await input.profileStore.load({ projectId: input.projectId, serverId: proposal.serverId });
+        const server = mcpPlusServerSpec(control.manifest, proposal.serverId);
         const learned = learnedProfileFromProposal({
           proposal,
           nativeTools,
           projectId: input.projectId,
           now: control.now,
           existing,
+          protectedAlwaysIndexTools: server?.manifest?.exposure?.alwaysIndexTools,
         });
         if (!learned.ok) return { ok: false, error: learned.error };
         await input.profileStore.save({ projectId: input.projectId, serverId: proposal.serverId }, learned.profile);
