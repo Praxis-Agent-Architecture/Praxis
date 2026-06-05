@@ -495,6 +495,8 @@ export const semanticBaseToolCatalog = [
         operation: { type: "string", enum: ["list", "read"] },
         serverId: { type: "string" },
         uri: { type: "string" },
+        uriPrefix: { type: "string" },
+        cursor: { type: "string" },
       },
       required: ["operation"],
       additionalProperties: false,

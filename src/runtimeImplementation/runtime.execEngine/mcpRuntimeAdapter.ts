@@ -361,7 +361,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     async listTools(requestInput) {
       const connected = await getConnection(requestInput.serverId);
       if (!connected.ok) return connected;
-      const listed = await request(connected.output, "tools/list", {});
+      const listed = await request(connected.output, "tools/list", requestInput.cursor === undefined ? {} : { cursor: requestInput.cursor });
       if (!listed.ok) return listed;
       const raw = resultObject(listed.output);
       const tools = Array.isArray(raw.tools) ? raw.tools.filter(isObject).map((tool) => ({
@@ -372,7 +372,12 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
         namespace: requestInput.namespace,
         raw: tool,
       })).filter((tool) => tool.name.length > 0) : [];
-      return success({ tools, providerMetadata: metadata(connected.output.profile, { method: "tools/list" }), raw: listed.output });
+      return success({
+        tools,
+        nextCursor: typeof raw.nextCursor === "string" ? raw.nextCursor : undefined,
+        providerMetadata: metadata(connected.output.profile, { method: "tools/list" }),
+        raw: listed.output,
+      });
     },
     async registerTool(requestInput) {
       const profile = getProfile(requestInput.serverId);
@@ -392,7 +397,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     async listResources(requestInput) {
       const connected = await getConnection(requestInput.serverId);
       if (!connected.ok) return connected;
-      const listed = await request(connected.output, "resources/list", {});
+      const listed = await request(connected.output, "resources/list", requestInput.cursor === undefined ? {} : { cursor: requestInput.cursor });
       if (!listed.ok) return listed;
       const raw = resultObject(listed.output);
       const resources = Array.isArray(raw.resources) ? raw.resources.filter(isObject).map((resource) => ({
@@ -401,7 +406,14 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
         mimeType: typeof resource.mimeType === "string" ? resource.mimeType : typeof resource.mime_type === "string" ? resource.mime_type : undefined,
         raw: resource,
       })).filter((resource) => resource.uri.length > 0 && (requestInput.uriPrefix === undefined || resource.uri.startsWith(requestInput.uriPrefix))) : [];
-      return success({ resources, exhausted: true, providerMetadata: metadata(connected.output.profile, { method: "resources/list" }), raw: listed.output });
+      const nextCursor = typeof raw.nextCursor === "string" ? raw.nextCursor : undefined;
+      return success({
+        resources,
+        nextCursor,
+        exhausted: nextCursor === undefined,
+        providerMetadata: metadata(connected.output.profile, { method: "resources/list" }),
+        raw: listed.output,
+      });
     },
     async readResource(requestInput) {
       const connected = await getConnection(requestInput.serverId);

@@ -1355,9 +1355,16 @@ async function discoverRuntimeMcpDynamicSurface(
   }
   const inventory: Record<string, { name: string; description: string; inputSchema: Record<string, unknown> }[]> = {};
   for (const profile of profiles) {
-    const listed = await executor.mcp.listTools({ serverId: profile.serverId });
-    if (listed?.ok !== true) continue;
-    const rawTools: readonly unknown[] = Array.isArray(listed.output?.tools) ? listed.output.tools : [];
+    const rawTools: unknown[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 100; page += 1) {
+      const listed = await executor.mcp.listTools({ serverId: profile.serverId, ...(cursor === undefined ? {} : { cursor }) });
+      if (listed?.ok !== true) break;
+      if (Array.isArray(listed.output?.tools)) rawTools.push(...listed.output.tools);
+      const nextCursor = typeof listed.output?.nextCursor === "string" ? listed.output.nextCursor : undefined;
+      if (nextCursor === undefined || nextCursor === cursor) break;
+      cursor = nextCursor;
+    }
     inventory[profile.serverId] = rawTools
       .map(normalizeMcpNativeToolDeclaration)
       .filter((tool): tool is { name: string; description: string; inputSchema: Record<string, unknown> } => tool !== undefined);

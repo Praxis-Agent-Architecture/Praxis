@@ -3038,7 +3038,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
                   summary: "Browser MCP server with MCP+ exposure policy.",
                 },
                 exposure: {
-                  pinnedTools: ["browser.open"],
+                  pinnedTools: ["browser.open", "browser.inspect"],
                   indexedTools: [],
                 },
               },
@@ -3064,23 +3064,43 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
   if (!compiled.ok) return;
 
   let executedMcpUseRequest: unknown;
+  const listToolRequests: unknown[] = [];
   const executor = createRuntimeBaseToolExecutorPort({
     runtimeId: "runtime-dynamic-mcp",
     sessionId: "session-dynamic-mcp",
     adapters: {
       mcp: {
         async listTools(request) {
+          listToolRequests.push(request);
+          if (request?.cursor === undefined) {
+            return {
+              ok: true as const,
+              output: {
+                serverId: request?.serverId,
+                tools: [{
+                  name: "browser.open",
+                  description: "Open a browser page.",
+                  inputSchema: {
+                    type: "object",
+                    properties: { url: { type: "string" } },
+                    required: ["url"],
+                  },
+                }],
+                nextCursor: "page-2",
+              },
+            };
+          }
           return {
             ok: true as const,
             output: {
               serverId: request?.serverId,
               tools: [{
-                name: "browser.open",
-                description: "Open a browser page.",
+                name: "browser.inspect",
+                description: "Inspect a browser page.",
                 inputSchema: {
                   type: "object",
-                  properties: { url: { type: "string" } },
-                  required: ["url"],
+                  properties: { selector: { type: "string" } },
+                  required: ["selector"],
                 },
               }],
             },
@@ -3120,7 +3140,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
         providerToolNames.push(...(body.tools ?? []).map((item) => item.name ?? ""));
         dynamicProviderToolName ??= body.tools
           ?.map((item) => item.name)
-          .find((name): name is string => typeof name === "string" && name.includes("mcp_browser-plus_browser_open"));
+          .find((name): name is string => typeof name === "string" && name.includes("mcp_browser-plus_browser_inspect"));
         if (calls === 1) {
           assert.equal(typeof dynamicProviderToolName, "string");
           return {
@@ -3128,7 +3148,7 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
               type: "function_call",
               name: dynamicProviderToolName,
               call_id: "dynamic-mcp-open",
-              arguments: JSON.stringify({ url: "https://example.test/docs" }),
+              arguments: JSON.stringify({ selector: "main" }),
             }],
           };
         }
@@ -3143,11 +3163,18 @@ test("PraxisRuntimeKernel.runManifest discovers MCP tools and delegates dynamic 
   assert.equal(providerToolNames.includes(dynamicProviderToolName ?? ""), true);
   assert.deepEqual(executedMcpUseRequest, {
     serverId: "browser-plus",
-    toolName: "browser.open",
-    arguments: { url: "https://example.test/docs" },
+    toolName: "browser.inspect",
+    arguments: { selector: "main" },
   });
+  assert.equal(listToolRequests.length % 2, 0);
+  for (let index = 0; index < listToolRequests.length; index += 2) {
+    assert.deepEqual(listToolRequests.slice(index, index + 2), [
+      { serverId: "browser-plus" },
+      { serverId: "browser-plus", cursor: "page-2" },
+    ]);
+  }
   assert.equal(result.toolCalls.length, 1);
-  assert.equal(result.toolCalls[0]?.toolId, "mcp.browser-plus.browser.open");
+  assert.equal(result.toolCalls[0]?.toolId, "mcp.browser-plus.browser.inspect");
   assert.equal(result.toolCalls[0]?.ok, true);
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /opened/u);
 });

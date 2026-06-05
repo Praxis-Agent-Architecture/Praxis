@@ -425,7 +425,7 @@ test("mcp.use, mcp.resources, and mcp.prompts route to MCP runtime ports", async
   let listInput: unknown;
   const listResult = await resourcesLookup.handler.invoke({
     toolId: "mcp.resources",
-    input: { operation: "list", serverId: "docs" },
+    input: { operation: "list", serverId: "docs", uriPrefix: "file://", cursor: "page-1" },
     executor: {
       mcp: {
         listResources(request) {
@@ -436,7 +436,7 @@ test("mcp.use, mcp.resources, and mcp.prompts route to MCP runtime ports", async
     },
   });
   assert.equal(listResult.ok, true);
-  assert.deepEqual(listInput, { serverId: "docs" });
+  assert.deepEqual(listInput, { serverId: "docs", uriPrefix: "file://", cursor: "page-1" });
 
   const invalidRead = await resourcesLookup.handler.invoke({
     toolId: "mcp.resources",

@@ -154,6 +154,62 @@ test("MCP runtime HTTP adapter preserves streamable HTTP session ids", async () 
   }
 });
 
+test("MCP runtime HTTP adapter forwards paginated tools and resources cursors", async () => {
+  const seen: Array<{ method?: string; params?: Record<string, unknown> }> = [];
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/rpc") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const payload = JSON.parse(body) as { id?: string | number; method?: string; params?: Record<string, unknown> };
+      seen.push({ method: payload.method, params: payload.params });
+      const result = payload.method === "tools/list"
+        ? { tools: [{ name: "paged_tool", inputSchema: { type: "object" } }], nextCursor: "tools-page-2" }
+        : payload.method === "resources/list"
+          ? { resources: [{ uri: "memory://paged", name: "paged" }], nextCursor: "resources-page-2" }
+          : { ok: true };
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result }));
+    });
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as AddressInfo;
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "paged-http",
+        transport: "http",
+        url: `http://127.0.0.1:${address.port}/rpc`,
+      }],
+    });
+
+    const tools = await mcp.listTools?.({ serverId: "paged-http", cursor: "tools-page-1" });
+    assert.equal(tools?.ok, true);
+    assert.equal(tools?.output.nextCursor, "tools-page-2");
+
+    const resources = await mcp.listResources?.({ serverId: "paged-http", cursor: "resources-page-1" });
+    assert.equal(resources?.ok, true);
+    assert.equal(resources?.output.nextCursor, "resources-page-2");
+    assert.equal(resources?.output.exhausted, false);
+
+    assert.deepEqual(seen.map((item) => ({ method: item.method, params: item.params })), [
+      { method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "praxis-agentcore", version: "0.1.0" } } },
+      { method: "notifications/initialized", params: {} },
+      { method: "tools/list", params: { cursor: "tools-page-1" } },
+      { method: "resources/list", params: { cursor: "resources-page-1" } },
+    ]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("MCP runtime stdio adapter sends initialized notification before tools/list", async () => {
   const workspace = await mkdtemp(path.join(tmpdir(), "praxis-mcp-stdio-"));
   const serverPath = path.join(workspace, "stdio-mcp-server.mjs");

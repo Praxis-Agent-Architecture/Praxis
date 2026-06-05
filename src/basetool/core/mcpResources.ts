@@ -14,6 +14,10 @@ export async function invokeMcpResourcesCore(
   if (!serverId.ok) return serverId.result;
   const uri = stringField(definition, input.value, "uri");
   if (!uri.ok) return uri.result;
+  const uriPrefix = stringField(definition, input.value, "uriPrefix");
+  if (!uriPrefix.ok) return uriPrefix.result;
+  const cursor = stringField(definition, input.value, "cursor");
+  if (!cursor.ok) return cursor.result;
 
   if (operation.value !== "list" && operation.value !== "read") {
     return errorResult(definition, "INVALID_FIELD_VALUE", "mcp.resources operation must be 'list' or 'read'.");
@@ -26,8 +30,13 @@ export async function invokeMcpResourcesCore(
   const resourcePort = namespaceMethod(definition, request, "mcp", method);
   if (!resourcePort.ok) return resourcePort.result;
 
-  return callRuntimePort(definition, resourcePort.value(compactRecord({ serverId: serverId.value, uri: uri.value })), {
+  return callRuntimePort(definition, resourcePort.value(compactRecord({
+    serverId: serverId.value,
+    uri: uri.value,
+    uriPrefix: uriPrefix.value,
+    cursor: cursor.value,
+  })), {
     portPath: `mcp.${method}`,
-    metadata: { operation: operation.value, serverId: serverId.value, uri: uri.value },
+    metadata: { operation: operation.value, serverId: serverId.value, uri: uri.value, uriPrefix: uriPrefix.value, cursor: cursor.value },
   });
 }
