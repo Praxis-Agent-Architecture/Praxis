@@ -137,6 +137,7 @@ const EXPECTED_AGENT_CORE_TOOL_IDS = [
   "mcp.use",
   "mcp.resources",
   "mcp.prompts",
+  "mcp.completions",
   "process.wait",
   "process.kill",
   "media.viewImage",

@@ -26,14 +26,14 @@ test("raxode backend readiness summarizes new Praxis module surfaces", () => {
   assert.equal(readiness.kind, "raxode.backendReadiness");
   assert.equal(readiness.permissionProfile, "permissive");
   assert.equal(readiness.toolProfile, "agentCore");
-  assert.equal(readiness.tools.mountedToolIds.length, 26);
+  assert.equal(readiness.tools.mountedToolIds.length, 27);
   const tools = readiness.areas.find((area) => area.area === "tools");
   assert.equal(tools?.status, "ready");
   assert.equal(tools?.owner, "basetool");
   assert.equal(tools?.phase, "implemented");
   assert.equal(tools?.severity, "ok");
-  assert.equal(tools?.facts.mountedToolCount, 26);
-  assert.equal(tools?.facts.expectedToolCount, 26);
+  assert.equal(tools?.facts.mountedToolCount, 27);
+  assert.equal(tools?.facts.expectedToolCount, 27);
 
   const context = readiness.areas.find((area) => area.area === "context");
   assert.equal(context?.status, "ready");

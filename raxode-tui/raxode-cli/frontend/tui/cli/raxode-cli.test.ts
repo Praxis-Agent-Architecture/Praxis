@@ -48,7 +48,7 @@ test("buildBackendReadinessStatusLines exposes Praxis module readiness", () => {
   assert.ok(lines.some((line) =>
     line === "Praxis backend runtime ports: approval=default-policy, agentReview=not-configured, contextArtifact=configured, baseTool=not-configured, authState=configured, foundation=configured, liveProvider=raxode-default"));
   assert.ok(lines.some((line) => line === "Praxis backend model: provider=openai, model=gpt-5.5, route=responses"));
-  assert.ok(lines.some((line) => line === "Praxis backend tools: agentCore mounted=26 expected=26"));
+  assert.ok(lines.some((line) => line === "Praxis backend tools: agentCore mounted=27 expected=27"));
   assert.ok(lines.some((line) => line.includes("Praxis backend sandbox: host-observed")));
   assert.ok(lines.some((line) => line.includes("dependency.binary.node=ready")));
   assert.ok(lines.some((line) => line.includes("dependency.npm.tsx=ready")));

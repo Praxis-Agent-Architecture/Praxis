@@ -31,13 +31,13 @@ test("process application client submits a turn through the stdio backend", asyn
 
   assert.equal(result.ok, true);
   assert.equal(result.view.agentId, "agent.raxode.coding");
-  assert.equal(result.view.tools.mounted, 26);
+  assert.equal(result.view.tools.mounted, 27);
   assert.equal(events.some((event) => event.kind === "conversation"), true);
   assert.equal(events.some((event) => event.kind === "final"), true);
   const readiness = events.map(extractRaxodeReadinessFromEvent).find((entry) => entry !== undefined);
   assert.ok(readiness);
   assert.equal(readiness.toolProfile, "agentCore");
-  assert.equal(readiness.tools.mountedToolIds.length, 26);
+  assert.equal(readiness.tools.mountedToolIds.length, 27);
   assert.ok(readiness.dependencies.some((dependency) =>
     dependency.dependencyId === "dependency.binary.node" && dependency.probe !== undefined));
   assert.ok(readiness.probe);
