@@ -26,6 +26,9 @@ export type McpRuntimeServerProfile =
       timeoutMs?: number;
     };
 
+type McpRuntimeHttpServerProfile = Extract<McpRuntimeServerProfile, { url: string }>;
+type McpRuntimeSseServerProfile = McpRuntimeHttpServerProfile & { transport: "sse" };
+
 export type McpRuntimeRoot = {
   uri: string;
   name?: string;
@@ -76,10 +79,17 @@ type McpConnection = {
   connectionId: string;
   child?: ChildProcessWithoutNullStreams;
   sessionId?: string;
+  sseEndpointUrl?: string;
+  sseAbort?: AbortController;
   nextId: number;
   pending: Map<string | number, { resolve: (value: JsonRpcMessage) => void; reject: (reason: Error) => void; timeout: NodeJS.Timeout }>;
   buffer: string;
   notifications: McpRuntimeHostNotification[];
+};
+
+type ServerSentEvent = {
+  event?: string;
+  data: string;
 };
 
 const MCP_PROTOCOL_VERSION = "2025-06-18";
@@ -169,18 +179,32 @@ function jsonRpcMessagesFromUnknown(value: unknown): JsonRpcMessage[] {
   return isObject(value) ? [value as JsonRpcMessage] : [];
 }
 
-function parseServerSentEventMessages(text: string): JsonRpcMessage[] {
-  const messages: JsonRpcMessage[] = [];
-  for (const event of text.split(/\r?\n\r?\n/u)) {
+function extractServerSentEvents(buffer: string): { events: ServerSentEvent[]; rest: string } {
+  const events: ServerSentEvent[] = [];
+  const chunks = buffer.split(/\r?\n\r?\n/u);
+  const rest = chunks.pop() ?? "";
+  for (const event of chunks) {
+    let eventName: string | undefined;
     const dataLines: string[] = [];
     for (const line of event.split(/\r?\n/u)) {
-      if (!line.startsWith("data:")) continue;
-      const data = line.slice("data:".length);
-      dataLines.push(data.startsWith(" ") ? data.slice(1) : data);
+      if (line.startsWith("event:")) {
+        const eventData = line.slice("event:".length);
+        eventName = eventData.startsWith(" ") ? eventData.slice(1) : eventData;
+      } else if (line.startsWith("data:")) {
+        const data = line.slice("data:".length);
+        dataLines.push(data.startsWith(" ") ? data.slice(1) : data);
+      }
     }
-    if (dataLines.length === 0) continue;
+    if (dataLines.length > 0) events.push({ event: eventName, data: dataLines.join("\n") });
+  }
+  return { events, rest };
+}
+
+function parseServerSentEventMessages(text: string): JsonRpcMessage[] {
+  const messages: JsonRpcMessage[] = [];
+  for (const event of extractServerSentEvents(text).events) {
     try {
-      messages.push(...jsonRpcMessagesFromUnknown(JSON.parse(dataLines.join("\n"))));
+      messages.push(...jsonRpcMessagesFromUnknown(JSON.parse(event.data)));
     } catch {
       // Ignore malformed SSE data frames; the caller will fail if no response frame is present.
     }
@@ -243,6 +267,9 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     if (connection.profile.transport === "stdio") {
       return requestStdio(connection, method, params);
     }
+    if (connection.profile.transport === "sse") {
+      return requestSse(connection, method, params);
+    }
     const requested = await requestHttp(connection.profile, method, params, connection.sessionId, (message) => {
       recordNotification(connection, message);
     });
@@ -256,6 +283,9 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     if (connection.profile.transport === "stdio") {
       return notifyStdio(connection, method, params);
     }
+    if (connection.profile.transport === "sse") {
+      return notifySse(connection, method, params);
+    }
     return notifyHttp(connection.profile, method, params, connection.sessionId);
   };
 
@@ -266,6 +296,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     }
     connection.pending.clear();
     connection.child?.kill();
+    connection.sseAbort?.abort();
   };
 
   const stdioClientCapabilities = (): JsonObject => ({
@@ -316,14 +347,19 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     if (notified !== undefined) void Promise.resolve(notified).catch(() => undefined);
   };
 
-  const handleStdioRequest = async (connection: McpConnection, message: JsonRpcMessage): Promise<void> => {
+  const handleServerRequest = async (
+    connection: McpConnection,
+    message: JsonRpcMessage,
+    writeResult: (id: string | number | null | undefined, result: unknown) => void | Promise<void>,
+    writeError: (id: string | number | null | undefined, code: number, message: string, data?: unknown) => void | Promise<void>,
+  ): Promise<void> => {
     if (typeof message.method !== "string") {
-      writeStdioError(connection, message.id, -32600, "Invalid MCP JSON-RPC request.");
+      await writeError(message.id, -32600, "Invalid MCP JSON-RPC request.");
       return;
     }
     try {
       if (message.method === "ping") {
-        writeStdioResult(connection, message.id, {});
+        await writeResult(message.id, {});
         return;
       }
       if (message.method === "roots/list") {
@@ -331,29 +367,38 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
         const roots = options.host?.listRoots === undefined
           ? rootsByServerId.get(connection.profile.serverId) ?? []
           : await options.host.listRoots(requestInput);
-        writeStdioResult(connection, message.id, { roots });
+        await writeResult(message.id, { roots });
         return;
       }
       if (message.method === "sampling/createMessage") {
         if (options.host?.createSamplingMessage === undefined) {
-          writeStdioError(connection, message.id, -32601, "MCP sampling is not configured for this Praxis runtime.");
+          await writeError(message.id, -32601, "MCP sampling is not configured for this Praxis runtime.");
           return;
         }
-        writeStdioResult(connection, message.id, await options.host.createSamplingMessage(hostRequest(connection, message)));
+        await writeResult(message.id, await options.host.createSamplingMessage(hostRequest(connection, message)));
         return;
       }
       if (message.method === "elicitation/create") {
         if (options.host?.elicit === undefined) {
-          writeStdioError(connection, message.id, -32601, "MCP elicitation is not configured for this Praxis runtime.");
+          await writeError(message.id, -32601, "MCP elicitation is not configured for this Praxis runtime.");
           return;
         }
-        writeStdioResult(connection, message.id, await options.host.elicit(hostRequest(connection, message)));
+        await writeResult(message.id, await options.host.elicit(hostRequest(connection, message)));
         return;
       }
-      writeStdioError(connection, message.id, -32601, `MCP client method '${message.method}' is not supported by this Praxis runtime.`);
+      await writeError(message.id, -32601, `MCP client method '${message.method}' is not supported by this Praxis runtime.`);
     } catch (error) {
-      writeStdioError(connection, message.id, -32603, textFromUnknown((error as Error).message ?? error));
+      await writeError(message.id, -32603, textFromUnknown((error as Error).message ?? error));
     }
+  };
+
+  const handleStdioRequest = async (connection: McpConnection, message: JsonRpcMessage): Promise<void> => {
+    await handleServerRequest(
+      connection,
+      message,
+      (id, result) => writeStdioResult(connection, id, result),
+      (id, code, messageText, data) => writeStdioError(connection, id, code, messageText, data),
+    );
   };
 
   const handleStdioMessage = (connection: McpConnection, message: JsonRpcMessage): void => {
@@ -371,6 +416,174 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     clearTimeout(pending.timeout);
     connection.pending.delete(message.id);
     pending.resolve(message);
+  };
+
+  const handleSseMessage = (connection: McpConnection, message: JsonRpcMessage): void => {
+    if (typeof message.method === "string" && message.id !== undefined && message.id !== null) {
+      void handleServerRequest(
+        connection,
+        message,
+        async (id, result) => {
+          await postSsePayload(connection, { jsonrpc: "2.0", id, result });
+        },
+        async (id, code, messageText, data) => {
+          await postSsePayload(connection, {
+            jsonrpc: "2.0",
+            id,
+            error: { code, message: messageText, ...(data === undefined ? {} : { data }) },
+          });
+        },
+      );
+      return;
+    }
+    if (typeof message.method === "string") {
+      recordNotification(connection, message);
+      return;
+    }
+    if (message.id === undefined || message.id === null) return;
+    const pending = connection.pending.get(message.id);
+    if (pending === undefined) return;
+    clearTimeout(pending.timeout);
+    connection.pending.delete(message.id);
+    pending.resolve(message);
+  };
+
+  const postSsePayload = async (
+    connection: McpConnection,
+    payload: JsonObject,
+  ): Promise<BaseToolExecutorResult<{ status: "posted" }>> => {
+    if (connection.profile.transport !== "sse") return failure("MCP_SSE_NOT_CONNECTED", "MCP SSE transport is not connected.");
+    const endpointUrl = connection.sseEndpointUrl ?? connection.profile.url;
+    const posted = await postJsonRpcPayload(connection.profile, endpointUrl, payload, connection.sessionId);
+    if (!posted.ok) return posted;
+    if (typeof posted.metadata?.mcpSessionId === "string") connection.sessionId = posted.metadata.mcpSessionId;
+    for (const message of posted.output.messages) {
+      handleSseMessage(connection, message);
+    }
+    return success({ status: "posted" });
+  };
+
+  const requestSse = async (connection: McpConnection, method: string, params: JsonObject): Promise<BaseToolExecutorResult<unknown>> => {
+    if (connection.profile.transport !== "sse") return failure("MCP_SSE_NOT_CONNECTED", "MCP SSE transport is not connected.");
+    const id = connection.nextId++;
+    const timeoutMs = connection.profile.timeoutMs ?? 5_000;
+    const response = new Promise<JsonRpcMessage>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        connection.pending.delete(id);
+        reject(new Error(`MCP SSE request '${method}' timed out after ${timeoutMs}ms.`));
+      }, timeoutMs);
+      connection.pending.set(id, { resolve, reject, timeout });
+    });
+    const posted = await postSsePayload(connection, { jsonrpc: "2.0", id, method, params });
+    if (!posted.ok) {
+      const pending = connection.pending.get(id);
+      if (pending !== undefined) clearTimeout(pending.timeout);
+      connection.pending.delete(id);
+      return posted;
+    }
+    try {
+      return normalizeJsonRpcResponse(await response);
+    } catch (error) {
+      return failure("MCP_SSE_REQUEST_FAILED", textFromUnknown((error as Error).message ?? error));
+    }
+  };
+
+  const notifySse = async (connection: McpConnection, method: string, params: JsonObject): Promise<BaseToolExecutorResult<{ status: "notified" }>> => {
+    const posted = await postSsePayload(connection, { jsonrpc: "2.0", method, params });
+    if (!posted.ok) return posted;
+    return success({ status: "notified" });
+  };
+
+  const openSseConnection = async (connection: McpConnection): Promise<BaseToolExecutorResult<{ endpointUrl: string }>> => {
+    if (connection.profile.transport !== "sse") return failure("MCP_SSE_CONNECT_FAILED", "MCP SSE profile is not configured.");
+    const profile = connection.profile as McpRuntimeSseServerProfile;
+    const controller = new AbortController();
+    connection.sseAbort = controller;
+    let settled = false;
+    let settle: (value: BaseToolExecutorResult<{ endpointUrl: string }>) => void = () => undefined;
+    const ready = new Promise<BaseToolExecutorResult<{ endpointUrl: string }>>((resolve) => {
+      settle = resolve;
+    });
+    const readyTimeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      controller.abort();
+      settle(failure("MCP_SSE_CONNECT_FAILED", "MCP SSE endpoint did not announce a message endpoint."));
+    }, profile.timeoutMs ?? 5_000);
+    const setEndpoint = (endpointUrl: string): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(readyTimeout);
+      connection.sseEndpointUrl = endpointUrl;
+      settle(success({ endpointUrl }));
+    };
+    try {
+      const response = await fetch(profile.sseUrl ?? profile.url, {
+        headers: httpHeaders(profile),
+        signal: controller.signal,
+      });
+      if (!response.ok) {
+        clearTimeout(readyTimeout);
+        settled = true;
+        return failure("MCP_SSE_CONNECT_FAILED", `MCP SSE endpoint returned HTTP ${response.status}.`);
+      }
+      if (response.body === null) {
+        clearTimeout(readyTimeout);
+        settled = true;
+        return failure("MCP_SSE_CONNECT_FAILED", "MCP SSE endpoint did not return a readable event stream.");
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      void (async () => {
+        let streamBuffer = "";
+        try {
+          while (true) {
+            const read = await reader.read();
+            if (read.done) break;
+            streamBuffer += decoder.decode(read.value, { stream: true });
+            const extracted = extractServerSentEvents(streamBuffer);
+            streamBuffer = extracted.rest;
+            for (const event of extracted.events) {
+              if (event.event === "endpoint") {
+                setEndpoint(resolveLegacySseEndpointUrl(profile, event.data));
+                continue;
+              }
+              if (!settled) setEndpoint(profile.url);
+              for (const message of parseServerSentEventMessages(`${event.event === undefined ? "" : `event: ${event.event}\n`}data: ${event.data}\n\n`)) {
+                handleSseMessage(connection, message);
+              }
+            }
+          }
+          if (!settled) {
+            settled = true;
+            clearTimeout(readyTimeout);
+            settle(failure("MCP_SSE_CONNECT_FAILED", "MCP SSE endpoint closed before announcing a message endpoint."));
+          }
+          for (const [id, pending] of connection.pending) {
+            clearTimeout(pending.timeout);
+            pending.reject(new Error(`MCP SSE stream closed before response ${String(id)}.`));
+          }
+          connection.pending.clear();
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          if (!settled) {
+            settled = true;
+            clearTimeout(readyTimeout);
+            settle(failure("MCP_SSE_CONNECT_FAILED", textFromUnknown((error as Error).message ?? error)));
+          }
+          for (const [id, pending] of connection.pending) {
+            clearTimeout(pending.timeout);
+            pending.reject(new Error(`MCP SSE stream failed before response ${String(id)}: ${textFromUnknown((error as Error).message ?? error)}`));
+          }
+          connection.pending.clear();
+        }
+      })();
+      return ready;
+    } catch (error) {
+      clearTimeout(readyTimeout);
+      settled = true;
+      return failure("MCP_SSE_CONNECT_FAILED", textFromUnknown((error as Error).message ?? error));
+    }
   };
 
   const connectProfile = async (
@@ -423,20 +636,27 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       return success(connection, metadata(profile, { connectionId, initialized: true }));
     }
 
-    if (profile.transport === "sse" && profile.sseUrl !== undefined) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), profile.timeoutMs ?? 2_000);
-      try {
-        const response = await fetch(profile.sseUrl, { headers: httpHeaders(profile), signal: controller.signal });
-        if (!response.ok) return failure("MCP_SSE_CONNECT_FAILED", `MCP SSE endpoint returned HTTP ${response.status}.`);
-      } catch (error) {
-        return failure("MCP_SSE_CONNECT_FAILED", textFromUnknown((error as Error).message ?? error));
-      } finally {
-        clearTimeout(timeout);
+    const connection: McpConnection = { profile, connectionId, nextId: 1, pending: new Map(), buffer: "", notifications: [] };
+    if (profile.transport === "sse") {
+      const opened = await openSseConnection(connection);
+      if (!opened.ok) return opened;
+      const initialized = await requestSse(connection, "initialize", {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "praxis-agentcore", version: "0.1.0" },
+      });
+      if (!initialized.ok) {
+        closeConnection(connection);
+        return initialized;
       }
+      const notified = await notifySse(connection, "notifications/initialized", {});
+      if (!notified.ok) {
+        closeConnection(connection);
+        return notified;
+      }
+      return success(connection, metadata(profile, { connectionId, initialized: true, endpointUrl: opened.output.endpointUrl }));
     }
 
-    const connection: McpConnection = { profile, connectionId, nextId: 1, pending: new Map(), buffer: "", notifications: [] };
     const initialized = await requestHttp(profile, "initialize", {
       protocolVersion: "2025-06-18",
       capabilities: {},
@@ -823,7 +1043,7 @@ async function notifyStdio(connection: McpConnection, method: string, params: Js
 }
 
 function httpHeaders(
-  profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>,
+  profile: McpRuntimeHttpServerProfile,
   sessionId?: string,
 ): Record<string, string> {
   return {
@@ -835,39 +1055,31 @@ function httpHeaders(
   };
 }
 
-async function requestHttp(
-  profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>,
-  method: string,
-  params: JsonObject,
+function resolveLegacySseEndpointUrl(profile: McpRuntimeSseServerProfile, endpoint: string): string {
+  return new URL(endpoint, profile.sseUrl ?? profile.url).toString();
+}
+
+async function postJsonRpcPayload(
+  profile: McpRuntimeHttpServerProfile,
+  url: string,
+  payload: JsonObject,
   sessionId?: string,
-  onNotification?: (message: JsonRpcMessage) => void,
-): Promise<BaseToolExecutorResult<unknown>> {
+): Promise<BaseToolExecutorResult<{ messages: JsonRpcMessage[] }>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), profile.timeoutMs ?? 5_000);
-  const requestId = `${Date.now()}:${Math.random()}`;
   try {
-    const response = await fetch(profile.url, {
+    const response = await fetch(url, {
       method: "POST",
       headers: httpHeaders(profile, sessionId),
-      body: JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }),
+      body: JSON.stringify(payload),
       signal: controller.signal,
     });
     if (!response.ok) return failure("MCP_HTTP_REQUEST_FAILED", `MCP HTTP endpoint returned HTTP ${response.status}.`);
     const body = await response.text();
-    const messages = parseHttpJsonRpcMessages(response.headers.get("content-type"), body);
+    const messages = body.trim().length === 0 ? [] : parseHttpJsonRpcMessages(response.headers.get("content-type"), body);
     if (messages === undefined) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response was not valid JSON or SSE JSON-RPC.");
-    for (const message of messages) {
-      if (typeof message.method === "string" && (message.id === undefined || message.id === null)) {
-        onNotification?.(message);
-      }
-    }
-    const responseMessage = messages.find((message) => message.id === requestId)
-      ?? messages.find((message) => message.id !== undefined && message.id !== null && message.method === undefined);
-    if (responseMessage === undefined) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response did not include a JSON-RPC response for the request.");
-    const normalized = normalizeJsonRpcResponse(responseMessage);
     const responseSessionId = response.headers.get(MCP_SESSION_ID_HEADER) ?? undefined;
-    if (!normalized.ok || responseSessionId === undefined) return normalized;
-    return success(normalized.output, { ...(normalized.metadata ?? {}), mcpSessionId: responseSessionId });
+    return success({ messages }, responseSessionId === undefined ? undefined : { mcpSessionId: responseSessionId });
   } catch (error) {
     return failure("MCP_HTTP_REQUEST_FAILED", textFromUnknown((error as Error).message ?? error));
   } finally {
@@ -875,8 +1087,32 @@ async function requestHttp(
   }
 }
 
+async function requestHttp(
+  profile: McpRuntimeHttpServerProfile,
+  method: string,
+  params: JsonObject,
+  sessionId?: string,
+  onNotification?: (message: JsonRpcMessage) => void,
+): Promise<BaseToolExecutorResult<unknown>> {
+  const requestId = `${Date.now()}:${Math.random()}`;
+  const posted = await postJsonRpcPayload(profile, profile.url, { jsonrpc: "2.0", id: requestId, method, params }, sessionId);
+  if (!posted.ok) return posted;
+  const messages = posted.output.messages;
+  for (const message of messages) {
+    if (typeof message.method === "string" && (message.id === undefined || message.id === null)) {
+      onNotification?.(message);
+    }
+  }
+  const responseMessage = messages.find((message: JsonRpcMessage) => message.id === requestId)
+    ?? messages.find((message: JsonRpcMessage) => message.id !== undefined && message.id !== null && message.method === undefined);
+  if (responseMessage === undefined) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response did not include a JSON-RPC response for the request.");
+  const normalized = normalizeJsonRpcResponse(responseMessage);
+  if (!normalized.ok || posted.metadata?.mcpSessionId === undefined) return normalized;
+  return success(normalized.output, { ...(normalized.metadata ?? {}), mcpSessionId: posted.metadata.mcpSessionId });
+}
+
 async function notifyHttp(
-  profile: Extract<McpRuntimeServerProfile, { transport: "http" | "sse" }>,
+  profile: McpRuntimeHttpServerProfile,
   method: string,
   params: JsonObject,
   sessionId?: string,

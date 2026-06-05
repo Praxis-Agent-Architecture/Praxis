@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -167,8 +167,10 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
   const seenMethods: string[] = [];
   const seenReadResourceParams: Array<Record<string, unknown> | undefined> = [];
   const seenSseHeaders: Array<{ protocolVersion?: string; accept?: string }> = [];
+  let sseStream: ServerResponse | undefined;
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/sse") {
+      sseStream = response;
       seenSseHeaders.push({
         protocolVersion: typeof request.headers["mcp-protocol-version"] === "string"
           ? request.headers["mcp-protocol-version"]
@@ -178,9 +180,9 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
       response.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
-        connection: "close",
+        connection: "keep-alive",
       });
-      response.end("event: ready\ndata: {}\n\n");
+      response.write("event: endpoint\ndata: /rpc\n\n");
       return;
     }
     if (request.method !== "POST" || request.url !== "/rpc") {
@@ -273,6 +275,7 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
       "resources/read",
     ]);
   } finally {
+    sseStream?.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

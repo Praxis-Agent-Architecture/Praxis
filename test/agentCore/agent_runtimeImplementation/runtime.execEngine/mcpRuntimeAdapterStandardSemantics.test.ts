@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -247,6 +247,89 @@ test("MCP runtime HTTP adapter accepts streamable HTTP event-stream responses", 
       { method: "tools/list", sessionId, accept: "application/json, text/event-stream" },
     ]);
   } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
+test("MCP runtime SSE adapter reads JSON-RPC responses from the legacy event stream", async () => {
+  const seen: Array<{ method?: string; url?: string }> = [];
+  let sseStream: ServerResponse | undefined;
+  const sseMessage = (message: unknown): string => `event: message\ndata: ${JSON.stringify(message)}\n\n`;
+  const server = createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/sse") {
+      seen.push({ method: "GET", url: request.url });
+      sseStream = response;
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      response.write("event: endpoint\ndata: /sse-rpc\n\n");
+      return;
+    }
+    if (request.method !== "POST" || request.url !== "/sse-rpc") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const payload = JSON.parse(body) as { id?: string | number; method?: string };
+      seen.push({ method: payload.method, url: request.url });
+      response.writeHead(202, { "content-type": "application/json" }).end("{}");
+      if (payload.method === "notifications/initialized") return;
+      const result = payload.method === "tools/list"
+        ? { tools: [{ name: "legacy_sse_echo", description: "Echo over legacy SSE", inputSchema: { type: "object" } }] }
+        : { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "legacy-sse", version: "1" } };
+      if (payload.method === "tools/list") {
+        sseStream?.write(sseMessage({
+          jsonrpc: "2.0",
+          method: "notifications/progress",
+          params: { progressToken: "legacy-sse-list", progress: 1, total: 1 },
+        }));
+      }
+      sseStream?.write(sseMessage({ jsonrpc: "2.0", id: payload.id, result }));
+    });
+  });
+
+  const notifications: Array<{ method: string; params: Record<string, unknown> }> = [];
+  let mcp: ReturnType<typeof createMcpRuntimeAdapter> | undefined;
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as AddressInfo;
+    mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "legacy-sse",
+        transport: "sse",
+        url: `http://127.0.0.1:${address.port}/rpc`,
+        sseUrl: `http://127.0.0.1:${address.port}/sse`,
+      }],
+      host: {
+        onNotification(notification) {
+          notifications.push({ method: notification.method, params: notification.params });
+        },
+      },
+    });
+
+    const listed = await mcp.listTools?.({ serverId: "legacy-sse" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "legacy_sse_echo");
+    assert.deepEqual(notifications, [{
+      method: "notifications/progress",
+      params: { progressToken: "legacy-sse-list", progress: 1, total: 1 },
+    }]);
+    assert.deepEqual(seen, [
+      { method: "GET", url: "/sse" },
+      { method: "initialize", url: "/sse-rpc" },
+      { method: "notifications/initialized", url: "/sse-rpc" },
+      { method: "tools/list", url: "/sse-rpc" },
+    ]);
+  } finally {
+    await mcp?.shutdown?.({});
+    sseStream?.end();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });
