@@ -61,8 +61,8 @@ test("baseToolSupportCatalog covers the semantic basetool catalog without work T
   const snapshot = snapshotBaseToolSupportCatalog();
 
   assert.equal(baseToolSupportCatalogDescriptor.semanticCatalog, true);
-  assert.equal(catalog.length, 26);
-  assert.equal(snapshot.total, 26);
+  assert.equal(catalog.length, 27);
+  assert.equal(snapshot.total, 27);
   assert.equal(snapshot.byFamily.work ?? 0, 0);
   assert.equal(catalog.some((entry) => entry.storageFamily === "workBase"), false);
 
@@ -75,6 +75,9 @@ test("baseToolSupportCatalog covers the semantic basetool catalog without work T
   const prompts = catalog.find((entry) => entry.toolId === "mcp.prompts");
   assert.ok(prompts);
   assert.deepEqual(prompts.requiredSupports.map((support) => support.portPath), ["mcp.listPrompts", "mcp.getPrompt"]);
+  const completions = catalog.find((entry) => entry.toolId === "mcp.completions");
+  assert.ok(completions);
+  assert.deepEqual(completions.requiredSupports.map((support) => support.portPath), ["mcp.complete"]);
 
   const file = catalog.find((entry) => entry.toolId === "file.read");
   assert.ok(file);
@@ -233,6 +236,7 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
       }],
     });
     assert.equal(implemented.includes("mcp.call"), true);
+    assert.equal(implemented.includes("mcp.complete"), true);
     assert.equal(implemented.includes("mcp.listResourceTemplates"), true);
     assert.equal(implemented.includes("mcp.subscribe"), true);
     assert.equal(implemented.includes("mcp.unsubscribe"), true);

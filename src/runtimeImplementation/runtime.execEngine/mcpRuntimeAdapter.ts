@@ -534,6 +534,27 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       if (!read.ok) return read;
       return success(read.output, metadata(connected.output.profile, { method: "prompts/get", promptName: requestInput.name }));
     },
+    async complete(requestInput) {
+      const connected = await getConnection(requestInput.serverId);
+      if (!connected.ok) return connected;
+      const params = {
+        ref: isObject(requestInput.ref) ? requestInput.ref : {},
+        argument: isObject(requestInput.argument) ? requestInput.argument : {},
+        ...(isObject(requestInput.context) ? { context: requestInput.context } : {}),
+      };
+      const completed = await request(connected.output, "completion/complete", params);
+      if (!completed.ok) return completed;
+      const raw = resultObject(completed.output);
+      const completion = isObject(raw.completion) ? raw.completion : {};
+      return success({
+        completion,
+        values: Array.isArray(completion.values) ? completion.values.filter((value) => typeof value === "string") : [],
+        total: typeof completion.total === "number" ? completion.total : undefined,
+        hasMore: typeof completion.hasMore === "boolean" ? completion.hasMore : undefined,
+        providerMetadata: metadata(connected.output.profile, { method: "completion/complete" }),
+        raw: completed.output,
+      });
+    },
     async setRoots(requestInput) {
       const profile = getProfile(requestInput.serverId);
       if (profile === undefined) return failure("MCP_SERVER_NOT_CONFIGURED", `MCP server '${requestInput.serverId}' is not configured.`);

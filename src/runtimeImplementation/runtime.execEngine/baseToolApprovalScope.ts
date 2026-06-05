@@ -153,6 +153,13 @@ export function createBaseToolApprovalScope(input: {
     const key = `${normalize(text(args.serverId)) || "default"}:${normalize(text(args.operation)) || "unknown-operation"}:${normalize(text(args.name)) || "*"}`;
     return scope(toolId, "mcp", key);
   }
+  if (toolId === "mcp.completions") {
+    const argument = args.argument;
+    const argumentName = typeof argument === "object" && argument !== null && !Array.isArray(argument)
+      ? normalize(text((argument as Record<string, unknown>).name)) || "unknown-argument"
+      : "unknown-argument";
+    return scope(toolId, "mcp", `${normalize(text(args.serverId)) || "default"}:${argumentName}`);
+  }
   if (toolId === "skill.load") {
     const key = normalize(text(args.name)) || normalize(text(args.path)) || "unknown-skill";
     return scope(toolId, "registered-source", key);

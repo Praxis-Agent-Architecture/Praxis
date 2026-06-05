@@ -18,6 +18,7 @@ import { invokeContextLoadCore } from "./contextLoad.js";
 import { invokeMcpUseCore } from "./mcpUse.js";
 import { invokeMcpResourcesCore } from "./mcpResources.js";
 import { invokeMcpPromptsCore } from "./mcpPrompts.js";
+import { invokeMcpCompletionsCore } from "./mcpCompletions.js";
 import { invokeMediaViewImageCore } from "./mediaViewImage.js";
 import { invokeToolDiscoverCore } from "./toolDiscover.js";
 import { invokeToolDescribeCore } from "./toolDescribe.js";
@@ -49,6 +50,7 @@ export const codingCoreToolIds = [
   "mcp.use",
   "mcp.resources",
   "mcp.prompts",
+  "mcp.completions",
   "media.viewImage",
   "process.wait",
   "process.kill",
@@ -80,6 +82,7 @@ export const codingCoreInvokers: Readonly<Record<CodingCoreToolId, BaseToolCoreI
   "mcp.use": invokeMcpUseCore,
   "mcp.resources": invokeMcpResourcesCore,
   "mcp.prompts": invokeMcpPromptsCore,
+  "mcp.completions": invokeMcpCompletionsCore,
   "process.wait": invokeProcessWaitCore,
   "process.kill": invokeProcessKillCore,
   "media.viewImage": invokeMediaViewImageCore,
@@ -123,6 +126,7 @@ export * from "./contextLoad.js";
 export * from "./mcpUse.js";
 export * from "./mcpResources.js";
 export * from "./mcpPrompts.js";
+export * from "./mcpCompletions.js";
 export * from "./processWait.js";
 export * from "./processKill.js";
 export * from "./mediaViewImage.js";

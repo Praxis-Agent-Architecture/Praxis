@@ -29,11 +29,13 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
         ? { prompts: [{ name: "triage", title: "Triage" }] }
         : payload.method === "prompts/get"
           ? { description: "Triage prompt", messages: [{ role: "user", content: { type: "text", text: "triage" } }] }
-          : payload.method === "logging/setLevel"
-            ? { accepted: true, level: payload.params?.level }
-          : payload.method === "ping"
-            ? {}
-            : { ok: true };
+          : payload.method === "completion/complete"
+            ? { completion: { values: ["repo"], total: 1, hasMore: false } }
+            : payload.method === "logging/setLevel"
+              ? { accepted: true, level: payload.params?.level }
+              : payload.method === "ping"
+                ? {}
+                : { ok: true };
       response.writeHead(200, { "content-type": "application/json" });
       response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, result }));
     });
@@ -57,6 +59,7 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
     assert.equal(typeof mcp.createSamplingMessage, "function");
     assert.equal(typeof mcp.elicit, "function");
     assert.equal(typeof mcp.setLoggingLevel, "function");
+    assert.equal(typeof mcp.complete, "function");
 
     const prompts = await mcp.listPrompts?.({ serverId: "standard-mcp" });
     assert.equal(prompts?.ok, true);
@@ -65,6 +68,16 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
     const prompt = await mcp.getPrompt?.({ serverId: "standard-mcp", name: "triage", arguments: { topic: "repo" } });
     assert.equal(prompt?.ok, true);
     assert.match(JSON.stringify(prompt?.output), /Triage prompt/u);
+
+    const completion = await mcp.complete?.({
+      serverId: "standard-mcp",
+      ref: { type: "ref/prompt", name: "triage" },
+      argument: { name: "topic", value: "re" },
+      context: { arguments: { mode: "test" } },
+    });
+    assert.equal(completion?.ok, true);
+    assert.deepEqual(completion?.output.values, ["repo"]);
+    assert.equal(completion?.output.providerMetadata.method, "completion/complete");
 
     const progress = await mcp.reportProgress?.({ serverId: "standard-mcp", progressToken: "p1", progress: 1, total: 2 });
     assert.equal(progress?.ok, true);
@@ -83,6 +96,7 @@ test("MCP runtime adapter exposes standard MCP prompt and host semantic methods"
       "notifications/initialized",
       "prompts/list",
       "prompts/get",
+      "completion/complete",
       "logging/setLevel",
       "notifications/cancelled",
     ]);

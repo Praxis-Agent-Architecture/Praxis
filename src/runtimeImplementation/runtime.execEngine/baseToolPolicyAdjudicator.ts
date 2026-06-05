@@ -162,6 +162,13 @@ const toolCells: Record<string, Partial<Record<BaseToolPolicyProfile, ToolPolicy
     standard: { risk: "risky", human: "once", agent: "afterFirstHuman" },
     restricted: { risk: "dangerous", human: "always", agent: "never" },
   },
+  "mcp.completions": {
+    bapr: { risk: "none", human: "never", agent: "never" },
+    yolo: { risk: "safe", human: "never", agent: "never" },
+    permissive: { risk: "safe", human: "never", agent: "never" },
+    standard: { risk: "risky", human: "once", agent: "afterFirstHuman" },
+    restricted: { risk: "dangerous", human: "always", agent: "never" },
+  },
   "process.kill": {
     bapr: { risk: "none", human: "never", agent: "never" },
     yolo: { risk: "safe", human: "never", agent: "never" },

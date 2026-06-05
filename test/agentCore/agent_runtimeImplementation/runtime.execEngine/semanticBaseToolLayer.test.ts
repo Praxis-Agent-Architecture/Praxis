@@ -37,6 +37,7 @@ const coreToolIds = [
   "mcp.use",
   "mcp.resources",
   "mcp.prompts",
+  "mcp.completions",
   "media.viewImage",
   "process.wait",
   "process.kill",
@@ -124,6 +125,7 @@ test("basetool Coding Core descriptor exposes the implemented core tool ids", ()
     "mcp.use",
     "mcp.resources",
     "mcp.prompts",
+    "mcp.completions",
     "media.viewImage",
     "process.wait",
     "process.kill",
@@ -396,15 +398,17 @@ test("skill.load and context.load validate and call extension ports", async () =
   assert.deepEqual(contextInput, { kind: "workspaceIndex", query: "basetool", limit: 3 });
 });
 
-test("mcp.use, mcp.resources, and mcp.prompts route to MCP runtime ports", async () => {
+test("mcp.use, mcp.resources, mcp.prompts, and mcp.completions route to MCP runtime ports", async () => {
   const registry = createBaseToolRegistry();
   const useLookup = registry.lookupHandler("mcp.use");
   const resourcesLookup = registry.lookupHandler("mcp.resources");
   const promptsLookup = registry.lookupHandler("mcp.prompts");
+  const completionsLookup = registry.lookupHandler("mcp.completions");
   assert.equal(useLookup.ok, true);
   assert.equal(resourcesLookup.ok, true);
   assert.equal(promptsLookup.ok, true);
-  if (!useLookup.ok || !resourcesLookup.ok || !promptsLookup.ok) return;
+  assert.equal(completionsLookup.ok, true);
+  if (!useLookup.ok || !resourcesLookup.ok || !promptsLookup.ok || !completionsLookup.ok) return;
 
   let callInput: unknown;
   const callResult = await useLookup.handler.invoke({
@@ -562,6 +566,40 @@ test("mcp.use, mcp.resources, and mcp.prompts route to MCP runtime ports", async
   });
   assert.equal(getPromptResult.ok, true);
   assert.deepEqual(getPromptInput, { serverId: "docs", name: "triage", arguments: { topic: "repo" } });
+
+  let completeInput: unknown;
+  const completeResult = await completionsLookup.handler.invoke({
+    toolId: "mcp.completions",
+    input: {
+      serverId: "docs",
+      ref: { type: "ref/resource", uri: "file://{name}" },
+      argument: { name: "name", value: "rea" },
+      context: { arguments: { folder: "docs" } },
+    },
+    executor: {
+      mcp: {
+        complete(request) {
+          completeInput = request;
+          return { ok: true, output: { completion: { values: ["readme.md"], total: 1, hasMore: false } } };
+        },
+      },
+    },
+  });
+  assert.equal(completeResult.ok, true);
+  assert.deepEqual(completeInput, {
+    serverId: "docs",
+    ref: { type: "ref/resource", uri: "file://{name}" },
+    argument: { name: "name", value: "rea" },
+    context: { arguments: { folder: "docs" } },
+  });
+
+  const invalidCompletion = await completionsLookup.handler.invoke({
+    toolId: "mcp.completions",
+    input: { ref: { type: "ref/prompt" }, argument: { name: "topic", value: "" } },
+    executor: {},
+  });
+  assert.equal(invalidCompletion.ok, false);
+  assert.equal(invalidCompletion.error?.code, "MISSING_REQUIRED_FIELD");
 });
 
 test("media.viewImage validates image selectors and calls media runtime port", async () => {
@@ -830,11 +868,13 @@ test("semantic basetool support catalog reports readiness from implemented ports
   const shellRun = catalog.find((entry) => entry.toolId === "shell.run");
   const fileRead = catalog.find((entry) => entry.toolId === "file.read");
   const mcpPrompts = catalog.find((entry) => entry.toolId === "mcp.prompts");
+  const mcpCompletions = catalog.find((entry) => entry.toolId === "mcp.completions");
 
-  assert.equal(catalog.length, 26);
+  assert.equal(catalog.length, 27);
   assert.equal(shellRun?.readiness, "available");
   assert.equal(fileRead?.readiness, "unavailable");
   assert.deepEqual(mcpPrompts?.requiredSupports.map((support) => support.portPath), ["mcp.listPrompts", "mcp.getPrompt"]);
+  assert.deepEqual(mcpCompletions?.requiredSupports.map((support) => support.portPath), ["mcp.complete"]);
 
   const readiness = evaluateBaseToolRuntimeReadiness({
     toolId: "shell.run",
@@ -855,4 +895,10 @@ test("semantic basetool support catalog reports readiness from implemented ports
     implementedPortPaths: ["mcp.getPrompt"],
   });
   assert.equal(getPromptReadiness.decision, "allowed");
+
+  const completionReadiness = evaluateBaseToolRuntimeReadiness({
+    toolId: "mcp.completions",
+    implementedPortPaths: ["mcp.complete"],
+  });
+  assert.equal(completionReadiness.decision, "allowed");
 });

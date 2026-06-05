@@ -97,7 +97,7 @@ class McpHarnessAgent implements PraxisAgent {
     policy: policy({
       allowProviderCall: true,
       allowToolExecution: true,
-      scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get"],
+      scopes: ["agent.invoke", "tool.execute", "mcp:call", "mcp:resource:list", "mcp:prompt:list", "mcp:prompt:get", "mcp:completion"],
     }),
     loop: loop.standard(),
   });
@@ -117,6 +117,7 @@ test("MCP harness module compiles into a declarative OAO manifest", () => {
   assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "mcp.use"), true);
   assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "mcp.resources"), true);
   assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "mcp.prompts"), true);
+  assert.equal(compiled.manifest.harness.tools.some((tool) => tool.toolId === "mcp.completions"), true);
 
   const profiles = buildMcpServerProfilesFromManifest(compiled.manifest);
   assert.deepEqual(profiles.map((profile) => profile.serverId), ["browser-native", "browser-plus"]);

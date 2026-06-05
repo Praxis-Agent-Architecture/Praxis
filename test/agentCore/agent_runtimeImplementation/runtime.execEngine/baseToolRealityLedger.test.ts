@@ -21,15 +21,16 @@ test("baseToolRealityLedger covers the semantic basetool catalog", () => {
   const snapshot = snapshotBaseToolRealityLedger({ executor, implementedPortPaths });
   const ledgerIds = new Set(ledger.map((entry) => entry.toolId));
 
-  assert.equal(ledger.length, 26);
-  assert.equal(snapshot.total, 26);
-  assert.equal(snapshot.expectedTotal, 26);
+  assert.equal(ledger.length, 27);
+  assert.equal(snapshot.total, 27);
+  assert.equal(snapshot.expectedTotal, 27);
   assert.equal(snapshot.byFamily.work ?? 0, 0);
-  assert.equal(snapshot.byStorage["semantic-catalog"], 26);
+  assert.equal(snapshot.byStorage["semantic-catalog"], 27);
   assert.equal(ledgerIds.has("file.read"), true);
   assert.equal(ledgerIds.has("shell.run"), true);
   assert.equal(ledgerIds.has("context.load"), true);
   assert.equal(ledgerIds.has("mcp.prompts"), true);
+  assert.equal(ledgerIds.has("mcp.completions"), true);
 
   const fileRead = inspectBaseToolReality("file.read", { executor, implementedPortPaths });
   assert.ok(fileRead);
@@ -45,9 +46,12 @@ test("baseToolRealityLedger covers the semantic basetool catalog", () => {
   const mcpPrompts = inspectBaseToolReality("mcp.prompts", { executor, implementedPortPaths });
   assert.ok(mcpPrompts);
   assert.deepEqual(mcpPrompts.requiredPorts, ["mcp.getPrompt", "mcp.listPrompts"]);
+  const mcpCompletions = inspectBaseToolReality("mcp.completions", { executor, implementedPortPaths });
+  assert.ok(mcpCompletions);
+  assert.deepEqual(mcpCompletions.requiredPorts, ["mcp.complete"]);
 
-  assert.equal(snapshot.stageCounts.mounted, 26);
-  assert.equal(snapshot.stageCounts.contractReady, 26);
+  assert.equal(snapshot.stageCounts.mounted, 27);
+  assert.equal(snapshot.stageCounts.contractReady, 27);
 });
 
 test("baseToolRealityLedger distinguishes host-ready ports from adapter-required ports", () => {

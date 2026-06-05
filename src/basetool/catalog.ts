@@ -525,6 +525,64 @@ export const semanticBaseToolCatalog = [
     }),
   }),
   define({
+    toolId: "mcp.completions",
+    layer: "agent",
+    title: "Complete MCP Arguments",
+    description: "Request MCP completion suggestions for prompt arguments or resource template variables through runtime-owned MCP clients.",
+    risk: "read",
+    runtimePorts: ["mcp.complete"],
+    permissionHints: ["mcp:completion"],
+    inputSchema: schema({
+      type: "object",
+      properties: {
+        serverId: { type: "string" },
+        ref: {
+          oneOf: [
+            {
+              type: "object",
+              properties: {
+                type: { const: "ref/prompt" },
+                name: { type: "string" },
+              },
+              required: ["type", "name"],
+              additionalProperties: false,
+            },
+            {
+              type: "object",
+              properties: {
+                type: { const: "ref/resource" },
+                uri: { type: "string" },
+              },
+              required: ["type", "uri"],
+              additionalProperties: false,
+            },
+          ],
+        },
+        argument: {
+          type: "object",
+          properties: {
+            name: { type: "string" },
+            value: { type: "string" },
+          },
+          required: ["name", "value"],
+          additionalProperties: false,
+        },
+        context: {
+          type: "object",
+          properties: {
+            arguments: {
+              type: "object",
+              additionalProperties: { type: "string" },
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+      required: ["ref", "argument"],
+      additionalProperties: false,
+    }),
+  }),
+  define({
     toolId: "media.viewImage",
     layer: "optional",
     title: "View Image",
