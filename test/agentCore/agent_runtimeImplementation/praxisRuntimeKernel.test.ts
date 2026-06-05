@@ -3254,8 +3254,17 @@ test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes 
                 serverId: "browser-plus",
                 pinnedTools: ["browser.open"],
                 indexedTools: ["network.status"],
+                toolCards: {
+                  "network.status": {
+                    title: "Network status",
+                    summary: "Inspect network when page loading is suspicious.",
+                    keywords: ["network"],
+                  },
+                },
                 modeHint: "expanded",
-                rationale: "Mode belongs to runtime overlay, not the learned profile.",
+                rationale: {
+                  summary: "Mode belongs to runtime overlay, not the learned profile.",
+                },
               }),
             }],
           };
@@ -3272,7 +3281,16 @@ test("PraxisRuntimeKernel.runManifest accepts MCP+ init proposals and refreshes 
                 serverId: "browser-plus",
                 pinnedTools: ["browser.open"],
                 indexedTools: ["network.status"],
-                rationale: "browser.open is the common first action.",
+                toolCards: {
+                  "network.status": {
+                    title: "Network status",
+                    summary: "Inspect network when page loading is suspicious.",
+                    keywords: ["network"],
+                  },
+                },
+                rationale: {
+                  summary: "browser.open is the common first action.",
+                },
               }),
             }],
           };

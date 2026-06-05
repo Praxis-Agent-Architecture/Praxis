@@ -968,6 +968,16 @@ function readStringList(value: unknown): string[] {
   return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
 }
 
+function readStringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
+  return entries.length === 0 ? undefined : Object.fromEntries(entries);
+}
+
+function readProfileRationale(value: unknown): string | Record<string, string> | undefined {
+  return readString(value) ?? readStringRecord(value);
+}
+
 function proposalFromArgs(args: Readonly<Record<string, unknown>>, fallbackServerId: string): McpPlusProfileProposal {
   const rawToolCards = isRecord(args.toolCards) ? args.toolCards : undefined;
   const toolCards = rawToolCards === undefined ? undefined : Object.fromEntries(Object.entries(rawToolCards).flatMap(([toolName, card]) => {
@@ -993,7 +1003,7 @@ function proposalFromArgs(args: Readonly<Record<string, unknown>>, fallbackServe
       const summary = readString(chapter.summary);
       return id === undefined || title === undefined || summary === undefined ? [] : [{ id, title, summary }];
     }),
-    rationale: readString(args.rationale),
+    rationale: readProfileRationale(args.rationale),
   };
   if (Object.hasOwn(args, "modeHint")) {
     return {

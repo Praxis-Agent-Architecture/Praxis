@@ -277,6 +277,8 @@ test("MCP+ learned profile keeps schema version and rejects invalid proposals", 
     proposal: {
       serverId: "browser-plus",
       pinnedTools: ["browser.missing"],
+      indexedTools: [],
+      toolCards: {},
     },
   });
   assert.equal(unknown.ok, false);
@@ -289,7 +291,9 @@ test("MCP+ learned profile keeps schema version and rejects invalid proposals", 
     proposal: {
       serverId: "browser-plus",
       pinnedTools: ["network.status"],
+      indexedTools: [],
       alwaysIndexTools: ["network.status"],
+      toolCards: {},
     },
   });
   assert.equal(alwaysIndexPinned.ok, false);
@@ -302,6 +306,8 @@ test("MCP+ learned profile keeps schema version and rejects invalid proposals", 
     proposal: {
       serverId: "browser-plus",
       pinnedTools: ["browser.open"],
+      indexedTools: [],
+      toolCards: {},
       modeHint: "expanded",
     } as unknown as McpPlusProfileProposal,
   });
@@ -320,6 +326,13 @@ test("MCP+ profile and overlay stores are keyed by server/project and server/ses
       serverId: "browser-plus",
       pinnedTools: ["browser.open"],
       indexedTools: ["network.status"],
+      toolCards: {
+        "network.status": {
+          title: "Network status",
+          summary: "Inspect network when page loading is suspicious.",
+          keywords: ["network"],
+        },
+      },
     },
   });
   assert.equal(accepted.ok, true);
@@ -360,6 +373,13 @@ test("MCP+ file profile and skill stores persist server/project records", async 
         serverId: "browser-plus",
         pinnedTools: ["browser.open"],
         indexedTools: ["network.status"],
+        toolCards: {
+          "network.status": {
+            title: "Network status",
+            summary: "Inspect network when page loading is suspicious.",
+            keywords: ["network"],
+          },
+        },
       },
     });
     assert.equal(accepted.ok, true);
@@ -391,6 +411,18 @@ test("MCP+ learned profile folds tool surface without asking for init again", ()
       serverId: "browser-plus",
       pinnedTools: ["browser.open"],
       indexedTools: ["page.snapshot", "network.status"],
+      toolCards: {
+        "page.snapshot": {
+          title: "Page snapshot",
+          summary: "Read semantic page state before interacting.",
+          keywords: ["snapshot"],
+        },
+        "network.status": {
+          title: "Network status",
+          summary: "Inspect network when page loading is suspicious.",
+          keywords: ["network"],
+        },
+      },
     },
   });
   assert.equal(accepted.ok, true);
