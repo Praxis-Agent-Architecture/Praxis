@@ -77,6 +77,20 @@ type DevdoctorCacheXraySummary = {
   };
 };
 
+type PromptPackFlowSummary = {
+  mcpPlusPreludePresent: boolean;
+  mcpPlusPreludeSegmentKind?: string;
+  mcpPlusPreludeCachePolicy?: string;
+  mcpPlusPreludeInCacheablePrefix: boolean;
+  mcpPlusPreludeMaterialIndex: number;
+  builtInToolDeclarationsMaterialIndex: number;
+  mcpPlusPreludeAfterBuiltInToolDeclarations: boolean;
+  refsAroundMcpPlusPrelude: readonly string[];
+  providerInstructionSegmentKinds: readonly string[];
+  providerDynamicInputSegmentKinds: readonly string[];
+  cacheRiskWarnings: readonly string[];
+};
+
 const repoRoot = path.resolve(import.meta.dirname, "../..");
 const runRoot = process.env.PRAXIS_MCP_SMOKE_DIR
   ? path.resolve(process.env.PRAXIS_MCP_SMOKE_DIR)
@@ -681,6 +695,30 @@ async function runDevdoctorCacheDiagnostics(runDir: string): Promise<{
   return { report, cacheXray: JSON.parse(cacheXray.output) as DevdoctorCacheXraySummary };
 }
 
+function summarizePromptPackFlow(cache: AgentModelCacheDebugRecord): PromptPackFlowSummary {
+  const toolSegment = cache.promptPack.segments.find((segment) => segment.segmentKind === "toolDeclarations");
+  const toolRefs = toolSegment?.materialRefs ?? [];
+  const builtInToolDeclarationsMaterialIndex = toolRefs.indexOf("runtime:tool-declarations");
+  const mcpPlusPreludeMaterialIndex = toolRefs.indexOf("runtime:mcp-plus-native-exposure");
+  return {
+    mcpPlusPreludePresent: mcpPlusPreludeMaterialIndex >= 0,
+    mcpPlusPreludeSegmentKind: mcpPlusPreludeMaterialIndex >= 0 ? toolSegment?.segmentKind : undefined,
+    mcpPlusPreludeCachePolicy: mcpPlusPreludeMaterialIndex >= 0 ? toolSegment?.cachePolicy : undefined,
+    mcpPlusPreludeInCacheablePrefix: toolSegment?.cachePolicy === "cacheable-prefix" && mcpPlusPreludeMaterialIndex >= 0,
+    mcpPlusPreludeMaterialIndex,
+    builtInToolDeclarationsMaterialIndex,
+    mcpPlusPreludeAfterBuiltInToolDeclarations:
+      builtInToolDeclarationsMaterialIndex >= 0 &&
+      mcpPlusPreludeMaterialIndex > builtInToolDeclarationsMaterialIndex,
+    refsAroundMcpPlusPrelude: mcpPlusPreludeMaterialIndex < 0
+      ? []
+      : toolRefs.slice(Math.max(0, mcpPlusPreludeMaterialIndex - 3), mcpPlusPreludeMaterialIndex + 4),
+    providerInstructionSegmentKinds: cache.promptPack.providerLowering.instructionSegmentKinds,
+    providerDynamicInputSegmentKinds: cache.promptPack.providerLowering.dynamicInputSegmentKinds,
+    cacheRiskWarnings: cache.promptPack.cacheRiskWarnings,
+  };
+}
+
 async function runMode(mode: "native" | "mcp-plus", discovered: readonly DiscoveredServer[]) {
   const runDir = path.join(runRoot, mode);
   await mkdir(runDir, { recursive: true });
@@ -726,6 +764,16 @@ async function runMode(mode: "native" | "mcp-plus", discovered: readonly Discove
   const { report, cacheXray } = await runDevdoctorCacheDiagnostics(runDir);
 
   const cache = cacheDebugs[0];
+  const promptPackFlow = summarizePromptPackFlow(cache);
+  if (mode === "native" && promptPackFlow.mcpPlusPreludePresent) {
+    throw new Error("native MCP smoke unexpectedly included MCP+ native exposure prelude.");
+  }
+  if (mode === "mcp-plus" && !promptPackFlow.mcpPlusPreludeAfterBuiltInToolDeclarations) {
+    throw new Error(`MCP+ native exposure prelude is not placed after built-in tool declarations: ${JSON.stringify(promptPackFlow)}`);
+  }
+  if (mode === "mcp-plus" && !promptPackFlow.mcpPlusPreludeInCacheablePrefix) {
+    throw new Error(`MCP+ native exposure prelude is not in the cacheable tool declaration prefix: ${JSON.stringify(promptPackFlow)}`);
+  }
   const toolRefs = cache.promptPack.segments.find((segment) => segment.segmentKind === "toolDeclarations")?.materialRefs ?? [];
   const summary = {
     mode,
@@ -737,6 +785,7 @@ async function runMode(mode: "native" | "mcp-plus", discovered: readonly Discove
     promptPackTotalEstimatedTokens: cache.promptPack.totalEstimatedTokens,
     cacheablePrefixEstimatedTokens: cache.promptPack.cacheablePrefixEstimatedTokens,
     sidecarPresent: toolRefs.includes("runtime:mcp-plus-native-exposure"),
+    promptPackFlow,
     devdoctorCacheStatus: cacheXray.status,
     devdoctorWeightedCacheHitRate: cacheXray.cache?.weightedCacheHitRate,
     devdoctorCacheTelemetryCoverage: cacheXray.cache?.cacheTelemetryCoverage,
