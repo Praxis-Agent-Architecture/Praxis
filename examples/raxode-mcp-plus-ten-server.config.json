@@ -13,7 +13,14 @@
         "title": "Filesystem Praxis",
         "summary": "Filesystem MCP server scoped to the current Praxis/Raxode workspace.",
         "enabled": true,
-        "timeoutMs": 20000
+        "timeoutMs": 20000,
+        "manifest": {
+          "server": {
+            "id": "filesystem-praxis",
+            "title": "Filesystem Praxis",
+            "summary": "Filesystem MCP server scoped to the current Praxis/Raxode workspace."
+          }
+        }
       },
       {
         "serverId": "filesystem-tmp",
@@ -25,7 +32,14 @@
         "title": "Filesystem Tmp",
         "summary": "Filesystem MCP server scoped to /tmp for disposable artifacts.",
         "enabled": true,
-        "timeoutMs": 20000
+        "timeoutMs": 20000,
+        "manifest": {
+          "server": {
+            "id": "filesystem-tmp",
+            "title": "Filesystem Tmp",
+            "summary": "Filesystem MCP server scoped to /tmp for disposable artifacts."
+          }
+        }
       },
       {
         "serverId": "memory",
@@ -37,7 +51,14 @@
         "title": "Memory",
         "summary": "Reference memory graph MCP server.",
         "enabled": true,
-        "timeoutMs": 20000
+        "timeoutMs": 20000,
+        "manifest": {
+          "server": {
+            "id": "memory",
+            "title": "Memory",
+            "summary": "Reference memory graph MCP server."
+          }
+        }
       },
       {
         "serverId": "sequential-thinking",
@@ -49,7 +70,14 @@
         "title": "Sequential Thinking",
         "summary": "Structured reasoning MCP server.",
         "enabled": true,
-        "timeoutMs": 20000
+        "timeoutMs": 20000,
+        "manifest": {
+          "server": {
+            "id": "sequential-thinking",
+            "title": "Sequential Thinking",
+            "summary": "Structured reasoning MCP server."
+          }
+        }
       },
       {
         "serverId": "everything",
@@ -61,7 +89,14 @@
         "title": "Everything",
         "summary": "Reference MCP server with broad protocol examples.",
         "enabled": true,
-        "timeoutMs": 20000
+        "timeoutMs": 20000,
+        "manifest": {
+          "server": {
+            "id": "everything",
+            "title": "Everything",
+            "summary": "Reference MCP server with broad protocol examples."
+          }
+        }
       },
       {
         "serverId": "playwright",
@@ -123,7 +158,14 @@
         "title": "Time",
         "summary": "Time and timezone conversion MCP server.",
         "enabled": true,
-        "timeoutMs": 30000
+        "timeoutMs": 30000,
+        "manifest": {
+          "server": {
+            "id": "time",
+            "title": "Time",
+            "summary": "Time and timezone conversion MCP server."
+          }
+        }
       },
       {
         "serverId": "fetch",
@@ -135,7 +177,14 @@
         "title": "Fetch",
         "summary": "HTTP fetch MCP server.",
         "enabled": true,
-        "timeoutMs": 30000
+        "timeoutMs": 30000,
+        "manifest": {
+          "server": {
+            "id": "fetch",
+            "title": "Fetch",
+            "summary": "HTTP fetch MCP server."
+          }
+        }
       },
       {
         "serverId": "git",
@@ -147,7 +196,14 @@
         "title": "Git",
         "summary": "Git repository MCP server scoped to the current workspace.",
         "enabled": true,
-        "timeoutMs": 30000
+        "timeoutMs": 30000,
+        "manifest": {
+          "server": {
+            "id": "git",
+            "title": "Git",
+            "summary": "Git repository MCP server scoped to the current workspace."
+          }
+        }
       },
       {
         "serverId": "sqlite",
@@ -159,7 +215,14 @@
         "title": "SQLite",
         "summary": "SQLite MCP server backed by a local temporary database.",
         "enabled": true,
-        "timeoutMs": 30000
+        "timeoutMs": 30000,
+        "manifest": {
+          "server": {
+            "id": "sqlite",
+            "title": "SQLite",
+            "summary": "SQLite MCP server backed by a local temporary database."
+          }
+        }
       }
     ]
   }

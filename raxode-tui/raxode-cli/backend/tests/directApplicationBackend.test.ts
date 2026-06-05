@@ -18,7 +18,9 @@ import { saveDirectTuiSessionSnapshot } from "../../frontend/tui/input/direct-se
 const execFileAsync = promisify(execFile);
 const test = nodeTest;
 const testFileDir = path.dirname(fileURLToPath(import.meta.url));
+const praxisRoot = path.resolve(testFileDir, "../../../..");
 const cacheXrayScriptPath = path.resolve(testFileDir, "../../../automations/raxode-cache-xray.mjs");
+const tenServerMcpPlusExamplePath = path.join(praxisRoot, "examples", "raxode-mcp-plus-ten-server.config.json");
 const responsesRoute = {
   provider: "openai",
   endpointShape: "responses",
@@ -1310,6 +1312,185 @@ process.stdin.on("data", (chunk) => {
     assert.ok(materialRefs.some((ref) => ref.includes("config-browser-plus")));
     assert.ok((modelEnd?.cacheDebug?.providerBody?.toolCount ?? 0) > 0);
     assert.equal(await waitForTextFile(markerPath), "terminated");
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.RAXODE_HOME;
+    } else {
+      process.env.RAXODE_HOME = previousHome;
+    }
+    if (previousStreamFps === undefined) {
+      delete process.env.RAXODE_STREAM_FPS;
+    } else {
+      process.env.RAXODE_STREAM_FPS = previousStreamFps;
+    }
+    await rm(stateRoot, { recursive: true, force: true });
+    await rm(mcpWorkspace, { recursive: true, force: true });
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("direct application backend injects ten-server MCP+ config sample into PromptPack", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-ten-mcp-root-"));
+  const stateRoot = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-ten-mcp-state-"));
+  const mcpWorkspace = await mkdtemp(path.join(os.tmpdir(), "raxode-direct-ten-mcp-server-"));
+  const serverPath = path.join(mcpWorkspace, "ten-server-line-json-mcp-server.mjs");
+  const markerPrefix = path.join(mcpWorkspace, "terminated");
+  await writeFile(serverPath, `
+import { writeFileSync } from "node:fs";
+const markerPrefix = ${JSON.stringify(markerPrefix)};
+const serverId = process.argv[2] ?? "unknown";
+let initialized = false;
+function send(payload) {
+  process.stdout.write(JSON.stringify(payload) + "\\n");
+}
+function recordTermination() {
+  writeFileSync(markerPrefix + "." + serverId, "terminated", "utf8");
+}
+function toolsFor(id) {
+  if (id === "playwright") {
+    return [
+      { name: "browser_navigate", description: "Navigate to a URL.", inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] } },
+      { name: "browser_snapshot", description: "Read the accessibility snapshot.", inputSchema: { type: "object" } },
+      { name: "browser_click", description: "Click an element.", inputSchema: { type: "object", properties: { uid: { type: "string" } } } },
+      { name: "browser_type", description: "Type into an element.", inputSchema: { type: "object", properties: { uid: { type: "string" }, text: { type: "string" } } } },
+      { name: "browser_network_requests", description: "Inspect network requests.", inputSchema: { type: "object" } },
+      { name: "browser_console_messages", description: "Inspect console messages.", inputSchema: { type: "object" } },
+      { name: "browser_take_screenshot", description: "Capture screenshot diagnostics.", inputSchema: { type: "object" } }
+    ];
+  }
+  const safe = id.replace(/[^a-zA-Z0-9_]+/g, "_");
+  return [
+    { name: safe + "_echo", description: "Echo smoke tool for " + id + ".", inputSchema: { type: "object", properties: { message: { type: "string" } } } }
+  ];
+}
+process.on("SIGTERM", () => {
+  recordTermination();
+  process.exit(0);
+});
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    if (line.trim().length === 0) continue;
+    const payload = JSON.parse(line);
+    if (payload.method === "initialize") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: serverId, version: "1" } } });
+    } else if (payload.method === "notifications/initialized") {
+      initialized = true;
+    } else if (payload.method === "tools/list") {
+      send(initialized
+        ? { jsonrpc: "2.0", id: payload.id, result: { tools: toolsFor(serverId) } }
+        : { jsonrpc: "2.0", id: payload.id, error: { code: -32002, message: "not initialized" } });
+    } else if (payload.method === "tools/call") {
+      send({ jsonrpc: "2.0", id: payload.id, result: { content: [{ type: "text", text: serverId + " ok" }] } });
+    }
+  }
+});
+`, "utf8");
+
+  const previousHome = process.env.RAXODE_HOME;
+  const previousStreamFps = process.env.RAXODE_STREAM_FPS;
+  const raxodeHome = path.join(rootDir, ".raxode");
+  process.env.RAXODE_HOME = raxodeHome;
+  process.env.RAXODE_STREAM_FPS = "1000";
+  const scaffold = ensureRaxodeHomeScaffold(rootDir);
+  const config = loadRaxodeConfigFile(rootDir);
+  const example = JSON.parse(await readFile(tenServerMcpPlusExamplePath, "utf8")) as {
+    mcp: typeof config.mcp;
+  };
+  const expectedServerIds = example.mcp.servers.map((server) => server.serverId);
+  config.mcp = {
+    ...example.mcp,
+    servers: example.mcp.servers.map((server) => ({
+      ...server,
+      transport: "stdio" as const,
+      command: process.execPath,
+      args: [serverPath, server.serverId],
+      cwd: mcpWorkspace,
+      timeoutMs: 1_000,
+    })),
+  };
+  await writeFile(scaffold.configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const errorOutput = new PassThrough();
+  let stdout = "";
+  let stderr = "";
+  output.on("data", (chunk: Buffer | string) => {
+    stdout += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+  errorOutput.on("data", (chunk: Buffer | string) => {
+    stderr += typeof chunk === "string" ? chunk : chunk.toString("utf8");
+  });
+
+  try {
+    const done = startDirectApplicationBackend({
+      input,
+      output,
+      errorOutput,
+      cwd: rootDir,
+      sessionId: "direct-ten-server-mcp-plus-test",
+      stateRoot,
+      mode: "live",
+      ...responsesRoute,
+      liveProviderResolver: async () => ({
+        auth: {
+          kind: "oauth",
+          present: true,
+          headerPlan: [],
+          queryPlan: [],
+          publicSafe: true,
+        },
+        providerCaller: async () => ({ output_text: "ten server configured mcp prompt ok", usage: { input_tokens: 64, output_tokens: 3 } }),
+      }),
+    });
+
+    input.write(`${JSON.stringify({
+      type: "direct_user_input",
+      text: "Use the configured MCP+ servers from config if relevant.",
+    })}\u0000/exit\u0000`);
+    input.end();
+    await done;
+
+    assert.equal(stderr, "");
+    assert.match(stdout, /direct ready: direct-ten-server-mcp-plus-test/u);
+    const logPath = stdout.match(/log file: (.+)/u)?.[1]?.trim();
+    assert.ok(logPath);
+    const rows = (await readFile(logPath, "utf8"))
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as {
+        event?: string;
+        stage?: string;
+        cacheDebug?: {
+          promptPack?: {
+            segments?: Array<{
+              segmentKind?: string;
+              materialRefs?: readonly string[];
+            }>;
+          };
+          providerBody?: {
+            toolCount?: number;
+          };
+        };
+      });
+    const modelEnd = rows.find((row) => row.event === "stage_end" && row.stage === "core/model.infer");
+    const toolDeclarations = modelEnd?.cacheDebug?.promptPack?.segments?.find((segment) =>
+      segment.segmentKind === "toolDeclarations");
+    const materialRefs = toolDeclarations?.materialRefs ?? [];
+    assert.equal(materialRefs.includes("runtime:tool-declarations"), true);
+    assert.equal(materialRefs.includes("runtime:mcp-plus-native-exposure"), true);
+    assert.ok(
+      materialRefs.indexOf("runtime:mcp-plus-native-exposure")
+      > materialRefs.indexOf("runtime:tool-declarations"),
+    );
+    for (const serverId of expectedServerIds) {
+      assert.equal(materialRefs.includes(`baseTool:context:group:mcp:${serverId}`), true);
+    }
+    assert.ok((modelEnd?.cacheDebug?.providerBody?.toolCount ?? 0) >= expectedServerIds.length);
+    for (const serverId of expectedServerIds) {
+      assert.equal(await waitForTextFile(`${markerPrefix}.${serverId}`), "terminated");
+    }
   } finally {
     if (previousHome === undefined) {
       delete process.env.RAXODE_HOME;
