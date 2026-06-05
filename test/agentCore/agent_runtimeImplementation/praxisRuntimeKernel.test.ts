@@ -4100,6 +4100,8 @@ test("PraxisRuntimeKernel.runManifest expands MCP+ skill bodies only through ski
 
   let calls = 0;
   let firstProviderBodyText = "";
+  let secondStableInstructionsText = "";
+  let secondDynamicInputText = "";
   const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-mcp-plus-skill-read" }).runManifest(
     compiled.manifest,
     "read the full browser debugging skill",
@@ -4132,6 +4134,9 @@ test("PraxisRuntimeKernel.runManifest expands MCP+ skill bodies only through ski
             }],
           };
         }
+        const bodyRecord = envelope.body as { instructions?: unknown; input?: unknown };
+        secondStableInstructionsText = JSON.stringify(bodyRecord.instructions);
+        secondDynamicInputText = JSON.stringify(bodyRecord.input);
         return { output_text: "skill body read" };
       },
       now: () => "2026-06-04T00:00:00.000Z",
@@ -4146,6 +4151,10 @@ test("PraxisRuntimeKernel.runManifest expands MCP+ skill bodies only through ski
   assert.equal(result.toolCalls[0]?.ok, true);
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
   assert.match(JSON.stringify(result.toolCalls[0]?.output), /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
+  assert.doesNotMatch(secondStableInstructionsText, /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.doesNotMatch(secondStableInstructionsText, /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
+  assert.match(secondDynamicInputText, /UNIQUE_SKILL_READ_BODY_ONLY_IN_TOOL_RESULT/u);
+  assert.match(secondDynamicInputText, /UNIQUE_SKILL_READ_PITFALL_ONLY_IN_TOOL_RESULT/u);
 });
 
 test("PraxisRuntimeKernel.runManifest projects runtime MCP modules without changing agent source", async () => {
