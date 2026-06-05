@@ -162,6 +162,7 @@ test("baseToolSupportCatalog preflight blocks adapter-required semantic tools un
 
 test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provider through semantic aliases", async () => {
   const seenMethods: string[] = [];
+  const seenReadResourceParams: Array<Record<string, unknown> | undefined> = [];
   const seenSseHeaders: Array<{ protocolVersion?: string; accept?: string }> = [];
   const server = createServer((request, response) => {
     if (request.method === "GET" && request.url === "/sse") {
@@ -191,6 +192,7 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
     request.on("end", () => {
       const payload = JSON.parse(body) as { id?: string | number; method?: string; params?: Record<string, unknown> };
       seenMethods.push(payload.method ?? "");
+      if (payload.method === "resources/read") seenReadResourceParams.push(payload.params);
       const result = payload.method === "tools/list"
         ? { tools: [{ name: "echo", description: "HTTP MCP echo", inputSchema: { type: "object" } }] }
         : payload.method === "tools/call"
@@ -246,6 +248,12 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
     const resources = await executor.mcp?.listResources?.({ serverId: "http-sse-mcp" });
     assert.equal(resources?.ok, true);
     if (resources?.ok) assert.equal(resources.output.resources[0]?.uri, "memory://hello");
+
+    const readResource = await executor.mcp?.readResource?.({ serverId: "http-sse-mcp", uri: "memory://hello" });
+    assert.equal(readResource?.ok, true);
+    if (readResource?.ok) assert.match(JSON.stringify(readResource.output), /resource-ok/u);
+    assert.deepEqual(seenReadResourceParams, [{ uri: "memory://hello" }]);
+
     assert.deepEqual(seenSseHeaders, [
       { protocolVersion: "2025-06-18", accept: "application/json, text/event-stream" },
     ]);
@@ -255,6 +263,7 @@ test("baseToolExecutorPortFactory drives configured MCP HTTP/SSE runtime provide
       "notifications/initialized",
       "tools/call",
       "resources/list",
+      "resources/read",
     ]);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));

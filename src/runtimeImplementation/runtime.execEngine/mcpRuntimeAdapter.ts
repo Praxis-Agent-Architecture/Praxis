@@ -406,7 +406,8 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     async readResource(requestInput) {
       const connected = await getConnection(requestInput.serverId);
       if (!connected.ok) return connected;
-      const read = await request(connected.output, "resources/read", { uri: requestInput.resourceUri });
+      const uri = typeof requestInput.uri === "string" ? requestInput.uri : requestInput.resourceUri;
+      const read = await request(connected.output, "resources/read", { uri });
       if (!read.ok) return read;
       const raw = resultObject(read.output);
       const contents = Array.isArray(raw.contents) ? raw.contents.filter(isObject).map((content) => ({
@@ -415,7 +416,7 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
         bytesBase64: typeof content.blob === "string" ? content.blob : undefined,
         raw: content,
       })) : [];
-      return success({ uri: requestInput.resourceUri, contents, truncated: false, providerMetadata: metadata(connected.output.profile, { method: "resources/read" }), raw: read.output });
+      return success({ uri, contents, truncated: false, providerMetadata: metadata(connected.output.profile, { method: "resources/read" }), raw: read.output });
     },
     async listPrompts(requestInput) {
       const connected = await getConnection(requestInput.serverId);
