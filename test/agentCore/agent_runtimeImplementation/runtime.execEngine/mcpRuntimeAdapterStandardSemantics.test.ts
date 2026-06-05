@@ -168,6 +168,89 @@ test("MCP runtime HTTP adapter preserves streamable HTTP session ids", async () 
   }
 });
 
+test("MCP runtime HTTP adapter accepts streamable HTTP event-stream responses", async () => {
+  const sessionId = "session-http-sse-1";
+  const seen: Array<{ method?: string; sessionId?: string; accept?: string }> = [];
+  const sse = (messages: readonly unknown[]): string => messages
+    .map((message) => `event: message\ndata: ${JSON.stringify(message)}\n\n`)
+    .join("");
+  const server = createServer((request, response) => {
+    if (request.method !== "POST" || request.url !== "/rpc") {
+      response.writeHead(404).end();
+      return;
+    }
+    let body = "";
+    request.setEncoding("utf8");
+    request.on("data", (chunk) => {
+      body += chunk;
+    });
+    request.on("end", () => {
+      const payload = JSON.parse(body) as { id?: string | number; method?: string };
+      const currentSessionId = request.headers["mcp-session-id"];
+      seen.push({
+        method: payload.method,
+        sessionId: typeof currentSessionId === "string" ? currentSessionId : undefined,
+        accept: typeof request.headers.accept === "string" ? request.headers.accept : undefined,
+      });
+      if (payload.method !== "initialize" && currentSessionId !== sessionId) {
+        response.writeHead(400, { "content-type": "application/json" });
+        response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, error: { code: -32000, message: "Mcp-Session-Id header is required" } }));
+        return;
+      }
+      if (payload.method === "notifications/initialized") {
+        response.writeHead(202, { "content-type": "application/json" }).end("{}");
+        return;
+      }
+      const result = payload.method === "tools/list"
+        ? { tools: [{ name: "sse_echo", description: "Echo over SSE", inputSchema: { type: "object" } }] }
+        : { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "sse", version: "1" } };
+      response.writeHead(200, {
+        "content-type": "text/event-stream",
+        ...(payload.method === "initialize" ? { "Mcp-Session-Id": sessionId } : {}),
+      });
+      response.end(sse([
+        ...(payload.method === "tools/list"
+          ? [{ jsonrpc: "2.0", method: "notifications/progress", params: { progressToken: "http-list", progress: 1, total: 1 } }]
+          : []),
+        { jsonrpc: "2.0", id: payload.id, result },
+      ]));
+    });
+  });
+
+  const notifications: Array<{ method: string; params: Record<string, unknown> }> = [];
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = server.address() as AddressInfo;
+    const mcp = createMcpRuntimeAdapter({
+      servers: [{
+        serverId: "session-http-sse",
+        transport: "http",
+        url: `http://127.0.0.1:${address.port}/rpc`,
+      }],
+      host: {
+        onNotification(notification) {
+          notifications.push({ method: notification.method, params: notification.params });
+        },
+      },
+    });
+
+    const listed = await mcp.listTools?.({ serverId: "session-http-sse" });
+    assert.equal(listed?.ok, true);
+    if (listed?.ok) assert.equal(listed.output.tools[0]?.name, "sse_echo");
+    assert.deepEqual(notifications, [{
+      method: "notifications/progress",
+      params: { progressToken: "http-list", progress: 1, total: 1 },
+    }]);
+    assert.deepEqual(seen, [
+      { method: "initialize", sessionId: undefined, accept: "application/json, text/event-stream" },
+      { method: "notifications/initialized", sessionId, accept: "application/json, text/event-stream" },
+      { method: "tools/list", sessionId, accept: "application/json, text/event-stream" },
+    ]);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 test("MCP runtime HTTP adapter forwards paginated tools and resources cursors", async () => {
   const seen: Array<{ method?: string; params?: Record<string, unknown> }> = [];
   const server = createServer((request, response) => {

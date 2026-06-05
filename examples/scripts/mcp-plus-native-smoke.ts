@@ -52,6 +52,7 @@ type LiveTransportProbeResult = {
   ok: boolean;
   sessionIdObserved: boolean;
   protocolVersionObserved: boolean;
+  eventStreamObserved?: boolean;
   outputPreview?: string;
   error?: string;
 };
@@ -573,6 +574,8 @@ async function runLiveTransportProbes(): Promise<LiveTransportProbeResult[]> {
   const sessionId = "smoke-http-session";
   let sessionIdObserved = false;
   let protocolVersionObserved = false;
+  let eventStreamObserved = false;
+  const sse = (message: unknown): string => `event: message\ndata: ${JSON.stringify(message)}\n\n`;
   const server = createServer((request, response) => {
     if (request.method !== "POST" || request.url !== "/rpc") {
       response.writeHead(404).end();
@@ -596,6 +599,16 @@ async function runLiveTransportProbes(): Promise<LiveTransportProbeResult[]> {
         response.end(JSON.stringify({ jsonrpc: "2.0", id: payload.id, error: { code: -32000, message: "Mcp-Session-Id header is required" } }));
         return;
       }
+      if (payload.method === "tools/list") {
+        eventStreamObserved = true;
+        response.writeHead(200, { "content-type": "text/event-stream" });
+        response.end(sse({
+          jsonrpc: "2.0",
+          id: payload.id,
+          result: { tools: [{ name: "http_session_echo", description: "HTTP session echo", inputSchema: { type: "object" } }] },
+        }));
+        return;
+      }
       response.writeHead(200, {
         "content-type": "application/json",
         ...(payload.method === "initialize" ? { "Mcp-Session-Id": sessionId } : {}),
@@ -603,9 +616,7 @@ async function runLiveTransportProbes(): Promise<LiveTransportProbeResult[]> {
       response.end(JSON.stringify({
         jsonrpc: "2.0",
         id: payload.id,
-        result: payload.method === "tools/list"
-          ? { tools: [{ name: "http_session_echo", description: "HTTP session echo", inputSchema: { type: "object" } }] }
-          : { ok: true },
+        result: { ok: true },
       }));
     });
   });
@@ -626,13 +637,15 @@ async function runLiveTransportProbes(): Promise<LiveTransportProbeResult[]> {
       const ok = listed?.ok === true
         && listed.output.tools[0]?.name === "http_session_echo"
         && sessionIdObserved
-        && protocolVersionObserved;
+        && protocolVersionObserved
+        && eventStreamObserved;
       const result: LiveTransportProbeResult = {
         transport: "http",
         serverId: "strict-http-session",
         ok,
         sessionIdObserved,
         protocolVersionObserved,
+        eventStreamObserved,
         outputPreview: listed?.ok === true ? JSON.stringify(listed.output.tools[0]) : undefined,
         error: listed?.ok === false ? listed.error.message : ok ? undefined : "missing HTTP MCP session/protocol evidence",
       };
@@ -833,6 +846,7 @@ const comparison = {
   livePromptProbeServers: [...new Set(livePromptProbes.map((probe) => probe.serverId))],
   liveTransportProbeCount: liveTransportProbes.length,
   liveTransportProbeTransports: [...new Set(liveTransportProbes.map((probe) => probe.transport))],
+  liveTransportProbeResults: liveTransportProbes,
   runtimeToolFlows: [nativeToolFlow, mcpPlusToolFlow],
   native,
   mcpPlus,

@@ -164,6 +164,41 @@ function extractLineJsonFrames(buffer: string): { messages: JsonRpcMessage[]; re
   return { messages, rest };
 }
 
+function jsonRpcMessagesFromUnknown(value: unknown): JsonRpcMessage[] {
+  if (Array.isArray(value)) return value.filter(isObject) as JsonRpcMessage[];
+  return isObject(value) ? [value as JsonRpcMessage] : [];
+}
+
+function parseServerSentEventMessages(text: string): JsonRpcMessage[] {
+  const messages: JsonRpcMessage[] = [];
+  for (const event of text.split(/\r?\n\r?\n/u)) {
+    const dataLines: string[] = [];
+    for (const line of event.split(/\r?\n/u)) {
+      if (!line.startsWith("data:")) continue;
+      const data = line.slice("data:".length);
+      dataLines.push(data.startsWith(" ") ? data.slice(1) : data);
+    }
+    if (dataLines.length === 0) continue;
+    try {
+      messages.push(...jsonRpcMessagesFromUnknown(JSON.parse(dataLines.join("\n"))));
+    } catch {
+      // Ignore malformed SSE data frames; the caller will fail if no response frame is present.
+    }
+  }
+  return messages;
+}
+
+function parseHttpJsonRpcMessages(contentType: string | null, text: string): JsonRpcMessage[] | undefined {
+  if (contentType?.toLowerCase().includes("text/event-stream") === true) {
+    return parseServerSentEventMessages(text);
+  }
+  try {
+    return jsonRpcMessagesFromUnknown(JSON.parse(text) as unknown);
+  } catch {
+    return undefined;
+  }
+}
+
 export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonNullable<BaseToolExecutorPort["mcp"]> {
   const profiles = new Map(options.servers.map((profile) => [profile.serverId, profile]));
   const connections = new Map<string, McpConnection>();
@@ -208,7 +243,9 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
     if (connection.profile.transport === "stdio") {
       return requestStdio(connection, method, params);
     }
-    const requested = await requestHttp(connection.profile, method, params, connection.sessionId);
+    const requested = await requestHttp(connection.profile, method, params, connection.sessionId, (message) => {
+      recordNotification(connection, message);
+    });
     if (requested.ok && typeof requested.metadata?.mcpSessionId === "string") {
       connection.sessionId = requested.metadata.mcpSessionId;
     }
@@ -404,6 +441,8 @@ export function createMcpRuntimeAdapter(options: McpRuntimeAdapterOptions): NonN
       protocolVersion: "2025-06-18",
       capabilities: {},
       clientInfo: { name: "praxis-agentcore", version: "0.1.0" },
+    }, undefined, (message) => {
+      recordNotification(connection, message);
     });
     if (!initialized.ok) return initialized;
     const sessionId = typeof initialized.metadata?.mcpSessionId === "string" ? initialized.metadata.mcpSessionId : undefined;
@@ -801,20 +840,31 @@ async function requestHttp(
   method: string,
   params: JsonObject,
   sessionId?: string,
+  onNotification?: (message: JsonRpcMessage) => void,
 ): Promise<BaseToolExecutorResult<unknown>> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), profile.timeoutMs ?? 5_000);
+  const requestId = `${Date.now()}:${Math.random()}`;
   try {
     const response = await fetch(profile.url, {
       method: "POST",
       headers: httpHeaders(profile, sessionId),
-      body: JSON.stringify({ jsonrpc: "2.0", id: `${Date.now()}:${Math.random()}`, method, params }),
+      body: JSON.stringify({ jsonrpc: "2.0", id: requestId, method, params }),
       signal: controller.signal,
     });
     if (!response.ok) return failure("MCP_HTTP_REQUEST_FAILED", `MCP HTTP endpoint returned HTTP ${response.status}.`);
-    const json = await response.json() as unknown;
-    if (!isObject(json)) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response was not a JSON object.");
-    const normalized = normalizeJsonRpcResponse(json as JsonRpcMessage);
+    const body = await response.text();
+    const messages = parseHttpJsonRpcMessages(response.headers.get("content-type"), body);
+    if (messages === undefined) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response was not valid JSON or SSE JSON-RPC.");
+    for (const message of messages) {
+      if (typeof message.method === "string" && (message.id === undefined || message.id === null)) {
+        onNotification?.(message);
+      }
+    }
+    const responseMessage = messages.find((message) => message.id === requestId)
+      ?? messages.find((message) => message.id !== undefined && message.id !== null && message.method === undefined);
+    if (responseMessage === undefined) return failure("MCP_HTTP_RESPONSE_INVALID", "MCP HTTP response did not include a JSON-RPC response for the request.");
+    const normalized = normalizeJsonRpcResponse(responseMessage);
     const responseSessionId = response.headers.get(MCP_SESSION_ID_HEADER) ?? undefined;
     if (!normalized.ok || responseSessionId === undefined) return normalized;
     return success(normalized.output, { ...(normalized.metadata ?? {}), mcpSessionId: responseSessionId });
