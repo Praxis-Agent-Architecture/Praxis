@@ -30,7 +30,9 @@ import {
   formatBackendModuleStatusLine,
 } from "../input/backend-readiness-status.js";
 import { summarizeRaxodeReadiness } from "../../bridge/readiness.js";
+import { loadRaxodeMcpReadinessSummary } from "../../../backend/application/mcpConfig.js";
 import { inspectRaxodeBackendReadinessWithLocalProbe } from "../../../backend/application/runtimeReadiness.js";
+import type { RaxodeMcpReadinessSummary } from "../../../backend/application/mcpReadinessSummary.js";
 import type { RaxodeLocalReadinessProbeInput } from "../../../backend/application/localReadinessProbe.js";
 import type { RaxodeOptions } from "../../../backend/agents/codingAgent/config/raxodeOptions.js";
 
@@ -77,12 +79,14 @@ export function buildBackendReadinessStatusLines(input: {
   backendOptions?: RaxodeOptions;
   now?: () => string;
   localProbe?: Omit<RaxodeLocalReadinessProbeInput, "manifest">;
+  mcp?: RaxodeMcpReadinessSummary;
 } = {}): string[] {
   try {
     const readiness = inspectRaxodeBackendReadinessWithLocalProbe({
       options: input.backendOptions,
       now: input.now,
       localProbe: input.localProbe,
+      mcp: input.mcp,
       ports: {
         contextArtifactAdapters: "configured",
         authStateProvider: "configured",
@@ -116,11 +120,16 @@ export function buildBackendReadinessStatusLines(input: {
         `fallback=${readiness.sandbox.probe.fallback}`,
       ].join(", ")
       : "none";
+    const mcpServersLine = readiness.mcp.enabledServerIds.length === 0
+      ? "none"
+      : readiness.mcp.enabledServerIds.join(", ");
     return [
       `Praxis backend readiness: ${digest.status}`,
       `Praxis backend modules: ${formatBackendModuleStatusLine(digest)}`,
       `Praxis backend module gaps: ${formatBackendModuleGapsLine(digest)}`,
       `Praxis backend runtime ports: ${runtimePortLine}`,
+      `Praxis backend MCP: configured=${readiness.mcp.configuredServerCount} enabled=${readiness.mcp.enabledServerCount} mcpPlus=${readiness.mcp.enabledMcpPlusServerCount} native=${readiness.mcp.enabledNativeServerCount} checkpoint=${readiness.mcp.schemaRefreshBoundary} profile=${readiness.mcp.profileIdentity}`,
+      `Praxis backend MCP servers: ${mcpServersLine}`,
       `Praxis backend model: provider=${readiness.model.provider ?? "unknown"}, model=${readiness.model.model}, route=${readiness.model.providerRoute ?? readiness.model.endpointShape ?? "auto"}`,
       `Praxis backend tools: ${readiness.toolProfile} mounted=${readiness.tools.mountedToolIds.length} expected=${readiness.tools.expectedCoreToolIds.length}`,
       `Praxis backend sandbox: ${readiness.sandbox.profile} execution=${readiness.sandbox.defaultExecution} fallback=${readiness.sandbox.fallback}`,
@@ -479,6 +488,7 @@ function printStatus(): void {
     backendOptions: primaryResolved === undefined
       ? undefined
       : raxodeBackendOptionsFromResolvedRole(primaryResolved),
+    mcp: loadRaxodeMcpReadinessSummary(),
   })) {
     process.stdout.write(`${line}\n`);
   }

@@ -20,6 +20,10 @@ import {
 } from "../authentication/liveProvider.js";
 import { inspectRaxodeMemoryBridge } from "../memory/memoryBridge.js";
 import { raxodeApplication } from "./raxodeApplication.js";
+import {
+  loadRaxodeMcpReadinessSummary,
+  loadRaxodeMcpRuntimeOptions,
+} from "./mcpConfig.js";
 import type { RaxodeLocalReadinessProbeInput } from "./localReadinessProbe.js";
 import { resolveRaxodeRaxcellSandboxProvider } from "./raxcellSandboxProvider.js";
 import {
@@ -108,6 +112,8 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     sandboxProfile: options.sandboxProfile,
     sandboxProvider: options.sandboxProvider,
   });
+  const configuredMcp = loadRaxodeMcpRuntimeOptions(startDir);
+  const mcpReadiness = loadRaxodeMcpReadinessSummary(startDir);
   const created = await createApplicationProjectRuntime(projectRoot, {
     applicationId: raxodeApplication.id,
     cwd: startDir,
@@ -124,6 +130,8 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
     agentOptions,
     sandboxProvider,
     now: options.now,
+    mcpServers: configuredMcp.mcpServers,
+    mcpPlus: configuredMcp.mcpPlus,
     liveProviderResolver: async (manifest, context) => createRaxodeLiveProvider(manifest, {
       startDir,
       sessionId: context?.sessionId,
@@ -165,6 +173,7 @@ export async function startRaxodeStdioApplicationServer(options: StdioServerOpti
           options: agentOptions,
           now: options.now,
           localProbe: options.localReadinessProbe,
+          mcp: mcpReadiness,
           ports: {
             sandboxProvider: sandboxProvider ? "configured" : "not-configured",
             liveProviderResolver: "configured",

@@ -31,6 +31,7 @@ import {
   loadRaxodeMcpRuntimeOptions,
   mergeRaxodeMcpPlusRuntimeOptions,
 } from "./application/mcpConfig.js";
+import { createRaxodeMcpReadinessSummaryFromRuntimeOptions } from "./application/mcpReadinessSummary.js";
 import type { RaxodeLocalReadinessProbeInput } from "./application/localReadinessProbe.js";
 import { resolveRaxodeRaxcellSandboxProvider } from "./application/raxcellSandboxProvider.js";
 import {
@@ -1080,6 +1081,12 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
   const maxOutputTokens = options.maxOutputTokens ?? modelOptions.maxOutputTokens;
   const compactOptions = resolveDirectCompactOptions(options);
   const configuredMcp = loadRaxodeMcpRuntimeOptions(cwd);
+  const mcpServers = options.mcpServers ?? configuredMcp.mcpServers;
+  const mcpPlus = mergeRaxodeMcpPlusRuntimeOptions(configuredMcp.mcpPlus, options.mcpPlus);
+  const mcpReadiness = createRaxodeMcpReadinessSummaryFromRuntimeOptions({
+    mcpServers,
+    mcpPlus,
+  });
   const projectRoot = path.resolve(options.projectRoot ?? defaultProjectRoot());
   const memoryBridge = await inspectRaxodeMemoryBridge({
     projectRoot,
@@ -1128,10 +1135,10 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     preCompactGovernanceEnabled: options.preCompactGovernanceEnabled,
     compactContextWindowTokens: compactOptions.compactContextWindowTokens,
     compactThresholdRatio: compactOptions.compactThresholdRatio,
-    mcpServers: options.mcpServers ?? configuredMcp.mcpServers,
+    mcpServers,
     mcpPlusServers: options.mcpPlusServers,
     mcpModule: options.mcpModule,
-    mcpPlus: mergeRaxodeMcpPlusRuntimeOptions(configuredMcp.mcpPlus, options.mcpPlus),
+    mcpPlus,
     liveProviderResolver: options.liveProviderResolver ?? (async (manifest, context) => liveProviderModule.createRaxodeLiveProvider(manifest, {
       startDir: cwd,
       sessionId: context?.sessionId,
@@ -1251,6 +1258,7 @@ export async function startDirectApplicationBackend(options: DirectApplicationBa
     options: agentOptions,
     now: options.now,
     localProbe: options.localReadinessProbe,
+    mcp: mcpReadiness,
     ports: {
       approvalResolver: "configured",
       sandboxProvider: sandboxProvider ? "configured" : "not-configured",

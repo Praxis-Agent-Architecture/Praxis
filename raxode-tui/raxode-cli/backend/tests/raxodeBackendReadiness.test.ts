@@ -46,6 +46,18 @@ test("raxode backend readiness summarizes new Praxis module surfaces", () => {
     "context.load",
   ]);
 
+  const mcp = readiness.areas.find((area) => area.area === "mcp");
+  assert.equal(readiness.mcp.kind, "raxode.mcpReadinessSummary");
+  assert.equal(readiness.mcp.recommendedMode, "mcp-plus");
+  assert.equal(readiness.mcp.nativeCompatible, true);
+  assert.equal(readiness.mcp.schemaRefreshBoundary, "session-checkpoint");
+  assert.equal(readiness.mcp.profileIdentity, "serverId+project");
+  assert.equal(readiness.mcp.runtimeOverlayIdentity, "serverId+session");
+  assert.equal(mcp?.status, "ready");
+  assert.equal(mcp?.owner, "mcpPlane");
+  assert.equal(mcp?.phase, "implemented");
+  assert.equal(mcp?.facts.enabledServerCount, 0);
+
   const memory = readiness.areas.find((area) => area.area === "memory");
   assert.equal(memory?.status, "ready");
   assert.deepEqual(memory?.facts.surfaces, [

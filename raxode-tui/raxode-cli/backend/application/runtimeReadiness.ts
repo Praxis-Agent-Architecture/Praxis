@@ -25,6 +25,10 @@ import {
   type RaxodeBackendModuleInventory,
 } from "./backendModuleInventory.js";
 import {
+  createRaxodeMcpReadinessSummary,
+  type RaxodeMcpReadinessSummary,
+} from "./mcpReadinessSummary.js";
+import {
   probeLocalRaxodeReadiness,
   type RaxodeDependencyProbe,
   type RaxodeLocalReadinessProbe,
@@ -41,7 +45,8 @@ export type RaxodeReadinessOwner =
   | "dependencyPlane"
   | "sandboxPlane"
   | "cachePlane"
-  | "multiagentPlane";
+  | "multiagentPlane"
+  | "mcpPlane";
 export type RaxodeReadinessPhase = "implemented" | "passive" | "declared" | "adapter-ready" | "missing";
 export type RaxodeReadinessSeverity = "ok" | "info" | "warning" | "blocking";
 
@@ -79,6 +84,7 @@ export type RaxodeBackendReadiness = {
     expectedCoreToolIds: readonly string[];
     mountedToolIds: readonly string[];
   };
+  mcp: RaxodeMcpReadinessSummary;
   dependencies: readonly {
     dependencyId: string;
     kind: DependencyDeclaration["kind"];
@@ -214,6 +220,7 @@ export function inspectRaxodeBackendReadiness(input: {
   now?: () => string;
   probe?: RaxodeLocalReadinessProbe;
   ports?: Partial<RaxodeBackendReadiness["ports"]>;
+  mcp?: RaxodeMcpReadinessSummary;
 } = {}): RaxodeBackendReadiness {
   const manifest = input.manifest ?? compileReadinessManifest(input.options);
   const view = input.view;
@@ -236,6 +243,7 @@ export function inspectRaxodeBackendReadiness(input: {
   const providerRoute = typeof manifest.model.metadata?.providerRoute === "string"
     ? manifest.model.metadata.providerRoute
     : undefined;
+  const mcpSummary = input.mcp ?? createRaxodeMcpReadinessSummary();
   const modelRouteReady = providerProfiles.primary.authSource === "codex-openai-profile"
     && (providerRoute !== undefined || manifest.model.endpointShape !== undefined);
 
@@ -295,6 +303,40 @@ export function inspectRaxodeBackendReadiness(input: {
         ownership: cmpBridge.ownership,
         refs: manifest.harness.contextRefs,
         surfaces: cmpBridge.surfaces,
+      },
+    },
+    {
+      area: "mcp",
+      status: "ready",
+      owner: "mcpPlane",
+      phase: "implemented",
+      severity: "ok",
+      summary: "MCP is mounted as a first-class runtime plane with bare MCP compatibility and MCP+ as the recommended exposure layer.",
+      evidence: [
+        `configured=${mcpSummary.configuredServerCount}`,
+        `enabled=${mcpSummary.enabledServerCount}`,
+        `mcpPlus=${mcpSummary.enabledMcpPlusServerCount}`,
+        `native=${mcpSummary.enabledNativeServerCount}`,
+        `schemaRefreshBoundary=${mcpSummary.schemaRefreshBoundary}`,
+        `profileIdentity=${mcpSummary.profileIdentity}`,
+      ],
+      facts: {
+        configuredServerCount: mcpSummary.configuredServerCount,
+        enabledServerCount: mcpSummary.enabledServerCount,
+        disabledServerCount: mcpSummary.disabledServerCount,
+        enabledMcpPlusServerCount: mcpSummary.enabledMcpPlusServerCount,
+        enabledNativeServerCount: mcpSummary.enabledNativeServerCount,
+        configuredServerIds: mcpSummary.configuredServerIds,
+        enabledServerIds: mcpSummary.enabledServerIds,
+        enabledMcpPlusServerIds: mcpSummary.enabledMcpPlusServerIds,
+        enabledNativeServerIds: mcpSummary.enabledNativeServerIds,
+        recommendedMode: mcpSummary.recommendedMode,
+        nativeCompatible: mcpSummary.nativeCompatible,
+        profileIdentity: mcpSummary.profileIdentity,
+        runtimeOverlayIdentity: mcpSummary.runtimeOverlayIdentity,
+        schemaRefreshBoundary: mcpSummary.schemaRefreshBoundary,
+        projectId: mcpSummary.projectId ?? "",
+        reprofileConsecutiveIndexedCalls: mcpSummary.reprofileConsecutiveIndexedCalls ?? 0,
       },
     },
     {
@@ -498,6 +540,7 @@ export function inspectRaxodeBackendReadiness(input: {
       expectedCoreToolIds: EXPECTED_AGENT_CORE_TOOL_IDS,
       mountedToolIds: manifest.harness.tools.map((tool) => tool.toolId),
     },
+    mcp: mcpSummary,
     dependencies: manifest.dependencies.map((dependency) => dependencySummary(
       dependency,
       dependencyProbes.get(dependency.dependencyId),
@@ -537,6 +580,7 @@ export function inspectRaxodeBackendReadinessWithLocalProbe(input: {
   now?: () => string;
   localProbe?: Omit<RaxodeLocalReadinessProbeInput, "manifest">;
   ports?: Partial<RaxodeBackendReadiness["ports"]>;
+  mcp?: RaxodeMcpReadinessSummary;
 } = {}): RaxodeBackendReadiness {
   const manifest = input.manifest ?? compileReadinessManifest(input.options);
   const probe = probeLocalRaxodeReadiness({
@@ -556,6 +600,7 @@ export function inspectRaxodeBackendReadinessWithLocalProbe(input: {
     now: input.now,
     probe,
     ports: input.ports,
+    mcp: input.mcp,
   });
 }
 

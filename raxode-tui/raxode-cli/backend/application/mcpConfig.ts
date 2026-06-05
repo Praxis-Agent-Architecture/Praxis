@@ -2,8 +2,13 @@ import type { CreateApplicationProjectRuntimeOptions } from "@praxis-ai/praxis/a
 
 import {
   loadRaxodeMcpConfig,
+  type RaxodeMcpConfig,
   type RaxodeMcpServerConfig,
 } from "../../frontend/tui/config/raxode-config.js";
+import {
+  createRaxodeMcpReadinessSummary,
+  type RaxodeMcpReadinessSummary,
+} from "./mcpReadinessSummary.js";
 
 type RuntimeMcpServer = NonNullable<CreateApplicationProjectRuntimeOptions["mcpServers"]>[number];
 type RuntimeMcpPlusOptions = CreateApplicationProjectRuntimeOptions["mcpPlus"];
@@ -44,7 +49,12 @@ function runtimeMcpServerFromConfig(server: RaxodeMcpServerConfig): RuntimeMcpSe
 export function loadRaxodeMcpRuntimeOptions(
   fallbackDir = process.cwd(),
 ): Pick<CreateApplicationProjectRuntimeOptions, "mcpServers" | "mcpPlus"> {
-  const config = loadRaxodeMcpConfig(fallbackDir);
+  return createRaxodeMcpRuntimeOptions(loadRaxodeMcpConfig(fallbackDir));
+}
+
+export function createRaxodeMcpRuntimeOptions(
+  config: RaxodeMcpConfig,
+): Pick<CreateApplicationProjectRuntimeOptions, "mcpServers" | "mcpPlus"> {
   const servers = config.servers
     .filter((server) => server.enabled)
     .map(runtimeMcpServerFromConfig);
@@ -58,6 +68,12 @@ export function loadRaxodeMcpRuntimeOptions(
     ...(servers.length === 0 ? {} : { mcpServers: servers }),
     ...(mcpPlus === undefined ? {} : { mcpPlus }),
   };
+}
+
+export function loadRaxodeMcpReadinessSummary(
+  fallbackDir = process.cwd(),
+): RaxodeMcpReadinessSummary {
+  return createRaxodeMcpReadinessSummary(loadRaxodeMcpConfig(fallbackDir));
 }
 
 export function mergeRaxodeMcpPlusRuntimeOptions(

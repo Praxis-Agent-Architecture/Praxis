@@ -1128,6 +1128,26 @@ process.stdin.on("data", (chunk) => {
   await done;
 
   assert.equal(stderr, "");
+  const readinessLine = stdout.split(/\r?\n/u).find((line) => line.startsWith("backend readiness: "));
+  assert.ok(readinessLine);
+  const readiness = JSON.parse(readinessLine.slice("backend readiness: ".length)) as {
+    mcp?: {
+      enabledServerCount?: number;
+      enabledMcpPlusServerCount?: number;
+      enabledNativeServerCount?: number;
+      enabledServerIds?: string[];
+      projectId?: string;
+      schemaRefreshBoundary?: string;
+      profileIdentity?: string;
+    };
+  };
+  assert.equal(readiness.mcp?.enabledServerCount, 1);
+  assert.equal(readiness.mcp?.enabledMcpPlusServerCount, 1);
+  assert.equal(readiness.mcp?.enabledNativeServerCount, 0);
+  assert.deepEqual(readiness.mcp?.enabledServerIds, ["browser-plus"]);
+  assert.equal(readiness.mcp?.projectId, "project.direct-mcp-plus-test");
+  assert.equal(readiness.mcp?.schemaRefreshBoundary, "session-checkpoint");
+  assert.equal(readiness.mcp?.profileIdentity, "serverId+project");
   const logPath = stdout.match(/log file: (.+)/u)?.[1]?.trim();
   assert.ok(logPath);
   const rows = (await readFile(logPath, "utf8"))

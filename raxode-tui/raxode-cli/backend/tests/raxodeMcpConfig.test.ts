@@ -6,6 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  loadRaxodeMcpReadinessSummary,
   loadRaxodeMcpRuntimeOptions,
   mergeRaxodeMcpPlusRuntimeOptions,
 } from "../application/mcpConfig.js";
@@ -67,6 +68,7 @@ test("loadRaxodeMcpRuntimeOptions maps enabled config servers to application run
     await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 
     const options = loadRaxodeMcpRuntimeOptions(rootDir);
+    const summary = loadRaxodeMcpReadinessSummary(rootDir);
 
     assert.equal(options.mcpPlus?.projectId, "project.raxode.test");
     assert.equal(options.mcpPlus?.reprofileConsecutiveIndexedCalls, 6);
@@ -79,6 +81,14 @@ test("loadRaxodeMcpRuntimeOptions maps enabled config servers to application run
       "-y",
       "@playwright/mcp@latest",
     ]);
+    assert.equal(summary.projectId, "project.raxode.test");
+    assert.equal(summary.reprofileConsecutiveIndexedCalls, 6);
+    assert.equal(summary.configuredServerCount, 2);
+    assert.equal(summary.enabledServerCount, 1);
+    assert.equal(summary.disabledServerCount, 1);
+    assert.deepEqual(summary.enabledMcpPlusServerIds, ["playwright"]);
+    assert.deepEqual(summary.enabledNativeServerIds, []);
+    assert.equal(summary.publicSafe, true);
   } finally {
     if (previousHome === undefined) {
       delete process.env.RAXODE_HOME;
@@ -123,6 +133,7 @@ test("Raxode MCP+ ten-server example is accepted by frontend config and backend 
 
     const parsed = loadRaxodeMcpConfig(rootDir);
     const options = loadRaxodeMcpRuntimeOptions(rootDir);
+    const summary = loadRaxodeMcpReadinessSummary(rootDir);
 
     assert.equal(parsed.projectId, "project.raxode.local-mcp-plus");
     assert.equal(parsed.reprofileConsecutiveIndexedCalls, 6);
@@ -137,6 +148,14 @@ test("Raxode MCP+ ten-server example is accepted by frontend config and backend 
     assert.equal(options.mcpServers?.every((server) => server.mode === "mcp-plus"), true);
     assert.equal(options.mcpServers?.every((server) => server.metadata?.source === "raxode.config.mcp"), true);
     assert.equal(options.mcpServers?.some((server) => server.serverId === "playwright" && server.manifest !== undefined), true);
+    assert.equal(summary.configuredServerCount, 10);
+    assert.equal(summary.enabledServerCount, 10);
+    assert.equal(summary.enabledMcpPlusServerCount, 10);
+    assert.equal(summary.enabledNativeServerCount, 0);
+    assert.equal(summary.schemaRefreshBoundary, "session-checkpoint");
+    assert.equal(summary.profileIdentity, "serverId+project");
+    assert.equal(summary.runtimeOverlayIdentity, "serverId+session");
+    assert.equal(summary.enabledServerIds.includes("playwright"), true);
   } finally {
     if (previousHome === undefined) {
       delete process.env.RAXODE_HOME;
