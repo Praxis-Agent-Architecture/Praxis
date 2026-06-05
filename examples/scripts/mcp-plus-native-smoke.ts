@@ -51,6 +51,15 @@ type LivePromptProbeResult = {
   error?: string;
 };
 
+type LiveResourceProbeResult = {
+  serverId: string;
+  operation: "list" | "templates" | "read";
+  uri?: string;
+  ok: boolean;
+  outputPreview?: string;
+  error?: string;
+};
+
 type LiveTransportProbeResult = {
   transport: "http";
   serverId: string;
@@ -496,6 +505,77 @@ async function runLivePromptProbes(): Promise<LivePromptProbeResult[]> {
     results.push(getResult);
     console.log(`[prompt-probe] everything.prompts/get:${promptName}: ${getResult.ok ? "ok" : `failed: ${getResult.error}`}`);
     if (!getResult.ok) throw new Error(`Live MCP prompt get probe failed for ${promptName}: ${getResult.error}`);
+  } finally {
+    await adapter.shutdown?.({});
+  }
+  return results;
+}
+
+async function runLiveResourceProbes(): Promise<LiveResourceProbeResult[]> {
+  const adapter = createMcpRuntimeAdapter({ servers: SERVER_PROFILES.map((server) => server.profile) });
+  const results: LiveResourceProbeResult[] = [];
+  try {
+    const listed = await adapter.listResources?.({ serverId: "everything" });
+    const listResult: LiveResourceProbeResult = listed?.ok === true
+      ? {
+          serverId: "everything",
+          operation: "list",
+          ok: true,
+          outputPreview: outputPreview(listed.output),
+        }
+      : {
+          serverId: "everything",
+          operation: "list",
+          ok: false,
+          error: listed?.ok === false ? listed.error.message : "missing listResources result",
+        };
+    results.push(listResult);
+    console.log(`[resource-probe] everything.resources/list: ${listResult.ok ? "ok" : `failed: ${listResult.error}`}`);
+    if (!listResult.ok) throw new Error(`Live MCP resource list probe failed: ${listResult.error}`);
+
+    const templates = await adapter.listResourceTemplates?.({ serverId: "everything" });
+    const templatesResult: LiveResourceProbeResult = templates?.ok === true
+      ? {
+          serverId: "everything",
+          operation: "templates",
+          ok: true,
+          outputPreview: outputPreview(templates.output),
+        }
+      : {
+          serverId: "everything",
+          operation: "templates",
+          ok: false,
+          error: templates?.ok === false ? templates.error.message : "missing listResourceTemplates result",
+        };
+    results.push(templatesResult);
+    console.log(`[resource-probe] everything.resources/templates/list: ${templatesResult.ok ? "ok" : `failed: ${templatesResult.error}`}`);
+    if (!templatesResult.ok) throw new Error(`Live MCP resource template list probe failed: ${templatesResult.error}`);
+
+    const resourceUri = listed.output.resources.find((resource: { uri?: string; name?: string }) =>
+      resource.uri === "demo://resource/static/document/architecture.md" || resource.name === "architecture.md"
+    )?.uri ?? listed.output.resources[0]?.uri;
+    if (typeof resourceUri !== "string" || resourceUri.length === 0) {
+      throw new Error("Live MCP resource list probe returned no readable resource URI.");
+    }
+    const read = await adapter.readResource?.({ serverId: "everything", uri: resourceUri });
+    const readResult: LiveResourceProbeResult = read?.ok === true
+      ? {
+          serverId: "everything",
+          operation: "read",
+          uri: resourceUri,
+          ok: true,
+          outputPreview: outputPreview(read.output),
+        }
+      : {
+          serverId: "everything",
+          operation: "read",
+          uri: resourceUri,
+          ok: false,
+          error: read?.ok === false ? read.error.message : "missing readResource result",
+        };
+    results.push(readResult);
+    console.log(`[resource-probe] everything.resources/read:${resourceUri}: ${readResult.ok ? "ok" : `failed: ${readResult.error}`}`);
+    if (!readResult.ok) throw new Error(`Live MCP resource read probe failed for ${resourceUri}: ${readResult.error}`);
   } finally {
     await adapter.shutdown?.({});
   }
@@ -958,6 +1038,7 @@ await mkdir(runRoot, { recursive: true });
 const discovered = await discover();
 const liveCallProbes = await runLiveCallProbes(discovered);
 const livePromptProbes = await runLivePromptProbes();
+const liveResourceProbes = await runLiveResourceProbes();
 const liveTransportProbes = await runLiveTransportProbes();
 const nativeToolFlow = await runRuntimeToolFlow("native", discovered);
 const mcpPlusToolFlow = await runRuntimeToolFlow("mcp-plus", discovered);
@@ -969,6 +1050,7 @@ await writeFile(path.join(runRoot, "discovery.json"), `${JSON.stringify(discover
 })), null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-call-probes.json"), `${JSON.stringify(liveCallProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-prompt-probes.json"), `${JSON.stringify(livePromptProbes, null, 2)}\n`, "utf8");
+await writeFile(path.join(runRoot, "live-resource-probes.json"), `${JSON.stringify(liveResourceProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "live-transport-probes.json"), `${JSON.stringify(liveTransportProbes, null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-tool-flow.json"), `${JSON.stringify([nativeToolFlow, mcpPlusToolFlow], null, 2)}\n`, "utf8");
 await writeFile(path.join(runRoot, "runtime-skill-flow.json"), `${JSON.stringify(mcpPlusSkillFlow, null, 2)}\n`, "utf8");
@@ -982,8 +1064,12 @@ const comparison = {
   liveCallProbeServers: [...new Set(liveCallProbes.map((probe) => probe.serverId))],
   livePromptProbeCount: livePromptProbes.length,
   livePromptProbeServers: [...new Set(livePromptProbes.map((probe) => probe.serverId))],
+  liveResourceProbeCount: liveResourceProbes.length,
+  liveResourceProbeServers: [...new Set(liveResourceProbes.map((probe) => probe.serverId))],
+  liveResourceProbeOperations: [...new Set(liveResourceProbes.map((probe) => probe.operation))],
   liveTransportProbeCount: liveTransportProbes.length,
   liveTransportProbeTransports: [...new Set(liveTransportProbes.map((probe) => probe.transport))],
+  liveResourceProbeResults: liveResourceProbes,
   liveTransportProbeResults: liveTransportProbes,
   runtimeToolFlows: [nativeToolFlow, mcpPlusToolFlow],
   runtimeSkillFlow: mcpPlusSkillFlow,
