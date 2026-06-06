@@ -543,6 +543,7 @@ test("prepareMainLoopTurn assembles PromptPack and cache plan for a formal turn"
       "stableSystemCore",
       "declaredRuntimeContext",
       "toolDeclarations",
+      "skillIndex",
       "projectContext",
       "sessionSummary",
       "recentConversation",

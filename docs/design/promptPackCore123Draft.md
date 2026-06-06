@@ -136,4 +136,5 @@ Each tool may declare risk metadata such as safe, risky, or dangerous. The runti
 - `stableSystemCore` should become the fixed root text loaded from `src/executionEngine/promptPack/basicCorePrompt.md` after review.
 - `declaredRuntimeContext` should be generated from the application/harness/manifest layer, not hard-coded for Raxode.
 - `toolDeclarations` should be generated from the basetool registry/profile describe layer, including profile-aware summaries and schemas.
+- `skillIndex` follows `toolDeclarations` in the full PromptPack order. It is not part of the first three layers, but it is capability-adjacent and prefix-cacheable because it contains compact heads only. Full skill bodies enter later dynamic context after selection.
 - `stableSystemCore` should avoid current date, cwd, provider name, model name, project facts, tool names, and application identity so it remains cache-stable.

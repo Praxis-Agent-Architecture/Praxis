@@ -107,6 +107,14 @@ import {
   type PromptContextConversationMessage,
   type PromptContextSessionSummary,
 } from "./runtime.execEngine/promptContextAssembly.js";
+import {
+  createFileSkillPlaneStore,
+  loadSkillHeadsFromSources,
+  renderSkillIndexMaterial,
+  skillPlaneModuleFrom,
+  type SkillHead,
+  type SkillPlaneStore,
+} from "./runtime.skillPlane/index.js";
 import { invokeMountedBaseTool } from "./runtime.execEngine/baseToolRuntimeMount.js";
 import { evaluateBaseToolRuntimeReadiness } from "./runtime.execEngine/baseToolSupportCatalog.js";
 import {
@@ -258,6 +266,9 @@ export type PraxisRuntimeKernelOptions = {
     overlayStore?: McpPlusOverlayStore;
     skillStore?: McpPlusSkillStore;
     reprofileConsecutiveIndexedCalls?: number;
+  };
+  skillPlane?: {
+    store?: SkillPlaneStore;
   };
   baseToolPolicy?: RuntimeBaseToolExecutorPolicy;
   baseToolResourceLimits?: RuntimeBaseToolExecutorResourceLimits;
@@ -1388,6 +1399,38 @@ async function discoverRuntimeMcpDynamicSurface(
     tools: plan.servers.flatMap((server) => [...server.dynamicToolSpecs]),
     toolDeclarationPreludeMaterials: renderMcpPlusNativePrelude(promptPlan),
   };
+}
+
+async function discoverRuntimeSkillIndexMaterials(input: {
+  manifest: AgentManifest;
+  store: SkillPlaneStore;
+  workspaceRoot: string;
+}): Promise<readonly PromptPackMaterialDraft[]> {
+  const skillModule = skillPlaneModuleFrom(input.manifest.harness);
+  if (skillModule === undefined) return [];
+  const includeScopes = skillModule.indexPolicy.includeScopes;
+
+  function scopeMatchesIndexPolicy(head: SkillHead): boolean {
+    const scopes = includeScopes;
+    if (scopes.length === 0) return true;
+    return head.scope !== undefined && scopes.includes(head.scope);
+  }
+
+  const bySkillId = new Map<string, SkillHead>();
+  for (const head of await loadSkillHeadsFromSources(skillModule.sources, { workspaceRoot: input.workspaceRoot })) {
+    if (scopeMatchesIndexPolicy(head) && !bySkillId.has(head.skillId)) {
+      bySkillId.set(head.skillId, head);
+    }
+  }
+
+  for (const head of await input.store.listHeads({ scopes: skillModule.indexPolicy.includeScopes })) {
+    if (!bySkillId.has(head.skillId)) {
+      bySkillId.set(head.skillId, head);
+    }
+  }
+
+  const heads = [...bySkillId.values()].slice(0, skillModule.indexPolicy.maxHeads);
+  return heads.length === 0 ? [] : [renderSkillIndexMaterial(heads)];
 }
 
 function providerToolMappings(manifest: AgentManifest): readonly ProviderToolMapping[] {
@@ -3809,6 +3852,7 @@ async function buildPromptPackAndLower(input: {
   sessionSummary?: PromptContextSessionSummary;
   conversationWindow?: readonly PromptContextConversationMessage[];
   toolDeclarationPreludeMaterials?: readonly PromptPackMaterialDraft[];
+  skillIndexMaterials?: readonly PromptPackMaterialDraft[];
   projectContextGovernanceMaterials?: readonly {
     id: string;
     text: string;
@@ -3870,6 +3914,7 @@ async function buildPromptPackAndLower(input: {
       sessionSummary: input.sessionSummary,
       conversationWindow: input.conversationWindow,
       toolDeclarationPreludeMaterials: input.toolDeclarationPreludeMaterials,
+      skillIndexMaterials: input.skillIndexMaterials,
       projectContextGovernanceMaterials: input.projectContextGovernanceMaterials?.map((material) => ({
         id: material.id,
         kind: "runtime",
@@ -5371,6 +5416,11 @@ export class PraxisRuntimeKernel {
     const maxToolCalls = manifest.harness.loop.maxToolCalls ?? 4;
     let toolMappings: readonly ProviderToolMapping[] = [];
     let toolDeclarationPreludeMaterials: readonly PromptPackMaterialDraft[] = [];
+    const skillIndexMaterials = await discoverRuntimeSkillIndexMaterials({
+      manifest,
+      workspaceRoot: toolWorkspaceRoot,
+      store: options.skillPlane?.store ?? createFileSkillPlaneStore(path.join(toolWorkspaceRoot, ".rax_workspace", "skills")),
+    });
     async function refreshRuntimeMcpTools(reason: string): Promise<void> {
       const dynamicSurface = await discoverRuntimeMcpDynamicSurface(runtimeMcpBaseManifest, executor, mcpPlusRuntime);
       manifest = withRuntimeHarnessToolLayer(
@@ -5480,6 +5530,7 @@ export class PraxisRuntimeKernel {
         sessionSummary: compactSessionSummary,
         conversationWindow: compactConversationWindow,
         toolDeclarationPreludeMaterials,
+        skillIndexMaterials,
         projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
         toolContextSelection,
         toolContextUsage: toolContextHeatState.usage,
@@ -5739,6 +5790,7 @@ export class PraxisRuntimeKernel {
               sessionSummary: compactSessionSummary,
               conversationWindow: compactConversationWindow,
               toolDeclarationPreludeMaterials,
+              skillIndexMaterials,
               projectContextGovernanceMaterials: preCompactGovernanceProjectContextMaterials,
               toolContextSelection,
               toolContextUsage: toolContextHeatState.usage,

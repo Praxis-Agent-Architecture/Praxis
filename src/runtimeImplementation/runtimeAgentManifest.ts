@@ -25,6 +25,10 @@ import {
   mcpHarnessModuleFrom,
   runtimeRequirementsForMcpModule,
 } from "./runtime.mcpPlane/index.js";
+import {
+  runtimeRequirementsForSkillModule,
+  skillPlaneModuleFrom,
+} from "./runtime.skillPlane/index.js";
 
 export type CredentialRef = RaxAuthRef & {
   credentialId?: string;
@@ -2230,6 +2234,7 @@ function normalizeHarness(
     runtimeRequirements: cleanList([
       ...(input.runtimeRequirements ?? []),
       ...runtimeRequirementsForMcpModule(mcpHarnessModuleFrom({ modules: input.modules })),
+      ...runtimeRequirementsForSkillModule(skillPlaneModuleFrom({ modules: input.modules })),
     ]),
     capabilities: authoring.capabilities,
     dependencies: authoring.dependencies,

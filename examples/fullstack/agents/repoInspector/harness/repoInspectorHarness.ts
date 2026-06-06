@@ -4,6 +4,26 @@ import type { HarnessSpec } from "@praxis-ai/praxis";
 import type { NormalizedRepoInspectorOptions } from "../config/repoInspectorOptions.js";
 import { createRepoInspectorToolSet } from "../tools/toolSet.js";
 
+const repoInspectorSkillModule = praxis.skill.module({
+  sources: [
+    praxis.skill.inline([{
+      skillId: "repo-review.findings-first",
+      title: "Findings First Review",
+      summary: "Lead with actionable findings and put summaries after risks.",
+      scope: "project",
+      whenToUse: "Code review and regression-risk tasks",
+      pitfallsPreview: ["Do not bury test gaps in a summary."],
+    }, {
+      skillId: "repo-inspection.anchor-current-target",
+      title: "Anchor Current Target",
+      summary: "Restate the current repository/path/task before inspecting or editing.",
+      scope: "project",
+      whenToUse: "Long context or task-switching sessions",
+      pitfallsPreview: ["Do not continue a previous repository by inertia."],
+    }]),
+  ],
+});
+
 export function createRepoInspectorHarness(options: NormalizedRepoInspectorOptions): HarnessSpec {
   return praxis.harness({
     modelRef: `model.repoInspector.${options.mode}`,
@@ -30,6 +50,9 @@ export function createRepoInspectorHarness(options: NormalizedRepoInspectorOptio
     memoryRefs: [
       "memory.example.fullstack.mpBridge.contract",
     ],
+    modules: {
+      skill: repoInspectorSkillModule,
+    },
     tools: praxis.tools(createRepoInspectorToolSet(options)),
     policy: praxis.policy({
       allowProviderCall: true,

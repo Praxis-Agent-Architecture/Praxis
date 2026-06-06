@@ -29,6 +29,7 @@ import {
   validateAgentManifest,
   type BaseToolPolicyMatrixSpec,
 } from "../../../src/runtimeImplementation/runtimeAgentManifest.js";
+import { skill } from "../../../src/runtimeImplementation/runtime.skillPlane/index.js";
 
 defineAgentCoreContractTest({
   sourcePath: "src/runtimeImplementation/runtimeAgentManifest.ts",
@@ -199,6 +200,39 @@ test("compileAgent maps chat completions endpoint shape into manifest and defaul
   assert.equal(result.manifest.modelFleet.endpoints.primary?.protocolFamily, "openai-compatible");
   assert.equal(result.manifest.modelFleet.endpoints.primary?.carrierId, "carrier.chat");
   assert.equal(result.manifest.modelFleet.endpoints.primary?.baseURL, "https://gateway.example.com/v1");
+});
+
+test("compileAgent preserves skill plane module and declares runtime requirement", () => {
+  const skillModule = skill.module({
+    sources: [
+      skill.inline([{
+        skillId: "repo-review",
+        title: "Repo Review",
+        summary: "Review repo changes.",
+        scope: "project",
+      }]),
+    ],
+  });
+
+  class SkillPlaneAgent extends PraxisAgent {
+    identity = "agent.skill-plane";
+    model = model("gpt-5.4");
+    harness = harness({
+      modules: { skill: skillModule },
+      loop: loop.standard(),
+    });
+  }
+
+  const result = compileAgent(SkillPlaneAgent, {
+    compiledAt: "2026-06-06T00:00:00.000Z",
+    manifestId: "manifest.skill-plane",
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.manifest.harness.modules.skill, skillModule);
+  assert.equal(result.manifest.harness.runtimeRequirements.includes("runtime.skill"), true);
 });
 
 test("session sqlite defaults to rax workspace storage refs", () => {
