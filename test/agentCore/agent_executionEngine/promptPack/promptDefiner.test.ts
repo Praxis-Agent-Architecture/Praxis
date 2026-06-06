@@ -52,6 +52,14 @@ test("definePromptPack creates a provider-neutral prompt contract", () => {
   assert.deepEqual(promptPackDefinerDescriptor.sourceCategories, ["declared-built-in", "process-product", "user-request"]);
   assert.deepEqual(promptPackDefinerDescriptor.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
   assert.deepEqual(promptPackDefinerDescriptor.providerVisibleSegmentKinds, PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS);
+  assert.deepEqual(PROMPT_PACK_SEGMENT_KINDS.slice(0, 5), [
+    "stableSystemCore",
+    "declaredRuntimeContext",
+    "toolDeclarations",
+    "skillIndex",
+    "projectContext",
+  ]);
+  assert.equal(PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS.includes("skillIndex"), true);
   assert.equal(result.definition.basicCorePromptMaterialId, BASIC_CORE_PROMPT_MATERIAL_ID);
   assert.deepEqual(result.definition.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
   assert.deepEqual(result.definition.providerVisibleSegmentKinds, PROMPT_PACK_PROVIDER_VISIBLE_SEGMENT_KINDS);

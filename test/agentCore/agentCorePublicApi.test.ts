@@ -10,6 +10,8 @@ import {
   baseTool,
   compileAgent,
   createFrameworkInspectionReport,
+  createInMemorySkillPlaneStore,
+  createSkillWriteProposal,
   endpoint,
   harness,
   inspectAgentManifest,
@@ -21,6 +23,7 @@ import {
   policy,
   sandbox,
   session,
+  skill,
   statePlane,
   storage as storageHelpers,
   toolPolicies,
@@ -38,6 +41,9 @@ import {
   baseTool as packageBaseTool,
   modelAuthoring as packageModelAuthoring,
   praxis as packagePraxis,
+  skill as packageSkill,
+  createInMemorySkillPlaneStore as packageCreateInMemorySkillPlaneStore,
+  adviseSkillPromotion as packageAdviseSkillPromotion,
 } from "@praxis-ai/praxis";
 
 class MinimalDeveloperAgent extends PraxisAgent {
@@ -101,6 +107,23 @@ test("public agentCore API lets developers compile minimal and mature agents wit
   assert.equal(packagePraxis.model("gpt-5.4").model, "gpt-5.4");
   assert.equal(packagePraxis.basetool.core.fileRead().toolId, "file.read");
   assert.equal(packagePraxis.memory.describeRisk("search").risk, "safe");
+  assert.equal(skill.module({ sources: [] }).kind, "praxis.skill.module");
+  assert.equal(praxis.skill.module({ sources: [] }).kind, "praxis.skill.module");
+  assert.equal(packageSkill.module({ sources: [] }).kind, "praxis.skill.module");
+  assert.equal(packagePraxis.skill.module({ sources: [] }).version, "praxis.skill.v1");
+  assert.equal(typeof createInMemorySkillPlaneStore, "function");
+  assert.equal(createSkillWriteProposal({
+    skillId: "public.skill",
+    title: "Public Skill",
+    summary: "Public helper.",
+    updatedAt: "2026-06-06T00:00:00.000Z",
+  }).kind, "praxis.skill.writeProposal");
+  assert.equal(typeof packageCreateInMemorySkillPlaneStore, "function");
+  assert.equal(packageAdviseSkillPromotion({
+    skillId: "public.skill",
+    title: "Public Skill",
+    summary: "Public helper.",
+  }).target, "candidate-mcp-plus");
   assert.equal(packagePraxis.sandbox.linuxBubblewrap().providerFamily, "linux-bubblewrap");
   assert.equal(packagePraxis.sandboxPlane.raxcellSandboxProviderDescriptor.providerFamily, "linux-bubblewrap");
   assert.equal(packagePraxis.toolPolicies.custom({ matrixId: "toolPolicy.public.custom" }).profile, "custom");

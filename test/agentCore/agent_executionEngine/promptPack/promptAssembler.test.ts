@@ -97,6 +97,7 @@ test("assemblePromptPack emits a standard PromptPack with source and trim record
     "stableSystemCore",
     "declaredRuntimeContext",
     "toolDeclarations",
+    "skillIndex",
     "projectContext",
   ]);
   assert.equal(result.promptPack.cachePlan.cacheUnit, "prompt-pack-section");
@@ -275,6 +276,13 @@ test("assemblePromptPack keeps fixed-section order and preserves capability prov
     result.promptPack.cachePlan.dynamicSegmentKinds,
     ["recentConversation", "retrievedContext", "observations", "userTurn", "assistantScratchpadPlan"],
   );
+  assert.deepEqual(result.promptPack.cachePlan.cacheablePrefixSegmentKinds.slice(0, 5), [
+    "stableSystemCore",
+    "declaredRuntimeContext",
+    "toolDeclarations",
+    "skillIndex",
+    "projectContext",
+  ]);
   assert.equal(result.promptPack.materials.at(-1)?.internalOnly, true);
   assert.deepEqual(result.promptPack.cachePlan.orderedSegmentKinds, PROMPT_PACK_SEGMENT_KINDS);
   assert.deepEqual(
@@ -283,6 +291,7 @@ test("assemblePromptPack keeps fixed-section order and preserves capability prov
       [BASIC_CORE_PROMPT_MATERIAL_ID],
       ["runtime-context"],
       ["base", "tap", "mcp", "dynamic-external"],
+      [],
       ["project-context"],
       ["summary"],
       ["recent-conversation"],

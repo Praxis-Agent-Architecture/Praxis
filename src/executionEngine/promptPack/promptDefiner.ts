@@ -34,6 +34,7 @@ export const PROMPT_PACK_SEGMENT_KINDS = [
   "stableSystemCore",
   "declaredRuntimeContext",
   "toolDeclarations",
+  "skillIndex",
   "projectContext",
   "sessionSummary",
   "recentConversation",

@@ -24,6 +24,8 @@ test("fullstack repo inspector compiles through project agent entry", () => {
   assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "file.read"), true);
   assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "file.search"), true);
   assert.equal(validation.manifest.harness.tools.some((tool) => tool.toolId === "skill.load"), true);
+  assert.equal(compiled.manifest.harness.runtimeRequirements.includes("runtime.skill"), true);
+  assert.equal(typeof compiled.manifest.harness.modules.skill, "object");
 });
 
 test("fullstack deep permissive variant expands the harness", () => {

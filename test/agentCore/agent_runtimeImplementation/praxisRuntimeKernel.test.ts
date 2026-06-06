@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -35,6 +35,10 @@ import {
   type McpPlusLearnedProfile,
   type McpPlusRuntimeOverlay,
 } from "../../../src/runtimeImplementation/runtime.mcpPlane/index.js";
+import {
+  createInMemorySkillPlaneStore,
+  skill,
+} from "../../../src/runtimeImplementation/runtime.skillPlane/index.js";
 import { createInMemorySessionStateEventStore } from "../../../src/runtimeImplementation/runtimeSessionStateEventStore.js";
 import type {
   SandboxExecutionProviderPort,
@@ -4334,6 +4338,153 @@ test("PraxisRuntimeKernel.runManifest injects MCP+ sidecar after built-in tool d
   assert.ok(builtInToolDeclarationsIndex >= 0);
   assert.ok(mcpPlusSidecarIndex > builtInToolDeclarationsIndex);
   assert.ok(baseProtocolIndex > mcpPlusSidecarIndex);
+});
+
+test("PraxisRuntimeKernel.runManifest injects runtime skill index from inline heads", async () => {
+  class SkillIndexAgent extends PraxisAgent {
+    identity = "agent.skill-index";
+    model = model("gpt-5.4", { carrierId: "carrier.skill-index" });
+    harness = harness({
+      modules: {
+        skill: skill.module({
+          sources: [
+            skill.inline([{
+              skillId: "repo.review",
+              title: "Repository Review",
+              summary: "Inspect runtime contracts before editing kernel code.",
+              scope: "project",
+              whenToUse: "Before changing PraxisRuntimeKernel prompt assembly.",
+              pitfallsPreview: ["Do not expand body text in the static index."],
+            }, {
+              skillId: "user.private-review",
+              title: "Private User Review",
+              summary: "User-scoped skill should stay out of project-only indexes.",
+              scope: "user",
+            }]),
+          ],
+          indexPolicy: { includeScopes: ["project"], maxHeads: 5 },
+        }),
+      },
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const compiled = compileAgent(SkillIndexAgent, {
+    compiledAt: "2026-06-06T00:00:00.000Z",
+    manifestId: "manifest.skill-index",
+  });
+  assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+  if (!compiled.ok) return;
+
+  const skillPlaneStore = createInMemorySkillPlaneStore([{
+    skillId: "repo.review",
+    title: "Stored Repository Review",
+    summary: "Stored head should not replace the inline head.",
+    scope: "project",
+    prerequisites: ["Readable workspace"],
+    do: ["UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE"],
+    pitfalls: ["UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE"],
+    examples: ["UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE"],
+    updatedAt: "2026-06-06T00:00:00.000Z",
+  }]);
+  let providerBodyText = "";
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-skill-index" }).runManifest(
+    compiled.manifest,
+    "inspect runtime skill index",
+    {
+      sessionId: "session-skill-index",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: authEnvelope(),
+      skillPlane: { store: skillPlaneStore },
+      providerCaller: async (envelope) => {
+        providerBodyText = JSON.stringify(envelope.body);
+        return { output_text: "skill index inspected" };
+      },
+      now: () => "2026-06-06T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+  const skillIndexSegment = result.modelCalls[0]?.cacheDebug?.promptPack.segments.find((segment) => segment.segmentKind === "skillIndex");
+  assert.equal(skillIndexSegment?.materialRefs.includes("runtime:skill-plane:index"), true);
+  assert.match(providerBodyText, /# Skill Plane Index/u);
+  assert.match(providerBodyText, /repo\.review/u);
+  assert.match(providerBodyText, /Repository Review/u);
+  assert.doesNotMatch(providerBodyText, /user\.private-review/u);
+  assert.doesNotMatch(providerBodyText, /Private User Review/u);
+  assert.doesNotMatch(providerBodyText, /Stored Repository Review/u);
+  assert.doesNotMatch(providerBodyText, /Stored head should not replace/u);
+  assert.doesNotMatch(providerBodyText, /UNIQUE_FULL_SKILL_BODY_SHOULD_NOT_PREFIX_CACHE/u);
+});
+
+test("PraxisRuntimeKernel.runManifest injects runtime skill index from directory sources", async () => {
+  const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), "praxis-skill-directory-"));
+  try {
+    const skillDirectory = path.join(workspaceRoot, ".praxis", "skills");
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(
+      path.join(skillDirectory, "directory-review.json"),
+      `${JSON.stringify({
+        skillId: "directory.review",
+        title: "Directory Review",
+        summary: "Load a project skill head from .praxis/skills.",
+        scope: "project",
+        do: ["DIRECTORY_FULL_BODY_SHOULD_NOT_PREFIX_CACHE"],
+        updatedAt: "2026-06-06T00:00:00.000Z",
+      })}\n`,
+      "utf8",
+    );
+
+    class DirectorySkillIndexAgent extends PraxisAgent {
+      identity = "agent.directory-skill-index";
+      model = model("gpt-5.4", { carrierId: "carrier.directory-skill-index" });
+      harness = harness({
+        modules: {
+          skill: skill.module({
+            sources: [skill.directory(".praxis/skills")],
+            indexPolicy: { includeScopes: ["project"], maxHeads: 5 },
+          }),
+        },
+        policy: policy({ allowProviderCall: true, workspaceRoot }),
+        loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+      });
+    }
+
+    const compiled = compileAgent(DirectorySkillIndexAgent, {
+      compiledAt: "2026-06-06T00:00:00.000Z",
+      manifestId: "manifest.directory-skill-index",
+    });
+    assert.equal(compiled.ok, true, compiled.ok ? undefined : JSON.stringify(compiled.error));
+    if (!compiled.ok) return;
+
+    let providerBodyText = "";
+    const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-directory-skill-index" }).runManifest(
+      compiled.manifest,
+      "inspect directory skill index",
+      {
+        sessionId: "session-directory-skill-index",
+        dryRun: false,
+        allowProviderCall: true,
+        auth: authEnvelope(),
+        providerCaller: async (envelope) => {
+          providerBodyText = JSON.stringify(envelope.body);
+          return { output_text: "directory skill index inspected" };
+        },
+        now: () => "2026-06-06T00:00:00.000Z",
+      },
+    );
+
+    assert.equal(result.ok, true, result.ok ? undefined : JSON.stringify(result.error));
+    const skillIndexSegment = result.modelCalls[0]?.cacheDebug?.promptPack.segments.find((segment) => segment.segmentKind === "skillIndex");
+    assert.equal(skillIndexSegment?.materialRefs.includes("runtime:skill-plane:index"), true);
+    assert.match(providerBodyText, /directory\.review/u);
+    assert.match(providerBodyText, /Directory Review/u);
+    assert.doesNotMatch(providerBodyText, /DIRECTORY_FULL_BODY_SHOULD_NOT_PREFIX_CACHE/u);
+  } finally {
+    await rm(workspaceRoot, { recursive: true, force: true });
+  }
 });
 
 test("PraxisRuntimeKernel.runManifest expands MCP+ skill bodies only through skill_read tool results", async () => {

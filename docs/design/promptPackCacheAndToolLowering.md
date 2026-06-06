@@ -8,6 +8,7 @@ Praxis PromptPack v1 uses one fixed semantic order:
 stableSystemCore
 declaredRuntimeContext
 toolDeclarations
+skillIndex
 projectContext
 sessionSummary
 recentConversation
@@ -25,6 +26,7 @@ Provider adapters must not reorder these sections. Lowering may map the sections
 - `stableSystemCore`: Praxis fixed system constraints, agent identity, behavior rules, and core context that provider adapters must not rewrite.
 - `declaredRuntimeContext`: AgentManifest, HarnessSpec, runtime mode, permissions, sandbox, and governance declarations.
 - `toolDeclarations`: ToolSpec, baseTool, TAP package, official tools, custom tools, and tool policy visible to the model.
+- `skillIndex`: compact stable skill heads and index cards. It tells the model what reusable working methods are available, while full bodies enter later dynamic context after selection.
 - `projectContext`: project structure, repository summaries, file indexes, dependency maps, and development environment context.
 - `sessionSummary`: current-session compression, phase decisions, and unfinished work. It replaces older raw history after compact; stable system/runtime/project facts are rebuilt from canonical sources instead of summarized here.
 - `recentConversation`: the small raw attention window that survives after summary. It carries the latest user/assistant/runtime messages needed for local continuity, not the full transcript.

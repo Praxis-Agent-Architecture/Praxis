@@ -244,6 +244,7 @@ function segmentStability(kind: PromptPackSegmentKind): PromptPackSegmentStabili
     kind === "stableSystemCore" ||
     kind === "declaredRuntimeContext" ||
     kind === "toolDeclarations" ||
+    kind === "skillIndex" ||
     kind === "projectContext"
   ) {
     return "static";

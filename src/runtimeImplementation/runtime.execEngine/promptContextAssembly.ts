@@ -58,6 +58,7 @@ export type PromptContextAssemblyRequest = {
   conversationWindow?: readonly PromptContextConversationMessage[];
   projectContextGovernanceMaterials?: readonly PromptPackMaterialDraft[];
   toolDeclarationPreludeMaterials?: readonly PromptPackMaterialDraft[];
+  skillIndexMaterials?: readonly PromptPackMaterialDraft[];
   budget?: PromptContextAssemblyBudget;
   toolContextSelection?: BaseToolContextSelection;
   toolContextUsage?: readonly BaseToolContextUsageRecord[];
@@ -502,6 +503,21 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
       toolMaterialType: "policy",
     },
   }));
+  const skillIndexMaterials = (input.skillIndexMaterials ?? []).map((material, index): PromptPackMaterialDraft => ({
+    ...material,
+    id: material.id ?? `runtime:skill-index:${index + 1}`,
+    kind: material.kind,
+    source: material.source ?? "runtime.skillPlane.index",
+    sourceCategory: material.sourceCategory ?? "declared-built-in",
+    priority: material.priority ?? 94 - index,
+    trusted: material.trusted ?? true,
+    scope: material.scope ?? "runtime.skillPlane.index",
+    promptSegmentKind: "skillIndex",
+    metadata: {
+      ...(material.metadata ?? {}),
+      promptSegmentKind: "skillIndex",
+    },
+  }));
 
   const sessionSummaryMaterial: PromptPackMaterialDraft[] = input.sessionSummary === undefined
     ? []
@@ -532,6 +548,7 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
     ...sessionSummaryMaterial,
     ...memoryContextMaterials,
     ...toolDeclarationPreludeMaterials,
+    ...skillIndexMaterials,
     {
       id: `task:${input.turnIndex}`,
       kind: "user" as const,
@@ -615,6 +632,7 @@ export function assemblePromptContextMaterials(input: PromptContextAssemblyReque
       declaredRuntimeContextMaterial,
       toolDeclarationsMaterial,
       ...toolDeclarationPreludeMaterials,
+      ...skillIndexMaterials,
       ...projectContextGovernanceMaterials,
       ...sessionSummaryMaterial,
       ...memoryContextMaterials,

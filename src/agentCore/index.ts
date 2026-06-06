@@ -217,6 +217,9 @@ import {
   mcp,
   planMcpHarnessExposure,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
+import {
+  skill,
+} from "../runtimeImplementation/runtime.skillPlane/index.js";
 
 export {
   PromptPack,
@@ -317,6 +320,32 @@ export type {
   McpPlusSkillStore,
   McpTransportSpec,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
+
+export {
+  adviseSkillPromotion,
+  createFileSkillPlaneStore,
+  createInMemorySkillPlaneStore,
+  createSkillWriteProposal,
+  loadSkillHeadsFromSource,
+  loadSkillHeadsFromSources,
+  renderSkillIndexMaterial,
+  skill,
+} from "../runtimeImplementation/runtime.skillPlane/index.js";
+export type {
+  SkillBody,
+  SkillHead,
+  SkillPlaneBodyLoadPolicy,
+  SkillPlaneIndexPolicy,
+  SkillPlaneLifecyclePolicy,
+  SkillPlaneModuleSpec,
+  SkillPlanePromotionState,
+  SkillPlaneSourceResolutionInput,
+  SkillPlaneScope,
+  SkillPlaneStore,
+  SkillSourceSpec,
+  SkillPromotionAdvice,
+  SkillWriteProposal,
+} from "../runtimeImplementation/runtime.skillPlane/index.js";
 
 export {
   createMemoryPlane,
@@ -1282,6 +1311,7 @@ export const praxis = Object.freeze({
   project: defineProject,
   statePlane,
   storage,
+  skill,
   memory,
 
   basetool,
