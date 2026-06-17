@@ -55,6 +55,9 @@ import {
   sandboxPolicyMiddlewareDescriptor,
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 import {
+  inspectSandboxRuntimeMountMatrix,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxMountMatrix.js";
+import {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
   eventInterfaceEnvelope,
@@ -84,6 +87,7 @@ import {
 } from "../runtimeImplementation/runtime.projectPlane/index.js";
 import {
   createPraxisSessionManager,
+  createRuntimeSessionReport,
 } from "../runtimeImplementation/runtime.sessionPlane/index.js";
 import {
   createPraxisConversationManager,
@@ -118,10 +122,23 @@ import {
 } from "../runtimeImplementation/praxisRuntimeKernel.js";
 import {
   createInMemorySessionStateEventStore,
+  createSqliteSessionStateEventStore,
 } from "../runtimeImplementation/runtimeSessionStateEventStore.js";
 import {
   createFrameworkInspectionReport,
 } from "../runtimeImplementation/runtime.inspection/frameworkInspectionReport.js";
+import {
+  inspectRuntimeSurfaces,
+  runtimeSurfaceInspectorDescriptor,
+} from "../runtimeImplementation/runtime.inspection/runtimeSurfaceInspector.js";
+import {
+  createRuntimeCompositionRoot,
+  runtimeCompositionRootSurface,
+} from "../runtimeImplementation/runtimeCompositionRoot.js";
+import {
+  createRuntimeSurfaceRegistry,
+  runtimeSurfaceRegistryCapability,
+} from "../runtimeImplementation/runtimeSurfaceRegistry.js";
 import {
   baseToolDeveloperCatalogDescriptor,
   baseToolCodingCoreDescriptor,
@@ -141,6 +158,11 @@ import {
   inspectBaseToolReality,
   snapshotBaseToolRealityLedger,
 } from "../runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
+import {
+  baseToolExecutorPortFactoryDescriptor,
+  createRuntimeBaseToolExecutorPort,
+  listRuntimeBaseToolImplementedPortPaths,
+} from "../runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
 import {
   adjudicateRuntimeDecision,
   analyzeMainLoopCacheHealth,
@@ -199,6 +221,25 @@ import {
   runtimeAuth,
 } from "../runtimeImplementation/runtime.authPlane/index.js";
 import {
+  createApiKeyAuthEnvelope,
+  createBearerAuthEnvelope,
+  createMissingAuthEnvelope,
+  mergeAuthMaterialHeaders,
+  toPublicAuthEnvelope,
+} from "../modelAdapter/authProfileLayer/authEnvelope.js";
+import {
+  createChatGPTCodexAuthEnvelope,
+  createChatGPTCodexAuthMaterial,
+  createChatGPTCodexRedactedIdentity,
+  parseChatGPTCodexAuthJson,
+  parseChatGPTCodexJwtClaims,
+  toPublicChatGPTCodexAuthSnapshot,
+} from "../modelAdapter/authProfileLayer/codexAuth.js";
+import {
+  createCredentialRef,
+  credentialRefKey,
+} from "../modelAdapter/authProfileLayer/credentialRef.js";
+import {
   createMemoryPlane,
   memoryPlane,
 } from "../memory_managementPool/index.js";
@@ -207,6 +248,64 @@ import {
   analyzeExecutionMonitor,
 } from "../runtimeImplementation/runtime.executionMonitor/index.js";
 import {
+  createRuntimeGovernanceIndex,
+  createRuntimeGovernanceReport,
+  queryRuntimeGovernance,
+} from "../runtimeImplementation/runtime.governancePlane/index.js";
+import {
+  createRuntimeTimelineIndex,
+  createRuntimeTimelineReport,
+  createRuntimeTimelineReplayPlan,
+  queryRuntimeTimeline,
+} from "../runtimeImplementation/runtime.timelinePlane/index.js";
+import {
+  createRuntimeManagementPlane,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.js";
+import {
+  createRuntimeAccessSession,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+import {
+  evaluateManagementPolicyGate,
+} from "../runtimeImplementation/runtime.managementPlane/managementPolicyGate.js";
+import {
+  routeManagementCommand,
+} from "../runtimeImplementation/runtime.managementPlane/managementCommandRouter.js";
+import {
+  openRuntimeOperatorConsole,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.js";
+import {
+  governRuntimeResources,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.js";
+import {
+  planRuntimeMutation,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.js";
+import {
+  createRuntimeGovernanceBridgeEnvelope,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.js";
+import {
+  planRuntimeRollback,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeRollbackController.js";
+import {
+  createRuntimeModelCallIndex,
+  createRuntimeModelCallReport,
+  queryRuntimeModelCalls,
+} from "../runtimeImplementation/runtime.modelCallPlane/index.js";
+import {
+  createRuntimeToolCallIndex,
+  createRuntimeToolCallReport,
+  queryRuntimeToolCalls,
+} from "../runtimeImplementation/runtime.toolCallPlane/index.js";
+import {
+  createRuntimeMultiagentIndex,
+  createRuntimeMultiagentReport,
+  queryRuntimeMultiagent,
+} from "../runtimeImplementation/runtime.multiagentPlane/index.js";
+import {
+  createRuntimeOfficialAdapterIndex,
+  createRuntimeOfficialAdapterReport,
+  queryRuntimeOfficialAdapters,
+} from "../runtimeImplementation/runtime.officialAdapterPlane/index.js";
+import {
   buildMcpServerProfilesFromManifest,
   createMcpApplicationStateView,
   createFileMcpPlusProfileStore,
@@ -214,6 +313,7 @@ import {
   createInMemoryMcpPlusOverlayStore,
   createInMemoryMcpPlusProfileStore,
   createInMemoryMcpPlusSkillStore,
+  inspectMcpRuntimeMountMatrix,
   mcp,
   planMcpHarnessExposure,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
@@ -293,6 +393,7 @@ export {
   createInMemoryMcpPlusOverlayStore,
   createInMemoryMcpPlusProfileStore,
   createInMemoryMcpPlusSkillStore,
+  inspectMcpRuntimeMountMatrix,
   mcp,
   planMcpHarnessExposure,
 };
@@ -305,6 +406,12 @@ export type {
   McpHarnessModuleSpec,
   McpHarnessServerMode,
   McpHarnessServerSpec,
+  McpRuntimeMountMatrix,
+  McpRuntimeMountMatrixBaseTool,
+  McpRuntimeMountMatrixCompletionOperation,
+  McpRuntimeMountMatrixPromptOperation,
+  McpRuntimeMountMatrixResourceOperation,
+  McpRuntimeMountMatrixServer,
   McpPlusLearnedProfile,
   McpPlusApplicationServerInput,
   McpPlusOverlayStore,
@@ -316,6 +423,7 @@ export type {
   McpPlusSkillNote,
   McpPlusSkillStore,
   McpTransportSpec,
+  InspectMcpRuntimeMountMatrixInput,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export {
@@ -722,6 +830,16 @@ export {
 } from "../runtimeImplementation/runtime.sandboxPlane/sandboxPolicyMiddleware.js";
 
 export {
+  inspectSandboxRuntimeMountMatrix,
+  type InspectSandboxRuntimeMountMatrixInput,
+  type SandboxMountMatrixCommandPreview,
+  type SandboxMountMatrixIsolationEvidence,
+  type SandboxMountMatrixProviderEvidence,
+  type SandboxMountMatrixStatus,
+  type SandboxRuntimeMountMatrix,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxMountMatrix.js";
+
+export {
   approvalInterfaceEnvelope,
   createInterfaceEnvelope,
   eventInterfaceEnvelope,
@@ -840,6 +958,67 @@ export {
 } from "../basetool/types.js";
 
 export {
+  baseToolExecutorPortFactoryDescriptor,
+  createRuntimeBaseToolExecutorPort,
+  listRuntimeBaseToolImplementedPortPaths,
+  type RuntimeBaseToolExecutorContext,
+  type RuntimeBaseToolExecutorEvent,
+  type RuntimeBaseToolExecutorPolicy,
+  type RuntimeBaseToolExecutorResourceLimits,
+  type RuntimeBaseToolExecutorSandbox,
+} from "../runtimeImplementation/runtime.execEngine/baseToolExecutorPortFactory.js";
+
+export {
+  createRuntimeSurfaceRegistry,
+  runtimeSurfaceRegistryCapability,
+  type RegisteredRuntimeSurface,
+  type RuntimeSurfaceDescriptor,
+  type RuntimeSurfaceKind,
+  type RuntimeSurfaceRegistry,
+  type RuntimeSurfaceRegistryBoundary,
+  type RuntimeSurfaceRegistryCaller,
+  type RuntimeSurfaceRegistryError,
+  type RuntimeSurfaceRegistryErrorCode,
+  type RuntimeSurfaceRegistryGate,
+  type RuntimeSurfaceRegistryRequest,
+  type RuntimeSurfaceRegistryResult,
+  type RuntimeSurfaceResolveRequest,
+  type RuntimeSurfaceResolveResult,
+} from "../runtimeImplementation/runtimeSurfaceRegistry.js";
+
+export {
+  createRuntimeCompositionRoot,
+  runtimeCompositionRootSurface,
+  type RuntimeCompositionRootBoundary,
+  type RuntimeCompositionRootCaller,
+  type RuntimeCompositionRootCallerKind,
+  type RuntimeCompositionRootError,
+  type RuntimeCompositionRootErrorCode,
+  type RuntimeCompositionRootGate,
+  type RuntimeCompositionRootRequest,
+  type RuntimeCompositionRootResult,
+  type RuntimeCompositionRootSnapshot,
+  type RuntimeCompositionSurfaceBinding,
+  type RuntimeCompositionSurfaceInput,
+  type RuntimeCompositionSurfaceName,
+} from "../runtimeImplementation/runtimeCompositionRoot.js";
+
+export {
+  inspectRuntimeSurfaces,
+  runtimeSurfaceInspectorDescriptor,
+  type RuntimeSurfaceAttachment,
+  type RuntimeSurfaceInspectionEntry,
+  type RuntimeSurfaceInspectionSnapshot,
+  type RuntimeSurfaceInspectorBoundary,
+  type RuntimeSurfaceInspectorError,
+  type RuntimeSurfaceInspectorErrorCode,
+  type RuntimeSurfaceInspectorGate,
+  type RuntimeSurfaceInspectorRequest,
+  type RuntimeSurfaceInspectorResult,
+  type RuntimeSurfaceStatus,
+} from "../runtimeImplementation/runtime.inspection/runtimeSurfaceInspector.js";
+
+export {
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
   type AgentModelCallProgressEvent,
@@ -861,6 +1040,7 @@ export {
 
 export {
   createInMemorySessionStateEventStore,
+  createSqliteSessionStateEventStore,
   type RuntimeSessionSnapshot,
   type RuntimeSessionStateEventStore,
 } from "../runtimeImplementation/runtimeSessionStateEventStore.js";
@@ -961,6 +1141,47 @@ export {
 } from "../runtimeImplementation/runtime.execEngine/baseToolRealityLedger.js";
 
 export {
+  createApiKeyAuthEnvelope,
+  createBearerAuthEnvelope,
+  createMissingAuthEnvelope,
+  mergeAuthMaterialHeaders,
+  toPublicAuthEnvelope,
+  type AuthEnvelope,
+  type AuthEnvelopeKind,
+  type AuthHeaderPlan,
+  type AuthQueryPlan,
+  type ProviderAuthMaterial,
+  type ResolvedAuthEnvelope,
+} from "../modelAdapter/authProfileLayer/authEnvelope.js";
+
+export {
+  createChatGPTCodexAuthEnvelope,
+  createChatGPTCodexAuthMaterial,
+  createChatGPTCodexRedactedIdentity,
+  parseChatGPTCodexAuthJson,
+  parseChatGPTCodexJwtClaims,
+  toPublicChatGPTCodexAuthSnapshot,
+  type ChatGPTCodexAuthSnapshot,
+  type ChatGPTCodexJwtClaims,
+  type ChatGPTCodexPlanType,
+  type ChatGPTCodexPublicSnapshot,
+  type ParseChatGPTCodexAuthResult,
+} from "../modelAdapter/authProfileLayer/codexAuth.js";
+
+export {
+  createCredentialRef,
+  credentialRefKey,
+  type CredentialRef,
+  type CredentialRefErrorCode,
+  type CredentialRefInput,
+  type CredentialRefResult,
+  type CredentialSource,
+  type CredentialSourceKind,
+  type CredentialType,
+  type ProviderCredentialKind,
+} from "../modelAdapter/authProfileLayer/credentialRef.js";
+
+export {
   runtimeAuth,
   runtimeAuth as auth,
   authAuditEvent,
@@ -1019,6 +1240,251 @@ export {
   type ExecutionMonitorTurnReport,
   type ExecutionMonitorUsageTotals,
 } from "../runtimeImplementation/runtime.executionMonitor/index.js";
+
+export {
+  createRuntimeGovernanceIndex,
+  createRuntimeGovernanceReport,
+  queryRuntimeGovernance,
+  type CreateRuntimeGovernanceReportInput,
+  type QueryRuntimeGovernanceInput,
+  type RuntimeGovernanceDecision,
+  type RuntimeGovernanceDecisionKind,
+  type RuntimeGovernanceIndex,
+  type RuntimeGovernanceQuery,
+  type RuntimeGovernanceQueryResult,
+  type RuntimeGovernanceReport,
+} from "../runtimeImplementation/runtime.governancePlane/index.js";
+
+export {
+  createRuntimeSessionReport,
+  type CreateRuntimeSessionReportInput,
+  type RuntimeSessionMessageDigest,
+  type RuntimeSessionReport,
+  type RuntimeSessionReportSourceKind,
+  type RuntimeSessionTurnReport,
+} from "../runtimeImplementation/runtime.sessionPlane/index.js";
+
+export {
+  createRuntimeTimelineIndex,
+  createRuntimeTimelineReport,
+  createRuntimeTimelineReplayPlan,
+  queryRuntimeTimeline,
+  type CreateRuntimeTimelineReportInput,
+  type CreateRuntimeTimelineReplayPlanInput,
+  type QueryRuntimeTimelineInput,
+  type RuntimeTimelineCheckpoint,
+  type RuntimeTimelineIndex,
+  type RuntimeTimelineItem,
+  type RuntimeTimelineItemKind,
+  type RuntimeTimelineQuery,
+  type RuntimeTimelineQueryResult,
+  type RuntimeTimelineReport,
+  type RuntimeTimelineReplayPlan,
+  type RuntimeTimelineSessionFork,
+  type RuntimeTimelineSourceKind,
+} from "../runtimeImplementation/runtime.timelinePlane/index.js";
+
+export {
+  createRuntimeManagementPlane,
+  type RuntimeManagementBoundary,
+  type RuntimeManagementCaller,
+  type RuntimeManagementCallerKind,
+  type RuntimeManagementComponent,
+  type RuntimeManagementComponentInput,
+  type RuntimeManagementError,
+  type RuntimeManagementErrorCode,
+  type RuntimeManagementGate,
+  type RuntimeManagementHandle,
+  type RuntimeManagementPlaneRequest,
+  type RuntimeManagementPlaneResult,
+  type RuntimeManagementSurface,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.js";
+
+export {
+  createRuntimeAccessSession,
+  isRuntimeAccessSessionActive,
+  runtimeAccessSessionDescriptor,
+  type RuntimeAccessSession,
+  type RuntimeAccessSessionActor,
+  type RuntimeAccessSessionActorKind,
+  type RuntimeAccessSessionBoundary,
+  type RuntimeAccessSessionError,
+  type RuntimeAccessSessionErrorCode,
+  type RuntimeAccessSessionGate,
+  type RuntimeAccessSessionRequest,
+  type RuntimeAccessSessionResult,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+
+export {
+  evaluateManagementPolicyGate,
+  managementPermissionByEffect,
+  managementPolicyGateDescriptor,
+  type ManagementCommandEffect,
+  type ManagementCommandEnvelope,
+  type ManagementPolicyBoundary,
+  type ManagementPolicyDecision,
+  type ManagementPolicyDecisionStatus,
+  type ManagementPolicyGateError,
+  type ManagementPolicyGateErrorCode,
+  type ManagementPolicyGateRequest,
+  type ManagementPolicyGateResult,
+  type ManagementPolicyRule,
+  type ManagementPolicyRuleMatch,
+} from "../runtimeImplementation/runtime.managementPlane/managementPolicyGate.js";
+
+export {
+  managementCommandRouterDescriptor,
+  routeManagementCommand,
+  type ManagementCommandRoute,
+  type ManagementCommandRouteBoundary,
+  type ManagementCommandRoutePlan,
+  type ManagementCommandRouterError,
+  type ManagementCommandRouterErrorCode,
+  type ManagementCommandRouterRequest,
+  type ManagementCommandRouterResult,
+} from "../runtimeImplementation/runtime.managementPlane/managementCommandRouter.js";
+
+export {
+  openRuntimeOperatorConsole,
+  type RuntimeOperatorCommandEnvelope,
+  type RuntimeOperatorCommandInput,
+  type RuntimeOperatorConsoleError,
+  type RuntimeOperatorConsoleErrorCode,
+  type RuntimeOperatorConsoleRequest,
+  type RuntimeOperatorConsoleResult,
+  type RuntimeOperatorConsoleSession,
+  type RuntimeOperatorConsoleVerb,
+  type RuntimeOperatorIdentity,
+  type RuntimeOperatorRole,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.js";
+
+export {
+  governRuntimeResources,
+  type RuntimeResourceBudget,
+  type RuntimeResourceDecision,
+  type RuntimeResourceDemand,
+  type RuntimeResourceGovernorError,
+  type RuntimeResourceGovernorErrorCode,
+  type RuntimeResourceGovernorRequest,
+  type RuntimeResourceGovernorResult,
+  type RuntimeResourceGovernorSnapshot,
+  type RuntimeResourceKind,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.js";
+
+export {
+  planRuntimeMutation,
+  type RuntimeMutationOperation,
+  type RuntimeMutationPlan,
+  type RuntimeMutationPlannerError,
+  type RuntimeMutationPlannerErrorCode,
+  type RuntimeMutationPlannerRequest,
+  type RuntimeMutationPlannerResult,
+  type RuntimeMutationPlanStep,
+  type RuntimeMutationProposal,
+  type RuntimeMutationRisk,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.js";
+
+export {
+  createRuntimeGovernanceBridgeEnvelope,
+  runtimeGovernanceBridgeDescriptor,
+  type RuntimeGovernanceBridgeBoundary,
+  type RuntimeGovernanceBridgeEnvelope,
+  type RuntimeGovernanceBridgeError,
+  type RuntimeGovernanceBridgeErrorCode,
+  type RuntimeGovernanceBridgeRequest,
+  type RuntimeGovernanceBridgeResult,
+  type RuntimeGovernanceBridgeStatus,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.js";
+
+export {
+  planRuntimeRollback,
+  type RuntimeRollbackBoundary,
+  type RuntimeRollbackCheckpoint,
+  type RuntimeRollbackError,
+  type RuntimeRollbackErrorCode,
+  type RuntimeRollbackGate,
+  type RuntimeRollbackPlan,
+  type RuntimeRollbackRequest,
+  type RuntimeRollbackResult,
+  type RuntimeRollbackTrace,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeRollbackController.js";
+
+export {
+  createRuntimeModelCallIndex,
+  createRuntimeModelCallReport,
+  queryRuntimeModelCalls,
+  type CreateRuntimeModelCallReportInput,
+  type QueryRuntimeModelCallsInput,
+  type RuntimeModelCallApplicationEvent,
+  type RuntimeModelCallCache,
+  type RuntimeModelCallFleet,
+  type RuntimeModelCallIndex,
+  type RuntimeModelCallProvider,
+  type RuntimeModelCallQuery,
+  type RuntimeModelCallQueryResult,
+  type RuntimeModelCallRecord,
+  type RuntimeModelCallReport,
+  type RuntimeModelCallSourceKind,
+  type RuntimeModelCallStatus,
+  type RuntimeModelCallUsage,
+} from "../runtimeImplementation/runtime.modelCallPlane/index.js";
+
+export {
+  createRuntimeToolCallIndex,
+  createRuntimeToolCallReport,
+  queryRuntimeToolCalls,
+  type CreateRuntimeToolCallReportInput,
+  type QueryRuntimeToolCallsInput,
+  type RuntimeToolCallIndex,
+  type RuntimeToolCallQuery,
+  type RuntimeToolCallQueryResult,
+  type RuntimeToolCallRecord,
+  type RuntimeToolCallReport,
+  type RuntimeToolCallSourceKind,
+} from "../runtimeImplementation/runtime.toolCallPlane/index.js";
+
+export {
+  createRuntimeMultiagentIndex,
+  createRuntimeMultiagentReport,
+  queryRuntimeMultiagent,
+  type CreateRuntimeMultiagentReportInput,
+  type QueryRuntimeMultiagentInput,
+  type RuntimeMultiagentApplicationEvent,
+  type RuntimeMultiagentApplicationReport,
+  type RuntimeMultiagentBridgeReport,
+  type RuntimeMultiagentCoverage,
+  type RuntimeMultiagentIndex,
+  type RuntimeMultiagentMessageReport,
+  type RuntimeMultiagentQuery,
+  type RuntimeMultiagentQueryResult,
+  type RuntimeMultiagentReport,
+  type RuntimeMultiagentSessionReport,
+  type RuntimeMultiagentSmokeFacts,
+  type RuntimeMultiagentSourceKind,
+  type RuntimeMultiagentToolReport,
+} from "../runtimeImplementation/runtime.multiagentPlane/index.js";
+
+export {
+  createRuntimeOfficialAdapterIndex,
+  createRuntimeOfficialAdapterReport,
+  queryRuntimeOfficialAdapters,
+  type CreateRuntimeOfficialAdapterReportInput,
+  type QueryRuntimeOfficialAdaptersInput,
+  type RuntimeOfficialAdapterApplicationEvent,
+  type RuntimeOfficialAdapterCompositionInput,
+  type RuntimeOfficialAdapterCoverage,
+  type RuntimeOfficialAdapterEvidenceInput,
+  type RuntimeOfficialAdapterFamilyKey,
+  type RuntimeOfficialAdapterIndex,
+  type RuntimeOfficialAdapterMcpPlusEvidenceInput,
+  type RuntimeOfficialAdapterMcpPlusReport,
+  type RuntimeOfficialAdapterQuery,
+  type RuntimeOfficialAdapterQueryResult,
+  type RuntimeOfficialAdapterRecord,
+  type RuntimeOfficialAdapterReport,
+  type RuntimeOfficialAdapterSourceKind,
+  type RuntimeOfficialAdapterStatus,
+} from "../runtimeImplementation/runtime.officialAdapterPlane/index.js";
 
 export {
   type BaseToolContextSelection,
@@ -1080,6 +1546,22 @@ export const modelAuthoring = Object.freeze({
   modelFleet,
 });
 
+export const modelAuth = Object.freeze({
+  apiKeyEnvelope: createApiKeyAuthEnvelope,
+  bearerEnvelope: createBearerAuthEnvelope,
+  chatgptCodexAuthEnvelope: createChatGPTCodexAuthEnvelope,
+  chatgptCodexAuthMaterial: createChatGPTCodexAuthMaterial,
+  chatgptCodexRedactedIdentity: createChatGPTCodexRedactedIdentity,
+  credentialRef: createCredentialRef,
+  credentialRefKey,
+  missingEnvelope: createMissingAuthEnvelope,
+  mergeMaterialHeaders: mergeAuthMaterialHeaders,
+  parseChatGPTCodexAuthJson,
+  parseChatGPTCodexJwtClaims,
+  toPublicAuthEnvelope,
+  toPublicChatGPTCodexAuthSnapshot,
+});
+
 export const harnessRuntimePolicy = Object.freeze({
   harness,
   loop,
@@ -1111,7 +1593,46 @@ export const baseTool = Object.freeze({
 export const runtimeKernel = Object.freeze({
   PraxisRuntimeKernel,
   createPraxisRuntimeKernel,
+  createBaseToolExecutorPort: createRuntimeBaseToolExecutorPort,
+  listBaseToolImplementedPortPaths: listRuntimeBaseToolImplementedPortPaths,
+  baseToolExecutorPortFactoryDescriptor,
+  inspectMcpMountMatrix: inspectMcpRuntimeMountMatrix,
+  inspectSandboxMountMatrix: inspectSandboxRuntimeMountMatrix,
+  createSurfaceRegistry: createRuntimeSurfaceRegistry,
+  runtimeSurfaceRegistryCapability,
+  createCompositionRoot: createRuntimeCompositionRoot,
+  runtimeCompositionRootSurface,
   createInMemorySessionStateEventStore,
+  createSqliteSessionStateEventStore,
+  createRuntimeGovernanceReport,
+  createRuntimeGovernanceIndex,
+  queryRuntimeGovernance,
+  createRuntimeSessionReport,
+  createRuntimeTimelineReport,
+  createRuntimeTimelineIndex,
+  queryRuntimeTimeline,
+  createRuntimeTimelineReplayPlan,
+  createRuntimeManagementPlane,
+  createRuntimeAccessSession,
+  evaluateManagementPolicyGate,
+  routeManagementCommand,
+  openRuntimeOperatorConsole,
+  governRuntimeResources,
+  planRuntimeMutation,
+  createRuntimeGovernanceBridgeEnvelope,
+  planRuntimeRollback,
+  createRuntimeModelCallReport,
+  createRuntimeModelCallIndex,
+  queryRuntimeModelCalls,
+  createRuntimeToolCallReport,
+  createRuntimeToolCallIndex,
+  queryRuntimeToolCalls,
+  createRuntimeMultiagentReport,
+  createRuntimeMultiagentIndex,
+  queryRuntimeMultiagent,
+  createRuntimeOfficialAdapterReport,
+  createRuntimeOfficialAdapterIndex,
+  queryRuntimeOfficialAdapters,
   project: Object.freeze({
     open: openPraxisProject,
   }),
@@ -1121,6 +1642,19 @@ export const runtimeKernel = Object.freeze({
   conversation: Object.freeze({
     createPraxisConversationManager,
   }),
+});
+
+export const mcpPlane = Object.freeze({
+  mcp,
+  buildMcpServerProfilesFromManifest,
+  createMcpApplicationStateView,
+  createFileMcpPlusProfileStore,
+  createFileMcpPlusSkillStore,
+  createInMemoryMcpPlusOverlayStore,
+  createInMemoryMcpPlusProfileStore,
+  createInMemoryMcpPlusSkillStore,
+  inspectMcpRuntimeMountMatrix,
+  planMcpHarnessExposure,
 });
 
 export const executionCore = Object.freeze({
@@ -1151,6 +1685,8 @@ export const executionCore = Object.freeze({
 
 export const inspection = Object.freeze({
   createFrameworkInspectionReport,
+  inspectRuntimeSurfaces,
+  runtimeSurfaceInspectorDescriptor,
   createBaseToolRealityLedger,
   inspectBaseToolReality,
   snapshotBaseToolRealityLedger,
@@ -1211,6 +1747,7 @@ export const sandboxPlane = Object.freeze({
   createSandboxCommandPlan,
   createLocalSandboxRemoteWorkerAdapter,
   createSandboxRuntimeProvider,
+  inspectSandboxRuntimeMountMatrix,
   mapSandboxProviderRequestToRaxcell,
   prepareSandboxRuntime,
   resolveRaxcellBinaryPath,
@@ -1267,6 +1804,7 @@ export const praxis = Object.freeze({
   model,
   modelFleet,
   auth: runtimeAuth,
+  modelAuth,
 
   harness,
   loop,
@@ -1283,6 +1821,10 @@ export const praxis = Object.freeze({
   statePlane,
   storage,
   memory,
+  mcp,
+  mcpPlane,
+  buildMcpServerProfilesFromManifest,
+  createInMemoryMcpPlusSkillStore,
 
   basetool,
   basetools: basetool,

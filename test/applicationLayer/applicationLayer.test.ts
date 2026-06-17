@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,6 +17,7 @@ import {
   applicationRuntimeTestHooks,
   invokeOpenAIResponsesApplicationAdapter,
 } from "../../src/applicationLayer/applicationRuntime.js";
+import { praxis } from "../../src/agentCore/index.js";
 import { createApiKeyAuthEnvelope } from "../../src/modelAdapter/authProfileLayer/authEnvelope.js";
 import { createCredentialRef } from "../../src/modelAdapter/authProfileLayer/credentialRef.js";
 import {
@@ -814,6 +815,421 @@ test("applicationLayer can open the foundation project plane without taking over
     assert.equal(result.view.foundationProject?.locked, true);
     assert.equal(result.view.sessions[0]?.sessionId, "session.foundation.fixture");
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("applicationLayer start creates the mounted foundation session fact", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-application-foundation-start-"));
+  await writeFile(path.join(root, "agent.ts"), "export default {};\n");
+  await writeFile(path.join(root, "rax.project.json"), JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: "application-project",
+    id: "application.foundation.start.fixture",
+    entry: path.relative(root, path.resolve(DOCTOR_PROJECT, "praxis.agent.ts")),
+    export: "PraxisDoctorAgent",
+    application: { id: "application.foundation.start.fixture" },
+    agent: { id: "agent.praxis.doctor" },
+  }, null, 2));
+  await mkdir(path.join(root, ".rax_workspace"), { recursive: true });
+  const opened = await praxis.runtime.project.open({
+    cwd: root,
+    ownerId: "application-foundation-start-test",
+    runtimeId: "runtime.application.foundation.start.fixture",
+    persistence: "memory",
+    acquireLock: true,
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) {
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  const created = await createApplicationProjectRuntime(root, {
+    foundationProject: opened.runtime,
+    applicationId: "application.foundation.start.fixture",
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  try {
+    const sessionId = "session.foundation.start.fixture";
+    const started = await createLocalApplicationTransport(created.runtime).dispatch({
+      type: "application.start",
+      sessionId,
+    });
+
+    assert.equal(started.ok, true);
+    assert.equal(started.view.status, "ready");
+    assert.equal(started.view.sessionId, sessionId);
+    const snapshot = await opened.runtime.store.readSessionSnapshot(sessionId);
+    assert.equal(snapshot.session?.sessionId, sessionId);
+    assert.equal(snapshot.session?.status, "idle");
+    assert.equal(snapshot.session?.metadata.source, "application.start");
+
+    const createdSession = await createLocalApplicationTransport(created.runtime).dispatch({
+      type: "application.createSession",
+      sessionId,
+      name: "Foundation start fixture renamed by create",
+    });
+    assert.equal(createdSession.ok, true);
+    const createdSnapshot = await opened.runtime.store.readSessionSnapshot(sessionId);
+    assert.equal(createdSnapshot.session?.title, "Foundation start fixture renamed by create");
+  } finally {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("applicationLayer close marks the mounted foundation session closed and releases the project lease", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-application-foundation-close-"));
+  await writeFile(path.join(root, "agent.ts"), "export default {};\n");
+  await writeFile(path.join(root, "rax.project.json"), JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: "application-project",
+    id: "application.foundation.close.fixture",
+    entry: "agent.ts",
+    application: { id: "application.foundation.close.fixture" },
+    agent: { id: "agent.foundation.close.fixture" },
+  }, null, 2));
+  await mkdir(path.join(root, ".rax_workspace"), { recursive: true });
+  const opened = await praxis.runtime.project.open({
+    cwd: root,
+    ownerId: "application-foundation-close-test",
+    runtimeId: "runtime.application.foundation.close.fixture",
+    persistence: "memory",
+    acquireLock: true,
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) {
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  const created = await createApplicationProjectRuntime(root, {
+    foundationProject: opened.runtime,
+    applicationId: "application.foundation.close.fixture",
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  try {
+    const sessionId = "session.foundation.close.fixture";
+    const transport = createLocalApplicationTransport(created.runtime);
+    const createResult = await transport.dispatch({
+      type: "application.createSession",
+      sessionId,
+      name: "Foundation close fixture",
+    });
+    assert.equal(createResult.ok, true);
+    assert.equal(createResult.view.foundationProject?.locked, true);
+
+    const closeResult = await transport.dispatch({
+      type: "application.close",
+      sessionId,
+    });
+
+    assert.equal(closeResult.ok, true);
+    assert.equal(closeResult.view.status, "closed");
+    assert.equal(closeResult.view.foundationProject?.locked, false);
+    assert.equal(created.runtime.getView().foundationProject?.locked, false);
+    const snapshot = await opened.runtime.store.readSessionSnapshot(sessionId);
+    assert.equal(snapshot.session?.status, "closed");
+  } finally {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("applicationLayer renameSession updates the mounted foundation session title", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-application-foundation-rename-"));
+  await writeFile(path.join(root, "agent.ts"), "export default {};\n");
+  await writeFile(path.join(root, "rax.project.json"), JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: "application-project",
+    id: "application.foundation.rename.fixture",
+    entry: "agent.ts",
+    application: { id: "application.foundation.rename.fixture" },
+    agent: { id: "agent.foundation.rename.fixture" },
+  }, null, 2));
+  await mkdir(path.join(root, ".rax_workspace"), { recursive: true });
+  const opened = await praxis.runtime.project.open({
+    cwd: root,
+    ownerId: "application-foundation-rename-test",
+    runtimeId: "runtime.application.foundation.rename.fixture",
+    persistence: "memory",
+    acquireLock: true,
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) {
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  const created = await createApplicationProjectRuntime(root, {
+    foundationProject: opened.runtime,
+    applicationId: "application.foundation.rename.fixture",
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  try {
+    const sessionId = "session.foundation.rename.fixture";
+    const transport = createLocalApplicationTransport(created.runtime);
+    await transport.dispatch({
+      type: "application.createSession",
+      sessionId,
+      name: "Foundation rename before",
+    });
+
+    const renamed = await transport.dispatch({
+      type: "application.renameSession",
+      sessionId,
+      name: "Foundation rename after",
+    });
+
+    assert.equal(renamed.ok, true);
+    assert.equal(renamed.view.sessions.find((session) => session.sessionId === sessionId)?.name, "Foundation rename after");
+    const snapshot = await opened.runtime.store.readSessionSnapshot(sessionId);
+    assert.equal(snapshot.session?.title, "Foundation rename after");
+  } finally {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("applicationLayer resume restores a mounted closed foundation session to idle", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-application-foundation-resume-"));
+  await writeFile(path.join(root, "agent.ts"), "export default {};\n");
+  await writeFile(path.join(root, "rax.project.json"), JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: "application-project",
+    id: "application.foundation.resume.fixture",
+    entry: "agent.ts",
+    application: { id: "application.foundation.resume.fixture" },
+    agent: { id: "agent.foundation.resume.fixture" },
+  }, null, 2));
+  await mkdir(path.join(root, ".rax_workspace"), { recursive: true });
+  const opened = await praxis.runtime.project.open({
+    cwd: root,
+    ownerId: "application-foundation-resume-test",
+    runtimeId: "runtime.application.foundation.resume.fixture",
+    persistence: "memory",
+    acquireLock: true,
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) {
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  const created = await createApplicationProjectRuntime(root, {
+    foundationProject: opened.runtime,
+    applicationId: "application.foundation.resume.fixture",
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  try {
+    const sessionId = "session.foundation.resume.fixture";
+    const transport = createLocalApplicationTransport(created.runtime);
+    await transport.dispatch({
+      type: "application.createSession",
+      sessionId,
+      name: "Foundation resume fixture",
+    });
+    const sessionManager = praxis.runtime.session.createPraxisSessionManager(opened.runtime);
+    await sessionManager.rename(
+      sessionId,
+      "Foundation resume external title",
+      "2026-05-24T00:00:01.000Z",
+    );
+    await sessionManager.close(
+      sessionId,
+      "2026-05-24T00:00:02.000Z",
+    );
+
+    const resumed = await transport.dispatch({
+      type: "application.resume",
+      sessionId,
+    });
+
+    assert.equal(resumed.ok, true);
+    assert.equal(resumed.view.status, "ready");
+    assert.equal(
+      resumed.view.sessions.find((session) => session.sessionId === sessionId)?.name,
+      "Foundation resume external title",
+    );
+    const snapshot = await opened.runtime.store.readSessionSnapshot(sessionId);
+    assert.equal(snapshot.session?.status, "idle");
+  } finally {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+for (const fixture of [
+  { name: "without a sessionId", command: { type: "application.resume" } as const },
+  { name: "with a blank sessionId", command: { type: "application.resume", sessionId: "   " } as const },
+]) {
+test(`applicationLayer resume ${fixture.name} selects the foundation sessionPlane candidate`, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-application-foundation-auto-resume-"));
+  await writeFile(path.join(root, "agent.ts"), "export default {};\n");
+  await writeFile(path.join(root, "rax.project.json"), JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: "application-project",
+    id: "application.foundation.autoResume.fixture",
+    entry: "agent.ts",
+    application: { id: "application.foundation.autoResume.fixture" },
+    agent: { id: "agent.foundation.autoResume.fixture" },
+  }, null, 2));
+  await mkdir(path.join(root, ".rax_workspace"), { recursive: true });
+  const opened = await praxis.runtime.project.open({
+    cwd: root,
+    ownerId: "application-foundation-auto-resume-test",
+    runtimeId: "runtime.application.foundation.autoResume.fixture",
+    persistence: "memory",
+    acquireLock: true,
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) {
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  const defaultSessionId = "session.application.foundation.autoResume.default";
+  const pickedSessionId = "session.foundation.autoResume.picked";
+  const created = await createApplicationProjectRuntime(root, {
+    foundationProject: opened.runtime,
+    applicationId: "application.foundation.autoResume.fixture",
+    sessionId: defaultSessionId,
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(created.ok, true);
+  if (!created.ok) {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  try {
+    const sessionManager = praxis.runtime.session.createPraxisSessionManager(opened.runtime);
+    await sessionManager.create({
+      sessionId: pickedSessionId,
+      title: "Foundation auto resume picked",
+      now: "2026-05-24T00:00:01.000Z",
+    });
+    const resumed = await createLocalApplicationTransport(created.runtime).dispatch(fixture.command);
+
+    assert.equal(resumed.ok, true);
+    assert.equal(resumed.view.status, "ready");
+    assert.equal(resumed.view.sessionId, pickedSessionId);
+    assert.equal(
+      resumed.view.sessions.find((session) => session.sessionId === pickedSessionId)?.name,
+      "Foundation auto resume picked",
+    );
+    const pickedSnapshot = await opened.runtime.store.readSessionSnapshot(pickedSessionId);
+    assert.equal(pickedSnapshot.session?.status, "idle");
+    const defaultSnapshot = await opened.runtime.store.readSessionSnapshot(defaultSessionId);
+    assert.equal(defaultSnapshot.session, undefined);
+  } finally {
+    await opened.runtime.release();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+}
+
+test("applicationLayer submitTurn writes turn checkpoints and conversation messages to foundation plane", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "praxis-application-foundation-turn-"));
+  await writeFile(path.join(root, "agent.ts"), "export default {};\n");
+  await writeFile(path.join(root, "rax.project.json"), JSON.stringify({
+    schema: "praxis.rax.project.v1",
+    kind: "application-project",
+    id: "application.foundation.turn.fixture",
+    entry: path.relative(root, path.resolve(DOCTOR_PROJECT, "praxis.agent.ts")),
+    export: "PraxisDoctorAgent",
+    application: { id: "application.foundation.turn.fixture" },
+    agent: { id: "agent.praxis.doctor" },
+  }, null, 2));
+  const opened = await praxis.runtime.project.open({
+    cwd: root,
+    ownerId: "application-foundation-turn-test",
+    runtimeId: "runtime.application.foundation.turn.fixture",
+    persistence: "memory",
+    acquireLock: false,
+    now: () => "2026-05-24T00:00:00.000Z",
+  });
+  assert.equal(opened.ok, true);
+  if (!opened.ok) {
+    await rm(root, { recursive: true, force: true });
+    return;
+  }
+  try {
+    const sessionId = "session.foundation.turn.fixture";
+    const created = await createApplicationProjectRuntime(root, {
+      foundationProject: opened.runtime,
+      applicationId: "application.foundation.turn.fixture",
+      sessionId,
+      mode: "live",
+      now: () => "2026-05-24T00:00:02.000Z",
+      liveProviderResolver: async () => ({
+        auth: {
+          kind: "oauth",
+          present: true,
+          headerPlan: [],
+          queryPlan: [],
+          publicSafe: true,
+        },
+        providerCaller: async () => ({ output_text: "foundation turn answer" }),
+      }),
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const result = await createLocalApplicationTransport(created.runtime).dispatch({
+      type: "application.submitTurn",
+      sessionId,
+      mode: "live",
+      input: {
+        type: "application.input",
+        text: "Persist this turn into the foundation conversation plane.",
+        cwd: root,
+      },
+    });
+    assert.equal(result.ok, true);
+
+    const snapshot = await opened.runtime.store.readSessionSnapshot(sessionId);
+    assert.equal(snapshot.session?.sessionId, sessionId);
+    assert.equal(snapshot.session?.metadata.source, "application.submitTurn");
+    assert.equal(snapshot.turns.length, 1);
+    assert.equal(snapshot.turns[0]?.turnId, "turn.1");
+    assert.equal(snapshot.turns[0]?.checkpoint, true);
+    assert.equal(snapshot.messages.some((message) =>
+      message.turnId === "turn.1" &&
+      message.role === "user" &&
+      message.text === "Persist this turn into the foundation conversation plane.",
+    ), true);
+    assert.equal(snapshot.messages.some((message) =>
+      message.turnId === "turn.1" &&
+      message.role === "assistant" &&
+      message.text === "foundation turn answer",
+    ), true);
+  } finally {
+    await opened.runtime.release();
     await rm(root, { recursive: true, force: true });
   }
 });

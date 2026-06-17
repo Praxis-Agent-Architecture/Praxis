@@ -709,7 +709,7 @@ export async function runSandboxCommand(
     const result = remote ?? await spawnPlan(plan, input);
     if (plan.workspaceRollback !== undefined) {
       rollback = await finalizeWorkspaceRollbackSnapshot(plan.workspaceRollback);
-      if (result.exitCode !== 0) await restoreWorkspaceRollbackSnapshot(plan.workspaceRollback, rollback);
+      if (result.exitCode !== 0) rollback = await restoreWorkspaceRollbackSnapshot(plan.workspaceRollback, rollback);
     }
     const denial = result.timedOut === true ? undefined : parseSandboxDenial(plan, result.stderr ?? "", result.exitCode);
     await plan.cleanup?.();
@@ -722,7 +722,7 @@ export async function runSandboxCommand(
         stderr: result.stderr ?? "",
         rollback,
         events: [...plan.events, ...(remote?.events ?? []), "runtime.sandboxPlane.command.denied"],
-        metadata: { ...(remote?.metadata ?? {}), providerFamily: plan.providerFamily, ...(result.timedOut ? { timedOut: true } : {}) },
+        metadata: { ...(remote?.metadata ?? {}), providerFamily: plan.providerFamily, ...(rollback === undefined ? {} : { workspaceRollbackDiff: rollback }), ...(result.timedOut ? { timedOut: true } : {}) },
       };
     }
     return {
@@ -733,12 +733,12 @@ export async function runSandboxCommand(
       stderr: result.stderr ?? "",
       rollback,
       events: [...plan.events, ...(remote?.events ?? []), "runtime.sandboxPlane.command.completed"],
-      metadata: { ...(remote?.metadata ?? {}), providerFamily: plan.providerFamily, ...(result.timedOut ? { timedOut: true } : {}) },
+      metadata: { ...(remote?.metadata ?? {}), providerFamily: plan.providerFamily, ...(rollback === undefined ? {} : { workspaceRollbackDiff: rollback }), ...(result.timedOut ? { timedOut: true } : {}) },
     };
   } catch (error) {
     if (plan?.workspaceRollback !== undefined) {
       rollback = await finalizeWorkspaceRollbackSnapshot(plan.workspaceRollback);
-      await restoreWorkspaceRollbackSnapshot(plan.workspaceRollback, rollback);
+      rollback = await restoreWorkspaceRollbackSnapshot(plan.workspaceRollback, rollback);
     }
     await plan?.cleanup?.();
     return {
@@ -751,7 +751,7 @@ export async function runSandboxCommand(
       },
       rollback,
       events: [...(plan?.events ?? []), "runtime.sandboxPlane.command.failed"],
-      metadata: { providerFamily: plan?.providerFamily },
+      metadata: { providerFamily: plan?.providerFamily, ...(rollback === undefined ? {} : { workspaceRollbackDiff: rollback }) },
     };
   }
 }

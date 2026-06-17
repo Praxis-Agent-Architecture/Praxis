@@ -15,9 +15,11 @@ import {
   PraxisAgent,
   PromptPack,
   compileAgent,
+  endpoint,
   harness,
   loop,
   model,
+  modelFleet,
   policy,
   sandbox as sandboxHelper,
   session,
@@ -963,6 +965,392 @@ test("PraxisRuntimeKernel.run routes OpenAI chat completions with chat tool sche
   assert.equal(result.finalOutput, "hello from chat completions");
   assert.equal(result.modelCalls[0]?.usage?.source, "openai.chat_completions.usage");
   assert.equal(result.modelCalls[0]?.usage?.totalTokens, 13);
+});
+
+test("PraxisRuntimeKernel.run applies modelFleet retry and fallback to OpenAI chat completions upstream timeouts", async () => {
+  class ChatCompletionsFleetAgent extends PraxisAgent {
+    identity = "agent.kernel-chat-fleet";
+    model = model("chat-primary", {
+      provider: "openai",
+      endpointShape: "chat_completions",
+      carrierId: "carrier.kernel-chat.primary",
+      baseURL: "https://primary.chat.example.com/v1",
+      metadata: { providerRoute: "openai_chat_completions" },
+    });
+    modelFleet = modelFleet.auto({
+      primary: endpoint("/v1/chat/completions", {
+        role: "reasoning",
+        provider: "openai",
+        model: "chat-primary",
+        carrierId: "carrier.kernel-chat.primary",
+        baseURL: "https://primary.chat.example.com/v1",
+        failurePolicy: { onUnavailable: "fallback", fallbackEndpointRef: "fallback", maxRetries: 1 },
+        metadata: { providerRoute: "openai_chat_completions" },
+      }),
+      fallback: endpoint("/v1/chat/completions", {
+        role: "reasoning",
+        provider: "openai",
+        model: "chat-fallback",
+        carrierId: "carrier.kernel-chat.fallback",
+        baseURL: "https://fallback.chat.example.com/v1",
+        failurePolicy: { onUnavailable: "fail", maxRetries: 0 },
+        metadata: { providerRoute: "openai_chat_completions" },
+      }),
+    }, {
+      primaryRef: "primary",
+      failurePolicy: { onUnavailable: "fallback", fallbackEndpointRef: "fallback", maxRetries: 1 },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const providerModels: string[] = [];
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-chat-fleet" }).run(
+    new ChatCompletionsFleetAgent(),
+    "say hello with fallback",
+    {
+      sessionId: "session-kernel-chat-fleet",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({
+        provider: "openai",
+        credentialType: "openai_api_key",
+        apiKey: "sk-chat-fleet-secret",
+      }),
+      openaiChatCompletionsCaller: async (request) => {
+        const requestBody = request.requestBody as { model?: string };
+        providerModels.push(requestBody.model ?? "");
+        if (requestBody.model === "chat-primary") {
+          throw Object.assign(new Error("primary chat timeout"), { code: "TIMEOUT" });
+        }
+        return {
+          choices: [{ message: { role: "assistant", content: "hello from chat fallback" } }],
+          usage: { prompt_tokens: 11, completion_tokens: 5, total_tokens: 16 },
+        };
+      },
+      now: () => "2026-06-08T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(providerModels, ["chat-primary", "chat-primary", "chat-fallback"]);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from chat fallback");
+  assert.equal(result.modelCalls.length, 3);
+  assert.equal(result.modelCalls[0]?.ok, false);
+  assert.equal(result.modelCalls[1]?.ok, false);
+  assert.equal(result.modelCalls[2]?.ok, true);
+  assert.equal(result.modelCalls[2]?.usage?.source, "openai.chat_completions.usage");
+});
+
+test("PraxisRuntimeKernel.run preselects an available modelFleet endpoint when the primary probe is unavailable", async () => {
+  class ResponsesAdaptiveProbeAgent extends PraxisAgent {
+    identity = "agent.kernel-provider-adaptive";
+    model = model("probe-primary", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-provider.primary",
+      baseURL: "https://primary.probe.example.com",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    modelFleet = modelFleet.auto({
+      primary: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "probe-primary",
+        carrierId: "carrier.kernel-provider.primary",
+        baseURL: "https://primary.probe.example.com",
+        probe: {
+          status: "unavailable",
+          checkedAt: "2026-06-08T00:00:00.000Z",
+          errorCode: "PROVIDER_UNAVAILABLE",
+          publicSafeMessage: "primary is unavailable",
+        },
+        failurePolicy: { onUnavailable: "fallback", fallbackEndpointRef: "fallback", maxRetries: 0 },
+        metadata: { providerRoute: "openai_responses" },
+      }),
+      fallback: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "probe-fallback",
+        carrierId: "carrier.kernel-provider.fallback",
+        baseURL: "https://fallback.probe.example.com",
+        probe: {
+          status: "available",
+          checkedAt: "2026-06-08T00:00:00.000Z",
+          latencyMs: 25,
+          publicSafeMessage: "fallback is available",
+        },
+        failurePolicy: { onUnavailable: "fail", maxRetries: 0 },
+        metadata: { providerRoute: "openai_responses" },
+      }),
+    }, {
+      primaryRef: "primary",
+      failurePolicy: { onUnavailable: "fallback", fallbackEndpointRef: "fallback", maxRetries: 0 },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const providerModels: string[] = [];
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-provider-adaptive" }).run(
+    new ResponsesAdaptiveProbeAgent(),
+    "say hello with adaptive provider selection",
+    {
+      sessionId: "session-kernel-provider-adaptive",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({
+        provider: "openai",
+        credentialType: "openai_api_key",
+        apiKey: "sk-provider-adaptive-secret",
+      }),
+      openaiResponsesCaller: async (request) => {
+        const requestBody = request.body as { model?: string };
+        providerModels.push(requestBody.model ?? "");
+        if (requestBody.model === "probe-primary") {
+          throw Object.assign(new Error("primary should have been skipped by probe selection"), { status: 503 });
+        }
+        return {
+          id: "resp_provider_adaptive_probe",
+          output_text: "hello from probe-selected fallback",
+          usage: { input_tokens: 13, output_tokens: 6, total_tokens: 19 },
+        };
+      },
+      now: () => "2026-06-08T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(providerModels, ["probe-fallback"]);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from probe-selected fallback");
+  assert.equal(result.modelCalls.length, 1);
+  assert.equal(result.modelCalls[0]?.ok, true);
+  assert.equal(result.events.includes("runtime.modelFleet.adaptiveSelection.planned"), true);
+});
+
+test("PraxisRuntimeKernel.run starts from modelFleet primaryRef even when another endpoint matches manifest.model", async () => {
+  class ResponsesPrimaryRefAgent extends PraxisAgent {
+    identity = "agent.kernel-provider-primary-ref";
+    model = model("manifest-default-model", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-provider.manifest-default",
+      baseURL: "https://manifest-default.example.com",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    modelFleet = modelFleet.auto({
+      legacy: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "manifest-default-model",
+        carrierId: "carrier.kernel-provider.legacy",
+        baseURL: "https://legacy.example.com",
+        metadata: { providerRoute: "openai_responses" },
+      }),
+      preferred: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "fleet-primary-model",
+        carrierId: "carrier.kernel-provider.primary-ref",
+        baseURL: "https://primary-ref.example.com",
+        metadata: { providerRoute: "openai_responses" },
+      }),
+    }, {
+      primaryRef: "preferred",
+      failurePolicy: { onUnavailable: "fail", maxRetries: 0 },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const providerModels: string[] = [];
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-provider-primary-ref" }).run(
+    new ResponsesPrimaryRefAgent(),
+    "say hello from primary ref",
+    {
+      sessionId: "session-kernel-provider-primary-ref",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({
+        provider: "openai",
+        credentialType: "openai_api_key",
+        apiKey: "sk-provider-primary-ref-secret",
+      }),
+      openaiResponsesCaller: async (request) => {
+        const requestBody = request.body as { model?: string };
+        providerModels.push(requestBody.model ?? "");
+        return {
+          id: "resp_provider_primary_ref",
+          output_text: `hello from ${requestBody.model ?? "unknown"}`,
+          usage: { input_tokens: 7, output_tokens: 4, total_tokens: 11 },
+        };
+      },
+      now: () => "2026-06-08T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(providerModels, ["fleet-primary-model"]);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from fleet-primary-model");
+  assert.equal(result.modelCalls[0]?.providerRouting, undefined);
+});
+
+test("PraxisRuntimeKernel.run selects a tool-capable modelFleet endpoint for tool-calling agents", async () => {
+  class ResponsesCapabilityAgent extends PraxisAgent {
+    identity = "agent.kernel-provider-capability";
+    model = model("no-tools-primary", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-provider.no-tools",
+      baseURL: "https://no-tools.example.com",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    modelFleet = modelFleet.auto({
+      primary: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "no-tools-primary",
+        carrierId: "carrier.kernel-provider.no-tools",
+        baseURL: "https://no-tools.example.com",
+        capabilityMatrix: { text: true, toolCalling: false },
+        metadata: { providerRoute: "openai_responses" },
+      }),
+      toolCapable: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "tool-capable-fallback",
+        carrierId: "carrier.kernel-provider.tool-capable",
+        baseURL: "https://tool-capable.example.com",
+        capabilityMatrix: { text: true, toolCalling: true },
+        metadata: { providerRoute: "openai_responses" },
+      }),
+    }, {
+      primaryRef: "primary",
+      failurePolicy: { onUnavailable: "fail", maxRetries: 0 },
+    });
+    toolPolicy = toolPolicies.bapr();
+    harness = harness({
+      tools: tools([tool("file.read")]),
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const providerModels: string[] = [];
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-provider-capability" }).run(
+    new ResponsesCapabilityAgent(),
+    "say hello from a tool-capable model",
+    {
+      sessionId: "session-kernel-provider-capability",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({
+        provider: "openai",
+        credentialType: "openai_api_key",
+        apiKey: "sk-provider-capability-secret",
+      }),
+      openaiResponsesCaller: async (request) => {
+        const requestBody = request.body as { model?: string };
+        providerModels.push(requestBody.model ?? "");
+        return {
+          id: "resp_provider_capability",
+          output_text: `hello from ${requestBody.model ?? "unknown"}`,
+          usage: { input_tokens: 9, output_tokens: 5, total_tokens: 14 },
+        };
+      },
+      now: () => "2026-06-08T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(providerModels, ["tool-capable-fallback"]);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from tool-capable-fallback");
+  assert.equal(result.events.includes("runtime.modelFleet.capabilitySelection.planned"), true);
+});
+
+test("PraxisRuntimeKernel.run treats exposed runtime decision tools as requiring toolCalling capability", async () => {
+  class ResponsesRuntimeDecisionCapabilityAgent extends PraxisAgent {
+    identity = "agent.kernel-provider-runtime-decision-capability";
+    model = model("runtime-decision-no-tools", {
+      provider: "openai",
+      endpointShape: "responses",
+      carrierId: "carrier.kernel-provider.runtime-decision.no-tools",
+      baseURL: "https://runtime-decision-no-tools.example.com",
+      metadata: { providerRoute: "openai_responses" },
+    });
+    modelFleet = modelFleet.auto({
+      primary: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "runtime-decision-no-tools",
+        carrierId: "carrier.kernel-provider.runtime-decision.no-tools",
+        baseURL: "https://runtime-decision-no-tools.example.com",
+        capabilityMatrix: { text: true, toolCalling: false },
+        metadata: { providerRoute: "openai_responses" },
+      }),
+      toolCapable: endpoint("/v1/responses", {
+        role: "reasoning",
+        provider: "openai",
+        model: "runtime-decision-tool-capable",
+        carrierId: "carrier.kernel-provider.runtime-decision.tool-capable",
+        baseURL: "https://runtime-decision-tool-capable.example.com",
+        capabilityMatrix: { text: true, toolCalling: true },
+        metadata: { providerRoute: "openai_responses" },
+      }),
+    }, {
+      primaryRef: "primary",
+      failurePolicy: { onUnavailable: "fail", maxRetries: 0 },
+    });
+    harness = harness({
+      policy: policy({ allowProviderCall: true }),
+      loop: loop({ strategy: "tool-calling-v1", maxModelTurns: 1 }),
+    });
+  }
+
+  const providerModels: string[] = [];
+  const providerToolCounts: number[] = [];
+  const result = await createPraxisRuntimeKernel({ runtimeId: "runtime-kernel-provider-runtime-decision-capability" }).run(
+    new ResponsesRuntimeDecisionCapabilityAgent(),
+    "say hello with runtime decision tools",
+    {
+      sessionId: "session-kernel-provider-runtime-decision-capability",
+      dryRun: false,
+      allowProviderCall: true,
+      auth: apiKeyAuthEnvelope({
+        provider: "openai",
+        credentialType: "openai_api_key",
+        apiKey: "sk-provider-runtime-decision-capability-secret",
+      }),
+      openaiResponsesCaller: async (request) => {
+        const requestBody = request.body as { model?: string; tools?: unknown[] };
+        providerModels.push(requestBody.model ?? "");
+        providerToolCounts.push(requestBody.tools?.length ?? 0);
+        return {
+          id: "resp_provider_runtime_decision_capability",
+          output_text: `hello from ${requestBody.model ?? "unknown"}`,
+          usage: { input_tokens: 10, output_tokens: 6, total_tokens: 16 },
+        };
+      },
+      now: () => "2026-06-08T00:00:00.000Z",
+    },
+  );
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(providerModels, ["runtime-decision-tool-capable"]);
+  assert.equal((providerToolCounts[0] ?? 0) > 0, true);
+  if (!result.ok) return;
+  assert.equal(result.finalOutput, "hello from runtime-decision-tool-capable");
+  assert.equal(result.events.includes("runtime.modelFleet.capabilitySelection.planned"), true);
 });
 
 test("PraxisRuntimeKernel.run replays OpenAI chat completions assistant tool calls before tool results", async () => {

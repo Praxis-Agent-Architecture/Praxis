@@ -109,6 +109,18 @@ export type ExecutionMonitorProviderReuseSummary = {
   reusePointerAvailable: boolean;
 };
 
+export type ExecutionMonitorModelFleetSummary = {
+  endpointRef?: string;
+  fallbackFrom?: string;
+  adaptiveSelection: boolean;
+  capabilitySelection: boolean;
+  requiredCapabilities: readonly string[];
+  retryAttempt?: number;
+  maxRetries?: number;
+  failureCode?: string;
+  failureRetryable: boolean;
+};
+
 export type ExecutionMonitorModelCallReport = {
   invocationId: string;
   eventId?: string;
@@ -125,6 +137,7 @@ export type ExecutionMonitorModelCallReport = {
   cacheShape?: ExecutionMonitorCacheShapeSummary;
   promptPack?: ExecutionMonitorPromptPackSummary;
   providerReuse: ExecutionMonitorProviderReuseSummary;
+  modelFleet?: ExecutionMonitorModelFleetSummary;
   source: ExecutionMonitorArtifactPointer;
   findings: readonly ExecutionMonitorFinding[];
 };

@@ -1643,16 +1643,18 @@ function normalizeIdentity(identity: AgentIdentity | undefined): AgentManifest["
 }
 
 function defaultEndpointForModel(modelSpec: ModelSpec, identityId: string): ModelEndpointSpec {
+  const usesStandardEndpointPath = modelSpec.endpointShape === "messages" ||
+    modelSpec.endpointShape === "chat_completions" ||
+    modelSpec.endpointShape === "responses";
   const endpointPath: ModelEndpointPath = modelSpec.endpointShape === "messages"
     ? "/v1/messages"
     : modelSpec.endpointShape === "chat_completions"
       ? "/v1/chat/completions"
-    : modelSpec.endpointShape === "custom"
-      ? "/v1/responses"
       : "/v1/responses";
   return endpoint(endpointPath, {
     endpointId: "primary",
     role: modelSpec.endpointShape === "messages" ? "reasoning" : "background",
+    protocolFamily: usesStandardEndpointPath ? undefined : "custom",
     provider: modelSpec.provider,
     model: modelSpec.model,
     carrierId: modelSpec.carrierId ?? `${identityId}:carrier:${modelSpec.provider}:${modelSpec.model}`,
@@ -1661,6 +1663,7 @@ function defaultEndpointForModel(modelSpec: ModelSpec, identityId: string): Mode
     providerProfileRef: modelSpec.providerProfileRef,
     modelEntryRef: modelSpec.modelEntryRef,
     credentialRefId: modelSpec.credentialRefId,
+    metadata: usesStandardEndpointPath ? undefined : { endpointShape: modelSpec.endpointShape },
   });
 }
 

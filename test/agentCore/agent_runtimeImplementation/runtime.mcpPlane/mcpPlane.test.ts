@@ -14,6 +14,8 @@ import {
   session,
   storage,
   toolPolicies,
+  createRuntimeBaseToolExecutorPort,
+  listRuntimeBaseToolImplementedPortPaths,
   type PraxisAgent,
 } from "../../../../src/agentCore/index.js";
 import {
@@ -22,6 +24,8 @@ import {
   createFileMcpPlusSkillStore,
   createInMemoryMcpPlusOverlayStore,
   createInMemoryMcpPlusProfileStore,
+  createInMemoryMcpPlusSkillStore,
+  inspectMcpRuntimeMountMatrix,
   learnedProfileFromProposal,
   type McpPlusProfileProposal,
   planMcpHarnessExposure,
@@ -122,6 +126,226 @@ test("MCP harness module compiles into a declarative OAO manifest", () => {
   const profiles = buildMcpServerProfilesFromManifest(compiled.manifest);
   assert.deepEqual(profiles.map((profile) => profile.serverId), ["browser-native", "browser-plus"]);
   assert.equal(profiles[0]?.transport, "stdio");
+});
+
+test("MCP runtime mount matrix joins BaseTool ports, MCP+ exposure, and skill notes", async () => {
+  const compiled = compileAgent(McpHarnessAgent, {
+    compiledAt: "2026-06-03T00:00:00.000Z",
+    manifestId: "manifest.test.mcpHarness.mountMatrix",
+  });
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+
+  const profiles = buildMcpServerProfilesFromManifest(compiled.manifest);
+  const adapters = {
+    skill: {
+      load: async () => ({
+        ok: true,
+        output: {
+          name: "repoInspector.skill.runtimeMount",
+          summary: "Application-owned skill adapter mounted through runtime.",
+        },
+      }),
+    },
+  };
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: "runtime.mcp.mountMatrix",
+    sessionId: "session.mcp.mountMatrix",
+    mcpServers: profiles,
+    adapters,
+  });
+  const skillStore = createInMemoryMcpPlusSkillStore([{
+    id: "browser-plus:page-inspection:snapshot-first",
+    serverId: "browser-plus",
+    projectId: "project.raxode",
+    chapter: "page-inspection",
+    title: "Snapshot first",
+    summary: "Read a page snapshot before expanding network diagnostics.",
+    createdAt: "2026-06-04T00:00:00.000Z",
+    updatedAt: "2026-06-04T00:00:00.000Z",
+  }]);
+
+  const matrix = await inspectMcpRuntimeMountMatrix({
+    manifest: compiled.manifest,
+    executor,
+    implementedPortPaths: listRuntimeBaseToolImplementedPortPaths({ mcpServers: profiles, adapters }),
+    nativeToolInventoryByServerId: {
+      "browser-native": nativeTools.slice(0, 2),
+      "browser-plus": nativeTools,
+    },
+    projectId: "project.raxode",
+    skillStore,
+  });
+
+  assert.equal(matrix.surface, "runtime.mcpPlane.mountMatrix");
+  assert.equal(matrix.status, "ready");
+  assert.deepEqual(matrix.requiredRuntimeRequirements, ["runtime.mcp"]);
+  assert.deepEqual(matrix.baseTools.map((entry) => `${entry.toolId}:${entry.decision}`), [
+    "mcp.use:allowed",
+    "mcp.resources:allowed",
+    "mcp.prompts:allowed",
+    "mcp.completions:allowed",
+    "skill.load:allowed",
+  ]);
+  assert.deepEqual([...new Set(matrix.baseTools.map((entry) => entry.evidenceStatus))], ["executor-backed"]);
+  assert.equal(matrix.totals.executorBackedPorts, 5);
+  assert.equal(matrix.totals.declaredOnlyPorts, 0);
+  assert.deepEqual(matrix.baseTools.flatMap((entry) => entry.missingPortPaths), []);
+  assert.deepEqual(matrix.resourceOperations.map((operation) => `${operation.operation}:${operation.portPath}:${operation.decision}:${operation.evidenceStatus}`), [
+    "list:mcp.listResources:allowed:executor-backed",
+    "templates:mcp.listResourceTemplates:allowed:executor-backed",
+    "read:mcp.readResource:allowed:executor-backed",
+  ]);
+  assert.equal(matrix.totals.resourceOperations, 3);
+  assert.equal(matrix.totals.resourceOperationMissingPorts, 0);
+  assert.deepEqual(matrix.promptOperations.map((operation) => `${operation.operation}:${operation.portPath}:${operation.decision}:${operation.evidenceStatus}`), [
+    "list:mcp.listPrompts:allowed:executor-backed",
+    "get:mcp.getPrompt:allowed:executor-backed",
+  ]);
+  assert.equal(matrix.totals.promptOperations, 2);
+  assert.equal(matrix.totals.promptOperationMissingPorts, 0);
+  assert.deepEqual(matrix.completionOperations.map((operation) => `${operation.operation}:${operation.portPath}:${operation.decision}:${operation.evidenceStatus}`), [
+    "complete:mcp.complete:allowed:executor-backed",
+  ]);
+  assert.deepEqual(matrix.completionOperations[0]?.portEvidence, [
+    { portPath: "mcp.complete", source: "executor" },
+  ]);
+  assert.equal(matrix.totals.completionOperations, 1);
+  assert.equal(matrix.totals.completionOperationMissingPorts, 0);
+
+  const native = matrix.servers.find((server) => server.serverId === "browser-native");
+  assert.equal(native?.mode, "native");
+  assert.equal(native?.runtimeProfilePresent, true);
+  assert.equal(native?.nativeToolInventoryStatus, "available");
+  assert.deepEqual(native?.dynamicToolIds, [
+    "mcp.browser-native.browser.open",
+    "mcp.browser-native.page.snapshot",
+  ]);
+
+  const plus = matrix.servers.find((server) => server.serverId === "browser-plus");
+  assert.equal(plus?.mode, "mcp-plus");
+  assert.equal(plus?.profileStatus, "developer-manifest");
+  assert.equal(plus?.nativeToolInventoryStatus, "available");
+  assert.equal(plus?.skillStoreStatus, "available");
+  assert.equal(plus?.skillNoteCount, 1);
+  assert.deepEqual(plus?.mcpPlusControlToolIds, [
+    "mcp.browser-plus.mcp_plus.expand",
+    "mcp.browser-plus.mcp_plus.skill_read",
+    "mcp.browser-plus.mcp_plus.skill_write",
+    "mcp.browser-plus.mcp_plus.finish",
+  ]);
+  assert.equal(plus?.sidecarIndexedToolCount, 1);
+  assert.equal(matrix.totals.dynamicTools, 8);
+  assert.equal(matrix.totals.skillNotes, 1);
+  assert.equal(matrix.totals.missingNativeInventories, 0);
+});
+
+test("MCP runtime mount matrix degrades declared-only BaseTool ports", async () => {
+  const compiled = compileAgent(McpHarnessAgent);
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+
+  const matrix = await inspectMcpRuntimeMountMatrix({
+    manifest: compiled.manifest,
+    implementedPortPaths: ["mcp.call", "mcp.listResources", "mcp.listPrompts", "mcp.complete", "skill.load"],
+    nativeToolInventoryByServerId: {
+      "browser-native": nativeTools.slice(0, 2),
+      "browser-plus": nativeTools,
+    },
+  });
+
+  assert.equal(matrix.status, "degraded");
+  assert.deepEqual(matrix.baseTools.map((entry) => entry.evidenceStatus), [
+    "declared-only",
+    "declared-only",
+    "declared-only",
+    "declared-only",
+    "declared-only",
+  ]);
+  assert.deepEqual(matrix.baseTools.flatMap((entry) => entry.missingPortPaths), []);
+  assert.equal(matrix.totals.declaredOnlyPorts, 5);
+  assert.equal(matrix.totals.executorBackedPorts, 0);
+  assert.deepEqual(matrix.resourceOperations.map((operation) => `${operation.operation}:${operation.evidenceStatus}`), [
+    "list:declared-only",
+    "templates:missing",
+    "read:missing",
+  ]);
+  assert.equal(matrix.totals.resourceOperations, 3);
+  assert.equal(matrix.totals.resourceOperationMissingPorts, 2);
+  assert.deepEqual(matrix.promptOperations.map((operation) => `${operation.operation}:${operation.evidenceStatus}`), [
+    "list:declared-only",
+    "get:missing",
+  ]);
+  assert.equal(matrix.totals.promptOperations, 2);
+  assert.equal(matrix.totals.promptOperationMissingPorts, 1);
+  assert.deepEqual(matrix.completionOperations.map((operation) => `${operation.operation}:${operation.evidenceStatus}`), [
+    "complete:declared-only",
+  ]);
+  assert.deepEqual(matrix.completionOperations[0]?.portEvidence, [
+    { portPath: "mcp.complete", source: "declared" },
+  ]);
+  assert.equal(matrix.totals.completionOperations, 1);
+  assert.equal(matrix.totals.completionOperationMissingPorts, 0);
+});
+
+test("MCP runtime mount matrix blocks completion operation when mcp.complete is missing", async () => {
+  const compiled = compileAgent(McpHarnessAgent);
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+
+  const matrix = await inspectMcpRuntimeMountMatrix({
+    manifest: compiled.manifest,
+    implementedPortPaths: ["mcp.call", "mcp.listResources", "mcp.listPrompts", "skill.load"],
+    nativeToolInventoryByServerId: {
+      "browser-native": nativeTools.slice(0, 2),
+      "browser-plus": nativeTools,
+    },
+  });
+
+  assert.equal(matrix.status, "degraded");
+  assert.deepEqual(matrix.completionOperations.map((operation) =>
+    `${operation.operation}:${operation.portPath}:${operation.decision}:${operation.evidenceStatus}:${operation.missingPortPaths.join(",")}`), [
+    "complete:mcp.complete:blocked:missing:mcp.complete",
+  ]);
+  assert.deepEqual(matrix.completionOperations[0]?.portEvidence, [
+    { portPath: "mcp.complete", source: "missing" },
+  ]);
+  assert.equal(matrix.totals.completionOperations, 1);
+  assert.equal(matrix.totals.completionOperationMissingPorts, 1);
+});
+
+test("MCP runtime mount matrix degrades missing native tool inventory", async () => {
+  const compiled = compileAgent(McpHarnessAgent);
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+
+  const profiles = buildMcpServerProfilesFromManifest(compiled.manifest);
+  const adapters = {
+    skill: {
+      load: async () => ({
+        ok: true,
+        output: {
+          name: "repoInspector.skill.runtimeMount",
+        },
+      }),
+    },
+  };
+  const matrix = await inspectMcpRuntimeMountMatrix({
+    manifest: compiled.manifest,
+    executor: createRuntimeBaseToolExecutorPort({
+      runtimeId: "runtime.mcp.mountMatrix.noInventory",
+      sessionId: "session.mcp.mountMatrix.noInventory",
+      mcpServers: profiles,
+      adapters,
+    }),
+  });
+
+  assert.equal(matrix.status, "degraded");
+  assert.deepEqual(matrix.servers.map((server) => `${server.serverId}:${server.nativeToolInventoryStatus}`), [
+    "browser-native:not-provided",
+    "browser-plus:not-provided",
+  ]);
+  assert.equal(matrix.totals.missingNativeInventories, 2);
 });
 
 test("MCP+ planning keeps native MCP tools compatible while folding recommended exposure", () => {

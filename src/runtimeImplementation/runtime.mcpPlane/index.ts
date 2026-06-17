@@ -30,6 +30,11 @@ import {
 
 import type { ToolSpec } from "../runtimeAgentManifest.js";
 import type { McpRuntimeServerProfile } from "../runtime.execEngine/mcpRuntimeAdapter.js";
+import {
+  evaluateBaseToolRuntimeReadiness,
+  type BaseToolRuntimeReadinessDecision,
+} from "../../basetool/supportCatalog.js";
+import type { BaseToolExecutorPort } from "../../basetool/types.js";
 
 export type McpHarnessServerMode = "native" | "mcp-plus";
 
@@ -114,6 +119,134 @@ export type McpExposurePlanServer = {
 
 export type McpHarnessExposurePlan = {
   servers: readonly McpExposurePlanServer[];
+};
+
+export type McpRuntimeMountMatrixBaseTool = {
+  toolId: string;
+  decision: BaseToolRuntimeReadinessDecision;
+  readiness: string;
+  activeReadiness: "available" | "requiresApproval" | "unavailable";
+  evidenceStatus: "executor-backed" | "declared-only" | "mixed" | "missing";
+  requiredPortPaths: readonly string[];
+  missingPortPaths: readonly string[];
+  approvalPortPaths: readonly string[];
+  portEvidence: readonly {
+    portPath: string;
+    source: "executor" | "declared" | "missing";
+  }[];
+};
+
+export type McpRuntimeMountMatrixResourceOperation = {
+  toolId: "mcp.resources";
+  operation: "list" | "templates" | "read";
+  portPath: "mcp.listResources" | "mcp.listResourceTemplates" | "mcp.readResource";
+  decision: BaseToolRuntimeReadinessDecision;
+  readiness: string;
+  activeReadiness: "available" | "requiresApproval" | "unavailable";
+  evidenceStatus: "executor-backed" | "declared-only" | "mixed" | "missing";
+  missingPortPaths: readonly string[];
+  approvalPortPaths: readonly string[];
+  portEvidence: readonly {
+    portPath: string;
+    source: "executor" | "declared" | "missing";
+  }[];
+};
+
+export type McpRuntimeMountMatrixPromptOperation = {
+  toolId: "mcp.prompts";
+  operation: "list" | "get";
+  portPath: "mcp.listPrompts" | "mcp.getPrompt";
+  decision: BaseToolRuntimeReadinessDecision;
+  readiness: string;
+  activeReadiness: "available" | "requiresApproval" | "unavailable";
+  evidenceStatus: "executor-backed" | "declared-only" | "mixed" | "missing";
+  missingPortPaths: readonly string[];
+  approvalPortPaths: readonly string[];
+  portEvidence: readonly {
+    portPath: string;
+    source: "executor" | "declared" | "missing";
+  }[];
+};
+
+export type McpRuntimeMountMatrixCompletionOperation = {
+  toolId: "mcp.completions";
+  operation: "complete";
+  portPath: "mcp.complete";
+  decision: BaseToolRuntimeReadinessDecision;
+  readiness: string;
+  activeReadiness: "available" | "requiresApproval" | "unavailable";
+  evidenceStatus: "executor-backed" | "declared-only" | "mixed" | "missing";
+  missingPortPaths: readonly string[];
+  approvalPortPaths: readonly string[];
+  portEvidence: readonly {
+    portPath: string;
+    source: "executor" | "declared" | "missing";
+  }[];
+};
+
+export type McpRuntimeMountMatrixServer = {
+  serverId: string;
+  mode: McpHarnessServerMode;
+  transport: McpHarnessServerSpec["transport"];
+  runtimeProfilePresent: boolean;
+  manifestPresent: boolean;
+  profileStatus: "native" | "bootstrap-required" | "developer-manifest" | "learned-profile";
+  nativeToolInventoryStatus: "available" | "not-provided";
+  nativeToolCount: number;
+  dynamicToolCount: number;
+  dynamicToolIds: readonly string[];
+  mcpPlusControlToolIds: readonly string[];
+  sidecarIndexedToolCount: number;
+  skillStoreStatus: "not-applicable" | "available" | "unavailable";
+  skillNoteCount: number;
+};
+
+export type McpRuntimeMountMatrix = {
+  surface: "runtime.mcpPlane.mountMatrix";
+  status: "ready" | "degraded";
+  publicSafe: true;
+  nativeCompatible: true;
+  recommendedMode: "mcp-plus";
+  requiredRuntimeRequirements: readonly string[];
+  baseTools: readonly McpRuntimeMountMatrixBaseTool[];
+  resourceOperations: readonly McpRuntimeMountMatrixResourceOperation[];
+  promptOperations: readonly McpRuntimeMountMatrixPromptOperation[];
+  completionOperations: readonly McpRuntimeMountMatrixCompletionOperation[];
+  servers: readonly McpRuntimeMountMatrixServer[];
+  totals: {
+    servers: number;
+    nativeServers: number;
+    mcpPlusServers: number;
+    dynamicTools: number;
+    mcpPlusControlTools: number;
+    skillNotes: number;
+    missingPorts: number;
+    executorBackedPorts: number;
+    declaredOnlyPorts: number;
+    resourceOperations: number;
+    resourceOperationMissingPorts: number;
+    promptOperations: number;
+    promptOperationMissingPorts: number;
+    completionOperations: number;
+    completionOperationMissingPorts: number;
+    missingNativeInventories: number;
+  };
+};
+
+export type InspectMcpRuntimeMountMatrixInput = {
+  manifest: {
+    harness: {
+      modules: Readonly<Record<string, unknown>>;
+      runtimeRequirements?: readonly string[];
+    };
+  };
+  executor?: BaseToolExecutorPort;
+  implementedPortPaths?: readonly string[];
+  nativeToolInventoryByServerId?: Readonly<Record<string, readonly NativeToolDeclaration[]>>;
+  stateByServerId?: Readonly<Record<string, Partial<ExposureState>>>;
+  profileByServerId?: Readonly<Record<string, McpPlusLearnedProfile | undefined>>;
+  projectId?: string;
+  skillStore?: McpPlusSkillStore;
 };
 
 export type McpPlusProfileProposal = {
@@ -863,4 +996,318 @@ export function planMcpHarnessExposure(
     };
   });
   return { servers };
+}
+
+function mcpRuntimeBaseToolInputs(): readonly { toolId: string; toolInput?: Readonly<Record<string, unknown>> }[] {
+  return [
+    { toolId: "mcp.use" },
+    { toolId: "mcp.resources", toolInput: { operation: "list" } },
+    { toolId: "mcp.prompts", toolInput: { operation: "list" } },
+    { toolId: "mcp.completions" },
+    { toolId: "skill.load" },
+  ];
+}
+
+function mcpResourceOperationInputs(): readonly {
+  operation: McpRuntimeMountMatrixResourceOperation["operation"];
+  portPath: McpRuntimeMountMatrixResourceOperation["portPath"];
+  toolInput: Readonly<Record<string, unknown>>;
+}[] {
+  return [
+    { operation: "list", portPath: "mcp.listResources", toolInput: { operation: "list" } },
+    { operation: "templates", portPath: "mcp.listResourceTemplates", toolInput: { operation: "templates" } },
+    { operation: "read", portPath: "mcp.readResource", toolInput: { operation: "read" } },
+  ];
+}
+
+function mcpPromptOperationInputs(): readonly {
+  operation: McpRuntimeMountMatrixPromptOperation["operation"];
+  portPath: McpRuntimeMountMatrixPromptOperation["portPath"];
+  toolInput: Readonly<Record<string, unknown>>;
+}[] {
+  return [
+    { operation: "list", portPath: "mcp.listPrompts", toolInput: { operation: "list" } },
+    { operation: "get", portPath: "mcp.getPrompt", toolInput: { operation: "get" } },
+  ];
+}
+
+function mcpCompletionOperationInputs(): readonly {
+  operation: McpRuntimeMountMatrixCompletionOperation["operation"];
+  portPath: McpRuntimeMountMatrixCompletionOperation["portPath"];
+}[] {
+  return [
+    { operation: "complete", portPath: "mcp.complete" },
+  ];
+}
+
+function hasExecutorPort(executor: BaseToolExecutorPort | undefined, portPath: string): boolean {
+  const [namespace, method] = portPath.split(".", 2);
+  if (namespace === undefined || method === undefined) return false;
+  const handler = executor?.[namespace]?.[method];
+  if (handler === undefined) return false;
+  if (typeof handler === "function" && (handler as { __praxisUnavailablePortFallback?: true }).__praxisUnavailablePortFallback === true) {
+    return false;
+  }
+  return true;
+}
+
+function activeReadinessFor(decision: BaseToolRuntimeReadinessDecision): McpRuntimeMountMatrixBaseTool["activeReadiness"] {
+  if (decision === "allowed") return "available";
+  if (decision === "requiresApproval") return "requiresApproval";
+  return "unavailable";
+}
+
+function portEvidenceFor(input: {
+  portPaths: readonly string[];
+  executor: BaseToolExecutorPort | undefined;
+  implementedPortPaths: readonly string[] | undefined;
+}): McpRuntimeMountMatrixBaseTool["portEvidence"] {
+  const declaredPorts = new Set(input.implementedPortPaths ?? []);
+  return uniqueStrings(input.portPaths).map((portPath) => ({
+    portPath,
+    source: hasExecutorPort(input.executor, portPath)
+      ? "executor"
+      : declaredPorts.has(portPath)
+        ? "declared"
+        : "missing",
+  }));
+}
+
+function evidenceStatusFor(
+  portEvidence: McpRuntimeMountMatrixBaseTool["portEvidence"],
+): McpRuntimeMountMatrixBaseTool["evidenceStatus"] {
+  if (portEvidence.length === 0 || portEvidence.every((evidence) => evidence.source === "missing")) return "missing";
+  if (portEvidence.every((evidence) => evidence.source === "executor")) return "executor-backed";
+  if (portEvidence.every((evidence) => evidence.source === "declared")) return "declared-only";
+  return "mixed";
+}
+
+function profileStatusForServer(
+  server: McpHarnessServerSpec,
+  learnedProfile: McpPlusLearnedProfile | undefined,
+): McpRuntimeMountMatrixServer["profileStatus"] {
+  if (server.mode === "native") return "native";
+  if (learnedProfile !== undefined) return "learned-profile";
+  if (server.manifest !== undefined) return "developer-manifest";
+  return "bootstrap-required";
+}
+
+async function skillNoteCountForServer(input: {
+  server: McpHarnessServerSpec;
+  projectId: string | undefined;
+  skillStore: McpPlusSkillStore | undefined;
+}): Promise<Pick<McpRuntimeMountMatrixServer, "skillStoreStatus" | "skillNoteCount">> {
+  if (input.server.mode !== "mcp-plus") {
+    return { skillStoreStatus: "not-applicable", skillNoteCount: 0 };
+  }
+  if (input.projectId === undefined || input.projectId.trim().length === 0 || input.skillStore === undefined) {
+    return { skillStoreStatus: "unavailable", skillNoteCount: 0 };
+  }
+  const notes = await input.skillStore.list({
+    projectId: input.projectId,
+    serverId: input.server.serverId,
+  });
+  return { skillStoreStatus: "available", skillNoteCount: notes.length };
+}
+
+export async function inspectMcpRuntimeMountMatrix(
+  input: InspectMcpRuntimeMountMatrixInput,
+): Promise<McpRuntimeMountMatrix> {
+  const module = mcpHarnessModuleFrom(input.manifest.harness);
+  const runtimeProfiles = buildMcpServerProfilesFromManifest(input.manifest);
+  const runtimeProfileIds = new Set(runtimeProfiles.map((profile) => profile.serverId));
+  const exposure = planMcpHarnessExposure(
+    input.manifest,
+    input.nativeToolInventoryByServerId ?? {},
+    input.stateByServerId ?? {},
+    input.profileByServerId ?? {},
+  );
+  const exposureByServerId = new Map(exposure.servers.map((server) => [server.serverId, server]));
+
+  const baseTools = mcpRuntimeBaseToolInputs().map((tool): McpRuntimeMountMatrixBaseTool => {
+    const preflight = evaluateBaseToolRuntimeReadiness({
+      toolId: tool.toolId,
+      toolInput: tool.toolInput,
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    const requiredPortPaths = [
+      ...preflight.blockingSupports,
+      ...preflight.approvalSupports,
+      ...preflight.advisorySupports,
+    ].flatMap((support) => support.portPath ?? []);
+    const portEvidence = portEvidenceFor({
+      portPaths: requiredPortPaths,
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    return {
+      toolId: tool.toolId,
+      decision: preflight.decision,
+      readiness: preflight.readiness,
+      activeReadiness: activeReadinessFor(preflight.decision),
+      evidenceStatus: evidenceStatusFor(portEvidence),
+      requiredPortPaths,
+      missingPortPaths: preflight.blockingSupports.flatMap((support) => support.portPath ?? []),
+      approvalPortPaths: preflight.approvalSupports.flatMap((support) => support.portPath ?? []),
+      portEvidence,
+    };
+  });
+  const resourceOperations = mcpResourceOperationInputs().map((operation): McpRuntimeMountMatrixResourceOperation => {
+    const preflight = evaluateBaseToolRuntimeReadiness({
+      toolId: "mcp.resources",
+      toolInput: operation.toolInput,
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    const portEvidence = portEvidenceFor({
+      portPaths: [operation.portPath],
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    return {
+      toolId: "mcp.resources",
+      operation: operation.operation,
+      portPath: operation.portPath,
+      decision: preflight.decision,
+      readiness: preflight.readiness,
+      activeReadiness: activeReadinessFor(preflight.decision),
+      evidenceStatus: evidenceStatusFor(portEvidence),
+      missingPortPaths: preflight.blockingSupports.flatMap((support) => support.portPath ?? []),
+      approvalPortPaths: preflight.approvalSupports.flatMap((support) => support.portPath ?? []),
+      portEvidence,
+    };
+  });
+  const promptOperations = mcpPromptOperationInputs().map((operation): McpRuntimeMountMatrixPromptOperation => {
+    const preflight = evaluateBaseToolRuntimeReadiness({
+      toolId: "mcp.prompts",
+      toolInput: operation.toolInput,
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    const portEvidence = portEvidenceFor({
+      portPaths: [operation.portPath],
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    return {
+      toolId: "mcp.prompts",
+      operation: operation.operation,
+      portPath: operation.portPath,
+      decision: preflight.decision,
+      readiness: preflight.readiness,
+      activeReadiness: activeReadinessFor(preflight.decision),
+      evidenceStatus: evidenceStatusFor(portEvidence),
+      missingPortPaths: preflight.blockingSupports.flatMap((support) => support.portPath ?? []),
+      approvalPortPaths: preflight.approvalSupports.flatMap((support) => support.portPath ?? []),
+      portEvidence,
+    };
+  });
+  const completionOperations = mcpCompletionOperationInputs().map((operation): McpRuntimeMountMatrixCompletionOperation => {
+    const preflight = evaluateBaseToolRuntimeReadiness({
+      toolId: "mcp.completions",
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    const portEvidence = portEvidenceFor({
+      portPaths: [operation.portPath],
+      executor: input.executor,
+      implementedPortPaths: input.implementedPortPaths,
+    });
+    return {
+      toolId: "mcp.completions",
+      operation: operation.operation,
+      portPath: operation.portPath,
+      decision: preflight.decision,
+      readiness: preflight.readiness,
+      activeReadiness: activeReadinessFor(preflight.decision),
+      evidenceStatus: evidenceStatusFor(portEvidence),
+      missingPortPaths: preflight.blockingSupports.flatMap((support) => support.portPath ?? []),
+      approvalPortPaths: preflight.approvalSupports.flatMap((support) => support.portPath ?? []),
+      portEvidence,
+    };
+  });
+
+  const servers: McpRuntimeMountMatrixServer[] = [];
+  for (const server of module?.servers ?? []) {
+    const planned = exposureByServerId.get(server.serverId);
+    const nativeToolInventory = input.nativeToolInventoryByServerId?.[server.serverId];
+    const nativeTools = nativeToolInventory ?? [];
+    const skill = await skillNoteCountForServer({
+      server,
+      projectId: input.projectId,
+      skillStore: input.skillStore,
+    });
+    const dynamicToolIds = planned?.dynamicToolSpecs.map((tool) => tool.toolId) ?? [];
+    const mcpPlusControlToolIds = planned?.dynamicToolSpecs
+      .filter((tool) => tool.metadata?.toolProviderKind === "mcp-plus-control")
+      .map((tool) => tool.toolId) ?? [];
+    servers.push({
+      serverId: server.serverId,
+      mode: server.mode,
+      transport: server.transport,
+      runtimeProfilePresent: runtimeProfileIds.has(server.serverId),
+      manifestPresent: server.manifest !== undefined,
+      profileStatus: profileStatusForServer(server, input.profileByServerId?.[server.serverId]),
+      nativeToolInventoryStatus: nativeToolInventory === undefined ? "not-provided" : "available",
+      nativeToolCount: nativeTools.length,
+      dynamicToolCount: dynamicToolIds.length,
+      dynamicToolIds,
+      mcpPlusControlToolIds,
+      sidecarIndexedToolCount: planned?.surface.sidecar.toolIndex.length ?? 0,
+      skillStoreStatus: skill.skillStoreStatus,
+      skillNoteCount: skill.skillNoteCount,
+    });
+  }
+
+  const missingPorts = baseTools.reduce((sum, tool) => sum + tool.missingPortPaths.length, 0);
+  const resourceOperationMissingPorts = resourceOperations.reduce((sum, operation) => sum + operation.missingPortPaths.length, 0);
+  const promptOperationMissingPorts = promptOperations.reduce((sum, operation) => sum + operation.missingPortPaths.length, 0);
+  const completionOperationMissingPorts = completionOperations.reduce((sum, operation) => sum + operation.missingPortPaths.length, 0);
+  const missingRuntimeProfiles = servers.filter((server) => !server.runtimeProfilePresent).length;
+  const uniquePortEvidence = new Map<string, McpRuntimeMountMatrixBaseTool["portEvidence"][number]>();
+  for (const tool of baseTools) {
+    for (const evidence of tool.portEvidence) {
+      const existing = uniquePortEvidence.get(evidence.portPath);
+      if (existing?.source === "executor") continue;
+      if (existing?.source === "declared" && evidence.source === "missing") continue;
+      uniquePortEvidence.set(evidence.portPath, evidence);
+    }
+  }
+  const executorBackedPorts = [...uniquePortEvidence.values()].filter((evidence) => evidence.source === "executor").length;
+  const declaredOnlyPorts = [...uniquePortEvidence.values()].filter((evidence) => evidence.source === "declared").length;
+  const missingNativeInventories = servers.filter((server) => server.nativeToolInventoryStatus === "not-provided").length;
+  return {
+    surface: "runtime.mcpPlane.mountMatrix",
+    status: missingPorts === 0 && resourceOperationMissingPorts === 0 && promptOperationMissingPorts === 0 && completionOperationMissingPorts === 0 && missingRuntimeProfiles === 0 && declaredOnlyPorts === 0 && missingNativeInventories === 0
+      ? "ready"
+      : "degraded",
+    publicSafe: true,
+    nativeCompatible: true,
+    recommendedMode: "mcp-plus",
+    requiredRuntimeRequirements: runtimeRequirementsForMcpModule(module),
+    baseTools,
+    resourceOperations,
+    promptOperations,
+    completionOperations,
+    servers,
+    totals: {
+      servers: servers.length,
+      nativeServers: servers.filter((server) => server.mode === "native").length,
+      mcpPlusServers: servers.filter((server) => server.mode === "mcp-plus").length,
+      dynamicTools: servers.reduce((sum, server) => sum + server.dynamicToolCount, 0),
+      mcpPlusControlTools: servers.reduce((sum, server) => sum + server.mcpPlusControlToolIds.length, 0),
+      skillNotes: servers.reduce((sum, server) => sum + server.skillNoteCount, 0),
+      missingPorts,
+      executorBackedPorts,
+      declaredOnlyPorts,
+      resourceOperations: resourceOperations.length,
+      resourceOperationMissingPorts,
+      promptOperations: promptOperations.length,
+      promptOperationMissingPorts,
+      completionOperations: completionOperations.length,
+      completionOperationMissingPorts,
+      missingNativeInventories,
+    },
+  };
 }

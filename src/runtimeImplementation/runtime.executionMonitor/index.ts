@@ -20,6 +20,7 @@ export type {
   ExecutionMonitorFinding,
   ExecutionMonitorHealthGrade,
   ExecutionMonitorModelCallReport,
+  ExecutionMonitorModelFleetSummary,
   ExecutionMonitorObserveInput,
   ExecutionMonitorProjectReport,
   ExecutionMonitorPromptPackSummary,

@@ -130,18 +130,21 @@ function modelEvent(input: {
   debug: AgentModelCacheDebugRecord;
   cachedInputTokens?: number;
   previousProviderResponseId?: string;
+  modelPhase?: "completed" | "failed";
+  modelFleet?: Record<string, unknown>;
 }): PraxisApplicationEvent {
+  const phase = input.modelPhase ?? "completed";
   return {
     eventId: input.eventId,
     kind: "model",
     status: "running",
-    message: "model request completed",
+    message: phase === "completed" ? "model request completed" : "model request failed",
     createdAt: "2026-05-26T00:00:00.000Z",
     sessionId: input.sessionId,
     turnId: input.turnId,
     publicSafe: true,
     metadata: {
-      modelPhase: "completed",
+      modelPhase: phase,
       invocationId: input.invocationId,
       turnIndex: 1,
       provider: "openai",
@@ -158,6 +161,7 @@ function modelEvent(input: {
       cacheDebug: input.debug,
       providerResponseId: "resp-current",
       previousProviderResponseId: input.previousProviderResponseId,
+      ...input.modelFleet,
     },
   };
 }
@@ -304,4 +308,70 @@ test("ExecutionMonitor incrementally observes events and detects previous respon
   assert.equal(report.project.cache.previousResponseReuseCalls, 1);
   assert.equal(report.project.cache.weightedCacheHitRate, 0.9);
   assert.equal(report.project.health.grade, "excellent");
+});
+
+test("execution monitor preserves modelFleet retry and fallback diagnostics", () => {
+  const report = analyzeExecutionMonitor({
+    events: [
+      modelEvent({
+        eventId: "event.model.failed.1",
+        sessionId: "session-fleet",
+        turnId: "turn-fleet",
+        invocationId: "model-primary-1",
+        modelPhase: "failed",
+        debug: cacheDebug(),
+        modelFleet: {
+          modelFleetEndpointRef: "primary",
+          modelFleetRetryAttempt: 0,
+          modelFleetMaxRetries: 1,
+          modelFailureCode: "PROVIDER_RATE_LIMITED",
+          modelFailureRetryable: true,
+          modelFleetRequiredCapabilities: ["toolCalling"],
+        },
+      }),
+      modelEvent({
+        eventId: "event.model.completed.fallback",
+        sessionId: "session-fleet",
+        turnId: "turn-fleet",
+        invocationId: "model-fallback",
+        debug: cacheDebug(),
+        modelFleet: {
+          modelFleetEndpointRef: "fallback",
+          fallbackFrom: "primary",
+          modelFleetRetryAttempt: 0,
+          modelFleetMaxRetries: 0,
+          modelFleetRequiredCapabilities: ["toolCalling"],
+        },
+      }),
+    ],
+    views: [view("session-fleet")],
+    generatedAt: "2026-05-26T00:00:00.000Z",
+  });
+
+  const calls = report.sessions.flatMap((session) => session.turns.flatMap((turn) => turn.modelCalls));
+  assert.equal(calls.length, 2);
+  assert.deepEqual(calls[0]?.modelFleet, {
+    endpointRef: "primary",
+    fallbackFrom: undefined,
+    adaptiveSelection: false,
+    capabilitySelection: false,
+    requiredCapabilities: ["toolCalling"],
+    retryAttempt: 0,
+    maxRetries: 1,
+    failureCode: "PROVIDER_RATE_LIMITED",
+    failureRetryable: true,
+  });
+  assert.deepEqual(calls[1]?.modelFleet, {
+    endpointRef: "fallback",
+    fallbackFrom: "primary",
+    adaptiveSelection: false,
+    capabilitySelection: false,
+    requiredCapabilities: ["toolCalling"],
+    retryAttempt: 0,
+    maxRetries: 0,
+    failureCode: undefined,
+    failureRetryable: false,
+  });
+  assertFinding(report, "model.fleet.retryable-failure");
+  assertFinding(report, "model.fleet.fallback-selected");
 });

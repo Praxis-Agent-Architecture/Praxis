@@ -9,6 +9,9 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 import {
   praxis,
+  providerToolName,
+  createRuntimeBaseToolExecutorPort,
+  listRuntimeBaseToolImplementedPortPaths,
   type AgentManifest,
   type AgentModelCallRecord,
   type AgentModelCallProgressEvent,
@@ -23,6 +26,7 @@ import {
   type RuntimeAgentReviewResolver,
   type RuntimeAuthResolver,
   type RuntimeAuthResolverRequest,
+  type RuntimeSessionSnapshot,
   type SandboxExecutionProviderPort,
   type BaseToolContextSelection,
   type BaseToolContextUsageRecord,
@@ -30,10 +34,14 @@ import {
   type CompactExecutor,
   type PreCompactGovernanceExecutor,
   type PraxisProjectRuntime,
+  type PraxisSessionRecord,
 } from "../agentCore/index.js";
 import {
+  buildMcpServerProfilesFromManifest,
   createMcpApplicationStateView,
+  inspectMcpRuntimeMountMatrix,
   toMcpRuntimeServerProfile,
+  type InspectMcpRuntimeMountMatrixInput,
   type McpApplicationStateView,
   type McpApplicationServerInput,
   type McpHarnessModuleSpec,
@@ -60,6 +68,7 @@ import {
   createInMemoryMultiagentRuntime,
   type MultiagentRuntime,
   type MultiagentSpawnResult,
+  type RuntimeMultiagentQuery,
 } from "../runtimeImplementation/runtime.multiagentPlane/index.js";
 import type {
   PromptContextConversationMessage,
@@ -88,7 +97,33 @@ import type {
   PraxisApplicationContextTelemetry,
   PraxisApplicationUsageTelemetry,
   PraxisApplicationViewModel,
+  PraxisApplicationMcpMountMatrixOutput,
+  PraxisApplicationOfficialAdapterMountMatrixOutput,
+  PraxisApplicationOfficialAdapterReportOutput,
+  PraxisApplicationModelCallReportOutput,
+  PraxisApplicationGovernanceReportOutput,
+  PraxisApplicationToolCallReportOutput,
+  PraxisApplicationTimelineReportOutput,
+  PraxisApplicationRollbackPlanOutput,
+  PraxisApplicationManagementPlaneOutput,
+  PraxisApplicationSessionReportOutput,
+  PraxisApplicationMultiagentReportOutput,
+  PraxisApplicationSandboxMountMatrixOutput,
 } from "./applicationContract.js";
+import {
+  inspectRuntimeOfficialAdapterMountMatrix,
+  type RuntimeOfficialAdapterQuery,
+} from "../runtimeImplementation/runtime.officialAdapterPlane/index.js";
+import {
+  inspectSandboxRuntimeMountMatrix,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxMountMatrix.js";
+import type { RuntimeModelCallQuery } from "../runtimeImplementation/runtime.modelCallPlane/index.js";
+import type { RuntimeGovernanceQuery } from "../runtimeImplementation/runtime.governancePlane/index.js";
+import type { RuntimeToolCallQuery } from "../runtimeImplementation/runtime.toolCallPlane/index.js";
+import type {
+  CreateRuntimeTimelineReplayPlanInput,
+  RuntimeTimelineQuery,
+} from "../runtimeImplementation/runtime.timelinePlane/index.js";
 import {
   loadApplicationProject,
   type PraxisApplicationProject,
@@ -227,8 +262,12 @@ type RuntimeState = {
   cancelledAuxiliaryTasks: Set<string>;
   conversationHistory: Map<string, ApplicationConversationMessage[]>;
   conversationSummaries: Map<string, ApplicationConversationSummary>;
+  conversationCheckpoints: Map<string, ApplicationConversationCheckpoint[]>;
   modelCacheDebugBySession: Map<string, ApplicationModelCacheDebug>;
   lastProviderResponseBySession: Map<string, ApplicationProviderResponsePointer>;
+  lastRuntimeSnapshotBySession: Map<string, RuntimeSessionSnapshot>;
+  officialAdapterEvidenceBySession: Map<string, ApplicationOfficialAdapterEvidenceSnapshot>;
+  multiagentEvidenceBySession: Map<string, ApplicationMultiagentEvidenceSnapshot>;
   toolContextSelections: Map<string, BaseToolContextSelection>;
   toolContextUsage: Map<string, BaseToolContextUsageRecord[]>;
   alwaysApprovedApprovalKeys: Set<string>;
@@ -259,8 +298,57 @@ type ApplicationConversationSummary = {
   source: "application.history.autoCompact.v1";
 };
 
+type ApplicationConversationCheckpoint = {
+  turnId: string;
+  turnIndex: number;
+  createdAt: string;
+  messages: ApplicationConversationMessage[];
+  summary?: ApplicationConversationSummary;
+};
+
 type ApplicationInputAttachment = PraxisApplicationAttachment;
 type ApplicationAuthSupplier = () => Promise<AuthEnvelope | undefined>;
+
+type ApplicationOfficialAdapterEvidenceSnapshot = {
+  turnId: string;
+  sessionId: string;
+  runtimeId: string;
+  toolCalls: readonly AgentToolCallRecord[];
+  toolEvents: readonly PraxisApplicationEvent[];
+  modelCalls: readonly AgentModelCallRecord[];
+  finalOutput?: string;
+};
+
+type ApplicationMultiagentEvidenceSnapshot = {
+  turnId: string;
+  sessionId: string;
+  runtimeId: string;
+  applicationEvents: readonly PraxisApplicationEvent[];
+  providerToolExposure: {
+    expectedProviderName?: string;
+    exposesExpectedTool?: boolean;
+    exposedProviderNames: readonly string[];
+    toolCount?: number;
+  };
+  providerRoundTrip: {
+    toolOutputFedBack?: boolean;
+    callId?: string;
+    outputIncludesChildSession?: boolean;
+    secondProviderInputItems?: number;
+  };
+  backgroundRun: {
+    childProviderCalled?: boolean;
+    childRuntimeId?: string;
+    childReplyText?: string;
+  };
+  toolEvent: {
+    toolId?: string;
+    toolStatus?: string;
+    childSessionId?: string;
+    familyKey?: string;
+  };
+};
+
 export type OpenAIResponsesApplicationAdapterRoute = {
   kind: "openai_responses" | "chatgpt_codex_responses";
   providerCaller: OpenAIV1ResponsesProviderCaller;
@@ -307,6 +395,81 @@ function initialConversationSummaryMap(
     });
   }
   return map;
+}
+
+function cloneConversationSummary(
+  summary: ApplicationConversationSummary | undefined,
+): ApplicationConversationSummary | undefined {
+  return summary === undefined
+    ? undefined
+    : {
+        text: summary.text,
+        compactedMessages: summary.compactedMessages,
+        updatedAt: summary.updatedAt,
+        source: summary.source,
+      };
+}
+
+function cloneConversationMessages(
+  messages: readonly ApplicationConversationMessage[],
+): ApplicationConversationMessage[] {
+  return messages.map((message) => ({
+    ...message,
+    artifactRefs: message.artifactRefs === undefined ? undefined : [...message.artifactRefs],
+    metadata: message.metadata === undefined ? undefined : { ...message.metadata },
+  }));
+}
+
+function createConversationCheckpoint(input: {
+  turnId: string;
+  turnIndex: number;
+  createdAt: string;
+  messages: readonly ApplicationConversationMessage[];
+  summary?: ApplicationConversationSummary;
+}): ApplicationConversationCheckpoint {
+  const base = {
+    turnId: input.turnId,
+    turnIndex: input.turnIndex,
+    createdAt: input.createdAt,
+    messages: cloneConversationMessages(input.messages),
+  };
+  const summary = cloneConversationSummary(input.summary);
+  return summary === undefined ? base : { ...base, summary };
+}
+
+function selectConversationCheckpoint(input: {
+  checkpoints: readonly ApplicationConversationCheckpoint[];
+  turnId?: string;
+  turnIndex?: number;
+}): { checkpoint: ApplicationConversationCheckpoint; index: number } | undefined {
+  if (input.turnId !== undefined) {
+    const index = input.checkpoints.findIndex((checkpoint) => checkpoint.turnId === input.turnId);
+    return index < 0 ? undefined : { checkpoint: input.checkpoints[index]!, index };
+  }
+  if (input.turnIndex !== undefined) {
+    const index = input.checkpoints.findIndex((checkpoint) => checkpoint.turnIndex === input.turnIndex);
+    return index < 0 ? undefined : { checkpoint: input.checkpoints[index]!, index };
+  }
+  if (input.checkpoints.length === 0) return undefined;
+  const index = Math.max(0, input.checkpoints.length - 2);
+  return { checkpoint: input.checkpoints[index]!, index };
+}
+
+function foundationConversationRole(
+  role: ApplicationConversationMessage["role"],
+): "user" | "assistant" | "system" | "runtime-summary" {
+  switch (role) {
+    case "user":
+      return "user";
+    case "assistant":
+      return "assistant";
+    case "system":
+      return "system";
+    case "runtime-summary":
+      return "runtime-summary";
+    default:
+      return "runtime-summary";
+  }
 }
 
 function event(input: Omit<PraxisApplicationEvent, "publicSafe">): PraxisApplicationEvent {
@@ -1774,6 +1937,14 @@ function summarizeToolOutputForHumans(toolCall: AgentToolCallRecord): string[] {
 function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string, unknown> | undefined {
   const output = objectValue(toolCall.output);
   const args = flattenedToolArguments(toolCall.arguments);
+  const runtimeMetadata = objectValue(toolCall.metadata);
+  const runtimeSandboxPlan = objectValue(runtimeMetadata?.sandboxPlan);
+  const commandSandbox = objectValue(runtimeMetadata?.sandbox);
+  const governance = objectValue(runtimeMetadata?.governance);
+  const policyAdjudication = objectValue(runtimeMetadata?.policyAdjudication);
+  const dependencyRuntime = objectValue(runtimeMetadata?.dependencyRuntime);
+  const workspaceRollback = objectValue(runtimeMetadata?.workspaceRollback);
+  const workspaceRollbackDiff = objectValue(runtimeMetadata?.workspaceRollbackDiff);
   const target = objectValue(args.target);
   const outputTarget = objectValue(output?.target);
   const envelope = objectValue(output?.resultEnvelope) ?? output;
@@ -1797,6 +1968,7 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
   const actionCount = unknownArrayValue(output?.actions ?? outputTarget?.actions).length;
   const itemCount = countFromArrays(output?.items, output?.results, output?.content, objectValue(output?.resourceEnvelope)?.contents)
     ?? (actionCount > 0 ? actionCount : undefined);
+  const resourceCount = countFromArrays(output?.resources, envelope?.resources);
   const resultCount = countFromArrays(output?.hits, output?.matches, output?.results);
   const changedFileCount = countFromArrays(envelope?.entries, envelope?.changedFiles, output?.changedFiles, output?.committedFiles);
   const changeLineStats = fileChangeLineStats(toolCall);
@@ -1806,12 +1978,16 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
     targetName: firstStringValue(target?.serverId, target?.connectionId, output?.serverId, output?.connectionId, outputTarget?.targetHint, providerMetadata?.backend),
     toolName,
     resourceUri,
+    contextKind: firstStringValue(args.kind, output?.kind),
+    contextQuery: firstStringValue(args.query, output?.query),
+    contextRef: firstStringValue(args.ref, output?.ref),
     skillName: firstStringValue(args.skillName, target?.skillName, output?.skillName, output?.name, objectValue(output?.container)?.name),
     branchName: firstStringValue(envelope?.branch, output?.branch, target?.branchName, target?.branch),
     commitHash: firstStringValue(envelope?.commitHash, output?.commitHash, output?.newHead),
     aheadCount: numberValue(envelope?.ahead) ?? numberValue(output?.aheadCount),
     behindCount: numberValue(envelope?.behind) ?? numberValue(output?.behindCount),
     changedFileCount,
+    resourceCount,
     itemCount,
     resultCount,
     matchCount: countFromArrays(output?.matches, envelope?.matches),
@@ -1853,6 +2029,22 @@ function createToolResultMetadata(toolCall: AgentToolCallRecord): Record<string,
     mimeType: firstStringValue(output?.mimeType, objectValue(output?.artifact)?.mimeType),
     codeAdditions: changeLineStats?.codeAdditions,
     codeDeletions: changeLineStats?.codeDeletions,
+    sandboxMode: stringValue(runtimeSandboxPlan?.effectiveMode),
+    sandboxRequestedMode: stringValue(runtimeSandboxPlan?.requestedMode),
+    sandboxPlanStatus: stringValue(runtimeSandboxPlan?.status),
+    sandboxDeclaredProviderFamily: stringValue(runtimeSandboxPlan?.providerFamily),
+    commandSandboxProviderFamily: stringValue(commandSandbox?.providerFamily),
+    commandSandboxMode: stringValue(commandSandbox?.mode),
+    commandSandboxApplied: booleanValue(commandSandbox?.applied),
+    governanceStatus: stringValue(governance?.status),
+    governanceRisk: stringValue(governance?.risk),
+    policyProfile: stringValue(governance?.policyProfile),
+    policyDecision: stringValue(policyAdjudication?.decision),
+    dependencyStatus: stringValue(dependencyRuntime?.status),
+    dependencyDecision: stringValue(dependencyRuntime?.decision),
+    workspaceRollbackRequired: booleanValue(workspaceRollback?.required) ?? (stringValue(commandSandbox?.mode) === "workspace-rollback" ? true : undefined),
+    workspaceRollbackRestored: booleanValue(workspaceRollbackDiff?.restored),
+    workspaceRollbackChangedFiles: countFromArrays(workspaceRollbackDiff?.changedFiles),
     errorCode: stringValue(error?.code),
   });
 }
@@ -1953,6 +2145,15 @@ function createModelProgressEvent(input: {
       cacheDebug: input.progress.phase === "started" ? undefined : input.progress.cacheDebug,
       providerResponseId: input.progress.phase === "started" ? undefined : input.progress.providerResponseId,
       previousProviderResponseId: input.progress.phase === "started" ? undefined : input.progress.previousProviderResponseId,
+      modelFleetEndpointRef: input.progress.phase === "started" ? undefined : input.progress.modelFleetEndpointRef,
+      fallbackFrom: input.progress.phase === "started" ? undefined : input.progress.fallbackFrom,
+      modelFleetAdaptiveSelection: input.progress.phase === "started" ? undefined : input.progress.modelFleetAdaptiveSelection,
+      modelFleetCapabilitySelection: input.progress.phase === "started" ? undefined : input.progress.modelFleetCapabilitySelection,
+      modelFleetRequiredCapabilities: input.progress.phase === "started" ? undefined : input.progress.modelFleetRequiredCapabilities,
+      modelFleetRetryAttempt: input.progress.phase === "started" ? undefined : input.progress.modelFleetRetryAttempt,
+      modelFleetMaxRetries: input.progress.phase === "started" ? undefined : input.progress.modelFleetMaxRetries,
+      modelFailureCode: input.progress.phase === "started" ? undefined : input.progress.modelFailureCode,
+      modelFailureRetryable: input.progress.phase === "started" ? undefined : input.progress.modelFailureRetryable,
       context: contextInputTokens === undefined
         ? undefined
         : {
@@ -2938,6 +3139,872 @@ function rememberToolContextFromRun(state: RuntimeState, result: AgentRunResult)
   }
 }
 
+function rememberRuntimeSnapshotFromRun(state: RuntimeState, result: AgentRunResult): void {
+  const sessionId = result.sessionId ?? state.sessionId;
+  if (result.state === undefined) {
+    state.lastRuntimeSnapshotBySession.delete(sessionId);
+    return;
+  }
+  state.lastRuntimeSnapshotBySession.set(sessionId, result.state);
+}
+
+function toolCallEventsForTurn(
+  events: readonly PraxisApplicationEvent[],
+  turnId: string,
+): readonly PraxisApplicationEvent[] {
+  return events.filter((eventItem) => eventItem.turnId === turnId && eventItem.kind === "tool");
+}
+
+function providerToolNamesFromEvents(
+  events: readonly PraxisApplicationEvent[],
+): readonly string[] {
+  return [...new Set(events
+    .map((eventItem) => stringValue(objectValue(eventItem.metadata)?.providerToolName))
+    .filter((value): value is string => value !== undefined))]
+    .sort();
+}
+
+function providerToolNameForRecord(input: {
+  toolCall: AgentToolCallRecord;
+  toolEvents: readonly PraxisApplicationEvent[];
+}): string {
+  const toolCallMetadata = objectValue(input.toolCall.metadata);
+  return stringValue(toolCallMetadata?.providerToolName)
+    ?? input.toolEvents
+      .map((eventItem) => {
+        const metadata = objectValue(eventItem.metadata);
+        return metadata?.toolCallId === input.toolCall.callId
+          ? stringValue(metadata.providerToolName)
+          : undefined;
+      })
+      .find((value): value is string => value !== undefined)
+    ?? providerToolName(input.toolCall.toolId);
+}
+
+function providerToolNamesFromModelEvents(events: readonly PraxisApplicationEvent[]): readonly string[] {
+  const names = new Set<string>();
+  const toolEvents = events.filter((eventItem) => eventItem.kind === "tool");
+  for (const eventItem of events) {
+    if (eventItem.kind !== "model") continue;
+    const cacheDebug = objectValue(objectValue(eventItem.metadata)?.cacheDebug);
+    const providerBody = objectValue(cacheDebug?.providerBody);
+    const tools = numberValue(providerBody?.toolCount);
+    if (tools === undefined || tools <= 0) continue;
+    for (const eventCandidate of toolEvents) {
+      const metadata = objectValue(eventCandidate.metadata);
+      const providerName = stringValue(metadata?.providerToolName);
+      const toolId = stringValue(metadata?.toolId);
+      if (providerName !== undefined) {
+        names.add(providerName);
+      } else if (toolId !== undefined) {
+        names.add(providerToolName(toolId));
+      }
+    }
+  }
+  return [...names].sort();
+}
+
+function maxModelProviderToolCount(events: readonly PraxisApplicationEvent[]): number | undefined {
+  let maxCount: number | undefined;
+  for (const eventItem of events) {
+    if (eventItem.kind !== "model") continue;
+    const cacheDebug = objectValue(objectValue(eventItem.metadata)?.cacheDebug);
+    const providerBody = objectValue(cacheDebug?.providerBody);
+    const count = numberValue(providerBody?.toolCount);
+    if (count !== undefined) maxCount = Math.max(maxCount ?? 0, count);
+  }
+  return maxCount;
+}
+
+function maxModelToolResultInputsFromEvents(events: readonly PraxisApplicationEvent[]): number | undefined {
+  let maxInputs: number | undefined;
+  for (const eventItem of events) {
+    if (eventItem.kind !== "model") continue;
+    const cacheDebug = objectValue(objectValue(eventItem.metadata)?.cacheDebug);
+    const providerBody = objectValue(cacheDebug?.providerBody);
+    const count = numberValue(providerBody?.toolResultInputs);
+    if (count !== undefined) maxInputs = Math.max(maxInputs ?? 0, count);
+  }
+  return maxInputs;
+}
+
+function firstToolEventForTool(input: {
+  events: readonly PraxisApplicationEvent[];
+  toolId: string;
+}): PraxisApplicationEvent | undefined {
+  return input.events.find((eventItem) =>
+    eventItem.kind === "tool" &&
+    stringValue(objectValue(eventItem.metadata)?.toolId) === input.toolId &&
+    stringValue(objectValue(eventItem.metadata)?.toolStatus) === "completed"
+  );
+}
+
+function childSessionIdFromToolEvent(eventItem: PraxisApplicationEvent | undefined): string | undefined {
+  const metadata = objectValue(eventItem?.metadata);
+  const resultMetadata = objectValue(metadata?.resultMetadata);
+  const output = objectValue(metadata?.output);
+  const outputSession = objectValue(output?.session);
+  return firstStringValue(resultMetadata?.sessionId, outputSession?.sessionId);
+}
+
+function childRuntimeIdFromMultiagentEvents(events: readonly PraxisApplicationEvent[]): string | undefined {
+  const completed = events.find((eventItem) =>
+    eventItem.kind === "runtime" && eventItem.eventId.includes(".multiagent.completed")
+  );
+  return stringValue(objectValue(completed?.metadata)?.childRuntimeId);
+}
+
+function childReplyTextFromMultiagentEvents(events: readonly PraxisApplicationEvent[]): string | undefined {
+  const completed = events.find((eventItem) =>
+    eventItem.kind === "runtime" && eventItem.eventId.includes(".multiagent.completed")
+  );
+  return stringValue(objectValue(completed?.metadata)?.childReplyText);
+}
+
+function isApplicationMultiagentEventForSession(input: {
+  eventItem: PraxisApplicationEvent;
+  sessionId: string;
+  snapshotTurnId?: string;
+}): boolean {
+  if (input.eventItem.sessionId !== input.sessionId && input.eventItem.turnId !== input.snapshotTurnId) {
+    return false;
+  }
+  return input.eventItem.eventId.includes(".multiagent.") ||
+    stringValue(objectValue(input.eventItem.metadata)?.toolId)?.startsWith("agent.") === true;
+}
+
+function applicationMultiagentEventsForSession(input: {
+  state: RuntimeState;
+  sessionId: string;
+  snapshotTurnId?: string;
+}): readonly PraxisApplicationEvent[] {
+  return input.state.events.filter((eventItem) => isApplicationMultiagentEventForSession({
+    eventItem,
+    sessionId: input.sessionId,
+    snapshotTurnId: input.snapshotTurnId,
+  }));
+}
+
+function mergeApplicationEvents(
+  ...eventGroups: readonly (readonly PraxisApplicationEvent[] | undefined)[]
+): readonly PraxisApplicationEvent[] {
+  const events = new Map<string, PraxisApplicationEvent>();
+  for (const group of eventGroups) {
+    for (const eventItem of group ?? []) {
+      events.set(eventItem.eventId, eventItem);
+    }
+  }
+  return [...events.values()].sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+}
+
+function outputContainsPublicEvidence(toolCall: AgentToolCallRecord): boolean | undefined {
+  if (!toolCall.ok) return false;
+  const preview = previewUnknown(toolCall.output, 1_200);
+  return preview === undefined ? undefined : preview.length > 0;
+}
+
+function maxModelToolResultInputs(
+  modelCalls: readonly AgentModelCallRecord[],
+): number {
+  let maxInputs = 0;
+  for (const call of modelCalls) {
+    const resultInputs = call.cacheDebug?.providerBody.toolResultInputs ?? 0;
+    if (resultInputs > maxInputs) maxInputs = resultInputs;
+  }
+  return maxInputs;
+}
+
+function rememberOfficialAdapterEvidenceFromRun(input: {
+  state: RuntimeState;
+  result: AgentRunResult;
+  turnId: string;
+  turnEvents: readonly PraxisApplicationEvent[];
+}): void {
+  if (!input.result.ok || input.result.toolCalls.length === 0) return;
+  const sessionId = input.result.sessionId ?? input.state.sessionId;
+  input.state.officialAdapterEvidenceBySession.set(sessionId, {
+    turnId: input.turnId,
+    sessionId,
+    runtimeId: input.result.runtimeId,
+    toolCalls: input.result.toolCalls,
+    toolEvents: toolCallEventsForTurn(input.turnEvents, input.turnId),
+    modelCalls: input.result.modelCalls,
+    finalOutput: input.result.finalOutput,
+  });
+}
+
+function rememberMultiagentEvidenceFromRun(input: {
+  state: RuntimeState;
+  result: AgentRunResult;
+  turnId: string;
+  turnEvents: readonly PraxisApplicationEvent[];
+}): void {
+  if (!input.result.ok) return;
+  const agentSpawnEvent = firstToolEventForTool({
+    events: input.turnEvents,
+    toolId: "agent.spawn",
+  });
+  const hasMultiagentEvents = input.turnEvents.some((eventItem) =>
+    eventItem.eventId.includes(".multiagent.") || stringValue(objectValue(eventItem.metadata)?.toolId)?.startsWith("agent.")
+  );
+  if (!hasMultiagentEvents && agentSpawnEvent === undefined) return;
+  const sessionId = input.result.sessionId ?? input.state.sessionId;
+  const exposedProviderNames = providerToolNamesFromModelEvents(input.turnEvents);
+  const expectedProviderName = providerToolName("agent.spawn");
+  const toolEventMetadata = objectValue(agentSpawnEvent?.metadata);
+  const childSessionId = childSessionIdFromToolEvent(agentSpawnEvent);
+  const maxToolResultInputs = maxModelToolResultInputsFromEvents(input.turnEvents);
+  const childRuntimeId = childRuntimeIdFromMultiagentEvents(input.state.events);
+  const childReplyText = childReplyTextFromMultiagentEvents(input.state.events);
+  const toolCount = maxModelProviderToolCount(input.turnEvents);
+  input.state.multiagentEvidenceBySession.set(sessionId, {
+    turnId: input.turnId,
+    sessionId,
+    runtimeId: input.state.runtimeId,
+    applicationEvents: applicationMultiagentEventsForSession({
+      state: input.state,
+      sessionId,
+      snapshotTurnId: input.turnId,
+    }),
+    providerToolExposure: {
+      expectedProviderName,
+      exposesExpectedTool: exposedProviderNames.includes(expectedProviderName) || (toolCount ?? 0) > 0,
+      exposedProviderNames,
+      toolCount,
+    },
+    providerRoundTrip: {
+      toolOutputFedBack: maxToolResultInputs === undefined ? undefined : maxToolResultInputs > 0,
+      callId: stringValue(toolEventMetadata?.toolCallId),
+      outputIncludesChildSession: childSessionId === undefined ? undefined : true,
+      secondProviderInputItems: maxToolResultInputs,
+    },
+    backgroundRun: {
+      childProviderCalled: childRuntimeId !== undefined ? true : undefined,
+      childRuntimeId,
+      childReplyText,
+    },
+    toolEvent: {
+      toolId: stringValue(toolEventMetadata?.toolId),
+      toolStatus: stringValue(toolEventMetadata?.toolStatus),
+      childSessionId,
+      familyKey: stringValue(toolEventMetadata?.familyKey),
+    },
+  });
+}
+
+function createOfficialAdapterReportOutput(input: {
+  state: RuntimeState;
+  query?: RuntimeOfficialAdapterQuery;
+  expectedCallOrder?: readonly string[];
+}): PraxisApplicationOfficialAdapterReportOutput {
+  const snapshot = input.state.officialAdapterEvidenceBySession.get(input.state.sessionId);
+  const events = snapshot?.toolEvents ?? input.state.events.filter((eventItem) =>
+    eventItem.sessionId === input.state.sessionId && eventItem.kind === "tool"
+  );
+  const providerToolNames = providerToolNamesFromEvents(events);
+  const maxToolResultInputs = snapshot === undefined ? 0 : maxModelToolResultInputs(snapshot.modelCalls);
+  const report = praxis.runtime.createRuntimeOfficialAdapterReport({
+    sourceKind: "application-events",
+    adapters: (snapshot?.toolCalls ?? []).map((toolCall, index) => {
+      const expectedProviderName = providerToolNameForRecord({
+        toolCall,
+        toolEvents: events,
+      });
+      const resultMetadata = objectValue(toolCall.metadata);
+      const args = flattenedToolArguments(toolCall.arguments);
+      const output = objectValue(toolCall.output);
+      return {
+        familyKey: familyForToolId(toolCall.toolId).familyKey,
+        toolId: toolCall.toolId,
+        toolStatus: toolCall.ok ? "completed" : "failed",
+        expectedProviderName,
+        providerToolExposed: providerToolNames.includes(expectedProviderName) ? true : undefined,
+        exposedProviderNames: providerToolNames,
+        adapterCalls: 1,
+        callId: toolCall.callId,
+        outputFedBack: toolCall.ok && maxToolResultInputs > index ? true : undefined,
+        outputIncludesEvidence: outputContainsPublicEvidence(toolCall),
+        resultKind: firstStringValue(args.kind, output?.kind),
+        resourceCount: countFromArrays(output?.resources, objectValue(output?.resultEnvelope)?.resources),
+        itemCount: countFromArrays(output?.items, output?.results, output?.content),
+        skillName: firstStringValue(args.skillName, args.name, output?.skillName, output?.name),
+        serverId: firstStringValue(args.serverId, output?.serverId),
+        requestName: firstStringValue(args.query, args.name, output?.query, output?.name),
+        calledToolName: firstStringValue(args.toolName, output?.toolName),
+        humanResultSummary: previewUnknown(resultMetadata?.humanResultSummary),
+        refs: [toolCall.callId, toolCall.toolId, snapshot?.turnId, snapshot?.sessionId]
+          .filter((value): value is string => value !== undefined),
+      };
+    }),
+    composition: snapshot === undefined ? undefined : {
+      callOrder: snapshot.toolCalls.map((toolCall) => toolCall.toolId),
+      expectedCallOrder: input.expectedCallOrder,
+      providerCalls: snapshot.modelCalls.length,
+      toolCalls: snapshot.toolCalls.length,
+      finalEventSeen: input.state.events.some((eventItem) =>
+        eventItem.sessionId === snapshot.sessionId &&
+        eventItem.turnId === snapshot.turnId &&
+        eventItem.kind === "final"
+      ),
+      finalOutput: snapshot.finalOutput,
+    },
+    applicationEvents: events,
+  });
+  const index = praxis.runtime.createRuntimeOfficialAdapterIndex(report);
+  const query = praxis.runtime.queryRuntimeOfficialAdapters({ report, query: input.query });
+  return {
+    kind: "praxis.application.officialAdapterReport",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    report,
+    index,
+    query,
+  };
+}
+
+function createMultiagentReportOutput(input: {
+  state: RuntimeState;
+  query?: RuntimeMultiagentQuery;
+}): PraxisApplicationMultiagentReportOutput {
+  const snapshot = input.state.multiagentEvidenceBySession.get(input.state.sessionId);
+  const liveApplicationEvents = applicationMultiagentEventsForSession({
+    state: input.state,
+    sessionId: input.state.sessionId,
+    snapshotTurnId: snapshot?.turnId,
+  });
+  const applicationEvents = mergeApplicationEvents(snapshot?.applicationEvents, liveApplicationEvents);
+  const childRuntimeId = childRuntimeIdFromMultiagentEvents(applicationEvents) ?? snapshot?.backgroundRun.childRuntimeId;
+  const childReplyText = childReplyTextFromMultiagentEvents(applicationEvents) ?? snapshot?.backgroundRun.childReplyText;
+  const applicationFacts = snapshot === undefined ? undefined : {
+    providerToolExposure: snapshot.providerToolExposure,
+    providerRoundTrip: snapshot.providerRoundTrip,
+    backgroundRun: {
+      ...snapshot.backgroundRun,
+      childProviderCalled: snapshot.backgroundRun.childProviderCalled ?? (childRuntimeId !== undefined ? true : undefined),
+      childRuntimeId,
+      childReplyText,
+    },
+    toolEvent: snapshot.toolEvent,
+  };
+  const report = praxis.runtime.createRuntimeMultiagentReport({
+    sourceKind: "application-events",
+    applicationEvents,
+    applicationFacts,
+  });
+  const index = praxis.runtime.createRuntimeMultiagentIndex(report);
+  const query = praxis.runtime.queryRuntimeMultiagent({ report, query: input.query });
+  return {
+    kind: "praxis.application.multiagentReport",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    report,
+    index,
+    query,
+  };
+}
+
+function createOfficialAdapterMountMatrixOutput(input: {
+  state: RuntimeState;
+  manifest: AgentManifest;
+  applicationMcpModule: McpHarnessModuleSpec | undefined;
+  contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
+  baseToolAdapters?: Partial<BaseToolExecutorPort>;
+}): PraxisApplicationOfficialAdapterMountMatrixOutput {
+  const manifest = manifestWithApplicationMcpModule({
+    manifest: input.manifest,
+    module: input.applicationMcpModule,
+  });
+  const profiles = buildMcpServerProfilesFromManifest(manifest);
+  const adapters = {
+    ...(input.contextArtifactAdapters ?? {}),
+    ...(input.baseToolAdapters ?? {}),
+  };
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: input.state.runtimeId,
+    sessionId: input.state.sessionId,
+    policy: {
+      workspaceRoot: input.state.cwd,
+      allowedRoots: [input.state.cwd],
+      allowedWriteRoots: [input.state.cwd],
+      allowFilesystemWrite: false,
+      allowFilesystemDelete: false,
+      allowShellExecution: false,
+      allowProcessExecution: false,
+    },
+    policyProfile: input.state.permissionProfile,
+    mcpServers: profiles,
+    adapters,
+  });
+  return {
+    kind: "praxis.application.officialAdapterMountMatrix",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    matrix: inspectRuntimeOfficialAdapterMountMatrix({
+      executor,
+      implementedPortPaths: listRuntimeBaseToolImplementedPortPaths({
+        mcpServers: profiles,
+        adapters,
+      }),
+    }),
+  };
+}
+
+function createModelCallReportOutput(input: {
+  state: RuntimeState;
+  query?: RuntimeModelCallQuery;
+}): PraxisApplicationModelCallReportOutput {
+  const snapshot = input.state.lastRuntimeSnapshotBySession.get(input.state.sessionId);
+  const applicationEvents = input.state.events.filter((eventItem) =>
+    eventItem.sessionId === input.state.sessionId && eventItem.kind === "model"
+  );
+  const report = praxis.runtime.createRuntimeModelCallReport({
+    sourceKind: "application-events",
+    snapshot,
+    applicationEvents,
+  });
+  const index = praxis.runtime.createRuntimeModelCallIndex(report);
+  const query = praxis.runtime.queryRuntimeModelCalls({ report, query: input.query });
+  return {
+    kind: "praxis.application.modelCallReport",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    report,
+    index,
+    query,
+  };
+}
+
+function runtimeSnapshotForReport(state: RuntimeState): RuntimeSessionSnapshot | undefined {
+  return state.lastRuntimeSnapshotBySession.get(state.sessionId);
+}
+
+function createGovernanceReportOutput(input: {
+  state: RuntimeState;
+  query?: RuntimeGovernanceQuery;
+  snapshot: RuntimeSessionSnapshot;
+}): PraxisApplicationGovernanceReportOutput {
+  const report = praxis.runtime.createRuntimeGovernanceReport({
+    sourceKind: "application-memory",
+    snapshot: input.snapshot,
+  });
+  const index = praxis.runtime.createRuntimeGovernanceIndex(report);
+  const query = praxis.runtime.queryRuntimeGovernance({ report, query: input.query });
+  return {
+    kind: "praxis.application.governanceReport",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    report,
+    index,
+    query,
+  };
+}
+
+function createToolCallReportOutput(input: {
+  state: RuntimeState;
+  query?: RuntimeToolCallQuery;
+  snapshot: RuntimeSessionSnapshot;
+}): PraxisApplicationToolCallReportOutput {
+  const report = praxis.runtime.createRuntimeToolCallReport({
+    sourceKind: "application-memory",
+    snapshot: input.snapshot,
+  });
+  const index = praxis.runtime.createRuntimeToolCallIndex(report);
+  const query = praxis.runtime.queryRuntimeToolCalls({ report, query: input.query });
+  return {
+    kind: "praxis.application.toolCallReport",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    report,
+    index,
+    query,
+  };
+}
+
+function createTimelineReportOutput(input: {
+  state: RuntimeState;
+  query?: RuntimeTimelineQuery;
+  replay?: Omit<CreateRuntimeTimelineReplayPlanInput, "report">;
+  snapshot: RuntimeSessionSnapshot;
+}): PraxisApplicationTimelineReportOutput {
+  const report = praxis.runtime.createRuntimeTimelineReport({
+    sourceKind: "application-memory",
+    snapshot: input.snapshot,
+  });
+  const index = praxis.runtime.createRuntimeTimelineIndex(report);
+  const query = praxis.runtime.queryRuntimeTimeline({ report, query: input.query });
+  const replayPlan = praxis.runtime.createRuntimeTimelineReplayPlan({
+    report,
+    checkpointTurnId: input.replay?.checkpointTurnId,
+    targetSessionId: input.replay?.targetSessionId,
+  });
+  return {
+    kind: "praxis.application.timelineReport",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    report,
+    index,
+    query,
+    replayPlan,
+  };
+}
+
+function createRollbackPlanOutput(input: {
+  state: RuntimeState;
+  checkpointTurnId?: string;
+  reason?: string;
+  contract?: Extract<PraxisApplicationCommand, { type: "application.inspectRollbackPlan" }>["contract"];
+  governance?: Extract<PraxisApplicationCommand, { type: "application.inspectRollbackPlan" }>["governance"];
+  trace?: Extract<PraxisApplicationCommand, { type: "application.inspectRollbackPlan" }>["trace"];
+}): PraxisApplicationRollbackPlanOutput {
+  const checkpoints = input.state.conversationCheckpoints.get(input.state.sessionId) ?? [];
+  const selected = selectConversationCheckpoint({
+    checkpoints,
+    turnId: input.checkpointTurnId,
+  });
+  const allowedCheckpointIds = checkpoints.map((checkpoint) => checkpoint.turnId);
+  const result = praxis.runtime.planRuntimeRollback({
+    runtimeId: input.state.runtimeId,
+    currentRevision: input.state.turns,
+    targetCheckpoint: selected === undefined
+      ? undefined
+      : {
+          checkpointId: selected.checkpoint.turnId,
+          revision: selected.checkpoint.turnIndex,
+          label: `conversation checkpoint ${selected.checkpoint.turnId}`,
+          createdBy: "application.conversationCheckpoint",
+          trace: input.trace,
+        },
+    allowedCheckpointIds,
+    runtimeReady: input.state.status !== "closed",
+    reason: input.reason,
+    contract: input.contract ?? { accepted: true },
+    governance: input.governance ?? { accepted: true },
+    trace: input.trace,
+  });
+  return {
+    kind: "praxis.application.rollbackPlan",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    checkpointTurnId: selected?.checkpoint.turnId,
+    currentRevision: input.state.turns,
+    allowedCheckpointIds,
+    result,
+  };
+}
+
+function createManagementPlaneOutput(input: {
+  state: RuntimeState;
+  applicationId: string;
+  requestedScopes?: Extract<PraxisApplicationCommand, { type: "application.inspectManagementPlane" }>["requestedScopes"];
+  allowedScopes?: Extract<PraxisApplicationCommand, { type: "application.inspectManagementPlane" }>["allowedScopes"];
+}): PraxisApplicationManagementPlaneOutput {
+  const requestedScopes = input.requestedScopes ?? ["runtime.read", "runtime.inspect"];
+  const allowedScopes = input.allowedScopes ?? ["runtime.read", "runtime.inspect", "runtime.manage", "runtime.audit"];
+  const caller = {
+    kind: "application" as const,
+    id: input.applicationId,
+    sessionId: input.state.sessionId,
+  };
+  const runtimeReady = input.state.status !== "closed";
+  const components = [
+    {
+      surface: "accessSession" as const,
+      componentId: "runtime-access-session",
+      capabilities: ["session.scoped", "dry-run"],
+    },
+    {
+      surface: "operatorConsole" as const,
+      componentId: "runtime-operator-console",
+      capabilities: ["command.envelope", "dry-run"],
+    },
+    {
+      surface: "commandRouter" as const,
+      componentId: "runtime-command-router",
+      capabilities: ["route.plan", "policy.checked", "dry-run"],
+    },
+    {
+      surface: "policyGate" as const,
+      componentId: "runtime-policy-gate",
+      capabilities: ["policy.decision", "dry-run"],
+    },
+    {
+      surface: "resourceGovernor" as const,
+      componentId: "runtime-resource-governor",
+      capabilities: ["resource.evaluate", "dry-run"],
+    },
+    {
+      surface: "mutationPlanner" as const,
+      componentId: "runtime-mutation-planner",
+      capabilities: ["mutation.plan", "rollback.guardrail", "dry-run"],
+    },
+    {
+      surface: "rollbackController" as const,
+      componentId: "runtime-rollback-controller",
+      capabilities: ["rollback.plan", "dry-run"],
+    },
+    {
+      surface: "governanceBridge" as const,
+      componentId: "runtime-governance-bridge",
+      capabilities: ["governance.envelope", "dry-run"],
+    },
+  ];
+  const accessSession = praxis.runtime.createRuntimeAccessSession({
+    runtimeId: input.state.runtimeId,
+    actor: { kind: "application", id: input.applicationId },
+    sessionId: `application-management:${input.state.sessionId}`,
+    requestedScopes,
+    grantedScopes: allowedScopes,
+    runtimeReady,
+  });
+  const policyCommand = {
+    runtimeId: input.state.runtimeId,
+    commandId: "application.inspectManagementPlane",
+    commandName: "inspect-management-plane",
+    targetSurface: "runtime.managementPlane",
+    requestedEffects: ["inspect-runtime"] as const,
+  };
+  const policyGate = accessSession.ok
+    ? praxis.runtime.evaluateManagementPolicyGate({
+        session: accessSession.session,
+        command: policyCommand,
+        allowedEffects: ["inspect-runtime"],
+        runtimeReady,
+      })
+    : praxis.runtime.evaluateManagementPolicyGate({ command: policyCommand });
+  const commandRouter = accessSession.ok
+    ? praxis.runtime.routeManagementCommand({
+        session: accessSession.session,
+        command: policyCommand,
+        allowedEffects: ["inspect-runtime"],
+        runtimeReady,
+        routes: [{
+          routeId: "application-management-plane-inspection",
+          commandNames: ["inspect-management-plane"],
+          targetSurfaces: ["runtime.managementPlane"],
+          requiredEffects: ["inspect-runtime"],
+          handlerRef: "application.inspectManagementPlane",
+        }],
+      })
+    : praxis.runtime.routeManagementCommand({ command: policyCommand });
+  const operatorConsole = praxis.runtime.openRuntimeOperatorConsole({
+    runtimeId: input.state.runtimeId,
+    operator: { operatorId: input.applicationId, role: "observer", sessionId: input.state.sessionId },
+    allowedScopes,
+    runtimeReady,
+    commands: [{
+      commandId: "application.inspectManagementPlane",
+      verb: "inspect",
+      targetSurface: "runtimeManagementPlane",
+      requestedScopes,
+      reason: "application management plane inspection",
+    }],
+  });
+  const resourceGovernor = praxis.runtime.governRuntimeResources({
+    runtimeId: input.state.runtimeId,
+    caller,
+    requestedScopes,
+    allowedScopes,
+    runtimeReady,
+    budgets: [
+      { resource: "token", limit: input.state.model.contextWindowTokens ?? 128_000, used: 0, unit: "tokens", window: "turn", hard: false },
+      { resource: "concurrency", limit: 1, used: input.state.status === "running" ? 1 : 0, unit: "runtime", hard: false },
+    ],
+    demands: [
+      { resource: "token", amount: 1, unit: "tokens", reason: "application management inspection", requestedScopes: ["runtime.inspect"] },
+      { resource: "concurrency", amount: 1, unit: "runtime", reason: "application management inspection" },
+    ],
+  });
+  const mutationPlanner = praxis.runtime.planRuntimeMutation({
+    runtimeId: input.state.runtimeId,
+    caller,
+    requestedScopes,
+    allowedScopes,
+    runtimeReady,
+    mutations: [{
+      mutationId: "application-management-plane-readiness",
+      targetSurface: "runtimeManagementPlane",
+      operation: "configure",
+      risk: "low",
+      requestedScopes: ["runtime.inspect"],
+      requiresRollback: false,
+      reason: "inspection-only management plane readiness plan",
+    }],
+  });
+  const rollbackPlan = praxis.runtime.planRuntimeRollback({
+    runtimeId: input.state.runtimeId,
+    currentRevision: Math.max(input.state.turns, 1),
+    targetCheckpoint: {
+      checkpointId: "application-management-plane-readiness",
+      revision: 0,
+      label: "management plane dry-run rollback marker",
+      createdBy: "application.inspectManagementPlane",
+    },
+    runtimeReady,
+    allowedCheckpointIds: ["application-management-plane-readiness"],
+    reason: "inspection-only management plane rollback marker",
+    contract: { accepted: true },
+    governance: { accepted: true },
+  });
+  const governanceBridge = accessSession.ok && policyGate.ok
+    ? praxis.runtime.createRuntimeGovernanceBridgeEnvelope({
+        session: accessSession.session,
+        command: policyCommand,
+        policy: policyGate.decision,
+        runtimeReady,
+      })
+    : praxis.runtime.createRuntimeGovernanceBridgeEnvelope({});
+  const result = praxis.runtime.createRuntimeManagementPlane({
+    runtimeId: input.state.runtimeId,
+    caller,
+    components,
+    requestedScopes,
+    allowedScopes,
+    runtimeReady,
+    contract: { accepted: true },
+    governance: { accepted: true },
+  });
+  return {
+    kind: "praxis.application.managementPlane",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    result,
+    componentSummary: {
+      totalComponents: components.length,
+      readyComponents: result.ok ? result.managementPlane.components.length : 0,
+      surfaces: result.ok ? result.managementPlane.surfaces : components.map((component) => component.surface),
+      readyComponentIds: result.ok ? result.managementPlane.componentIds : [],
+    },
+    accessSession,
+    operatorConsole,
+    policyGate,
+    commandRouter,
+    resourceGovernor,
+    mutationPlanner,
+    rollbackPlan,
+    governanceBridge,
+  };
+}
+
+async function createSessionReportOutput(input: {
+  state: RuntimeState;
+}): Promise<PraxisApplicationSessionReportOutput> {
+  if (input.state.foundationProject === undefined) {
+    throw new Error(`application foundation project is not mounted for session ${input.state.sessionId}`);
+  }
+  const foundationSnapshot = await input.state.foundationProject.store.readSessionSnapshot(input.state.sessionId);
+  const projectSnapshot = await input.state.foundationProject.store.readProjectSnapshot(
+    input.state.foundationProject.project.projectId,
+  );
+  const report = praxis.runtime.createRuntimeSessionReport({
+    sourceKind: "foundation-memory",
+    foundationSnapshot,
+    projectSnapshot,
+  });
+  return {
+    kind: "praxis.application.sessionReport",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    report,
+  };
+}
+
+async function createMcpMountMatrixOutput(input: {
+  state: RuntimeState;
+  manifest: AgentManifest;
+  applicationMcpModule: McpHarnessModuleSpec | undefined;
+  nativeToolInventoryByServerId?: InspectMcpRuntimeMountMatrixInput["nativeToolInventoryByServerId"];
+  mcpPlus?: PraxisApplicationRuntimeOptions["mcpPlus"];
+  contextArtifactAdapters?: Pick<Partial<BaseToolExecutorPort>, "context" | "artifact">;
+  baseToolAdapters?: Partial<BaseToolExecutorPort>;
+}): Promise<PraxisApplicationMcpMountMatrixOutput> {
+  const manifest = manifestWithApplicationMcpModule({
+    manifest: input.manifest,
+    module: input.applicationMcpModule,
+  });
+  const profiles = buildMcpServerProfilesFromManifest(manifest);
+  const adapters = {
+    ...(input.contextArtifactAdapters ?? {}),
+    ...(input.baseToolAdapters ?? {}),
+  };
+  const executor = createRuntimeBaseToolExecutorPort({
+    runtimeId: input.state.runtimeId,
+    sessionId: input.state.sessionId,
+    policy: {
+      workspaceRoot: input.state.cwd,
+      allowedRoots: [input.state.cwd],
+      allowedWriteRoots: [input.state.cwd],
+      allowFilesystemWrite: false,
+      allowFilesystemDelete: false,
+      allowShellExecution: false,
+      allowProcessExecution: false,
+    },
+    policyProfile: input.state.permissionProfile,
+    mcpServers: profiles,
+    adapters,
+  });
+  const matrix = await inspectMcpRuntimeMountMatrix({
+    manifest,
+    executor,
+    implementedPortPaths: listRuntimeBaseToolImplementedPortPaths({
+      mcpServers: profiles,
+      adapters,
+    }),
+    nativeToolInventoryByServerId: input.nativeToolInventoryByServerId,
+    projectId: input.mcpPlus?.projectId ?? input.state.foundationProject?.project.projectId,
+    skillStore: input.mcpPlus?.skillStore,
+  });
+  return {
+    kind: "praxis.application.mcpMountMatrix",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    matrix,
+  };
+}
+
+async function createSandboxMountMatrixOutput(input: {
+  state: RuntimeState;
+  manifest: AgentManifest;
+  sandboxProviderInjected: boolean;
+  toolId?: Extract<PraxisApplicationCommand, { type: "application.inspectSandboxMountMatrix" }>["toolId"];
+  command?: Extract<PraxisApplicationCommand, { type: "application.inspectSandboxMountMatrix" }>["command"];
+  effectKinds?: Extract<PraxisApplicationCommand, { type: "application.inspectSandboxMountMatrix" }>["effectKinds"];
+  sandboxHint?: Extract<PraxisApplicationCommand, { type: "application.inspectSandboxMountMatrix" }>["sandboxHint"];
+}): Promise<PraxisApplicationSandboxMountMatrixOutput> {
+  const preparedSandbox = await praxis.sandboxPlane.prepareSandboxRuntime(input.manifest.sandbox, {
+    cwd: input.command?.cwd ?? input.state.cwd,
+    runSmoke: false,
+    providerReady: input.sandboxProviderInjected,
+  });
+  const matrix = await inspectSandboxRuntimeMountMatrix({
+    sandbox: input.manifest.sandbox,
+    policyProfile: input.state.permissionProfile,
+    preparedSandbox,
+    sandboxProviderInjected: input.sandboxProviderInjected,
+    toolId: input.toolId,
+    command: input.command,
+    effectKinds: input.effectKinds,
+    sandboxHint: input.sandboxHint,
+  });
+  return {
+    kind: "praxis.application.sandboxMountMatrix",
+    publicSafe: true,
+    sessionId: input.state.sessionId,
+    runtimeId: input.state.runtimeId,
+    matrix,
+  };
+}
+
 function applyRunResult(state: RuntimeState, result: AgentRunResult): void {
   state.modelCalls = result.ok ? result.modelCalls.length : 0;
   state.toolCalls = result.ok ? result.toolCalls.length : 0;
@@ -3054,6 +4121,35 @@ function applicationMcpServerProfiles(
   return (module?.servers ?? []).map(toMcpRuntimeServerProfile);
 }
 
+function manifestWithApplicationMcpModule(input: {
+  manifest: AgentManifest;
+  module: McpHarnessModuleSpec | undefined;
+}): AgentManifest {
+  if (input.module === undefined || input.manifest.harness.modules.mcp !== undefined) return input.manifest;
+  const toolById = new Map(input.manifest.harness.tools.map((toolSpec) => [toolSpec.toolId, toolSpec]));
+  for (const toolSpec of praxis.mcpPlane.mcp.recommendedTools()) {
+    toolById.set(toolSpec.toolId, toolSpec);
+  }
+  return {
+    ...input.manifest,
+    harness: {
+      ...input.manifest.harness,
+      modules: {
+        ...input.manifest.harness.modules,
+        mcp: input.module,
+      },
+      tools: [...toolById.values()],
+      runtimeRequirements: input.manifest.harness.runtimeRequirements.includes("runtime.mcp")
+        ? input.manifest.harness.runtimeRequirements
+        : [...input.manifest.harness.runtimeRequirements, "runtime.mcp"],
+      metadata: {
+        ...input.manifest.harness.metadata,
+        runtimeMcpModuleSource: "application.inspectMcpMountMatrix",
+      },
+    },
+  };
+}
+
 export function createPraxisApplicationRuntime(options: PraxisApplicationRuntimeOptions): PraxisApplicationRuntime {
   const now = options.now ?? defaultNow;
   const listeners = new Set<(event: PraxisApplicationEvent) => void>();
@@ -3088,8 +4184,12 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     cancelledAuxiliaryTasks: new Set(),
     conversationHistory: initialConversationHistoryMap(options.initialConversations),
     conversationSummaries: initialConversationSummaryMap(options.initialConversations),
+    conversationCheckpoints: new Map(),
     modelCacheDebugBySession: new Map(),
     lastProviderResponseBySession: new Map(),
+    lastRuntimeSnapshotBySession: new Map(),
+    officialAdapterEvidenceBySession: new Map(),
+    multiagentEvidenceBySession: new Map(),
     toolContextSelections: new Map(),
     toolContextUsage: new Map(),
     alwaysApprovedApprovalKeys: new Set(),
@@ -3143,8 +4243,179 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     }
   }
 
+  async function ensureFoundationSessionExists(input: {
+    name?: string;
+    source: string;
+  }): Promise<void> {
+    if (state.foundationProject === undefined) return;
+    const session = praxis.runtime.session.createPraxisSessionManager(state.foundationProject);
+    const current = await state.foundationProject.store.readSession(state.sessionId);
+    const name = input.name?.trim();
+    if (current !== undefined) {
+      if (name !== undefined && name.length > 0 && current.title !== name) {
+        await session.rename(state.sessionId, name, now());
+      }
+      return;
+    }
+    await session.create({
+      sessionId: state.sessionId,
+      title: name,
+      agentId: state.manifest?.identity.id ?? project.agentEntries.primary?.agentId,
+      now: now(),
+      metadata: { source: input.source },
+    });
+  }
+
+  async function persistTurnToFoundationConversation(input: {
+    turnId: string;
+    turnIndex: number;
+    userText: string;
+    messages: readonly ApplicationConversationMessage[];
+    summary?: ApplicationConversationSummary;
+  }): Promise<void> {
+    if (state.foundationProject === undefined) return;
+    await ensureFoundationSessionExists({ source: "application.submitTurn" });
+    const conversation = praxis.runtime.conversation.createPraxisConversationManager(state.foundationProject);
+    await conversation.createTurn({
+      sessionId: state.sessionId,
+      turnId: input.turnId,
+      turnIndex: input.turnIndex,
+      now: now(),
+      metadata: {
+        source: "application.submitTurn",
+        runtimeId: state.runtimeId,
+      },
+    });
+    const currentTurnMessages = input.messages.filter((message) => message.turnId === input.turnId);
+    const messages = currentTurnMessages.length === 0
+      ? [{
+        role: "user" as const,
+        text: input.userText,
+        turnId: input.turnId,
+        createdAt: now(),
+        messageId: `${input.turnId}.user`,
+        metadata: { source: "application.foundation.fallbackUser" },
+      }]
+      : currentTurnMessages;
+    for (const message of messages) {
+      await conversation.appendMessage({
+        sessionId: state.sessionId,
+        turnId: input.turnId,
+        role: foundationConversationRole(message.role),
+        text: message.text,
+        messageId: message.messageId,
+        artifactRefs: message.artifactRefs,
+        now: message.createdAt,
+        metadata: {
+          ...(message.metadata ?? {}),
+          source: message.metadata?.source ?? "application.conversationHistory",
+          applicationRole: message.role,
+          applicationMessageId: message.messageId,
+          causedBy: message.causedBy,
+          status: message.status,
+          runtimeId: state.runtimeId,
+        },
+      });
+    }
+    if (input.summary !== undefined) {
+      await conversation.writeSummary({
+        sessionId: state.sessionId,
+        text: input.summary.text,
+        source: "application",
+        compactedUntilTurnId: input.turnId,
+        now: input.summary.updatedAt,
+        metadata: {
+          source: input.summary.source,
+          compactedMessages: input.summary.compactedMessages,
+          runtimeId: state.runtimeId,
+        },
+      });
+    }
+  }
+
+  async function nextFoundationRewindSessionId(input: {
+    sourceSessionId: string;
+    turnId: string;
+  }): Promise<string> {
+    const source = safeSessionName(input.sourceSessionId);
+    const turn = safeSessionName(input.turnId);
+    const base = `${source}.rewind.${turn}.${safeSessionName(String(state.turns))}`;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const candidate = `${base}.${safeSessionName(String(state.events.length + attempt + 1))}`;
+      const existing = await state.foundationProject?.store.readSession(candidate);
+      if (existing === undefined) return candidate;
+    }
+    return `${base}.${safeSessionName(String(Date.now()))}`;
+  }
+
+  async function forkFoundationConversationForRewind(input: {
+    sourceSessionId: string;
+    checkpoint: ApplicationConversationCheckpoint;
+  }): Promise<{
+    sourceSessionId: string;
+    targetSessionId: string;
+    copiedMessageCount: number;
+  } | undefined> {
+    if (state.foundationProject === undefined) return undefined;
+    await ensureFoundationSessionExists({ source: "application.rewind" });
+    const sourceSession = await state.foundationProject.store.readSession(input.sourceSessionId);
+    if (sourceSession === undefined) {
+      throw new Error(`foundation source session was not found: ${input.sourceSessionId}`);
+    }
+    const targetSessionId = await nextFoundationRewindSessionId({
+      sourceSessionId: input.sourceSessionId,
+      turnId: input.checkpoint.turnId,
+    });
+    const sourceApplicationSession = state.sessions.get(input.sourceSessionId);
+    const sourceTitle = sourceApplicationSession?.name ?? sourceSession.title ?? input.sourceSessionId;
+    const session = praxis.runtime.session.createPraxisSessionManager(state.foundationProject);
+    const fork = await session.fork({
+      sourceSessionId: input.sourceSessionId,
+      fromTurnId: input.checkpoint.turnId,
+      sessionId: targetSessionId,
+      title: `${sourceTitle} rewind ${input.checkpoint.turnId}`,
+      agentId: state.manifest?.identity.id ?? sourceSession.agentId,
+      agentKey: sourceSession.activeAgentKey,
+      now: now(),
+      metadata: {
+        source: "application.rewind",
+        runtimeId: state.runtimeId,
+        applicationId,
+      },
+    });
+    const conversation = praxis.runtime.conversation.createPraxisConversationManager(state.foundationProject);
+    const copied = await conversation.forkMessages({
+      sourceSessionId: input.sourceSessionId,
+      targetSessionId: fork.sessionId,
+      untilTurnId: input.checkpoint.turnId,
+      now: now(),
+    });
+    return {
+      sourceSessionId: input.sourceSessionId,
+      targetSessionId: fork.sessionId,
+      copiedMessageCount: copied.length,
+    };
+  }
+
+  function syncApplicationSessionFromFoundation(session: PraxisSessionRecord): void {
+    const current = state.sessions.get(session.sessionId);
+    state.sessions.set(session.sessionId, {
+      sessionId: session.sessionId,
+      name: session.title ?? current?.name ?? session.sessionId.split(".").at(-1),
+      workspaceRoot: current?.workspaceRoot ?? state.cwd,
+      status: state.status,
+      lastActiveAt: session.updatedAt,
+      turns: current?.turns ?? state.turns,
+    });
+  }
+
   function commandSessionId(command: PraxisApplicationCommand): string | undefined {
-    return "sessionId" in command ? command.sessionId : undefined;
+    return "sessionId" in command ? normalizeSessionId(command.sessionId) : undefined;
+  }
+
+  function normalizeSessionId(sessionId: string | undefined): string | undefined {
+    const trimmed = sessionId?.trim();
+    return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
   }
 
   function publish(input: Omit<PraxisApplicationEvent, "publicSafe" | "createdAt"> & { createdAt?: string }): PraxisApplicationEvent {
@@ -3161,8 +4432,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
   }
 
   function applyCommandSession(sessionId: string | undefined): void {
-    if (typeof sessionId === "string" && sessionId.trim().length > 0) {
-      state.sessionId = sessionId.trim();
+    const normalizedSessionId = normalizeSessionId(sessionId);
+    if (normalizedSessionId !== undefined) {
+      state.sessionId = normalizedSessionId;
     }
     touchSession();
   }
@@ -3287,6 +4559,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       });
       void (async () => {
         let replyText = "";
+        const childRuntimeId = `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`;
         try {
           const compiled = await compileManifest("primary", { updateState: false });
           if (!compiled.ok) {
@@ -3297,15 +4570,15 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           if (state.mode === "live") {
             liveProvider = await options.liveProviderResolver?.(compiled.manifest, {
               sessionId: childSession.sessionId,
-              runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+              runtimeId: childRuntimeId,
               turnId: initialMessage.messageId,
             });
           }
           const runtime = praxis.runtime.createPraxisRuntimeKernel({
-            runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+            runtimeId: childRuntimeId,
           });
           const result = await runtime.runManifest(compiled.manifest, initialMessage.text, {
-            runtimeId: `${state.runtimeId}.multiagent.${safeSessionName(childSession.sessionId)}`,
+            runtimeId: childRuntimeId,
             sessionId: childSession.sessionId,
             dryRun: state.mode !== "live",
             allowProviderCall: state.mode === "live",
@@ -3382,6 +4655,8 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
               childDescription: childSession.description,
               childLifecycle: childSession.lifecycle,
               initialMessageId: initialMessage.messageId,
+              childRuntimeId,
+              childReplyText: replyText,
             },
           });
         }
@@ -4027,6 +5302,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       now,
     });
     applyRunResult(state, result);
+    rememberRuntimeSnapshotFromRun(state, result);
     rememberToolContextFromRun(state, result);
     if (result.ok && result.toolCalls.length > 0) {
       for (const toolCall of result.toolCalls) {
@@ -4040,6 +5316,18 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         }));
       }
     }
+    rememberOfficialAdapterEvidenceFromRun({
+      state,
+      result,
+      turnId,
+      turnEvents: state.events.slice(turnEventStartIndex),
+    });
+    rememberMultiagentEvidenceFromRun({
+      state,
+      result,
+      turnId,
+      turnEvents: state.events.slice(turnEventStartIndex),
+    });
     const turnLedgerMessages = applicationLedgerMessagesFromEvents({
       events: state.events.slice(turnEventStartIndex),
       turnId,
@@ -4080,6 +5368,24 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
     } else {
       state.conversationSummaries.delete(state.sessionId);
     }
+    const sessionCheckpoints = state.conversationCheckpoints.get(state.sessionId) ?? [];
+    state.conversationCheckpoints.set(state.sessionId, [
+      ...sessionCheckpoints.filter((checkpoint) => checkpoint.turnId !== turnId),
+      createConversationCheckpoint({
+        turnId,
+        turnIndex: state.turns,
+        createdAt: now(),
+        messages: compactedHistory.messages,
+        summary: compactedHistory.summary,
+      }),
+    ]);
+    await persistTurnToFoundationConversation({
+      turnId,
+      turnIndex: state.turns,
+      userText: command.input.text,
+      messages: compactedHistory.messages,
+      summary: compactedHistory.summary,
+    });
     const done = publish({
       eventId: `${turnId}.${result.ok ? "completed" : "failed"}`,
       kind: result.ok ? "final" : "error",
@@ -4093,11 +5399,12 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
       },
     });
     return result.ok
-      ? { ok: true, view: view(), events: [done], output: { text: result.finalOutput } }
+      ? { ok: true, view: view(), events: [done], runtimeSnapshot: result.state, output: { text: result.finalOutput } }
       : {
         ok: false,
         view: view(),
         events: [done],
+        runtimeSnapshot: result.state,
         output: { text: result.error.message },
         error: state.error ?? { code: "RUNTIME_FAILED", message: "runtime failed" },
       };
@@ -4135,6 +5442,7 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             return { ok: false, view: view(), events: [failed], error: state.error };
           }
           state.status = "ready";
+          await ensureFoundationSessionExists({ source: "application.start" });
           await safeRefreshAuthState();
           const ready = publish({
             eventId: "application.ready",
@@ -4166,6 +5474,225 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             },
           });
           return { ok: true, view: view(), events: [cancelled] };
+        }
+        case "application.inspectOfficialAdapters": {
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createOfficialAdapterReportOutput({
+              state,
+              query: command.query,
+              expectedCallOrder: command.expectedCallOrder,
+            }),
+          };
+        }
+        case "application.inspectOfficialAdapterMountMatrix": {
+          applyCommandSession(command.sessionId);
+          const compiled = await compileManifest("primary", { updateState: false });
+          if (!compiled.ok) {
+            const error = {
+              code: compiled.code,
+              message: compiled.message,
+            };
+            return { ok: false, view: view(), events: [], error };
+          }
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createOfficialAdapterMountMatrixOutput({
+              state,
+              manifest: compiled.manifest,
+              applicationMcpModule,
+              contextArtifactAdapters: options.contextArtifactAdapters,
+              baseToolAdapters: options.baseToolAdapters,
+            }),
+          };
+        }
+        case "application.inspectModelCalls": {
+          applyCommandSession(command.sessionId);
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createModelCallReportOutput({
+              state,
+              query: command.query,
+            }),
+          };
+        }
+        case "application.inspectGovernance": {
+          applyCommandSession(command.sessionId);
+          const snapshot = runtimeSnapshotForReport(state);
+          if (snapshot === undefined) {
+            const error = {
+              code: "APPLICATION_RUNTIME_SNAPSHOT_NOT_AVAILABLE",
+              message: `application runtime snapshot is not available for session ${state.sessionId}`,
+            };
+            return { ok: false, view: view(), events: [], error };
+          }
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createGovernanceReportOutput({
+              state,
+              query: command.query,
+              snapshot,
+            }),
+          };
+        }
+        case "application.inspectToolCalls": {
+          applyCommandSession(command.sessionId);
+          const snapshot = runtimeSnapshotForReport(state);
+          if (snapshot === undefined) {
+            const error = {
+              code: "APPLICATION_RUNTIME_SNAPSHOT_NOT_AVAILABLE",
+              message: `application runtime snapshot is not available for session ${state.sessionId}`,
+            };
+            return { ok: false, view: view(), events: [], error };
+          }
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createToolCallReportOutput({
+              state,
+              query: command.query,
+              snapshot,
+            }),
+          };
+        }
+        case "application.inspectTimeline": {
+          applyCommandSession(command.sessionId);
+          const snapshot = runtimeSnapshotForReport(state);
+          if (snapshot === undefined) {
+            const error = {
+              code: "APPLICATION_RUNTIME_SNAPSHOT_NOT_AVAILABLE",
+              message: `application runtime snapshot is not available for session ${state.sessionId}`,
+            };
+            return { ok: false, view: view(), events: [], error };
+          }
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createTimelineReportOutput({
+              state,
+              query: command.query,
+              replay: command.replay,
+              snapshot,
+            }),
+          };
+        }
+        case "application.inspectRollbackPlan": {
+          applyCommandSession(command.sessionId);
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createRollbackPlanOutput({
+              state,
+              checkpointTurnId: command.checkpointTurnId,
+              reason: command.reason,
+              contract: command.contract,
+              governance: command.governance,
+              trace: command.trace,
+            }),
+          };
+        }
+        case "application.inspectManagementPlane": {
+          applyCommandSession(command.sessionId);
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createManagementPlaneOutput({
+              state,
+              applicationId,
+              requestedScopes: command.requestedScopes,
+              allowedScopes: command.allowedScopes,
+            }),
+          };
+        }
+        case "application.inspectSessionReport": {
+          applyCommandSession(command.sessionId);
+          if (state.foundationProject === undefined) {
+            const error = {
+              code: "APPLICATION_FOUNDATION_PROJECT_NOT_MOUNTED",
+              message: `application foundation project is not mounted for session ${state.sessionId}`,
+            };
+            return { ok: false, view: view(), events: [], error };
+          }
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: await createSessionReportOutput({ state }),
+          };
+        }
+        case "application.inspectMultiagent": {
+          applyCommandSession(command.sessionId);
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: createMultiagentReportOutput({
+              state,
+              query: command.query,
+            }),
+          };
+        }
+        case "application.inspectMcpMountMatrix": {
+          applyCommandSession(command.sessionId);
+          const compiled = await compileManifest("primary", { updateState: false });
+          if (!compiled.ok) {
+            const error = {
+              code: compiled.code,
+              message: compiled.message,
+            };
+            return { ok: false, view: view(), events: [], error };
+          }
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: await createMcpMountMatrixOutput({
+              state,
+              manifest: compiled.manifest,
+              applicationMcpModule,
+              nativeToolInventoryByServerId: command.nativeToolInventoryByServerId,
+              mcpPlus: options.mcpPlus,
+              contextArtifactAdapters: options.contextArtifactAdapters,
+              baseToolAdapters: options.baseToolAdapters,
+            }),
+          };
+        }
+        case "application.inspectSandboxMountMatrix": {
+          applyCommandSession(command.sessionId);
+          const compiled = await compileManifest("primary", { updateState: false });
+          if (!compiled.ok) {
+            const error = {
+              code: compiled.code,
+              message: compiled.message,
+            };
+            return { ok: false, view: view(), events: [], error };
+          }
+          return {
+            ok: true,
+            view: view(),
+            events: [],
+            output: await createSandboxMountMatrixOutput({
+              state,
+              manifest: compiled.manifest,
+              sandboxProviderInjected: options.sandboxProvider !== undefined,
+              toolId: command.toolId,
+              command: command.command,
+              effectKinds: command.effectKinds,
+              sandboxHint: command.sandboxHint,
+            }),
+          };
         }
         case "application.switchWorkspace": {
           applyCommandSession(command.sessionId);
@@ -4236,6 +5763,16 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         case "application.resume": {
           applyCommandSession(command.sessionId);
           state.status = "ready";
+          if (state.foundationProject !== undefined) {
+            const session = praxis.runtime.session.createPraxisSessionManager(state.foundationProject);
+            const resumedSession = await session.resume(commandSessionId(command));
+            if (resumedSession === undefined) {
+              await ensureFoundationSessionExists({ source: "application.resume" });
+            } else {
+              state.sessionId = resumedSession.sessionId;
+              syncApplicationSessionFromFoundation(await session.setStatus(resumedSession.sessionId, "idle", now()));
+            }
+          }
           const resumed = publish({
             eventId: "application.resumed",
             kind: "lifecycle",
@@ -4250,6 +5787,9 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
           state.sessionId = createdSessionId;
           if (command.cwd) state.cwd = path.resolve(command.cwd);
           state.status = "ready";
+          if (!state.conversationCheckpoints.has(state.sessionId)) {
+            state.conversationCheckpoints.set(state.sessionId, []);
+          }
           state.sessions.set(state.sessionId, {
             sessionId: state.sessionId,
             name: command.name?.trim() || state.sessionId.split(".").at(-1),
@@ -4258,14 +5798,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
             lastActiveAt: now(),
             turns: state.turns,
           });
-          if (state.foundationProject !== undefined) {
-            await praxis.runtime.session.createPraxisSessionManager(state.foundationProject).create({
-              sessionId: state.sessionId,
-              title: command.name,
-              now: now(),
-              metadata: { source: "application.createSession" },
-            });
-          }
+          await ensureFoundationSessionExists({
+            name: command.name,
+            source: "application.createSession",
+          });
           await safeRefreshAuthState();
           const created = publish({
             eventId: "application.session.created",
@@ -4278,6 +5814,14 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         case "application.renameSession": {
           applyCommandSession(command.sessionId);
           const current = state.sessions.get(state.sessionId);
+          if (state.foundationProject !== undefined) {
+            await ensureFoundationSessionExists({ name: command.name, source: "application.renameSession" });
+            await praxis.runtime.session.createPraxisSessionManager(state.foundationProject).rename(
+              state.sessionId,
+              command.name,
+              now(),
+            );
+          }
           state.sessions.set(state.sessionId, {
             sessionId: state.sessionId,
             name: command.name.trim(),
@@ -4296,11 +5840,87 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         }
         case "application.rewind": {
           applyCommandSession(command.sessionId);
+          const sourceSessionId = state.sessionId;
+          const checkpoints = state.conversationCheckpoints.get(sourceSessionId) ?? [];
+          const selected = selectConversationCheckpoint({
+            checkpoints,
+            turnId: command.turnId,
+            turnIndex: command.turnIndex,
+          });
+          if (selected === undefined) {
+            state.status = "failed";
+            state.error = {
+              code: "APPLICATION_REWIND_TARGET_NOT_FOUND",
+              message: `application rewind target was not found: ${command.turnId ?? String(command.turnIndex ?? "latest")}`,
+            };
+            const failed = publish({
+              eventId: "application.rewind.failed",
+              kind: "error",
+              status: "failed",
+              message: state.error.message,
+              metadata: {
+                code: state.error.code,
+                requestedTurnId: command.turnId,
+                requestedTurnIndex: command.turnIndex,
+                checkpointCount: checkpoints.length,
+              },
+            });
+            return { ok: false, view: view(), events: [failed], error: state.error };
+          }
+          const historyMessagesBefore = state.conversationHistory.get(sourceSessionId)?.length ?? 0;
+          const removed = checkpoints.slice(selected.index + 1);
+          const restoredMessages = cloneConversationMessages(selected.checkpoint.messages);
+          const restoredSummary = cloneConversationSummary(selected.checkpoint.summary);
+          const foundationFork = await forkFoundationConversationForRewind({
+            sourceSessionId,
+            checkpoint: selected.checkpoint,
+          });
+          const targetSessionId = foundationFork?.targetSessionId ?? sourceSessionId;
+          if (foundationFork !== undefined) {
+            const sourceSession = state.sessions.get(sourceSessionId);
+            state.sessions.set(targetSessionId, {
+              sessionId: targetSessionId,
+              name: `${sourceSession?.name ?? sourceSessionId.split(".").at(-1)} rewind ${selected.checkpoint.turnId}`,
+              workspaceRoot: state.cwd,
+              status: "ready",
+              lastActiveAt: now(),
+              turns: state.turns,
+            });
+            state.sessionId = targetSessionId;
+          }
+          state.conversationHistory.set(targetSessionId, restoredMessages);
+          if (restoredSummary === undefined) {
+            state.conversationSummaries.delete(targetSessionId);
+          } else {
+            state.conversationSummaries.set(targetSessionId, restoredSummary);
+          }
+          state.conversationCheckpoints.set(targetSessionId, checkpoints.slice(0, selected.index + 1));
+          state.lastProviderResponseBySession.delete(targetSessionId);
+          state.modelCacheDebugBySession.delete(targetSessionId);
+          state.lastRuntimeSnapshotBySession.delete(targetSessionId);
+          state.officialAdapterEvidenceBySession.delete(targetSessionId);
+          state.status = "ready";
+          state.finalOutput = undefined;
+          state.error = undefined;
           const rewound = publish({
-            eventId: "application.rewind.planned",
+            eventId: "application.rewind.completed",
             kind: "runtime",
-            status: state.status,
-            message: command.turnId ?? String(command.turnIndex ?? "latest"),
+            status: "ready",
+            message: selected.checkpoint.turnId,
+            metadata: {
+              targetTurnId: selected.checkpoint.turnId,
+              targetTurnIndex: selected.checkpoint.turnIndex,
+              removedTurnIds: removed.map((checkpoint) => checkpoint.turnId),
+              historyMessagesBefore,
+              historyMessagesAfter: restoredMessages.length,
+              checkpointCountBefore: checkpoints.length,
+              checkpointCountAfter: selected.index + 1,
+              summaryRestored: restoredSummary !== undefined,
+              sourceSessionId,
+              targetSessionId,
+              foundationForked: foundationFork !== undefined,
+              foundationCopiedMessageCount: foundationFork?.copiedMessageCount,
+            },
           });
           return { ok: true, view: view(), events: [rewound] };
         }
@@ -4370,6 +5990,10 @@ export function createPraxisApplicationRuntime(options: PraxisApplicationRuntime
         case "application.close": {
           applyCommandSession(command.sessionId);
           state.status = "closed";
+          if (state.foundationProject !== undefined) {
+            await ensureFoundationSessionExists({ source: "application.close" });
+            await praxis.runtime.session.createPraxisSessionManager(state.foundationProject).close(state.sessionId, now());
+          }
           await state.foundationProject?.release();
           const closed = publish({
             eventId: "application.closed",

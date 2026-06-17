@@ -132,7 +132,10 @@ import {
   type WorkspaceRollbackFinalizeResult,
   type WorkspaceRollbackSnapshot,
 } from "./runtime.sandboxPlane/workspaceRollbackSandbox.js";
-import { invokeModelThroughRuntime } from "./runtime.modelAdapter/modelInvocationRuntime.js";
+import {
+  invokeModelThroughRuntime,
+  type RuntimeModelInvocationResult,
+} from "./runtime.modelAdapter/modelInvocationRuntime.js";
 import type {
   RuntimeAuthResolver,
   RuntimeAuthResolverRequest,
@@ -154,6 +157,7 @@ import {
   compileAgent,
   type AgentManifest,
   type BaseToolPolicyProfile,
+  type ModelEndpointSpec,
   type PraxisAgent,
   type PraxisAgentInput,
   type ToolSpec,
@@ -415,6 +419,7 @@ export type AgentToolCallRecord = {
   ok: boolean;
   output?: unknown;
   error?: unknown;
+  metadata?: Readonly<Record<string, unknown>>;
 };
 
 export type AgentToolCallProgressEvent =
@@ -440,6 +445,15 @@ export type AgentModelCallRecord = {
   cacheDebug?: AgentModelCacheDebugRecord;
   providerResponseId?: string;
   previousProviderResponseId?: string;
+  modelFleetEndpointRef?: string;
+  fallbackFrom?: string;
+  modelFleetAdaptiveSelection?: boolean;
+  modelFleetCapabilitySelection?: boolean;
+  modelFleetRequiredCapabilities?: readonly string[];
+  modelFleetRetryAttempt?: number;
+  modelFleetMaxRetries?: number;
+  modelFailureCode?: string;
+  modelFailureRetryable?: boolean;
 };
 
 export type AgentModelUsageRecord = {
@@ -482,6 +496,15 @@ export type AgentModelCallProgressEvent =
       cacheDebug?: AgentModelCacheDebugRecord;
       providerResponseId?: string;
       previousProviderResponseId?: string;
+      modelFleetEndpointRef?: string;
+      fallbackFrom?: string;
+      modelFleetAdaptiveSelection?: boolean;
+      modelFleetCapabilitySelection?: boolean;
+      modelFleetRequiredCapabilities?: readonly string[];
+      modelFleetRetryAttempt?: number;
+      modelFleetMaxRetries?: number;
+      modelFailureCode?: string;
+      modelFailureRetryable?: boolean;
       error?: PraxisRuntimeKernelError;
     };
 
@@ -643,6 +666,302 @@ function runtimeAuthSelectionForManifest(
     };
   }
   return selection;
+}
+
+function endpointShapeForModelEndpoint(endpoint: ModelEndpointSpec): string {
+  const metadataEndpointShape = endpoint.metadata?.endpointShape;
+  if (typeof metadataEndpointShape === "string" && metadataEndpointShape.trim().length > 0) return metadataEndpointShape.trim();
+  if (endpoint.endpointFamily === "chat_completions") return "chat_completions";
+  if (endpoint.endpointFamily === "messages") return "messages";
+  if (endpoint.protocolFamily === "custom") return "custom";
+  return endpoint.endpointFamily;
+}
+
+function manifestWithModelEndpoint(manifest: AgentManifest, endpoint: ModelEndpointSpec): AgentManifest {
+  const provider = endpoint.provider ?? manifest.model.provider;
+  const model = endpoint.model ?? manifest.model.model;
+  const endpointShape = endpointShapeForModelEndpoint(endpoint);
+  return {
+    ...manifest,
+    model: {
+      ...manifest.model,
+      provider,
+      model,
+      endpointShape,
+      carrierId: endpoint.carrierId ?? manifest.model.carrierId,
+      credentialRef: endpoint.credentialRef ?? manifest.model.credentialRef,
+      providerProfileRef: endpoint.providerProfileRef ?? manifest.model.providerProfileRef,
+      modelEntryRef: endpoint.modelEntryRef ?? manifest.model.modelEntryRef,
+      credentialRefId: endpoint.credentialRefId ?? manifest.model.credentialRefId,
+      baseURL: endpoint.baseURL ?? manifest.model.baseURL,
+      metadata: {
+        ...(manifest.model.metadata ?? {}),
+        ...(endpoint.metadata ?? {}),
+        modelFleetEndpointRef: endpoint.endpointId,
+      },
+    },
+  };
+}
+
+type ModelFleetCandidate = {
+  endpointRef: string;
+  endpoint: ModelEndpointSpec;
+  manifest: AgentManifest;
+  fallbackFrom?: string;
+  capabilitySelected?: boolean;
+};
+
+type ModelFleetRequiredCapability = keyof Pick<
+  NonNullable<ModelEndpointSpec["capabilityMatrix"]>,
+  "toolCalling" | "visionInput" | "imageGeneration" | "batch" | "realtime" | "streaming"
+>;
+
+function modelEndpointMatchesManifest(
+  endpoint: ModelEndpointSpec,
+  manifest: AgentManifest,
+  options: {
+    allowDifferentModel?: boolean;
+    allowDifferentCarrier?: boolean;
+    allowDifferentAuthRefs?: boolean;
+  } = {},
+): boolean {
+  const endpointShape = endpointShapeForModelEndpoint(endpoint);
+  return (endpoint.provider === undefined || endpoint.provider === manifest.model.provider) &&
+    (options.allowDifferentModel === true || endpoint.model === undefined || endpoint.model === manifest.model.model) &&
+    (options.allowDifferentCarrier === true || endpoint.carrierId === undefined || endpoint.carrierId === manifest.model.carrierId) &&
+    (options.allowDifferentAuthRefs === true || endpoint.providerProfileRef === undefined || endpoint.providerProfileRef === manifest.model.providerProfileRef) &&
+    (options.allowDifferentAuthRefs === true || endpoint.modelEntryRef === undefined || endpoint.modelEntryRef === manifest.model.modelEntryRef) &&
+    endpointShape === manifest.model.endpointShape;
+}
+
+function fallbackEndpointRefFor(
+  manifest: AgentManifest,
+  candidate: ModelFleetCandidate,
+): string | undefined {
+  if (candidate.endpoint.failurePolicy?.onUnavailable !== "fallback" &&
+      manifest.modelFleet.failurePolicy?.onUnavailable !== "fallback") {
+    return undefined;
+  }
+  const endpointFallback = candidate.endpoint.failurePolicy?.fallbackEndpointRef?.trim();
+  if (endpointFallback !== undefined && endpointFallback.length > 0) return endpointFallback;
+  const fleetFallback = manifest.modelFleet.failurePolicy?.fallbackEndpointRef?.trim();
+  return fleetFallback !== undefined && fleetFallback.length > 0 ? fleetFallback : undefined;
+}
+
+function modelFleetCandidateFromEndpoint(
+  manifest: AgentManifest,
+  endpointRef: string,
+  endpoint: ModelEndpointSpec,
+  fallbackFrom?: string,
+  options: { capabilitySelected?: boolean } = {},
+): ModelFleetCandidate {
+  return {
+    endpointRef,
+    endpoint,
+    manifest: manifestWithModelEndpoint(manifest, endpoint),
+    fallbackFrom,
+    capabilitySelected: options.capabilitySelected,
+  };
+}
+
+function endpointSupportsRequiredCapabilities(
+  endpoint: ModelEndpointSpec,
+  requiredCapabilities: readonly ModelFleetRequiredCapability[],
+): boolean {
+  return requiredCapabilities.every((capability) => endpoint.capabilityMatrix?.[capability] !== false);
+}
+
+function endpointDeclaresRequiredCapabilities(
+  endpoint: ModelEndpointSpec,
+  requiredCapabilities: readonly ModelFleetRequiredCapability[],
+): boolean {
+  return requiredCapabilities.every((capability) => endpoint.capabilityMatrix?.[capability] === true);
+}
+
+function capabilitySelectedModelFleetEndpoint(
+  manifest: AgentManifest,
+  currentRef: string | undefined,
+  currentEndpoint: ModelEndpointSpec | undefined,
+  requiredCapabilities: readonly ModelFleetRequiredCapability[],
+): readonly [string, ModelEndpointSpec] | undefined {
+  if (requiredCapabilities.length === 0 || currentEndpoint === undefined) return undefined;
+  if (endpointSupportsRequiredCapabilities(currentEndpoint, requiredCapabilities)) return undefined;
+  return Object.entries(manifest.modelFleet.endpoints)
+    .filter(([ref, endpoint]) => ref !== currentRef && modelEndpointMatchesManifest(endpoint, manifest, {
+      allowDifferentModel: true,
+      allowDifferentCarrier: true,
+      allowDifferentAuthRefs: true,
+    }))
+    .find(([, endpoint]) => endpointDeclaresRequiredCapabilities(endpoint, requiredCapabilities));
+}
+
+function initialModelFleetEndpoint(
+  manifest: AgentManifest,
+): readonly [string, ModelEndpointSpec] | undefined {
+  const primaryRef = manifest.modelFleet.primaryRef?.trim();
+  if (primaryRef !== undefined && primaryRef.length > 0) {
+    const primaryEndpoint = manifest.modelFleet.endpoints[primaryRef];
+    if (primaryEndpoint !== undefined) return [primaryRef, primaryEndpoint];
+  }
+  return Object.entries(manifest.modelFleet.endpoints)
+    .find(([, endpoint]) => modelEndpointMatchesManifest(endpoint, manifest));
+}
+
+function manifestModelEndpoint(manifest: AgentManifest, matchedEndpoint?: ModelEndpointSpec): ModelEndpointSpec {
+  return {
+    endpointId: "manifest.model",
+    endpoint: manifest.model.endpointShape === "messages"
+      ? "/v1/messages"
+      : manifest.model.endpointShape === "chat_completions"
+        ? "/v1/chat/completions"
+        : "/v1/responses",
+    endpointFamily: manifest.model.endpointShape === "messages"
+      ? "messages"
+      : manifest.model.endpointShape === "chat_completions"
+        ? "chat_completions"
+        : "responses",
+    protocolFamily: manifest.model.provider === "anthropic" || manifest.model.endpointShape === "messages"
+      ? "anthropic-messages"
+      : manifest.model.endpointShape === "chat_completions"
+        ? "openai-compatible"
+        : "openai-responses",
+    role: "reasoning",
+    provider: manifest.model.provider,
+    model: manifest.model.model,
+    carrierId: manifest.model.carrierId,
+    baseURL: manifest.model.baseURL,
+    credentialRef: manifest.model.credentialRef,
+    providerProfileRef: manifest.model.providerProfileRef,
+    modelEntryRef: manifest.model.modelEntryRef,
+    credentialRefId: manifest.model.credentialRefId,
+    failurePolicy: matchedEndpoint?.failurePolicy ?? manifest.modelFleet.failurePolicy,
+    metadata: manifest.model.metadata,
+  };
+}
+
+function initialModelFleetCandidate(
+  manifest: AgentManifest,
+  options: { requiredCapabilities?: readonly ModelFleetRequiredCapability[] } = {},
+): ModelFleetCandidate {
+  const initialEndpoint = initialModelFleetEndpoint(manifest);
+  let matchedEndpointRef = initialEndpoint?.[0];
+  let matchedEndpoint = initialEndpoint?.[1];
+  let capabilitySelected = false;
+  const capabilityEndpoint = capabilitySelectedModelFleetEndpoint(
+    manifest,
+    matchedEndpointRef,
+    matchedEndpoint,
+    options.requiredCapabilities ?? [],
+  );
+  if (capabilityEndpoint !== undefined) {
+    matchedEndpointRef = capabilityEndpoint[0];
+    matchedEndpoint = capabilityEndpoint[1];
+    capabilitySelected = true;
+  }
+  if (
+    matchedEndpointRef !== undefined &&
+    matchedEndpoint !== undefined &&
+    matchedEndpoint.probe?.status === "unavailable" &&
+    (matchedEndpoint.failurePolicy?.onUnavailable === "fallback" ||
+      manifest.modelFleet.failurePolicy?.onUnavailable === "fallback")
+  ) {
+    const fallbackRef = matchedEndpoint.failurePolicy?.fallbackEndpointRef?.trim() ||
+      manifest.modelFleet.failurePolicy?.fallbackEndpointRef?.trim();
+    const fallbackEndpoint = fallbackRef === undefined || fallbackRef.length === 0
+      ? undefined
+      : manifest.modelFleet.endpoints[fallbackRef];
+    if (fallbackRef !== undefined && fallbackRef.length > 0 && fallbackEndpoint !== undefined) {
+      return modelFleetCandidateFromEndpoint(manifest, fallbackRef, fallbackEndpoint, matchedEndpointRef);
+    }
+  }
+  if (matchedEndpointRef !== undefined && matchedEndpoint !== undefined) {
+    return modelFleetCandidateFromEndpoint(manifest, matchedEndpointRef, matchedEndpoint, undefined, { capabilitySelected });
+  }
+  return {
+    endpointRef: "manifest.model",
+    endpoint: manifestModelEndpoint(manifest),
+    manifest,
+  };
+}
+
+function nextModelFleetCandidate(
+  manifest: AgentManifest,
+  candidate: ModelFleetCandidate,
+  attemptedRefs: ReadonlySet<string>,
+): ModelFleetCandidate | undefined {
+  const fallbackRef = fallbackEndpointRefFor(manifest, candidate);
+  if (fallbackRef === undefined || attemptedRefs.has(fallbackRef)) return undefined;
+  const fallbackEndpoint = manifest.modelFleet.endpoints[fallbackRef];
+  if (fallbackEndpoint === undefined) return undefined;
+  return {
+    endpointRef: fallbackRef,
+    endpoint: fallbackEndpoint,
+    manifest: manifestWithModelEndpoint(manifest, fallbackEndpoint),
+    fallbackFrom: candidate.endpointRef,
+  };
+}
+
+function modelFleetRetryLimit(manifest: AgentManifest, candidate: ModelFleetCandidate): number {
+  const candidateRetries = candidate.endpoint.failurePolicy?.maxRetries;
+  const fleetRetries = manifest.modelFleet.failurePolicy?.maxRetries;
+  const configured = candidateRetries ?? fleetRetries ?? 0;
+  return Number.isFinite(configured) ? Math.max(0, Math.trunc(configured)) : 0;
+}
+
+function modelFleetFailurePolicyAllowsFallback(manifest: AgentManifest, candidate: ModelFleetCandidate): boolean {
+  return candidate.endpoint.failurePolicy?.onUnavailable === "fallback" ||
+    manifest.modelFleet.failurePolicy?.onUnavailable === "fallback";
+}
+
+function modelInvocationProviderError(result: RuntimeModelInvocationResult): Readonly<Record<string, unknown>> | undefined {
+  if (result.ok || !isRecord(result.providerResult)) return undefined;
+  const providerResult = result.providerResult as Readonly<Record<string, unknown>>;
+  const providerError = providerResult.error;
+  return isRecord(providerError) ? providerError : undefined;
+}
+
+function modelInvocationProviderErrorCode(result: RuntimeModelInvocationResult): string | undefined {
+  const providerError = modelInvocationProviderError(result);
+  const providerCode = providerError?.code;
+  if (typeof providerCode === "string" && providerCode.trim().length > 0) return providerCode.trim();
+  if (!result.ok && typeof result.error.code === "string" && result.error.code.trim().length > 0) return result.error.code.trim();
+  return undefined;
+}
+
+function modelInvocationProviderFailureIsRetryable(result: RuntimeModelInvocationResult): boolean {
+  if (result.ok || result.error.code !== "PROVIDER_INVOCATION_FAILED") return false;
+  const providerError = modelInvocationProviderError(result);
+  if (providerError?.retryable === true) return true;
+  const code = modelInvocationProviderErrorCode(result)?.toUpperCase();
+  return code === "PROVIDER_RATE_LIMITED" ||
+    code === "PROVIDER_TIMEOUT" ||
+    code === "PROVIDER_UNAVAILABLE" ||
+    code === "UPSTREAM_RATE_LIMITED" ||
+    code === "UPSTREAM_TIMEOUT" ||
+    code === "UPSTREAM_UNAVAILABLE";
+}
+
+function modelInvocationAttemptId(input: {
+  sessionId: string;
+  turn: number;
+  attemptIndex: number;
+  candidate: ModelFleetCandidate;
+  retryAttempt: number;
+}): string {
+  const base = `${input.sessionId}:model:${input.turn + 1}`;
+  if (input.attemptIndex === 0) return base;
+  const suffix = input.retryAttempt > 0
+    ? `${input.candidate.endpointRef}:retry:${input.retryAttempt}`
+    : input.candidate.endpointRef;
+  return `${base}:${suffix}`;
+}
+
+function modelFleetRequiredCapabilitiesForInvocation(input: {
+  providerToolBundle: ProviderToolDeclarationBundle;
+  exposeProviderTools?: boolean;
+}): readonly ModelFleetRequiredCapability[] {
+  if (input.exposeProviderTools === false) return [];
+  return input.providerToolBundle.tools.length > 0 ? ["toolCalling"] : [];
 }
 
 function event(
@@ -4852,6 +5171,25 @@ async function executeBaseToolDecision(input: {
       ? outputWithWorkspacePathMetadata(toolResult.toolResult.output, pathContract.metadata)
       : undefined,
     error: toolResult.ok ? (toolResult.toolResult.ok ? undefined : toolResult.toolResult.error) : toolResult.error,
+    metadata: metadataRecord({
+      ...(toolResult.ok ? toolResult.toolResult.metadata ?? {} : {}),
+      governance: {
+        status: governance.status,
+        risk: governance.risk,
+        policyProfile: governance.policyProfile,
+        policyMatrixId: governance.policyMatrixId,
+      },
+      policyAdjudication,
+      sandboxPlan,
+      dependencyRuntime: {
+        status: dependencyPreflight.status,
+        decision: dependencyPreflight.decision,
+        missingDependencies: dependencyPreflight.missingDependencies,
+        installableDependencies: dependencyPreflight.installableDependencies,
+      },
+      ...(workspaceRollback === undefined ? {} : { workspaceRollback }),
+      ...(workspaceRollbackDiff === undefined ? {} : { workspaceRollbackDiff }),
+    }),
   };
   const observation = createObservationMaterial({
     observationId: `${input.sessionId}:observation:${input.toolCallId}`,
@@ -5086,7 +5424,6 @@ export class PraxisRuntimeKernel {
     const sessionId = options.sessionId ?? sessionIdFor(runtimeId, manifest);
     const now = options.now ?? defaultNow;
     const events: string[] = [];
-    const authSelection = runtimeAuthSelectionForManifest(manifest, options.authSelection);
     const storageRuntimeResult = createStoragePlaneRuntime({
       cwd: options.storage?.cwd,
       raxHome: options.storage?.raxHome,
@@ -5382,7 +5719,7 @@ export class PraxisRuntimeKernel {
       toolMappings = providerToolMappings(manifest);
     }
     await refreshRuntimeMcpTools("session.checkpoint.start");
-    const providerFamily = providerToolSchemaFamilyForModel(manifest.model);
+    let providerFamily = providerToolSchemaFamilyForModel(manifest.model);
     let toolContextSelection: {
       families: string[];
       groups: string[];
@@ -5861,176 +6198,339 @@ export class PraxisRuntimeKernel {
       },
       invokeModel: async (turn, prompt) => {
       const stepBase = turn * 20 + 2;
-      const modelInvocationId = `${sessionId}:model:${turn + 1}`;
-      const promptCacheKey = stablePromptCacheKey(manifest, sessionId);
-      const promptSplit = splitPromptPackForProvider(prompt.promptPack);
-      const providerToolResultHistory = providerToolResultHistoryFromObservations(observations);
-      const toolResultInputs = providerToolResultHistory.results
-        .map((result) => lowerProviderToolResult({ providerFamily, result }));
-      const providerBodyCandidate = buildProviderBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle, prompt.providerToolBundle.mappings, {
+      const requiredCapabilities = modelFleetRequiredCapabilitiesForInvocation({
+        providerToolBundle: prompt.providerToolBundle,
         exposeProviderTools: options.exposeProviderTools,
-        observations,
-        previousProviderOutputItems: providerResponseOutputItems,
-        promptCacheKey,
       });
-      const candidateCacheDebug = buildPromptPackCacheDebug({
-        promptPack: prompt.promptPack,
-        providerBody: providerBodyCandidate,
-        promptCacheKey,
-        previousProviderOutputItems: providerResponseOutputItems,
-        toolResultInputs,
-        toolResultBudget: providerToolResultHistory.budget,
-        promptSplit,
-      });
-      const canUsePreviousProviderResponseId = providerResponseOutputItems.length === 0 && toolResultInputs.length === 0;
-      const previousProviderResponseId = canUsePreviousProviderResponseId &&
-        options.allowPreviousResponseId === true &&
-        manifest.model.endpointShape !== "chat_completions" &&
-        manifest.model.provider !== "anthropic" &&
-        previousProviderResponse !== undefined &&
-        previousProviderResponse.stablePrefixHash === candidateCacheDebug.providerBody.cacheShape.stablePrefixHash
-        ? previousProviderResponse.responseId
-        : undefined;
-      const providerBody = previousProviderResponseId === undefined
-        ? providerBodyCandidate
-        : buildProviderBodyFromPromptPack(manifest, prompt.promptPack, prompt.providerToolBundle, prompt.providerToolBundle.mappings, {
-          exposeProviderTools: options.exposeProviderTools,
-          observations,
-          previousProviderOutputItems: providerResponseOutputItems,
-          previousProviderResponseId,
-          promptCacheKey,
+      let candidate: ModelFleetCandidate | undefined = initialModelFleetCandidate(manifest, { requiredCapabilities });
+      const attemptedRefs = new Set<string>();
+      const retryAttemptsByRef = new Map<string, number>();
+      let attemptIndex = 0;
+      let lastFailure: {
+        modelInvocationId: string;
+        message: string;
+        events: readonly string[];
+      } | undefined;
+
+      while (candidate !== undefined) {
+        attemptedRefs.add(candidate.endpointRef);
+        const retryAttempt = retryAttemptsByRef.get(candidate.endpointRef) ?? 0;
+        const maxRetries = modelFleetRetryLimit(manifest, candidate);
+        const adaptiveSelection = attemptIndex === 0 && candidate.fallbackFrom !== undefined;
+        if (adaptiveSelection) {
+          events.push("runtime.modelFleet.adaptiveSelection.planned");
+        }
+        if (attemptIndex === 0 && candidate.capabilitySelected === true) {
+          events.push("runtime.modelFleet.capabilitySelection.planned");
+        }
+        const candidateManifest = candidate.manifest;
+        const candidateProviderFamily = providerToolSchemaFamilyForModel(candidateManifest.model);
+        const candidateProviderToolBundle = candidateManifest === manifest
+          ? prompt.providerToolBundle
+          : lowerPraxisToolsForProvider({
+            providerFamily: candidateProviderFamily,
+            manifest: candidateManifest,
+            mappings: toolMappings,
+            includeRuntimeDecisionTools: true,
+          });
+        const modelInvocationId = modelInvocationAttemptId({
+          sessionId,
+          turn,
+          attemptIndex,
+          candidate,
+          retryAttempt,
         });
-      const cacheDebug = previousProviderResponseId === undefined
-        ? candidateCacheDebug
-        : buildPromptPackCacheDebug({
+        const promptCacheKey = stablePromptCacheKey(candidateManifest, sessionId);
+        const promptSplit = splitPromptPackForProvider(prompt.promptPack);
+        const providerToolResultHistory = providerToolResultHistoryFromObservations(observations);
+        const toolResultInputs = providerToolResultHistory.results
+          .map((result) => lowerProviderToolResult({ providerFamily: candidateProviderFamily, result }));
+        const providerBodyCandidate = buildProviderBodyFromPromptPack(
+          candidateManifest,
+          prompt.promptPack,
+          candidateProviderToolBundle,
+          candidateProviderToolBundle.mappings,
+          {
+            exposeProviderTools: options.exposeProviderTools,
+            observations,
+            previousProviderOutputItems: providerResponseOutputItems,
+            promptCacheKey,
+          },
+        );
+        const candidateCacheDebug = buildPromptPackCacheDebug({
           promptPack: prompt.promptPack,
-          providerBody,
+          providerBody: providerBodyCandidate,
           promptCacheKey,
           previousProviderOutputItems: providerResponseOutputItems,
           toolResultInputs,
           toolResultBudget: providerToolResultHistory.budget,
           promptSplit,
         });
-      await options.onModelCallProgress?.({
-        phase: "started",
-        invocationId: modelInvocationId,
-        turnIndex: turn,
-        provider: manifest.model.provider,
-        carrierId: manifest.model.carrierId,
-        model: manifest.model.model,
-      });
-      const modelResult = await invokeModelThroughRuntime({
-        runtimeId,
-        invocationId: modelInvocationId,
-        caller: modelCaller,
-        loweredPrompt: prompt.loweredPrompt,
-        capability: modelInvocationCapabilityForModel(manifest.model),
-        carrier: {
-          carrierId: manifest.model.carrierId,
-          provider: manifest.model.provider,
-          endpointShape: manifest.model.endpointShape,
-          baseURL: manifest.model.baseURL,
-          metadata: manifest.model.metadata,
-        },
-        mode: "single",
-        dryRun,
-        allowProviderCall: options.allowProviderCall ?? manifest.harness.policy.allowProviderCall ?? !dryRun,
-        auth: options.auth,
-        runtimeAuthResolver: options.runtimeAuthResolver,
-        authSelection,
-        providerCaller: options.providerCaller,
-        modelClient: options.modelClient,
-        openaiResponsesCaller: options.openaiResponsesCaller,
-        openaiChatCompletionsCaller: options.openaiChatCompletionsCaller,
-        anthropicMessagesCaller: options.anthropicMessagesCaller,
-        geminiGenerateContentTransport: options.geminiGenerateContentTransport,
-        providerBody,
-        governance: { accepted: true },
-        contract: { accepted: true },
-        clientName: manifest.model.clientName,
-        clientVersion: manifest.model.clientVersion,
-        signal: options.interruptSignal,
-      });
-      const modelUsage = modelResult.ok && modelResult.usage
-        ? {
-          inputTokens: modelResult.usage.inputTokens,
-          outputTokens: modelResult.usage.outputTokens,
-          thinkingTokens: "reasoningTokens" in modelResult.usage ? modelResult.usage.reasoningTokens : undefined,
-          totalTokens: modelResult.usage.totalTokens,
-          cachedInputTokens: "cachedInputTokens" in modelResult.usage ? modelResult.usage.cachedInputTokens : undefined,
-          source: modelResult.usage.source,
-          estimated: modelResult.usage.estimated ?? false,
-        }
-        : undefined;
-      const providerRouting = modelResult.ok
-        ? providerRoutingDebug(providerResponseHeadersForKernel(modelResult.providerResult))
-        : undefined;
-      const providerResponseId = modelResult.ok ? extractOpenAIResponseId(modelResult.raw) : undefined;
-      const observedCacheDebug = cacheDebugWithPreviousComparison(
-        cacheDebugWithObservedUsage(cacheDebug, modelUsage),
-        previousModelCacheDebug,
-      );
-      previousModelCacheDebug = observedCacheDebug;
-      await options.onModelCallProgress?.({
-        phase: modelResult.ok ? "completed" : "failed",
-        invocationId: modelInvocationId,
-        turnIndex: turn,
-        provider: manifest.model.provider,
-        carrierId: manifest.model.carrierId,
-        model: manifest.model.model,
-        ok: modelResult.ok,
-        usage: modelUsage,
-        providerRouting,
-        cacheDebug: observedCacheDebug,
-        providerResponseId,
-        previousProviderResponseId,
-        error: modelResult.ok
-          ? undefined
-          : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model"),
-      });
-      events.push(...modelResult.events);
-      modelCalls.push({
-        invocationId: modelInvocationId,
-        raw: modelResult.ok ? modelResult.raw : null,
-        ok: modelResult.ok,
-        usage: modelUsage,
-        providerRouting,
-        cacheDebug: observedCacheDebug,
-        providerResponseId,
-        previousProviderResponseId,
-      });
-      await store.appendInvocation(invocation(sessionId, modelInvocationId, "model", manifest.model.carrierId, modelResult.ok, now(), {
-        turn,
-        promptPackId: prompt.promptPackId,
-        loweringId: prompt.loweredPrompt.loweringId,
-      }));
-      await recordMainLoopStep({
-        store,
-        sessionId,
-        createdAt: now(),
-        events,
-        mainLoopSteps,
-        step: createMainLoopStepRecord({
-          sessionId,
+        const canUsePreviousProviderResponseId = providerResponseOutputItems.length === 0 && toolResultInputs.length === 0;
+        const previousProviderResponseId = canUsePreviousProviderResponseId &&
+          options.allowPreviousResponseId === true &&
+          candidateManifest.model.endpointShape !== "chat_completions" &&
+          candidateManifest.model.provider !== "anthropic" &&
+          previousProviderResponse !== undefined &&
+          previousProviderResponse.stablePrefixHash === candidateCacheDebug.providerBody.cacheShape.stablePrefixHash
+          ? previousProviderResponse.responseId
+          : undefined;
+        const providerBody = previousProviderResponseId === undefined
+          ? providerBodyCandidate
+          : buildProviderBodyFromPromptPack(
+            candidateManifest,
+            prompt.promptPack,
+            candidateProviderToolBundle,
+            candidateProviderToolBundle.mappings,
+            {
+              exposeProviderTools: options.exposeProviderTools,
+              observations,
+              previousProviderOutputItems: providerResponseOutputItems,
+              previousProviderResponseId,
+              promptCacheKey,
+            },
+          );
+        const cacheDebug = previousProviderResponseId === undefined
+          ? candidateCacheDebug
+          : buildPromptPackCacheDebug({
+            promptPack: prompt.promptPack,
+            providerBody,
+            promptCacheKey,
+            previousProviderOutputItems: providerResponseOutputItems,
+            toolResultInputs,
+            toolResultBudget: providerToolResultHistory.budget,
+            promptSplit,
+          });
+        await options.onModelCallProgress?.({
+          phase: "started",
+          invocationId: modelInvocationId,
           turnIndex: turn,
-          stepIndex: stepBase + 4,
-          actionPrimitive: "invokeModel",
-          status: modelResult.ok ? "completed" : "failed",
-          inputRefs: [prompt.loweredPrompt.loweringId],
-          outputRefs: [modelInvocationId],
-          modelCallId: modelInvocationId,
-          promptPackRef: prompt.promptPackId,
-          loweredPromptRef: prompt.loweredPrompt.loweringId,
-          error: modelResult.ok ? undefined : {
-            code: modelResult.error.code,
-            message: modelResult.error.message,
-            boundary: "model",
-            publicSafe: true,
+          provider: candidateManifest.model.provider,
+          carrierId: candidateManifest.model.carrierId,
+          model: candidateManifest.model.model,
+        });
+        const modelResult = await invokeModelThroughRuntime({
+          runtimeId,
+          invocationId: modelInvocationId,
+          caller: modelCaller,
+          loweredPrompt: prompt.loweredPrompt,
+          capability: modelInvocationCapabilityForModel(candidateManifest.model),
+          carrier: {
+            carrierId: candidateManifest.model.carrierId,
+            provider: candidateManifest.model.provider,
+            endpointShape: candidateManifest.model.endpointShape,
+            baseURL: candidateManifest.model.baseURL,
+            model: candidateManifest.model.model,
+            metadata: candidateManifest.model.metadata,
           },
-          now: now(),
-          metadata: { turn },
-        }),
-      });
+          mode: "single",
+          dryRun,
+          allowProviderCall: options.allowProviderCall ?? candidateManifest.harness.policy.allowProviderCall ?? !dryRun,
+          auth: options.auth,
+          runtimeAuthResolver: options.runtimeAuthResolver,
+          authSelection: runtimeAuthSelectionForManifest(candidateManifest, options.authSelection),
+          providerCaller: options.providerCaller,
+          modelClient: options.modelClient,
+          openaiResponsesCaller: options.openaiResponsesCaller,
+          openaiChatCompletionsCaller: options.openaiChatCompletionsCaller,
+          anthropicMessagesCaller: options.anthropicMessagesCaller,
+          geminiGenerateContentTransport: options.geminiGenerateContentTransport,
+          providerBody,
+          governance: { accepted: true },
+          contract: { accepted: true },
+          clientName: candidateManifest.model.clientName,
+          clientVersion: candidateManifest.model.clientVersion,
+          signal: options.interruptSignal,
+        });
+        const modelUsage = modelResult.ok && modelResult.usage
+          ? {
+            inputTokens: modelResult.usage.inputTokens,
+            outputTokens: modelResult.usage.outputTokens,
+            thinkingTokens: "reasoningTokens" in modelResult.usage ? modelResult.usage.reasoningTokens : undefined,
+            totalTokens: modelResult.usage.totalTokens,
+            cachedInputTokens: "cachedInputTokens" in modelResult.usage ? modelResult.usage.cachedInputTokens : undefined,
+            source: modelResult.usage.source,
+            estimated: modelResult.usage.estimated ?? false,
+          }
+          : undefined;
+        const providerRouting = modelResult.ok
+          ? providerRoutingDebug(providerResponseHeadersForKernel(modelResult.providerResult))
+          : undefined;
+        const providerResponseId = modelResult.ok ? extractOpenAIResponseId(modelResult.raw) : undefined;
+        const modelFailureCode = modelInvocationProviderErrorCode(modelResult);
+        const retryableModelFailure = modelInvocationProviderFailureIsRetryable(modelResult);
+        const observedCacheDebug = cacheDebugWithPreviousComparison(
+          cacheDebugWithObservedUsage(cacheDebug, modelUsage),
+          previousModelCacheDebug,
+        );
+        previousModelCacheDebug = observedCacheDebug;
+        await options.onModelCallProgress?.({
+          phase: modelResult.ok ? "completed" : "failed",
+          invocationId: modelInvocationId,
+          turnIndex: turn,
+          provider: candidateManifest.model.provider,
+          carrierId: candidateManifest.model.carrierId,
+          model: candidateManifest.model.model,
+          ok: modelResult.ok,
+          usage: modelUsage,
+          providerRouting,
+          cacheDebug: observedCacheDebug,
+          providerResponseId,
+          previousProviderResponseId,
+          modelFleetEndpointRef: candidate.endpointRef,
+          fallbackFrom: candidate.fallbackFrom,
+          modelFleetAdaptiveSelection: adaptiveSelection,
+          modelFleetCapabilitySelection: candidate.capabilitySelected === true,
+          modelFleetRequiredCapabilities: requiredCapabilities,
+          modelFleetRetryAttempt: retryAttempt,
+          modelFleetMaxRetries: maxRetries,
+          modelFailureCode,
+          modelFailureRetryable: retryableModelFailure,
+          error: modelResult.ok
+            ? undefined
+            : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model"),
+        });
+        events.push(...modelResult.events);
+        events.push(modelResult.ok ? "runtime.modelFleet.candidate.completed" : "runtime.modelFleet.candidate.failed");
+        modelCalls.push({
+          invocationId: modelInvocationId,
+          raw: modelResult.ok ? modelResult.raw : null,
+          ok: modelResult.ok,
+          usage: modelUsage,
+          providerRouting,
+          cacheDebug: observedCacheDebug,
+          providerResponseId,
+          previousProviderResponseId,
+          modelFleetEndpointRef: candidate.endpointRef,
+          fallbackFrom: candidate.fallbackFrom,
+          modelFleetAdaptiveSelection: adaptiveSelection,
+          modelFleetCapabilitySelection: candidate.capabilitySelected === true,
+          modelFleetRequiredCapabilities: requiredCapabilities,
+          modelFleetRetryAttempt: retryAttempt,
+          modelFleetMaxRetries: maxRetries,
+          modelFailureCode,
+          modelFailureRetryable: retryableModelFailure,
+        });
+        await store.appendInvocation(invocation(sessionId, modelInvocationId, "model", candidateManifest.model.carrierId, modelResult.ok, now(), {
+          turn,
+          promptPackId: prompt.promptPackId,
+          loweringId: prompt.loweredPrompt.loweringId,
+          modelFleetEndpointRef: candidate.endpointRef,
+          fallbackFrom: candidate.fallbackFrom,
+          modelFleetAdaptiveSelection: adaptiveSelection,
+          modelFleetCapabilitySelection: candidate.capabilitySelected === true,
+          modelFleetRequiredCapabilities: requiredCapabilities,
+          modelFleetRetryAttempt: retryAttempt,
+          modelFleetMaxRetries: maxRetries,
+          ...(modelFailureCode === undefined ? {} : { modelFailureCode }),
+          modelFailureRetryable: retryableModelFailure,
+        }));
+        await recordMainLoopStep({
+          store,
+          sessionId,
+          createdAt: now(),
+          events,
+          mainLoopSteps,
+          step: createMainLoopStepRecord({
+            sessionId,
+            turnIndex: turn,
+            stepIndex: stepBase + 4 + attemptIndex,
+            actionPrimitive: "invokeModel",
+            status: modelResult.ok ? "completed" : "failed",
+            inputRefs: [prompt.loweredPrompt.loweringId],
+            outputRefs: [modelInvocationId],
+            modelCallId: modelInvocationId,
+            promptPackRef: prompt.promptPackId,
+            loweredPromptRef: prompt.loweredPrompt.loweringId,
+            error: modelResult.ok ? undefined : {
+              code: modelResult.error.code,
+              message: modelResult.error.message,
+              boundary: "model",
+              publicSafe: true,
+            },
+            now: now(),
+            metadata: {
+              turn,
+              modelFleetEndpointRef: candidate.endpointRef,
+              fallbackFrom: candidate.fallbackFrom,
+              modelFleetAdaptiveSelection: adaptiveSelection,
+              modelFleetCapabilitySelection: candidate.capabilitySelected === true,
+              modelFleetRequiredCapabilities: requiredCapabilities,
+              modelFleetRetryAttempt: retryAttempt,
+              modelFleetMaxRetries: maxRetries,
+              ...(modelFailureCode === undefined ? {} : { modelFailureCode }),
+              modelFailureRetryable: retryableModelFailure,
+            },
+          }),
+        });
+
+        if (modelResult.ok) {
+          providerFamily = candidateProviderFamily;
+          providerResponseOutputItems.push(...extractProviderOutputItems(modelResult.raw, candidateProviderFamily));
+          if (providerResponseId !== undefined) {
+            previousProviderResponse = {
+              responseId: providerResponseId,
+              stablePrefixHash: observedCacheDebug.providerBody.cacheShape.stablePrefixHash,
+            };
+          }
+          await recordHandoffPlan({
+            store,
+            sessionId,
+            createdAt: now(),
+            events,
+            mainLoopSteps,
+            turnIndex: turn,
+            startStepIndex: stepBase + 20,
+            tickKind: "model-only",
+            promptPackRef: prompt.promptPackId,
+            loweredPromptRef: prompt.loweredPrompt.loweringId,
+            modelCallId: modelInvocationId,
+            inputRefs: [prompt.promptPackId, prompt.loweredPrompt.loweringId],
+            outputRefs: [modelInvocationId],
+          });
+          return {
+            ok: true,
+            modelCallId: modelInvocationId,
+            raw: modelResult.raw,
+            usage: modelUsage === undefined
+              ? undefined
+              : {
+                inputTokens: modelUsage.inputTokens,
+                outputTokens: modelUsage.outputTokens,
+                totalTokens: modelUsage.totalTokens,
+                providerRaw: modelResult.usage,
+              },
+            events: modelResult.events,
+          };
+        }
+
+        lastFailure = {
+          modelInvocationId,
+          message: modelResult.error.message,
+          events: modelResult.events,
+        };
+        if (options.interruptSignal?.aborted === true) break;
+        if (retryableModelFailure && retryAttempt < maxRetries) {
+          retryAttemptsByRef.set(candidate.endpointRef, retryAttempt + 1);
+          events.push("runtime.modelFleet.retry.planned");
+          attemptIndex += 1;
+          continue;
+        }
+        if (!retryableModelFailure || !modelFleetFailurePolicyAllowsFallback(manifest, candidate)) break;
+        const fallbackCandidate = nextModelFleetCandidate(manifest, candidate, attemptedRefs);
+        if (fallbackCandidate === undefined) break;
+        events.push("runtime.modelFleet.fallback.planned");
+        candidate = fallbackCandidate;
+        attemptIndex += 1;
+      }
+
+      const failedInvocationId = lastFailure?.modelInvocationId ?? `${sessionId}:model:${turn + 1}`;
+      const failedMessage = lastFailure?.message ?? "model invocation failed before a provider candidate could be selected";
+      const interrupted = options.interruptSignal?.aborted === true;
+      const error = interrupted
+        ? kernelError("MAIN_LOOP_INTERRUPTED", failedMessage, "runtime-state")
+        : kernelError("MODEL_INVOCATION_FAILED", failedMessage, "model");
+      runnerError = error;
       await recordHandoffPlan({
         store,
         sessionId,
@@ -6039,55 +6539,30 @@ export class PraxisRuntimeKernel {
         mainLoopSteps,
         turnIndex: turn,
         startStepIndex: stepBase + 20,
-        tickKind: "model-only",
+        tickKind: "failure",
         promptPackRef: prompt.promptPackId,
         loweredPromptRef: prompt.loweredPrompt.loweringId,
-        modelCallId: modelInvocationId,
+        modelCallId: failedInvocationId,
         inputRefs: [prompt.promptPackId, prompt.loweredPrompt.loweringId],
-        outputRefs: [modelInvocationId],
+        outputRefs: [failedInvocationId],
+        error: {
+          code: error.code,
+          message: error.message,
+          boundary: "model",
+          publicSafe: true,
+        },
       });
-
-      if (!modelResult.ok) {
-        const interrupted = options.interruptSignal?.aborted === true;
-        const error = interrupted
-          ? kernelError("MAIN_LOOP_INTERRUPTED", modelResult.error.message, "runtime-state")
-          : kernelError("MODEL_INVOCATION_FAILED", modelResult.error.message, "model");
-        runnerError = error;
-        await recordKernelError({ store, sessionId, errorId: `error:model:${turn + 1}`, error, createdAt: now(), metadata: { modelInvocationId } });
-        return {
-          ok: false,
-          modelCallId: modelInvocationId,
-          error: {
-            code: error.code,
-            message: error.message,
-            boundary: "model",
-            publicSafe: true,
-          },
-          events: modelResult.events,
-        };
-      }
-
-      providerResponseOutputItems.push(...extractProviderOutputItems(modelResult.raw, providerFamily));
-      if (providerResponseId !== undefined) {
-        previousProviderResponse = {
-          responseId: providerResponseId,
-          stablePrefixHash: observedCacheDebug.providerBody.cacheShape.stablePrefixHash,
-        };
-      }
-
+      await recordKernelError({ store, sessionId, errorId: `error:model:${turn + 1}`, error, createdAt: now(), metadata: { modelInvocationId: failedInvocationId } });
       return {
-        ok: true,
-        modelCallId: modelInvocationId,
-        raw: modelResult.raw,
-        usage: modelUsage === undefined
-          ? undefined
-          : {
-            inputTokens: modelUsage.inputTokens,
-            outputTokens: modelUsage.outputTokens,
-            totalTokens: modelUsage.totalTokens,
-            providerRaw: modelResult.usage,
-          },
-        events: modelResult.events,
+        ok: false,
+        modelCallId: failedInvocationId,
+        error: {
+          code: error.code,
+          message: error.message,
+          boundary: "model",
+          publicSafe: true,
+        },
+        events: lastFailure?.events ?? [],
       };
       },
       interpretDecision: async (turn, model, prompt) => {

@@ -472,6 +472,7 @@ async function runCommand(
       ...resolvedCwd.metadata,
       sandbox: result.plan,
       rollback: result.rollback,
+      workspaceRollbackDiff: result.rollback,
     });
   }
   return new Promise((resolve) => {

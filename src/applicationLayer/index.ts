@@ -5,6 +5,7 @@
 
 export type {
   PraxisApplicationAttachment,
+  PraxisApplicationApprovalSummary,
   PraxisApplicationAgentEntryView,
   PraxisApplicationAuxiliaryTaskInput,
   PraxisApplicationAuthProfileView,
@@ -14,14 +15,27 @@ export type {
   PraxisApplicationContextTelemetry,
   PraxisApplicationEvent,
   PraxisApplicationEventKind,
+  PraxisApplicationGovernanceReportOutput,
   PraxisApplicationInputEnvelope,
   PraxisApplicationManifestView,
+  PraxisApplicationManagementPlaneOutput,
   PraxisApplicationModelState,
+  PraxisApplicationMcpMountMatrixOutput,
+  PraxisApplicationOfficialAdapterMountMatrixOutput,
+  PraxisApplicationModelCallReportOutput,
+  PraxisApplicationMultiagentReportOutput,
+  PraxisApplicationOfficialAdapterReportOutput,
   PraxisApplicationPermissionProfile,
   PraxisApplicationReasoningEffort,
+  PraxisApplicationRollbackPlanOutput,
   PraxisApplicationRuntime,
   PraxisApplicationRuntimeMode,
+  PraxisApplicationSandboxMountMatrixOutput,
+  PraxisApplicationSessionReportOutput,
   PraxisApplicationStatus,
+  PraxisApplicationTimelineReportOutput,
+  PraxisApplicationTimelineReplayInput,
+  PraxisApplicationToolCallReportOutput,
   PraxisApplicationToolCatalogState,
   PraxisApplicationToolProfile,
   PraxisApplicationUsageTelemetry,
@@ -48,6 +62,12 @@ export {
 
 export type {
   McpApplicationServerInput,
+  McpRuntimeMountMatrix,
+  McpRuntimeMountMatrixBaseTool,
+  McpRuntimeMountMatrixCompletionOperation,
+  McpRuntimeMountMatrixPromptOperation,
+  McpRuntimeMountMatrixResourceOperation,
+  McpRuntimeMountMatrixServer,
   McpPlusLearnedProfile,
   McpPlusApplicationServerInput,
   McpPlusOverlayStore,
@@ -56,15 +76,30 @@ export type {
   McpPlusRuntimeOverlay,
   McpPlusSkillNote,
   McpPlusSkillStore,
+  InspectMcpRuntimeMountMatrixInput,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
 
 export {
+  inspectMcpRuntimeMountMatrix,
   createFileMcpPlusProfileStore,
   createFileMcpPlusSkillStore,
   createInMemoryMcpPlusOverlayStore,
   createInMemoryMcpPlusProfileStore,
   createInMemoryMcpPlusSkillStore,
 } from "../runtimeImplementation/runtime.mcpPlane/index.js";
+
+export type {
+  InspectSandboxRuntimeMountMatrixInput,
+  SandboxMountMatrixCommandPreview,
+  SandboxMountMatrixIsolationEvidence,
+  SandboxMountMatrixProviderEvidence,
+  SandboxMountMatrixStatus,
+  SandboxRuntimeMountMatrix,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxMountMatrix.js";
+
+export {
+  inspectSandboxRuntimeMountMatrix,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxMountMatrix.js";
 
 export {
   createApplicationRestServer,

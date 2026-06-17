@@ -12,6 +12,7 @@ import type {
   ExecutionMonitorFinding,
   ExecutionMonitorHealthGrade,
   ExecutionMonitorModelCallReport,
+  ExecutionMonitorModelFleetSummary,
   ExecutionMonitorProjectReport,
   ExecutionMonitorPromptPackSummary,
   ExecutionMonitorReport,
@@ -53,6 +54,14 @@ function asNumber(value: unknown): number | undefined {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function asBoolean(value: unknown): boolean {
+  return value === true;
+}
+
+function asStringArray(value: unknown): readonly string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
 }
 
 function mergeThresholds(input: Partial<ExecutionMonitorThresholds> | undefined): ExecutionMonitorThresholds {
@@ -188,9 +197,43 @@ function summarizeCacheShape(cacheDebug: AgentModelCacheDebugRecord): ExecutionM
   };
 }
 
+function modelFleetSummary(metadata: Record<string, unknown>): ExecutionMonitorModelFleetSummary | undefined {
+  const endpointRef = asString(metadata.modelFleetEndpointRef);
+  const fallbackFrom = asString(metadata.fallbackFrom);
+  const requiredCapabilities = asStringArray(metadata.modelFleetRequiredCapabilities);
+  const retryAttempt = asNumber(metadata.modelFleetRetryAttempt);
+  const maxRetries = asNumber(metadata.modelFleetMaxRetries);
+  const failureCode = asString(metadata.modelFailureCode);
+  const adaptiveSelection = asBoolean(metadata.modelFleetAdaptiveSelection);
+  const capabilitySelection = asBoolean(metadata.modelFleetCapabilitySelection);
+  const failureRetryable = asBoolean(metadata.modelFailureRetryable);
+  const hasModelFleetEvidence = endpointRef !== undefined ||
+    fallbackFrom !== undefined ||
+    requiredCapabilities.length > 0 ||
+    retryAttempt !== undefined ||
+    maxRetries !== undefined ||
+    failureCode !== undefined ||
+    adaptiveSelection ||
+    capabilitySelection ||
+    failureRetryable;
+  if (!hasModelFleetEvidence) return undefined;
+  return {
+    endpointRef,
+    fallbackFrom,
+    adaptiveSelection,
+    capabilitySelection,
+    requiredCapabilities,
+    retryAttempt,
+    maxRetries,
+    failureCode,
+    failureRetryable,
+  };
+}
+
 function modelFindings(input: {
   event: PraxisApplicationEvent;
   metadata: Record<string, unknown>;
+  modelFleet?: ExecutionMonitorModelFleetSummary;
   cacheDebug?: AgentModelCacheDebugRecord;
   usage: ExecutionMonitorUsageTotals;
   cacheShape?: ExecutionMonitorCacheShapeSummary;
@@ -199,6 +242,7 @@ function modelFindings(input: {
 }): ExecutionMonitorFinding[] {
   const findings: ExecutionMonitorFinding[] = [];
   const cacheDebug = input.cacheDebug;
+  const modelFleet = input.modelFleet;
   if (input.metadata.modelPhase === "failed") {
     findings.push(finding({
       id: "model.call.failed",
@@ -208,6 +252,52 @@ function modelFindings(input: {
       detail: input.event.message,
       pointers: [input.pointer],
       recommendation: "Inspect provider routing, auth, and request compatibility before judging cache behavior.",
+    }));
+    if (modelFleet?.failureRetryable === true) {
+      findings.push(finding({
+        id: "model.fleet.retryable-failure",
+        severity: "warn",
+        targetPlane: "provider",
+        title: "Retryable modelFleet provider failure",
+        detail: "The provider failure is retryable according to runtime modelFleet policy.",
+        evidence: [
+          `endpointRef=${modelFleet.endpointRef ?? "unknown"}`,
+          `retryAttempt=${modelFleet.retryAttempt ?? 0}`,
+          `maxRetries=${modelFleet.maxRetries ?? 0}`,
+          `failureCode=${modelFleet.failureCode ?? "unknown"}`,
+        ],
+        pointers: [input.pointer],
+        recommendation: "Track retry budget consumption and fallback behavior before escalating the provider route.",
+      }));
+    } else if (modelFleet !== undefined) {
+      findings.push(finding({
+        id: "model.fleet.non-retryable-failure",
+        severity: "error",
+        targetPlane: "provider",
+        title: "Non-retryable modelFleet provider failure",
+        detail: "The provider failure is not considered retryable by runtime modelFleet policy.",
+        evidence: [
+          `endpointRef=${modelFleet.endpointRef ?? "unknown"}`,
+          `failureCode=${modelFleet.failureCode ?? "unknown"}`,
+        ],
+        pointers: [input.pointer],
+        recommendation: "Inspect request compatibility, auth, or policy before expecting fallback to hide this failure.",
+      }));
+    }
+  }
+  if (modelFleet?.fallbackFrom !== undefined) {
+    findings.push(finding({
+      id: "model.fleet.fallback-selected",
+      severity: "info",
+      targetPlane: "provider",
+      title: "modelFleet fallback selected",
+      detail: "Runtime selected a fallback modelFleet endpoint for this model call.",
+      evidence: [
+        `fallbackFrom=${modelFleet.fallbackFrom}`,
+        `endpointRef=${modelFleet.endpointRef ?? "unknown"}`,
+      ],
+      pointers: [input.pointer],
+      recommendation: "Keep fallback evidence attached to timeline/debug output so upper harnesses can explain provider replacement.",
     }));
   }
   if (cacheDebug === undefined) {
@@ -366,6 +456,7 @@ function modelCallFromEvent(event: PraxisApplicationEvent, thresholds: Execution
   };
   const usage = modelCallUsage(metadata, cacheDebug);
   const cacheShape = cacheDebug === undefined ? undefined : summarizeCacheShape(cacheDebug);
+  const modelFleet = modelFleetSummary(metadata);
   return {
     invocationId: asString(metadata.invocationId) ?? event.eventId,
     eventId: event.eventId,
@@ -388,8 +479,9 @@ function modelCallFromEvent(event: PraxisApplicationEvent, thresholds: Execution
       reusedPreviousResponse: asString(metadata.previousProviderResponseId) !== undefined || (cacheDebug?.providerBody.previousProviderOutputItems ?? 0) > 0,
       reusePointerAvailable: asString(metadata.providerResponseId) !== undefined,
     },
+    modelFleet,
     source: pointer,
-    findings: modelFindings({ event, metadata, cacheDebug, usage, cacheShape, thresholds, pointer }),
+    findings: modelFindings({ event, metadata, modelFleet, cacheDebug, usage, cacheShape, thresholds, pointer }),
   };
 }
 

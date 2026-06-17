@@ -171,6 +171,7 @@ test("executor shell.run goes through workspace rollback and restores failed wri
   assert.equal(await readFile(target, "utf8"), "before\n");
   assert.equal(result?.metadata?.sandbox !== undefined, true);
   assert.equal((result?.metadata?.sandbox as { providerFamily?: string } | undefined)?.providerFamily, "workspace-rollback");
+  assert.equal((result?.metadata?.workspaceRollbackDiff as { restored?: boolean } | undefined)?.restored, true);
 });
 
 test("executor rejects sandboxed command cwd outside allowed roots before planning", async () => {

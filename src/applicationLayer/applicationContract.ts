@@ -6,6 +6,70 @@
 
 import type { BaseToolProfileName } from "../basetool/types.js";
 import type { McpApplicationStateView } from "../runtimeImplementation/runtime.mcpPlane/index.js";
+import type {
+  InspectMcpRuntimeMountMatrixInput,
+  McpRuntimeMountMatrix,
+} from "../runtimeImplementation/runtime.mcpPlane/index.js";
+import type {
+  InspectSandboxRuntimeMountMatrixInput,
+  SandboxRuntimeMountMatrix,
+} from "../runtimeImplementation/runtime.sandboxPlane/sandboxMountMatrix.js";
+import type {
+  RuntimeOfficialAdapterIndex,
+  RuntimeOfficialAdapterMountMatrix,
+  RuntimeOfficialAdapterQuery,
+  RuntimeOfficialAdapterQueryResult,
+  RuntimeOfficialAdapterReport,
+} from "../runtimeImplementation/runtime.officialAdapterPlane/index.js";
+import type {
+  RuntimeModelCallIndex,
+  RuntimeModelCallQuery,
+  RuntimeModelCallQueryResult,
+  RuntimeModelCallReport,
+} from "../runtimeImplementation/runtime.modelCallPlane/index.js";
+import type {
+  RuntimeGovernanceIndex,
+  RuntimeGovernanceQuery,
+  RuntimeGovernanceQueryResult,
+  RuntimeGovernanceReport,
+} from "../runtimeImplementation/runtime.governancePlane/index.js";
+import type {
+  RuntimeToolCallIndex,
+  RuntimeToolCallQuery,
+  RuntimeToolCallQueryResult,
+  RuntimeToolCallReport,
+} from "../runtimeImplementation/runtime.toolCallPlane/index.js";
+import type {
+  RuntimeManagementPlaneResult,
+  RuntimeManagementSurface,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeManagementPlane.js";
+import type { RuntimeAccessSessionResult } from "../runtimeImplementation/runtime.managementPlane/runtimeAccessSession.js";
+import type { RuntimeOperatorConsoleResult } from "../runtimeImplementation/runtime.managementPlane/runtimeOperatorConsole.js";
+import type { ManagementPolicyGateResult } from "../runtimeImplementation/runtime.managementPlane/managementPolicyGate.js";
+import type { ManagementCommandRouterResult } from "../runtimeImplementation/runtime.managementPlane/managementCommandRouter.js";
+import type { RuntimeResourceGovernorResult } from "../runtimeImplementation/runtime.managementPlane/runtimeResourceGovernor.js";
+import type { RuntimeMutationPlannerResult } from "../runtimeImplementation/runtime.managementPlane/runtimeMutationPlanner.js";
+import type { RuntimeGovernanceBridgeResult } from "../runtimeImplementation/runtime.managementPlane/runtimeGovernanceBridge.js";
+import type {
+  RuntimeRollbackRequest,
+  RuntimeRollbackResult,
+  RuntimeRollbackTrace,
+} from "../runtimeImplementation/runtime.managementPlane/runtimeRollbackController.js";
+import type {
+  RuntimeTimelineIndex,
+  RuntimeTimelineQuery,
+  RuntimeTimelineQueryResult,
+  RuntimeTimelineReplayPlan,
+  RuntimeTimelineReport,
+} from "../runtimeImplementation/runtime.timelinePlane/index.js";
+import type { RuntimeSessionReport } from "../runtimeImplementation/runtime.sessionPlane/index.js";
+import type {
+  RuntimeMultiagentIndex,
+  RuntimeMultiagentQuery,
+  RuntimeMultiagentQueryResult,
+  RuntimeMultiagentReport,
+} from "../runtimeImplementation/runtime.multiagentPlane/index.js";
+import type { RuntimeSessionSnapshot } from "../runtimeImplementation/runtimeSessionStateEventStore.js";
 
 export type PraxisApplicationRuntimeMode = "dry-run" | "live";
 
@@ -259,6 +323,137 @@ export type PraxisApplicationAuxiliaryTaskInput = {
   reasoningEffort?: PraxisApplicationReasoningEffort;
 };
 
+export type PraxisApplicationOfficialAdapterReportOutput = {
+  kind: "praxis.application.officialAdapterReport";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  report: RuntimeOfficialAdapterReport;
+  index: RuntimeOfficialAdapterIndex;
+  query: RuntimeOfficialAdapterQueryResult;
+};
+
+export type PraxisApplicationOfficialAdapterMountMatrixOutput = {
+  kind: "praxis.application.officialAdapterMountMatrix";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  matrix: RuntimeOfficialAdapterMountMatrix;
+};
+
+export type PraxisApplicationModelCallReportOutput = {
+  kind: "praxis.application.modelCallReport";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  report: RuntimeModelCallReport;
+  index: RuntimeModelCallIndex;
+  query: RuntimeModelCallQueryResult;
+};
+
+export type PraxisApplicationGovernanceReportOutput = {
+  kind: "praxis.application.governanceReport";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  report: RuntimeGovernanceReport;
+  index: RuntimeGovernanceIndex;
+  query: RuntimeGovernanceQueryResult;
+};
+
+export type PraxisApplicationToolCallReportOutput = {
+  kind: "praxis.application.toolCallReport";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  report: RuntimeToolCallReport;
+  index: RuntimeToolCallIndex;
+  query: RuntimeToolCallQueryResult;
+};
+
+export type PraxisApplicationTimelineReplayInput = {
+  checkpointTurnId?: string;
+  targetSessionId?: string;
+};
+
+export type PraxisApplicationTimelineReportOutput = {
+  kind: "praxis.application.timelineReport";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  report: RuntimeTimelineReport;
+  index: RuntimeTimelineIndex;
+  query: RuntimeTimelineQueryResult;
+  replayPlan: RuntimeTimelineReplayPlan;
+};
+
+export type PraxisApplicationRollbackPlanOutput = {
+  kind: "praxis.application.rollbackPlan";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  checkpointTurnId: string | undefined;
+  currentRevision: number;
+  allowedCheckpointIds: readonly string[];
+  result: RuntimeRollbackResult;
+};
+
+export type PraxisApplicationManagementPlaneOutput = {
+  kind: "praxis.application.managementPlane";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  result: RuntimeManagementPlaneResult;
+  componentSummary: {
+    totalComponents: number;
+    readyComponents: number;
+    surfaces: readonly RuntimeManagementSurface[];
+    readyComponentIds: readonly string[];
+  };
+  accessSession: RuntimeAccessSessionResult;
+  operatorConsole: RuntimeOperatorConsoleResult;
+  policyGate: ManagementPolicyGateResult;
+  commandRouter: ManagementCommandRouterResult;
+  resourceGovernor: RuntimeResourceGovernorResult;
+  mutationPlanner: RuntimeMutationPlannerResult;
+  rollbackPlan: RuntimeRollbackResult;
+  governanceBridge: RuntimeGovernanceBridgeResult;
+};
+
+export type PraxisApplicationSessionReportOutput = {
+  kind: "praxis.application.sessionReport";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  report: RuntimeSessionReport;
+};
+
+export type PraxisApplicationMultiagentReportOutput = {
+  kind: "praxis.application.multiagentReport";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  report: RuntimeMultiagentReport;
+  index: RuntimeMultiagentIndex;
+  query: RuntimeMultiagentQueryResult;
+};
+
+export type PraxisApplicationMcpMountMatrixOutput = {
+  kind: "praxis.application.mcpMountMatrix";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  matrix: McpRuntimeMountMatrix;
+};
+
+export type PraxisApplicationSandboxMountMatrixOutput = {
+  kind: "praxis.application.sandboxMountMatrix";
+  publicSafe: true;
+  sessionId: string;
+  runtimeId: string;
+  matrix: SandboxRuntimeMountMatrix;
+};
+
 export type PraxisApplicationCommand =
   | {
       type: "application.start";
@@ -281,6 +476,74 @@ export type PraxisApplicationCommand =
       sessionId?: string;
       correlationId: string;
       reason?: string;
+    }
+  | {
+      type: "application.inspectOfficialAdapters";
+      sessionId?: string;
+      query?: RuntimeOfficialAdapterQuery;
+      expectedCallOrder?: readonly string[];
+    }
+  | {
+      type: "application.inspectOfficialAdapterMountMatrix";
+      sessionId?: string;
+    }
+  | {
+      type: "application.inspectModelCalls";
+      sessionId?: string;
+      query?: RuntimeModelCallQuery;
+    }
+  | {
+      type: "application.inspectGovernance";
+      sessionId?: string;
+      query?: RuntimeGovernanceQuery;
+    }
+  | {
+      type: "application.inspectToolCalls";
+      sessionId?: string;
+      query?: RuntimeToolCallQuery;
+    }
+  | {
+      type: "application.inspectTimeline";
+      sessionId?: string;
+      query?: RuntimeTimelineQuery;
+      replay?: PraxisApplicationTimelineReplayInput;
+    }
+  | {
+      type: "application.inspectRollbackPlan";
+      sessionId?: string;
+      checkpointTurnId?: string;
+      reason?: string;
+      contract?: RuntimeRollbackRequest["contract"];
+      governance?: RuntimeRollbackRequest["governance"];
+      trace?: RuntimeRollbackTrace;
+    }
+  | {
+      type: "application.inspectManagementPlane";
+      sessionId?: string;
+      requestedScopes?: readonly string[];
+      allowedScopes?: readonly string[];
+    }
+  | {
+      type: "application.inspectSessionReport";
+      sessionId?: string;
+    }
+  | {
+      type: "application.inspectMultiagent";
+      sessionId?: string;
+      query?: RuntimeMultiagentQuery;
+    }
+  | {
+      type: "application.inspectMcpMountMatrix";
+      sessionId?: string;
+      nativeToolInventoryByServerId?: InspectMcpRuntimeMountMatrixInput["nativeToolInventoryByServerId"];
+    }
+  | {
+      type: "application.inspectSandboxMountMatrix";
+      sessionId?: string;
+      toolId?: string;
+      command?: InspectSandboxRuntimeMountMatrixInput["command"];
+      effectKinds?: InspectSandboxRuntimeMountMatrixInput["effectKinds"];
+      sandboxHint?: InspectSandboxRuntimeMountMatrixInput["sandboxHint"];
     }
   | {
       type: "application.interrupt";
@@ -357,12 +620,14 @@ export type PraxisApplicationCommandResult =
       ok: true;
       view: PraxisApplicationViewModel;
       events: readonly PraxisApplicationEvent[];
+      runtimeSnapshot?: RuntimeSessionSnapshot;
       output?: unknown;
     }
   | {
       ok: false;
       view: PraxisApplicationViewModel;
       events: readonly PraxisApplicationEvent[];
+      runtimeSnapshot?: RuntimeSessionSnapshot;
       output?: unknown;
       error: {
         code: string;

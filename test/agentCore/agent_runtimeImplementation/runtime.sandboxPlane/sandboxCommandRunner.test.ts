@@ -871,6 +871,8 @@ test("workspace rollback runner restores workspace after failed command", async 
   if (!result.ok) return;
   assert.equal(result.exitCode, 2);
   assert.ok(result.rollback?.changedFiles.some((file) => file.path === "run.txt"));
+  assert.equal(result.rollback?.restored, true);
+  assert.equal((result.metadata.workspaceRollbackDiff as { restored?: boolean } | undefined)?.restored, true);
   assert.equal(await readFile(target, "utf8"), "before\n");
 });
 
